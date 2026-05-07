@@ -678,8 +678,12 @@ export default function BankStatementContent() {
       setJournalEntries(journalEntries.filter((e) => !targetIds.has(e.id)))
       setSelectedEntryIds(new Set())
       setInfo(`${entriesToSave.length}件を一時保存しました（合計${totalCount}件）。残り${journalEntries.length - entriesToSave.length}件が表示中です。`)
+      // 賃金台帳: 全件保存後は画面クリア
+      if (uploadConfig?.documentType === 'payroll' && journalEntries.length === entriesToSave.length) {
+        setPages([]); setUploadConfig(null); setError(null)
+      }
     } else {
-      // 全部保存: 従来通り全クリア
+      // 全部保存: 全クリア
       setPages([])
       setJournalEntries([])
       setUploadConfig(null)
@@ -711,6 +715,10 @@ export default function BankStatementContent() {
     downloadCsv(completed, undefined, selectedClient?.taxType)
     clearTempEntries()
     setTempCount(0)
+    // 賃金台帳等: CSV出力後は画面クリア
+    if (journalEntries.length > 0) {
+      setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null)
+    }
     setInfo('一時保存データをCSV出力しました。一時保存はクリアされました。')
   }, [accountMaster, selectedClient])
 
