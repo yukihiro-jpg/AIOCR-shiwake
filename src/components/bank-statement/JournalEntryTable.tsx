@@ -58,6 +58,9 @@ export default function JournalEntryTable({
   const [descFilterIds, setDescFilterIds] = useState<Set<string> | null>(null)
   // 科目別一覧表示
   const [showAccountSummary, setShowAccountSummary] = useState(false)
+  // 科目別フィルタの種別（一括変更用）
+  const [accountFilterType, setAccountFilterType] = useState<'debit' | 'credit' | null>(null)
+  const [accountFilterCode, setAccountFilterCode] = useState('')
 
   // 未処理トグル: クリック時点の空欄行IDを記録、再クリックで解除
   const toggleFilterEmptyDebit = useCallback(() => {
@@ -819,7 +822,7 @@ export default function JournalEntryTable({
               絞込 ({entries.filter((e) => e.description.includes(descSearchText.trim()) || e.originalDescription?.includes(descSearchText.trim())).length}件)
             </button>
             <button
-              onClick={() => { setDescSearchText(''); setDescFilterIds(null) }}
+              onClick={() => { setDescSearchText(''); setDescFilterIds(null); setAccountFilterType(null); setAccountFilterCode('') }}
               className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600">
               解除
             </button>
@@ -848,7 +851,7 @@ export default function JournalEntryTable({
                 <tbody>
                   {accountSummary.debit.map((a) => (
                     <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
-                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText('') }}>
+                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText(''); setAccountFilterType('debit'); setAccountFilterCode(a.code) }}>
                       <td className="px-2 py-0.5 font-mono">{a.code}</td>
                       <td className="px-2 py-0.5">{a.name}</td>
                       <td className="px-2 py-0.5 text-right">{a.count}</td>
@@ -865,7 +868,7 @@ export default function JournalEntryTable({
                 <tbody>
                   {accountSummary.credit.map((a) => (
                     <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
-                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText('') }}>
+                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText(''); setAccountFilterType('credit'); setAccountFilterCode(a.code) }}>
                       <td className="px-2 py-0.5 font-mono">{a.code}</td>
                       <td className="px-2 py-0.5">{a.name}</td>
                       <td className="px-2 py-0.5 text-right">{a.count}</td>
@@ -876,6 +879,38 @@ export default function JournalEntryTable({
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 科目別フィルタ中の一括変更バー */}
+      {descFilterIds && accountFilterType && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 flex items-center gap-2 shrink-0">
+          <span className="text-xs font-bold text-amber-800">
+            {accountFilterType === 'debit' ? '借方' : '貸方'}科目「{accountFilterCode}」の{descFilterIds.size}件を一括変更:
+          </span>
+          <input
+            type="text"
+            placeholder="新しい科目CD"
+            className="px-2 py-1 text-xs border border-amber-400 rounded w-20 font-mono"
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              const newCode = (e.target as HTMLInputElement).value.trim()
+              if (!newCode) return
+              const acc = accountMaster.find((a) => a.code === newCode)
+              const newName = acc ? (acc.shortName || acc.name) : ''
+              const ids = descFilterIds
+              onEntriesChange(entries.map((entry) => {
+                if (!ids.has(entry.id)) return entry
+                if (accountFilterType === 'debit') {
+                  return { ...entry, debitCode: newCode, debitName: newName }
+                } else {
+                  return { ...entry, creditCode: newCode, creditName: newName }
+                }
+              }))
+              ;(e.target as HTMLInputElement).value = ''
+            }}
+          />
+          <span className="text-xs text-amber-600">科目CDを入力してEnter</span>
         </div>
       )}
 
