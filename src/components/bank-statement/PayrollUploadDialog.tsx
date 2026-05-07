@@ -21,6 +21,27 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
 
+  const executiveTotal = parsed ? parsed.employees.filter((e) => e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
+  const employeeTotal = parsed ? parsed.employees.filter((e) => !e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
+
+  const itemTotals = useMemo(() => {
+    if (!parsed) return new Map<string, number>()
+    const m = new Map<string, number>()
+    const allHeaders = [...parsed.payHeaders, ...parsed.deductHeaders]
+    for (const h of allHeaders) {
+      let total = 0
+      for (const emp of parsed.employees) {
+        const item = emp.items.find((i) => i.name === h)
+        if (item) total += item.amount
+      }
+      m.set(h, total)
+    }
+    return m
+  }, [parsed])
+
+  const totalNetPay = parsed ? parsed.employees.reduce((s, e) => s + e.netPay, 0) : 0
+  const bankSubs = bankCode ? subAccountMaster.filter((s) => s.parentCode === bankCode) : []
+
   if (!open) return null
 
   const handleParse = async (text?: string) => {
@@ -58,28 +79,6 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const setSubAccount = (itemName: string, subCode: string, subName: string) => {
     setAccounts((prev) => ({ ...prev, [itemName]: { ...prev[itemName], subCode, subName } }))
   }
-
-  const executiveTotal = parsed ? parsed.employees.filter((e) => e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
-  const employeeTotal = parsed ? parsed.employees.filter((e) => !e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
-
-  const itemTotals = useMemo(() => {
-    if (!parsed) return new Map<string, number>()
-    const m = new Map<string, number>()
-    const allHeaders = [...parsed.payHeaders, ...parsed.deductHeaders]
-    for (const h of allHeaders) {
-      let total = 0
-      for (const emp of parsed.employees) {
-        const item = emp.items.find((i) => i.name === h)
-        if (item) total += item.amount
-      }
-      m.set(h, total)
-    }
-    return m
-  }, [parsed])
-
-  // 引落口座の金額 = 差引支給額合計
-  const totalNetPay = parsed ? parsed.employees.reduce((s, e) => s + e.netPay, 0) : 0
-  const bankSubs = bankCode ? subAccountMaster.filter((s) => s.parentCode === bankCode) : []
 
   const renderAccountInput = (name: string) => {
     const acc = accounts[name]
