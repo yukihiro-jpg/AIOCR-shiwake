@@ -68,32 +68,42 @@ function parsePayrollRows(rows: string[][]): PayrollData {
 
   const detailHeaders = rows[detailRowIdx].map((c) => c.trim())
 
-  // 3. オフセットを「基本給」の位置で計算（Excel貼り付け時のセル結合差異に対応）
-  let headerBaseIdx = -1
-  for (let i = 0; i < detailHeaders.length; i++) {
-    const h = detailHeaders[i].trim()
-    if (h === '基本給' || h === '賞与') { headerBaseIdx = i; break }
-  }
-
+  // 3. オフセットを計算
+  // データ行のcol数 - ヘッダ行のcol数（NO+氏名の分）、または支給合計額の位置で検証
   let firstDataIdx = -1
   let dataOffset = 0
-  // 全データ行からオフセットを推定（最初に大きな数値が見つかった行で計算）
+
+  // 支給合計額のヘッダ位置（検証用）
+  let payTotalHeaderIdx = -1
+  for (let i = 0; i < detailHeaders.length; i++) {
+    if (detailHeaders[i] === '支給合計額') { payTotalHeaderIdx = i; break }
+  }
+
   for (let i = detailRowIdx + 1; i < rows.length; i++) {
     const first = (rows[i][0] || '').trim()
     if (/^\d+$/.test(first)) {
       if (firstDataIdx < 0) firstDataIdx = i
-      for (let j = 2; j < rows[i].length; j++) {
-        const v = parseNum(rows[i][j])
-        if (v > 1000) {
-          dataOffset = j - headerBaseIdx
+      // 方法1: 列数差でオフセット推定
+      const colDiff = rows[i].length - detailHeaders.length
+      if (colDiff > 0 && colDiff <= 3) {
+        dataOffset = colDiff
+        // 検証: 支給合計額の位置に数値があるか
+        if (payTotalHeaderIdx >= 0) {
+          const val = parseNum(rows[i][dataOffset + payTotalHeaderIdx])
+          if (val > 0) break
+        } else {
           break
         }
       }
-      if (dataOffset > 0) break
+      // 方法2: 列数差が0の場合（ヘッダにNO/氏名の空列がある）
+      if (colDiff <= 0) {
+        dataOffset = 0
+        break
+      }
     }
   }
   if (firstDataIdx < 0) throw new Error('従業員データ行が見つかりません')
-  console.log(`[payroll] headerBaseIdx=${headerBaseIdx}, dataOffset=${dataOffset}, detailHeaders.length=${detailHeaders.length}`)
+  console.log(`[payroll] dataOffset=${dataOffset}, detailHeaders.length=${detailHeaders.length}, payTotalHeaderIdx=${payTotalHeaderIdx}`)
 
   // 4. 支給/控除の区切りを検出
   let payEndIdx = -1  // 支給合計額のヘッダインデックス
