@@ -15,7 +15,8 @@ export function payrollToEntries(
   accountTaxMaster?: AccountTaxItem[],
 ): JournalEntry[] {
   const date = data.paymentDate.replace(/-/g, '')
-  const desc = `${data.period} 給与`
+  const isBonus = data.period.includes('賞与')
+  const desc = `${data.period} ${isBonus ? '賞与' : '給与'}`
   const SHOKUCHI = '997'
   const SHOKUCHI_NAME = '諸口'
 

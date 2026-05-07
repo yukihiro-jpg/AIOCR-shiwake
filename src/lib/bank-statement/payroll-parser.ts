@@ -37,8 +37,16 @@ function parsePayrollRows(rows: string[][]): PayrollData {
   // 1. メタ情報（先頭10行）
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const line = rows[i].join(' ')
-    const pm = line.match(/令和(\d+)年(\d+)月/)
-    if (pm && !period) period = `${2018 + parseInt(pm[1])}-${pm[2].padStart(2, '0')}`
+    // 「令和7年4月」「令和7年2回目」両方対応
+    const pm = line.match(/令和(\d+)年(\d+)(月|回目)/)
+    if (pm && !period) {
+      const y = 2018 + parseInt(pm[1])
+      if (pm[3] === '回目') {
+        period = `${y}-賞与${pm[2]}回`
+      } else {
+        period = `${y}-${pm[2].padStart(2, '0')}`
+      }
+    }
     const cm = line.match(/計[：:](\d+)名/)
     if (cm) employeeCount = parseInt(cm[1])
     const dm = line.match(/支給日[：:]令和(\d+)年(\d+)月(\d+)日/)
@@ -48,33 +56,32 @@ function parsePayrollRows(rows: string[][]): PayrollData {
     }
   }
 
-  // 2. 詳細ヘッダ行（「基本給」を含む行）
+  // 2. 詳細ヘッダ行（「基本給」または「賞与」を含む行）
   let detailRowIdx = -1
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i].some((c) => c.trim() === '基本給')) {
+    if (rows[i].some((c) => c.trim() === '基本給' || c.trim() === '賞与')) {
       detailRowIdx = i
       break
     }
   }
-  if (detailRowIdx < 0) throw new Error('ヘッダ行（基本給）が見つかりません')
+  if (detailRowIdx < 0) throw new Error('ヘッダ行（基本給/賞与）が見つかりません')
 
   const detailHeaders = rows[detailRowIdx].map((c) => c.trim())
 
   // 3. オフセットを「基本給」の位置で計算（Excel貼り付け時のセル結合差異に対応）
-  let headerBaseIdx = detailHeaders.indexOf('基本給')
-  if (headerBaseIdx < 0) {
-    for (let i = 0; i < detailHeaders.length; i++) {
-      if (detailHeaders[i].trim() === '基本給') { headerBaseIdx = i; break }
-    }
+  let headerBaseIdx = -1
+  for (let i = 0; i < detailHeaders.length; i++) {
+    const h = detailHeaders[i].trim()
+    if (h === '基本給' || h === '賞与') { headerBaseIdx = i; break }
   }
 
   let firstDataIdx = -1
   let dataOffset = 0
+  // 全データ行からオフセットを推定（最初に大きな数値が見つかった行で計算）
   for (let i = detailRowIdx + 1; i < rows.length; i++) {
     const first = (rows[i][0] || '').trim()
     if (/^\d+$/.test(first)) {
-      firstDataIdx = i
-      // データ行で最初の大きな数値（基本給）の位置を探す
+      if (firstDataIdx < 0) firstDataIdx = i
       for (let j = 2; j < rows[i].length; j++) {
         const v = parseNum(rows[i][j])
         if (v > 1000) {
@@ -82,7 +89,7 @@ function parsePayrollRows(rows: string[][]): PayrollData {
           break
         }
       }
-      break
+      if (dataOffset > 0) break
     }
   }
   if (firstDataIdx < 0) throw new Error('従業員データ行が見つかりません')
