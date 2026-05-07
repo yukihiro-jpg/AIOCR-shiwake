@@ -169,7 +169,7 @@ export interface ParseResult {
 }
 
 // 書類種別
-export type DocumentType = 'bank-statement' | 'sales-invoice' | 'purchase-invoice' | 'cash-book' | 'receipt' | 'credit-card'
+export type DocumentType = 'bank-statement' | 'sales-invoice' | 'purchase-invoice' | 'cash-book' | 'receipt' | 'credit-card' | 'payroll'
 
 // アップロード設定
 export interface UploadConfig {
@@ -222,4 +222,25 @@ export interface CreditCardTransaction {
   storeName: string            // 利用店名
   amount: number               // 利用金額
   memo?: string                // 備考
+}
+
+// 賃金台帳
+export interface PayrollEmployee {
+  no: number
+  name: string
+  isExecutive: boolean
+  items: { name: string; amount: number }[]
+  totalPay: number
+  totalDeductions: number
+  netPay: number
+}
+
+export interface PayrollData {
+  period: string
+  paymentDate: string
+  companyName: string
+  employeeCount: number
+  employees: PayrollEmployee[]
+  payHeaders: string[]
+  deductHeaders: string[]
 }

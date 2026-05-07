@@ -19,6 +19,7 @@ const DOC_TYPES: { value: DocumentType; label: string }[] = [
   { value: 'sales-invoice', label: '売上請求書' },
   { value: 'purchase-invoice', label: '仕入請求書' },
   { value: 'receipt', label: 'レシート・領収書' },
+  { value: 'payroll', label: '賃金台帳' },
 ]
 
 export default function UploadDialog({ accountMaster, subAccountMaster, onUpload, isLoading, lastPeriodFrom, lastPeriodTo }: Props) {

@@ -6,6 +6,7 @@ import AccountMasterUploader from '@/components/bank-statement/AccountMasterUplo
 import PatternListDialog from '@/components/bank-statement/PatternListDialog'
 import FixedJournalDialog from '@/components/bank-statement/FixedJournalDialog'
 import InvoiceRegistryDialog from '@/components/bank-statement/InvoiceRegistryDialog'
+import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog'
 import StatementViewer from '@/components/bank-statement/StatementViewer'
 import JournalEntryTable from '@/components/bank-statement/JournalEntryTable'
 import ColumnMappingDialog from '@/components/bank-statement/ColumnMappingDialog'
@@ -72,6 +73,7 @@ export default function BankStatementContent() {
   const [showPatternList, setShowPatternList] = useState(false)
   const [showFixedJournal, setShowFixedJournal] = useState(false)
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
+  const [showPayroll, setShowPayroll] = useState(false)
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
   const [tempCount, setTempCount] = useState(() => getTempEntryCount())
@@ -248,6 +250,13 @@ export default function BankStatementContent() {
           setLoadingProgress(Math.round(progress))
           setParseElapsed(`${elapsed.toFixed(0)}秒`)
         }, 500)
+
+        if (config.documentType === 'payroll') {
+          clearInterval(progressTimer)
+          setIsLoading(false)
+          setShowPayroll(true)
+          return
+        }
 
         if (config.documentType === 'credit-card') {
           const fName = config.file.name.toLowerCase()
@@ -970,6 +979,19 @@ export default function BankStatementContent() {
       <InvoiceRegistryDialog
         open={showInvoiceRegistry}
         onClose={() => setShowInvoiceRegistry(false)}
+      />
+
+      <PayrollUploadDialog
+        open={showPayroll}
+        onClose={() => setShowPayroll(false)}
+        accountMaster={accountMaster}
+        subAccountMaster={subAccountMaster}
+        onGenerate={async (data, bankCode, bankName, deductAccounts) => {
+          const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
+          const entries = payrollToEntries(data, bankCode, bankName, deductAccounts)
+          setJournalEntries((prev) => [...prev, ...entries])
+          setInfo(`${data.period} 賃金台帳から${entries.length}件の仕訳を生成しました（${data.employees.length}名）`)
+        }}
       />
 
       <TempDataDialog
