@@ -901,7 +901,7 @@ export default function BankStatementContent() {
               onPageChange={setCurrentPageIndex}
               entries={journalEntries}
               bankAccountCode={uploadConfig?.accountCode || ''}
-              hideBalance={uploadConfig?.documentType === 'credit-card'}
+              hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onBalanceOverride={handleBalanceOverride}
               onFileDelete={() => { setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null); setInfo('アップロードファイルを削除しました') }}
             />
@@ -918,7 +918,7 @@ export default function BankStatementContent() {
               pages={pages}
               bankAccountCode={uploadConfig?.accountCode || ''}
               clientTaxType={selectedClient?.taxType || 'standard'}
-              hideBalance={uploadConfig?.documentType === 'credit-card'}
+              hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onSelectionChange={setSelectedEntryIds}
               onPageChange={setCurrentPageIndex}
             />
@@ -937,7 +937,7 @@ export default function BankStatementContent() {
           pages={pages}
           bankAccountCode={uploadConfig?.accountCode || ''}
           clientTaxType={selectedClient?.taxType || 'standard'}
-          hideBalance={uploadConfig?.documentType === 'credit-card'}
+          hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
           onSelectionChange={setSelectedEntryIds}
         />
       ) : (
@@ -986,9 +986,9 @@ export default function BankStatementContent() {
         onClose={() => setShowPayroll(false)}
         accountMaster={accountMaster}
         subAccountMaster={subAccountMaster}
-        onGenerate={async (data, bankCode, bankName, deductAccounts) => {
+        onGenerate={async (data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName) => {
           const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
-          const entries = payrollToEntries(data, bankCode, bankName, deductAccounts)
+          const entries = payrollToEntries(data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName)
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${data.period} 賃金台帳から${entries.length}件の仕訳を生成しました（${data.employees.length}名）`)
         }}

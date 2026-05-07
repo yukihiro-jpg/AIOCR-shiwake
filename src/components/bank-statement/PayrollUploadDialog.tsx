@@ -7,7 +7,7 @@ interface Props {
   onClose: () => void
   accountMaster: AccountItem[]
   subAccountMaster: SubAccountItem[]
-  onGenerate: (data: PayrollData, bankCode: string, bankName: string, deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>) => void
+  onGenerate: (data: PayrollData, bankCode: string, bankName: string, deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>, bankSubCode?: string, bankSubName?: string) => void
 }
 
 export default function PayrollUploadDialog({ open, onClose, accountMaster, subAccountMaster, onGenerate }: Props) {
@@ -107,7 +107,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const handleGenerate = () => {
     if (!parsed || !bankCode) return
     const allAccounts = { ...accounts }
-    onGenerate(parsed, bankCode, bankName, allAccounts)
+    onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined)
     onClose()
   }
 

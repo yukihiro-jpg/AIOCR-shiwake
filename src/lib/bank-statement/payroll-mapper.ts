@@ -5,90 +5,112 @@ export function payrollToEntries(
   data: PayrollData,
   bankAccountCode: string,
   bankAccountName: string,
-  deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>,
+  itemAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>,
+  bankSubCode?: string,
+  bankSubName?: string,
 ): JournalEntry[] {
   const date = data.paymentDate.replace(/-/g, '')
+  const desc = `${data.period} 給与`
+  const SHOKUCHI = '997'
+  const SHOKUCHI_NAME = '諸口'
 
-  // 役員と従業員の支給合計を計算
-  let executivePay = 0
-  let employeePay = 0
-  for (const emp of data.employees) {
-    if (emp.isExecutive) executivePay += emp.totalPay
-    else employeePay += emp.totalPay
-  }
+  // 科目設定済みの項目のみ仕訳化
+  const lines: { name: string; amount: number; isDebit: boolean; code: string; accName: string; subCode: string; subName: string }[] = []
 
-  // 控除項目を集計（全従業員合計）
-  const deductionTotals = new Map<string, number>()
-  for (const emp of data.employees) {
-    for (const item of emp.items) {
-      if (data.payHeaders.includes(item.name)) continue
-      if (item.amount <= 0) continue
-      deductionTotals.set(item.name, (deductionTotals.get(item.name) || 0) + item.amount)
+  // 役員報酬（借方）
+  const execAcc = itemAccounts['役員報酬']
+  if (execAcc?.code) {
+    const execTotal = data.employees.filter((e) => e.isExecutive)
+      .reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
+    if (execTotal > 0) {
+      lines.push({ name: '役員報酬', amount: execTotal, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
     }
   }
 
-  // 差引支給額合計
-  const totalNetPay = data.employees.reduce((s, e) => s + e.netPay, 0)
+  // 給与手当（借方）
+  const empAcc = itemAccounts['給与手当']
+  if (empAcc?.code) {
+    const empTotal = data.employees.filter((e) => !e.isExecutive)
+      .reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
+    if (empTotal > 0) {
+      lines.push({ name: '給与手当', amount: empTotal, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
+    }
+  }
 
-  // 仕訳エントリ作成
+  // 支給項目で科目設定済みのもの（借方）- 役員報酬/給与手当以外
+  for (const h of data.payHeaders) {
+    const acc = itemAccounts[h]
+    if (!acc?.code) continue
+    let total = 0
+    for (const emp of data.employees) {
+      total += emp.items.find((i) => i.name === h)?.amount || 0
+    }
+    if (total > 0) {
+      lines.push({ name: h, amount: total, isDebit: true, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+    }
+  }
+
+  // 控除項目で科目設定済みのもの（貸方）
+  for (const h of data.deductHeaders) {
+    const acc = itemAccounts[h]
+    if (!acc?.code) continue
+    let total = 0
+    for (const emp of data.employees) {
+      total += emp.items.find((i) => i.name === h)?.amount || 0
+    }
+    if (total > 0) {
+      lines.push({ name: h, amount: total, isDebit: false, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+    }
+  }
+
+  // 引落口座（貸方）= 差引支給額合計
+  if (bankAccountCode) {
+    const totalNetPay = data.employees.reduce((s, e) => s + e.netPay, 0)
+    if (totalNetPay > 0) {
+      lines.push({ name: '差引支給額', amount: totalNetPay, isDebit: false, code: bankAccountCode, accName: bankAccountName, subCode: bankSubCode || '', subName: bankSubName || '' })
+    }
+  }
+
+  if (lines.length === 0) return []
+
+  // 複合仕訳を生成（相手勘定は諸口997）
   const entries: JournalEntry[] = []
-
-  // 親行: 役員報酬（借方）/ 普通預金（貸方）
   const parent = createBlankEntry()
   parent.date = date
-  parent.description = `${data.period} 給与`
-  parent.originalDescription = `${data.period} 給与`
-
-  if (executivePay > 0) {
-    parent.debitCode = deductionAccounts['役員報酬']?.code || ''
-    parent.debitName = deductionAccounts['役員報酬']?.name || '役員報酬'
-    parent.debitAmount = executivePay
-    parent.creditCode = bankAccountCode
-    parent.creditName = bankAccountName
-    parent.creditAmount = executivePay
+  parent.description = desc
+  parent.originalDescription = desc
+  const first = lines[0]
+  if (first.isDebit) {
+    parent.debitCode = first.code; parent.debitName = first.accName
+    parent.debitSubCode = first.subCode; parent.debitSubName = first.subName
+    parent.creditCode = SHOKUCHI; parent.creditName = SHOKUCHI_NAME
   } else {
-    parent.debitCode = deductionAccounts['給与手当']?.code || ''
-    parent.debitName = deductionAccounts['給与手当']?.name || '給与手当'
-    parent.debitAmount = employeePay
-    parent.creditCode = bankAccountCode
-    parent.creditName = bankAccountName
-    parent.creditAmount = employeePay
+    parent.debitCode = SHOKUCHI; parent.debitName = SHOKUCHI_NAME
+    parent.creditCode = first.code; parent.creditName = first.accName
+    parent.creditSubCode = first.subCode; parent.creditSubName = first.subName
   }
+  parent.debitAmount = first.amount
+  parent.creditAmount = first.amount
   entries.push(parent)
 
-  // 複合行: 給与手当（役員報酬がある場合のみ追加）
-  if (executivePay > 0 && employeePay > 0) {
-    const empEntry = createCompoundEntry(parent)
-    empEntry.debitCode = deductionAccounts['給与手当']?.code || ''
-    empEntry.debitName = deductionAccounts['給与手当']?.name || '給与手当'
-    empEntry.debitAmount = employeePay
-    empEntry.creditCode = bankAccountCode
-    empEntry.creditName = bankAccountName
-    empEntry.creditAmount = employeePay
-    empEntry.description = parent.description
-    entries.push(empEntry)
-  }
-
-  // 複合行: 各控除項目（貸方に控除科目）
-  for (const [name, amount] of Array.from(deductionTotals.entries())) {
-    if (amount <= 0) continue
-    const acc = deductionAccounts[name]
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
     const row = createCompoundEntry(parent)
-    row.debitCode = bankAccountCode
-    row.debitName = bankAccountName
-    row.debitAmount = amount
-    row.creditCode = acc?.code || ''
-    row.creditName = acc?.name || name
-    row.creditSubCode = acc?.subCode || ''
-    row.creditSubName = acc?.subName || ''
-    row.creditAmount = amount
-    row.description = `${parent.description} ${name}`
+    row.description = `${desc} ${line.name}`
+    row.originalDescription = `${desc} ${line.name}`
+    if (line.isDebit) {
+      row.debitCode = line.code; row.debitName = line.accName
+      row.debitSubCode = line.subCode; row.debitSubName = line.subName
+      row.creditCode = SHOKUCHI; row.creditName = SHOKUCHI_NAME
+    } else {
+      row.debitCode = SHOKUCHI; row.debitName = SHOKUCHI_NAME
+      row.creditCode = line.code; row.creditName = line.accName
+      row.creditSubCode = line.subCode; row.creditSubName = line.subName
+    }
+    row.debitAmount = line.amount
+    row.creditAmount = line.amount
     entries.push(row)
   }
-
-  // 複合行: 差引支給額（貸方：普通預金 → 借方も普通預金になるのでスキップ。親行で計上済み）
-  // ※ 実際の仕訳構造は: 借方(役員報酬+給与) = 貸方(各控除+差引支給額)
-  // 差引支給額は既に親行のcreditで計上されている形にする
 
   return entries
 }
