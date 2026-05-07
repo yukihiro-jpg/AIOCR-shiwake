@@ -111,19 +111,23 @@ function parsePayrollRows(rows: string[][]): PayrollData {
     }
   }
 
-  // 支給項目ヘッダ（基本給 ～ 支給合計額の手前）
+  // 支給項目ヘッダ（基本給 ～ 課税分合計。支給合計額・非課税額・課税分合計も含む）
   const payHeaders: string[] = []
-  const payEnd = payEndIdx >= 0 ? payEndIdx : detailHeaders.length
-  for (let i = 0; i < payEnd; i++) {
-    payHeaders.push(detailHeaders[i] || `支給${i + 1}`)
+  const payEndFull = deductStartIdx >= 0 ? deductStartIdx : detailHeaders.length
+  for (let i = 0; i < payEndFull; i++) {
+    const h = detailHeaders[i]?.trim()
+    if (h) payHeaders.push(h)
+    else payHeaders.push(`支給${i + 1}`)
   }
 
-  // 控除項目ヘッダ（健康保険料 ～ 控除合計額の手前）
+  // 控除項目ヘッダ（健康保険料 ～ 控除合計額。全項目含む）
   const deductHeaders: string[] = []
   if (deductStartIdx >= 0) {
-    const dEnd = deductEndIdx >= 0 ? deductEndIdx : detailHeaders.length
+    const dEnd = deductEndIdx >= 0 ? deductEndIdx + 1 : detailHeaders.length
     for (let i = deductStartIdx; i < dEnd; i++) {
-      deductHeaders.push(detailHeaders[i] || `控除${i - deductStartIdx + 1}`)
+      const h = detailHeaders[i]?.trim()
+      if (h) deductHeaders.push(h)
+      else deductHeaders.push(`控除${i - deductStartIdx + 1}`)
     }
   }
 
