@@ -810,28 +810,34 @@ export default function JournalEntryTable({
           className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded bg-white max-w-[200px]"
         />
         {descSearchText && (
-          <>
-            <button
-              onClick={() => {
-                const keyword = descSearchText.trim()
-                if (!keyword) return
-                const ids = new Set(entries.filter((e) =>
-                  e.description.includes(keyword) || e.originalDescription?.includes(keyword)
-                ).map((e) => e.id))
-                setDescFilterIds(ids)
-              }}
-              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-              絞込 ({entries.filter((e) => e.description.includes(descSearchText.trim()) || e.originalDescription?.includes(descSearchText.trim())).length}件)
-            </button>
-            <button
-              onClick={() => { setDescSearchText(''); setDescFilterIds(null); setAccountFilterIds(null); setAccountFilterType(null); setAccountFilterCode('') }}
-              className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600">
-              解除
-            </button>
-          </>
+          <button
+            onClick={() => {
+              const keyword = descSearchText.trim()
+              if (!keyword) return
+              const ids = new Set(entries.filter((e) =>
+                e.description.includes(keyword) || e.originalDescription?.includes(keyword)
+              ).map((e) => e.id))
+              setDescFilterIds(ids)
+            }}
+            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+            絞込 ({entries.filter((e) => e.description.includes(descSearchText.trim()) || e.originalDescription?.includes(descSearchText.trim())).length}件)
+          </button>
         )}
-        {descFilterIds && (
-          <span className="text-xs text-blue-600 font-bold">{descFilterIds.size}件表示中</span>
+        {(descFilterIds || accountFilterIds) && (
+          <button
+            onClick={() => { setDescSearchText(''); setDescFilterIds(null); setAccountFilterIds(null); setAccountFilterType(null); setAccountFilterCode('') }}
+            className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600">
+            全件表示
+          </button>
+        )}
+        {(descFilterIds || accountFilterIds) && (
+          <span className="text-xs text-blue-600 font-bold">
+            {entries.filter((e) => {
+              if (accountFilterIds && !accountFilterIds.has(e.id)) return false
+              if (descFilterIds && !descFilterIds.has(e.id)) return false
+              return true
+            }).length}件表示中
+          </span>
         )}
         <div className="ml-auto">
           <button
