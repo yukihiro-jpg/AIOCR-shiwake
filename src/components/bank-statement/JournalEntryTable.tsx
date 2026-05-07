@@ -56,6 +56,8 @@ export default function JournalEntryTable({
   // 摘要検索フィルタ（スナップショット方式）
   const [descSearchText, setDescSearchText] = useState('')
   const [descFilterIds, setDescFilterIds] = useState<Set<string> | null>(null)
+  // 科目別一覧表示
+  const [showAccountSummary, setShowAccountSummary] = useState(false)
 
   // 未処理トグル: クリック時点の空欄行IDを記録、再クリックで解除
   const toggleFilterEmptyDebit = useCallback(() => {
@@ -624,6 +626,34 @@ export default function JournalEntryTable({
     return -1
   }
 
+  // 科目別集計
+  const accountSummary = useMemo(() => {
+    const debitMap = new Map<string, { code: string; name: string; count: number; total: number; ids: string[] }>()
+    const creditMap = new Map<string, { code: string; name: string; count: number; total: number; ids: string[] }>()
+    for (const e of entries) {
+      if (e.debitCode) {
+        const key = e.debitCode
+        const cur = debitMap.get(key) || { code: e.debitCode, name: e.debitName, count: 0, total: 0, ids: [] }
+        cur.count++
+        cur.total += e.debitAmount || 0
+        cur.ids.push(e.id)
+        debitMap.set(key, cur)
+      }
+      if (e.creditCode) {
+        const key = e.creditCode
+        const cur = creditMap.get(key) || { code: e.creditCode, name: e.creditName, count: 0, total: 0, ids: [] }
+        cur.count++
+        cur.total += e.creditAmount || 0
+        cur.ids.push(e.id)
+        creditMap.set(key, cur)
+      }
+    }
+    return {
+      debit: Array.from(debitMap.values()).sort((a, b) => a.code.localeCompare(b.code)),
+      credit: Array.from(creditMap.values()).sort((a, b) => a.code.localeCompare(b.code)),
+    }
+  }, [entries])
+
   const runningBalances = useMemo(() => {
     const balances: number[] = []
     const opening = pages.length > 0 ? pages[0].openingBalance : 0
@@ -798,7 +828,56 @@ export default function JournalEntryTable({
         {descFilterIds && (
           <span className="text-xs text-blue-600 font-bold">{descFilterIds.size}件表示中</span>
         )}
+        <div className="ml-auto">
+          <button
+            onClick={() => setShowAccountSummary((v) => !v)}
+            className={`px-2 py-1 text-xs rounded ${showAccountSummary ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
+            科目別一覧
+          </button>
+        </div>
       </div>
+
+      {/* 科目別一覧 */}
+      {showAccountSummary && (
+        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 shrink-0 max-h-[300px] overflow-auto">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs font-bold text-indigo-800 mb-1">借方科目別</div>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-indigo-100"><th className="px-2 py-1 text-left">CD</th><th className="px-2 py-1 text-left">科目名</th><th className="px-2 py-1 text-right">件数</th><th className="px-2 py-1 text-right">合計額</th></tr></thead>
+                <tbody>
+                  {accountSummary.debit.map((a) => (
+                    <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
+                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText('') }}>
+                      <td className="px-2 py-0.5 font-mono">{a.code}</td>
+                      <td className="px-2 py-0.5">{a.name}</td>
+                      <td className="px-2 py-0.5 text-right">{a.count}</td>
+                      <td className="px-2 py-0.5 text-right">{a.total.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-indigo-800 mb-1">貸方科目別</div>
+              <table className="w-full text-xs">
+                <thead><tr className="bg-indigo-100"><th className="px-2 py-1 text-left">CD</th><th className="px-2 py-1 text-left">科目名</th><th className="px-2 py-1 text-right">件数</th><th className="px-2 py-1 text-right">合計額</th></tr></thead>
+                <tbody>
+                  {accountSummary.credit.map((a) => (
+                    <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
+                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText('') }}>
+                      <td className="px-2 py-0.5 font-mono">{a.code}</td>
+                      <td className="px-2 py-0.5">{a.name}</td>
+                      <td className="px-2 py-0.5 text-right">{a.count}</td>
+                      <td className="px-2 py-0.5 text-right">{a.total.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 残高不一致の詳細 */}
       {!hideBalance && balanceMismatch.length > 0 && (
