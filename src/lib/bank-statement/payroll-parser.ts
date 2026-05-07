@@ -60,24 +60,33 @@ function parsePayrollRows(rows: string[][]): PayrollData {
 
   const detailHeaders = rows[detailRowIdx].map((c) => c.trim())
 
-  // 3. 最初のデータ行を見つけてオフセットを計算
-  // データ行はNO(数字)で始まる。ヘッダ行にはNO/氏名列がない場合がある
+  // 3. オフセットを「基本給」の位置で計算（Excel貼り付け時のセル結合差異に対応）
+  let headerBaseIdx = detailHeaders.indexOf('基本給')
+  if (headerBaseIdx < 0) {
+    for (let i = 0; i < detailHeaders.length; i++) {
+      if (detailHeaders[i].trim() === '基本給') { headerBaseIdx = i; break }
+    }
+  }
+
   let firstDataIdx = -1
   let dataOffset = 0
   for (let i = detailRowIdx + 1; i < rows.length; i++) {
     const first = (rows[i][0] || '').trim()
     if (/^\d+$/.test(first)) {
       firstDataIdx = i
-      // データ行の列数 - ヘッダ行の列数 = オフセット（NO, 氏名の分）
-      const dataColCount = rows[i].length
-      const headerColCount = detailHeaders.length
-      if (dataColCount > headerColCount) {
-        dataOffset = dataColCount - headerColCount
+      // データ行で最初の大きな数値（基本給）の位置を探す
+      for (let j = 2; j < rows[i].length; j++) {
+        const v = parseNum(rows[i][j])
+        if (v > 1000) {
+          dataOffset = j - headerBaseIdx
+          break
+        }
       }
       break
     }
   }
   if (firstDataIdx < 0) throw new Error('従業員データ行が見つかりません')
+  console.log(`[payroll] headerBaseIdx=${headerBaseIdx}, dataOffset=${dataOffset}, detailHeaders.length=${detailHeaders.length}`)
 
   // 4. 支給/控除の区切りを検出
   let payEndIdx = -1  // 支給合計額のヘッダインデックス
