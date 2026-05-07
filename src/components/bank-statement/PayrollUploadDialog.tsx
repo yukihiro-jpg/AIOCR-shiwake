@@ -47,6 +47,15 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
 
+  // ダイアログを開く度にテキストと解析結果をリセット
+  useEffect(() => {
+    if (open) {
+      setPasteText('')
+      setParsed(null)
+      setError('')
+    }
+  }, [open])
+
   // 学習データの読み込み
   useEffect(() => {
     const saved = loadPayrollSettings()
