@@ -21,8 +21,11 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
 
-  const executiveTotal = parsed ? parsed.employees.filter((e) => e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
-  const employeeTotal = parsed ? parsed.employees.filter((e) => !e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
+  // 役員報酬・給与手当は「課税分合計」で計算（支給合計額＝非課税額＋課税分合計）
+  const getTaxable = (emp: { items: { name: string; amount: number }[] }) =>
+    emp.items.find((i) => i.name === '課税分合計')?.amount || 0
+  const executiveTotal = parsed ? parsed.employees.filter((e) => e.isExecutive).reduce((s, e) => s + getTaxable(e), 0) : 0
+  const employeeTotal = parsed ? parsed.employees.filter((e) => !e.isExecutive).reduce((s, e) => s + getTaxable(e), 0) : 0
 
   const itemTotals = useMemo(() => {
     if (!parsed) return new Map<string, number>()

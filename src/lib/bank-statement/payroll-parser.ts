@@ -92,7 +92,6 @@ function parsePayrollRows(rows: string[][]): PayrollData {
   let payEndIdx = -1  // 支給合計額のヘッダインデックス
   let deductStartIdx = -1
   let deductEndIdx = -1
-  let netPayHeaderIdx = -1
 
   for (let i = 0; i < detailHeaders.length; i++) {
     const h = detailHeaders[i].replace(/[\s　]/g, '')
@@ -107,7 +106,6 @@ function parsePayrollRows(rows: string[][]): PayrollData {
   if (mainHeaderIdx >= 0) {
     const mainHeaders = rows[mainHeaderIdx]
     for (let i = 0; i < mainHeaders.length; i++) {
-      if (mainHeaders[i].replace(/[\s　]/g, '').includes('差引支給額')) netPayHeaderIdx = i
     }
   }
 
@@ -162,9 +160,8 @@ function parsePayrollRows(rows: string[][]): PayrollData {
 
     const totalPay = payEndIdx >= 0 ? parseNum(row[dataOffset + payEndIdx]) : 0
     const totalDeductions = deductEndIdx >= 0 ? parseNum(row[dataOffset + deductEndIdx]) : 0
-    // 差引支給額: 最終列またはnetPayHeaderIdx
-    const netPay = netPayHeaderIdx >= 0 ? parseNum(row[netPayHeaderIdx])
-      : parseNum(row[row.length - 1]) || (totalPay - totalDeductions)
+    // 差引支給額: データ行の最終列（メインヘッダのインデックスは列ずれするため使わない）
+    const netPay = parseNum(row[row.length - 1]) || (totalPay - totalDeductions)
 
     employees.push({
       no, name, isExecutive: false,
