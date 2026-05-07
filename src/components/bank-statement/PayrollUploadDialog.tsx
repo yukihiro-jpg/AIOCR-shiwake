@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { PayrollData, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
 
 interface Props {
@@ -17,6 +17,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [error, setError] = useState('')
   const [bankCode, setBankCode] = useState('')
   const [bankName, setBankName] = useState('')
+  const [bankSubCode, setBankSubCode] = useState('')
+  const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
 
   if (!open) return null
@@ -28,9 +30,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       const data = parsePayrollText(text || pasteText)
       if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
       setParsed(data)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '解析に失敗しました')
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,9 +42,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       const data = await parsePayrollFile(file)
       if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
       setParsed(data)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '解析に失敗しました')
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
   const toggleExecutive = (idx: number) => {
@@ -54,33 +52,21 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
 
   const setAccountCode = (itemName: string, code: string) => {
     const acc = accountMaster.find((a) => a.code === code)
-    setAccounts((prev) => ({
-      ...prev,
-      [itemName]: { ...prev[itemName], code, name: acc ? (acc.shortName || acc.name) : '' },
-    }))
+    setAccounts((prev) => ({ ...prev, [itemName]: { ...prev[itemName], code, name: acc ? (acc.shortName || acc.name) : '' } }))
   }
 
   const setSubAccount = (itemName: string, subCode: string, subName: string) => {
-    setAccounts((prev) => ({
-      ...prev,
-      [itemName]: { ...prev[itemName], subCode, subName },
-    }))
-  }
-
-  const handleGenerate = () => {
-    if (!parsed || !bankCode) return
-    onGenerate(parsed, bankCode, bankName, accounts)
-    onClose()
+    setAccounts((prev) => ({ ...prev, [itemName]: { ...prev[itemName], subCode, subName } }))
   }
 
   const executiveTotal = parsed ? parsed.employees.filter((e) => e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
   const employeeTotal = parsed ? parsed.employees.filter((e) => !e.isExecutive).reduce((s, e) => s + e.totalPay, 0) : 0
 
-  // 各項目の全従業員合計を計算
-  const itemTotals = (headers: string[]) => {
+  const itemTotals = useMemo(() => {
     if (!parsed) return new Map<string, number>()
     const m = new Map<string, number>()
-    for (const h of headers) {
+    const allHeaders = [...parsed.payHeaders, ...parsed.deductHeaders]
+    for (const h of allHeaders) {
       let total = 0
       for (const emp of parsed.employees) {
         const item = emp.items.find((i) => i.name === h)
@@ -89,29 +75,38 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       m.set(h, total)
     }
     return m
-  }
+  }, [parsed])
+
+  // 引落口座の金額 = 差引支給額合計
+  const totalNetPay = parsed ? parsed.employees.reduce((s, e) => s + e.netPay, 0) : 0
+  const bankSubs = bankCode ? subAccountMaster.filter((s) => s.parentCode === bankCode) : []
 
   const renderAccountInput = (name: string) => {
     const acc = accounts[name]
     const subs = acc?.code ? subAccountMaster.filter((s) => s.parentCode === acc.code) : []
     return (
-      <div className="flex flex-col gap-0.5">
-        <input
-          type="text" value={acc?.code || ''} onChange={(e) => setAccountCode(name, e.target.value)}
-          placeholder="CD" className="w-14 px-1 py-0.5 text-[10px] border rounded font-mono"
-        />
-        {acc?.name && <span className="text-[9px] text-gray-500 truncate w-14">{acc.name}</span>}
+      <div className="flex items-center gap-1 mt-1">
+        <input type="text" value={acc?.code || ''} onChange={(e) => setAccountCode(name, e.target.value)}
+          placeholder="科目CD" className="w-16 px-1.5 py-1 text-xs border rounded font-mono" />
+        <span className="text-xs text-gray-500 min-w-[40px]">{acc?.name || ''}</span>
         {subs.length > 0 && (
           <select value={acc?.subCode || ''} onChange={(e) => {
             const sub = subs.find((s) => s.subCode === e.target.value)
             setSubAccount(name, e.target.value, sub?.shortName || sub?.name || '')
-          }} className="w-14 px-0 py-0 text-[9px] border rounded">
-            <option value="">補助</option>
+          }} className="px-1 py-1 text-xs border rounded max-w-[100px]">
+            <option value="">補助科目</option>
             {subs.map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
           </select>
         )}
       </div>
     )
+  }
+
+  const handleGenerate = () => {
+    if (!parsed || !bankCode) return
+    const allAccounts = { ...accounts }
+    onGenerate(parsed, bankCode, bankName, allAccounts)
+    onClose()
   }
 
   return (
@@ -142,7 +137,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
           </div>
         ) : (
-          <div className="px-6 py-4 space-y-4">
+          <div className="px-6 py-4 space-y-5">
             {/* メタ情報 */}
             <div className="flex gap-6 text-sm">
               <span><b>期間:</b> {parsed.period}</span>
@@ -180,54 +175,48 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
 
             {/* 賃金台帳項目の勘定科目設定 */}
             <div>
-              <div className="text-sm font-bold mb-2">賃金台帳項目の勘定科目設定</div>
+              <div className="text-sm font-bold mb-3">賃金台帳項目の勘定科目設定</div>
 
-              {/* 借方（役員報酬・給与手当） */}
-              <div className="mb-3 p-2 bg-blue-50 rounded border border-blue-200">
-                <div className="text-xs font-bold text-blue-800 mb-1">借方（支給科目）</div>
-                <div className="flex gap-3">
-                  <div className="text-center">
-                    <div className="text-[10px] font-bold mb-0.5">役員報酬</div>
-                    <div className="text-[9px] text-gray-500 mb-0.5">¥{executiveTotal.toLocaleString()}</div>
+              {/* 支給項目 */}
+              <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="text-sm font-bold text-green-800 mb-2">支給項目</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-3">
+                  {parsed.payHeaders.map((h) => {
+                    const total = itemTotals.get(h) || 0
+                    if (total === 0 && !['支給合計額', '非課税額', '課税分合計'].includes(h)) return null
+                    return (
+                      <div key={h}>
+                        <div className="text-xs font-bold">{h}</div>
+                        <div className="text-xs text-gray-500">¥{total.toLocaleString()}</div>
+                        {renderAccountInput(h)}
+                      </div>
+                    )
+                  })}
+                  {/* 課税分合計の内訳: 役員報酬・給与手当 */}
+                  <div className="border-l-2 border-green-400 pl-3">
+                    <div className="text-xs font-bold text-amber-700">役員報酬</div>
+                    <div className="text-xs text-gray-500">¥{executiveTotal.toLocaleString()}</div>
                     {renderAccountInput('役員報酬')}
                   </div>
-                  <div className="text-center">
-                    <div className="text-[10px] font-bold mb-0.5">給与手当</div>
-                    <div className="text-[9px] text-gray-500 mb-0.5">¥{employeeTotal.toLocaleString()}</div>
+                  <div>
+                    <div className="text-xs font-bold text-blue-700">給与手当</div>
+                    <div className="text-xs text-gray-500">¥{employeeTotal.toLocaleString()}</div>
                     {renderAccountInput('給与手当')}
                   </div>
                 </div>
               </div>
 
-              {/* 支給項目 */}
-              <div className="mb-3 p-2 bg-green-50 rounded border border-green-200">
-                <div className="text-xs font-bold text-green-800 mb-1">支給項目</div>
-                <div className="flex flex-wrap gap-2">
-                  {parsed.payHeaders.map((h) => {
-                    const total = itemTotals(parsed.payHeaders).get(h) || 0
-                    if (total === 0 && !['支給合計額', '非課税額', '課税分合計'].includes(h)) return null
-                    return (
-                      <div key={h} className="text-center min-w-[60px]">
-                        <div className="text-[10px] font-bold mb-0.5 truncate max-w-[80px]" title={h}>{h}</div>
-                        <div className="text-[9px] text-gray-500 mb-0.5">{total > 0 ? `¥${total.toLocaleString()}` : '-'}</div>
-                        {renderAccountInput(h)}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-
               {/* 控除項目 */}
-              <div className="mb-3 p-2 bg-red-50 rounded border border-red-200">
-                <div className="text-xs font-bold text-red-800 mb-1">控除項目</div>
-                <div className="flex flex-wrap gap-2">
+              <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-200">
+                <div className="text-sm font-bold text-red-800 mb-2">控除項目</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-3">
                   {parsed.deductHeaders.map((h) => {
-                    const total = itemTotals(parsed.deductHeaders).get(h) || 0
-                    if (total === 0) return null
+                    const total = itemTotals.get(h) || 0
+                    if (total === 0 && h !== '控除合計額') return null
                     return (
-                      <div key={h} className="text-center min-w-[60px]">
-                        <div className="text-[10px] font-bold mb-0.5 truncate max-w-[80px]" title={h}>{h}</div>
-                        <div className="text-[9px] text-gray-500 mb-0.5">¥{total.toLocaleString()}</div>
+                      <div key={h}>
+                        <div className="text-xs font-bold">{h}</div>
+                        <div className="text-xs text-gray-500">¥{total.toLocaleString()}</div>
                         {renderAccountInput(h)}
                       </div>
                     )
@@ -237,12 +226,33 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
             </div>
 
             {/* 引落口座 */}
-            <div className="flex items-center gap-3 p-2 bg-gray-50 rounded border">
-              <span className="text-sm font-bold">引落口座（差引支給額の貸方）:</span>
-              <input type="text" value={bankCode}
-                onChange={(e) => { setBankCode(e.target.value); const a = accountMaster.find((x) => x.code === e.target.value); setBankName(a?.shortName || a?.name || '') }}
-                placeholder="科目CD" className="w-16 px-2 py-1 border rounded font-mono text-sm" />
-              <span className="text-sm text-gray-600">{bankName}</span>
+            <div className="p-3 bg-gray-50 rounded-lg border">
+              <div className="text-sm font-bold mb-2">引落口座（差引支給額の貸方）</div>
+              <div className="flex items-center gap-3">
+                <input type="text" value={bankCode}
+                  onChange={(e) => {
+                    setBankCode(e.target.value)
+                    const a = accountMaster.find((x) => x.code === e.target.value)
+                    setBankName(a?.shortName || a?.name || '')
+                    setBankSubCode(''); setBankSubName('')
+                  }}
+                  placeholder="科目CD" className="w-20 px-2 py-1.5 border rounded font-mono text-sm" />
+                <span className="text-sm">{bankName}</span>
+                {bankSubs.length > 0 && (
+                  <select value={bankSubCode} onChange={(e) => {
+                    setBankSubCode(e.target.value)
+                    const sub = bankSubs.find((s) => s.subCode === e.target.value)
+                    setBankSubName(sub?.shortName || sub?.name || '')
+                  }} className="px-2 py-1.5 text-sm border rounded">
+                    <option value="">補助科目を選択</option>
+                    {bankSubs.map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
+                  </select>
+                )}
+                {bankSubName && <span className="text-sm text-gray-500">{bankSubName}</span>}
+                <div className="ml-auto text-sm font-bold text-blue-700">
+                  差引支給額合計: ¥{totalNetPay.toLocaleString()}
+                </div>
+              </div>
             </div>
 
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
