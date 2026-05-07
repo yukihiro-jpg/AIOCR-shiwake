@@ -58,7 +58,8 @@ export default function JournalEntryTable({
   const [descFilterIds, setDescFilterIds] = useState<Set<string> | null>(null)
   // 科目別一覧表示
   const [showAccountSummary, setShowAccountSummary] = useState(false)
-  // 科目別フィルタの種別（一括変更用）
+  // 科目別フィルタ（摘要検索とは独立、AND条件で適用）
+  const [accountFilterIds, setAccountFilterIds] = useState<Set<string> | null>(null)
   const [accountFilterType, setAccountFilterType] = useState<'debit' | 'credit' | null>(null)
   const [accountFilterCode, setAccountFilterCode] = useState('')
 
@@ -333,6 +334,7 @@ export default function JournalEntryTable({
       if (filterEmptyCredit && filteredCreditIds && !filteredCreditIds.has(entry.id)) continue
       // 摘要検索フィルタ（スナップショット）
       if (descFilterIds && !descFilterIds.has(entry.id)) continue
+      if (accountFilterIds && !accountFilterIds.has(entry.id)) continue
       // 未入力のみ表示フィルタ
       if (showOnlyIncomplete) {
         const debitAcc = accountMasterRef.current.find((a) => a.code === entry.debitCode)
@@ -822,7 +824,7 @@ export default function JournalEntryTable({
               絞込 ({entries.filter((e) => e.description.includes(descSearchText.trim()) || e.originalDescription?.includes(descSearchText.trim())).length}件)
             </button>
             <button
-              onClick={() => { setDescSearchText(''); setDescFilterIds(null); setAccountFilterType(null); setAccountFilterCode('') }}
+              onClick={() => { setDescSearchText(''); setDescFilterIds(null); setAccountFilterIds(null); setAccountFilterType(null); setAccountFilterCode('') }}
               className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600">
               解除
             </button>
@@ -851,7 +853,7 @@ export default function JournalEntryTable({
                 <tbody>
                   {accountSummary.debit.map((a) => (
                     <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
-                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText(''); setAccountFilterType('debit'); setAccountFilterCode(a.code) }}>
+                      onClick={() => { setAccountFilterIds(new Set(a.ids)); setAccountFilterType('debit'); setAccountFilterCode(a.code) }}>
                       <td className="px-2 py-0.5 font-mono">{a.code}</td>
                       <td className="px-2 py-0.5">{a.name}</td>
                       <td className="px-2 py-0.5 text-right">{a.count}</td>
@@ -868,7 +870,7 @@ export default function JournalEntryTable({
                 <tbody>
                   {accountSummary.credit.map((a) => (
                     <tr key={a.code} className="hover:bg-indigo-100 cursor-pointer border-b border-indigo-100"
-                      onClick={() => { setDescFilterIds(new Set(a.ids)); setDescSearchText(''); setAccountFilterType('credit'); setAccountFilterCode(a.code) }}>
+                      onClick={() => { setAccountFilterIds(new Set(a.ids)); setAccountFilterType('credit'); setAccountFilterCode(a.code) }}>
                       <td className="px-2 py-0.5 font-mono">{a.code}</td>
                       <td className="px-2 py-0.5">{a.name}</td>
                       <td className="px-2 py-0.5 text-right">{a.count}</td>
@@ -883,36 +885,61 @@ export default function JournalEntryTable({
       )}
 
       {/* 科目別フィルタ中の一括変更バー */}
-      {descFilterIds && accountFilterType && (
-        <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 flex items-center gap-2 shrink-0">
-          <span className="text-xs font-bold text-amber-800">
-            {accountFilterType === 'debit' ? '借方' : '貸方'}科目「{accountFilterCode}」の{descFilterIds.size}件を一括変更:
-          </span>
-          <input
-            type="text"
-            placeholder="新しい科目CD"
-            className="px-2 py-1 text-xs border border-amber-400 rounded w-20 font-mono"
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return
-              const newCode = (e.target as HTMLInputElement).value.trim()
-              if (!newCode) return
-              const acc = accountMaster.find((a) => a.code === newCode)
-              const newName = acc ? (acc.shortName || acc.name) : ''
-              const ids = descFilterIds
-              onEntriesChange(entries.map((entry) => {
-                if (!ids.has(entry.id)) return entry
-                if (accountFilterType === 'debit') {
-                  return { ...entry, debitCode: newCode, debitName: newName }
-                } else {
-                  return { ...entry, creditCode: newCode, creditName: newName }
+      {accountFilterType && (accountFilterIds || descFilterIds) && (() => {
+        const visibleIds = entries.filter((e) => {
+          if (accountFilterIds && !accountFilterIds.has(e.id)) return false
+          if (descFilterIds && !descFilterIds.has(e.id)) return false
+          return true
+        }).map((e) => e.id)
+        return (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 flex items-center gap-2 shrink-0">
+            <span className="text-xs font-bold text-amber-800">
+              {accountFilterType === 'debit' ? '借方' : '貸方'}科目「{accountFilterCode}」{descFilterIds ? '(絞込中)' : ''} {visibleIds.length}件を一括変更:
+            </span>
+            <input
+              type="text"
+              placeholder="新しい科目CD"
+              className="px-2 py-1 text-xs border border-amber-400 rounded w-20 font-mono"
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                const newCode = (e.target as HTMLInputElement).value.trim()
+                if (!newCode) return
+                const acc = accountMaster.find((a) => a.code === newCode)
+                const newName = acc ? (acc.shortName || acc.name) : ''
+                const idSet = new Set(visibleIds)
+                // 消費税コード自動設定
+                let taxCode = ''
+                let taxName = ''
+                let taxRate = ''
+                if (acc && isPL(acc.bsPl)) {
+                  const taxType = acc.normalBalance === '借方' ? 'purchase' : 'sales'
+                  const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, taxType)
+                  if (tax) { taxCode = tax.taxCode; taxName = tax.taxName; taxRate = '4' }
                 }
-              }))
-              ;(e.target as HTMLInputElement).value = ''
-            }}
-          />
-          <span className="text-xs text-amber-600">科目CDを入力してEnter</span>
-        </div>
-      )}
+                onEntriesChange(entries.map((entry) => {
+                  if (!idSet.has(entry.id)) return entry
+                  const updated = { ...entry }
+                  if (accountFilterType === 'debit') {
+                    updated.debitCode = newCode
+                    updated.debitName = newName
+                  } else {
+                    updated.creditCode = newCode
+                    updated.creditName = newName
+                  }
+                  if (taxCode && !entry.debitTaxCode) {
+                    updated.debitTaxCode = taxCode
+                    updated.debitTaxType = taxName
+                    updated.debitTaxRate = taxRate
+                  }
+                  return updated
+                }))
+                ;(e.target as HTMLInputElement).value = ''
+              }}
+            />
+            <span className="text-xs text-amber-600">科目CDを入力してEnter（消費税も自動設定）</span>
+          </div>
+        )
+      })()}
 
       {/* 残高不一致の詳細 */}
       {!hideBalance && balanceMismatch.length > 0 && (
@@ -1024,6 +1051,7 @@ export default function JournalEntryTable({
               if (filterEmptyCredit && filteredCreditIds && !filteredCreditIds.has(entry.id)) return null
               // 摘要検索フィルタ（スナップショット: 摘要変更後も消えない）
               if (descFilterIds && !descFilterIds.has(entry.id)) return null
+              if (accountFilterIds && !accountFilterIds.has(entry.id)) return null
               // 未入力のみ表示フィルタ:
               // 借方CD空 or 貸方CD空 or 消費税CD空(ただしBS同士で—表示の場合は未入力扱いしない)
               if (showOnlyIncomplete) {
