@@ -988,7 +988,7 @@ export default function BankStatementContent() {
         subAccountMaster={subAccountMaster}
         onGenerate={async (data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName) => {
           const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
-          const entries = payrollToEntries(data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName)
+          const entries = payrollToEntries(data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName, accountTaxMaster)
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${data.period} 賃金台帳から${entries.length}件の仕訳を生成しました（${data.employees.length}名）`)
         }}

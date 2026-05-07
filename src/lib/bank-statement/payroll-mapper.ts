@@ -1,18 +1,31 @@
-import type { JournalEntry, PayrollData } from './types'
+import type { JournalEntry, PayrollData, AccountTaxItem } from './types'
 import { createBlankEntry, createCompoundEntry } from './journal-mapper'
+
+interface ItemAccount {
+  code: string; name: string; subCode?: string; subName?: string
+}
 
 export function payrollToEntries(
   data: PayrollData,
   bankAccountCode: string,
   bankAccountName: string,
-  itemAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>,
+  itemAccounts: Record<string, ItemAccount>,
   bankSubCode?: string,
   bankSubName?: string,
+  accountTaxMaster?: AccountTaxItem[],
 ): JournalEntry[] {
   const date = data.paymentDate.replace(/-/g, '')
   const desc = `${data.period} 給与`
   const SHOKUCHI = '997'
   const SHOKUCHI_NAME = '諸口'
+
+  function getTaxInfo(code: string): { taxCode: string; taxName: string } {
+    if (!accountTaxMaster || !code) return { taxCode: '', taxName: '' }
+    const tax = accountTaxMaster.find((t) => t.accountCode === code)
+    if (!tax || tax.categoryCode === '0') return { taxCode: '', taxName: '' }
+    if (tax.categoryCode === '1') return { taxCode: tax.salesTaxCode, taxName: tax.salesTaxName }
+    return { taxCode: tax.purchaseTaxCode, taxName: tax.purchaseTaxName }
+  }
 
   // 科目設定済みの項目のみ仕訳化
   const lines: { name: string; amount: number; isDebit: boolean; code: string; accName: string; subCode: string; subName: string }[] = []
@@ -80,14 +93,17 @@ export function payrollToEntries(
   parent.description = desc
   parent.originalDescription = desc
   const first = lines[0]
+  const firstTax = getTaxInfo(first.code)
   if (first.isDebit) {
     parent.debitCode = first.code; parent.debitName = first.accName
     parent.debitSubCode = first.subCode; parent.debitSubName = first.subName
     parent.creditCode = SHOKUCHI; parent.creditName = SHOKUCHI_NAME
+    if (firstTax.taxCode) { parent.debitTaxCode = firstTax.taxCode; parent.debitTaxType = firstTax.taxName }
   } else {
     parent.debitCode = SHOKUCHI; parent.debitName = SHOKUCHI_NAME
     parent.creditCode = first.code; parent.creditName = first.accName
     parent.creditSubCode = first.subCode; parent.creditSubName = first.subName
+    if (firstTax.taxCode) { parent.debitTaxCode = firstTax.taxCode; parent.debitTaxType = firstTax.taxName }
   }
   parent.debitAmount = first.amount
   parent.creditAmount = first.amount
@@ -95,6 +111,7 @@ export function payrollToEntries(
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]
+    const lineTax = getTaxInfo(line.code)
     const row = createCompoundEntry(parent)
     row.description = `${desc} ${line.name}`
     row.originalDescription = `${desc} ${line.name}`
@@ -107,6 +124,7 @@ export function payrollToEntries(
       row.creditCode = line.code; row.creditName = line.accName
       row.creditSubCode = line.subCode; row.creditSubName = line.subName
     }
+    if (lineTax.taxCode) { row.debitTaxCode = lineTax.taxCode; row.debitTaxType = lineTax.taxName }
     row.debitAmount = line.amount
     row.creditAmount = line.amount
     entries.push(row)

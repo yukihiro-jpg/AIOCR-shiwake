@@ -1,6 +1,32 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { PayrollData, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
+
+// 賃金台帳の学習データ（localStorage）
+interface PayrollSettings {
+  executiveNames: string[]
+  itemAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>
+  bankCode: string
+  bankName: string
+  bankSubCode: string
+  bankSubName: string
+}
+
+function getPayrollSettingsKey(): string {
+  const cid = typeof window !== 'undefined' ? localStorage.getItem('bank-statement-selected-client') || '' : ''
+  return `bs-payroll-settings-${cid}`
+}
+
+function loadPayrollSettings(): PayrollSettings | null {
+  try {
+    const raw = localStorage.getItem(getPayrollSettingsKey())
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function savePayrollSettings(settings: PayrollSettings): void {
+  try { localStorage.setItem(getPayrollSettingsKey(), JSON.stringify(settings)) } catch {}
+}
 
 interface Props {
   open: boolean
@@ -20,6 +46,31 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [bankSubCode, setBankSubCode] = useState('')
   const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
+
+  // 学習データの読み込み
+  useEffect(() => {
+    const saved = loadPayrollSettings()
+    if (saved) {
+      setAccounts(saved.itemAccounts || {})
+      setBankCode(saved.bankCode || '')
+      setBankName(saved.bankName || '')
+      setBankSubCode(saved.bankSubCode || '')
+      setBankSubName(saved.bankSubName || '')
+    }
+  }, [])
+
+  // 解析後に役員フラグを学習データから復元
+  useEffect(() => {
+    if (!parsed) return
+    const saved = loadPayrollSettings()
+    if (saved?.executiveNames?.length) {
+      const names = new Set(saved.executiveNames)
+      const updated = parsed.employees.map((e) => ({ ...e, isExecutive: names.has(e.name) }))
+      if (updated.some((e, i) => e.isExecutive !== parsed.employees[i].isExecutive)) {
+        setParsed({ ...parsed, employees: updated })
+      }
+    }
+  }, [parsed?.employeeCount])
 
   // 役員報酬・給与手当は「課税分合計」で計算（支給合計額＝非課税額＋課税分合計）
   const getTaxable = (emp: { items: { name: string; amount: number }[] }) =>
@@ -107,6 +158,12 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const handleGenerate = () => {
     if (!parsed || !bankCode) return
     const allAccounts = { ...accounts }
+    // 学習データを保存
+    savePayrollSettings({
+      executiveNames: parsed.employees.filter((e) => e.isExecutive).map((e) => e.name),
+      itemAccounts: allAccounts,
+      bankCode, bankName, bankSubCode, bankSubName,
+    })
     onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined)
     onClose()
   }
