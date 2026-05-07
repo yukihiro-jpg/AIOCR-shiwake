@@ -12,14 +12,14 @@ interface Props {
   lastPeriodTo?: string
 }
 
-const DOC_TYPES: { value: DocumentType; label: string }[] = [
-  { value: 'bank-statement', label: '通帳' },
-  { value: 'cash-book', label: '現金出納帳' },
-  { value: 'credit-card', label: 'クレジットカード明細' },
-  { value: 'sales-invoice', label: '売上請求書' },
-  { value: 'purchase-invoice', label: '仕入請求書' },
-  { value: 'receipt', label: 'レシート・領収書' },
-  { value: 'payroll', label: '賃金台帳' },
+const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: string }[] = [
+  { value: 'bank-statement', label: '通帳', desc: 'PDF / Excel', icon: '🏦' },
+  { value: 'cash-book', label: '現金出納帳', desc: 'PDF / Excel', icon: '📒' },
+  { value: 'credit-card', label: 'クレジットカード', desc: 'CSV / Excel', icon: '💳' },
+  { value: 'sales-invoice', label: '売上請求書', desc: 'PDF / Excel', icon: '📄' },
+  { value: 'purchase-invoice', label: '仕入請求書', desc: 'PDF / Excel', icon: '📑' },
+  { value: 'receipt', label: 'レシート・領収書', desc: 'PDF', icon: '🧾' },
+  { value: 'payroll', label: '賃金台帳', desc: '貼り付け / Excel', icon: '👥' },
 ]
 
 export default function UploadDialog({ accountMaster, subAccountMaster, onUpload, isLoading, lastPeriodFrom, lastPeriodTo }: Props) {
@@ -53,6 +53,18 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
   const allFiles = selectedFiles.length > 0 ? selectedFiles : selectedFile ? [selectedFile] : []
 
   const handleSubmit = () => {
+    if (isPayroll) {
+      // 賃金台帳: ファイル不要、ダイアログを開くためにダミーconfig送信
+      onUpload({
+        documentType: 'payroll',
+        accountCode: creditCode || '', accountName: creditName || '',
+        creditCode: creditCode || '', creditName: creditName || '',
+        creditSubCode: creditSubCode || undefined, creditSubName: creditSubName || undefined,
+        file: new File([], 'payroll'),
+      })
+      setIsOpen(false)
+      return
+    }
     if (allFiles.length === 0) return
     const period = { periodFrom: periodFrom || undefined, periodTo: periodTo || undefined }
     // 複数ファイルを順番にアップロード（呼び出し元で追記処理）
@@ -96,11 +108,15 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
   const isInvoice = docType === 'sales-invoice' || docType === 'purchase-invoice'
   const isReceipt = docType === 'receipt'
   const isCreditCard = docType === 'credit-card'
-  const canSubmit = allFiles.length > 0 && !isLoading && (
-    isBankLike ? (accountCode && accountName)
-      : isCreditCard ? (creditCode && creditName)
-        : isReceipt ? (creditCode && creditName)
-          : (debitCode && creditCode)
+  const isPayroll = docType === 'payroll'
+  const canSubmit = !isLoading && (
+    isPayroll ? true  // 賃金台帳はファイル不要（貼り付けダイアログが開く）
+      : allFiles.length > 0 && (
+        isBankLike ? !!(accountCode && accountName)
+          : isCreditCard ? !!(creditCode && creditName)
+            : isReceipt ? !!(creditCode && creditName)
+              : !!(debitCode && creditCode)
+      )
   )
 
   const acceptFiles = isCreditCard ? '.pdf,.csv,.xlsx,.xls' : isReceipt ? '.pdf,.xlsx,.xls' : isInvoice ? '.pdf,.xlsx,.xls,.csv' : '.pdf,.xlsx,.xls,.csv'
@@ -181,24 +197,34 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
             <div className="p-5 space-y-4">
               {/* 書類種別 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">書類の種類</label>
-                <div className="flex gap-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">書類の種類</label>
+                <div className="grid grid-cols-4 gap-1.5">
                   {DOC_TYPES.map((dt) => (
                     <button key={dt.value}
                       onClick={() => setDocType(dt.value)}
-                      className={`flex-1 py-2 text-sm rounded-lg font-medium transition-colors ${
+                      className={`py-2 px-1 text-center rounded-lg transition-colors ${
                         docType === dt.value
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          ? 'bg-blue-600 text-white ring-2 ring-blue-300'
+                          : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200'
                       }`}>
-                      {dt.label}
+                      <div className="text-lg leading-none">{dt.icon}</div>
+                      <div className="text-xs font-bold mt-0.5">{dt.label}</div>
+                      <div className={`text-[10px] mt-0.5 ${docType === dt.value ? 'text-blue-200' : 'text-gray-400'}`}>{dt.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* ファイル選択（クリック or ドラッグ&ドロップ） */}
-              <div>
+              {/* 賃金台帳は貼り付けダイアログを直接開く */}
+              {isPayroll && (
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 text-center">
+                  <div className="text-sm text-blue-800 mb-2">Excelの給与明細一覧表をコピーして貼り付け、またはファイルをアップロードできます</div>
+                  <div className="text-xs text-blue-600">「解析開始」を押すと賃金台帳ダイアログが開きます</div>
+                </div>
+              )}
+
+              {/* ファイル選択（クリック or ドラッグ&ドロップ）- 賃金台帳以外 */}
+              {!isPayroll && <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   ファイル ({isCreditCard ? 'PDF' : isInvoice ? 'PDF/Excel/CSV' : 'PDF/Excel/CSV'})
                 </label>
@@ -255,7 +281,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
                     else if (files.length > 1) { setSelectedFiles(files); setSelectedFile(null) }
                   }}
                   className="hidden" />
-              </div>
+              </div>}
 
               {/* 処理対象期間 */}
               <div>
@@ -303,6 +329,18 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
                     ['現金', '預金', '普通'],
                     creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
                   )}
+                </>
+              ) : isPayroll ? (
+                <>
+                  {renderAccountSelector(
+                    '支払手段の科目（未払費用・普通預金等）',
+                    creditCode, setCreditCode, creditName, setCreditName,
+                    ['未払', '預金', '当座', '普通'],
+                    creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    差引支給額の貸方科目として使用します。借方科目（給与手当・役員報酬等）は解析後に設定します。
+                  </p>
                 </>
               ) : (
                 <>
