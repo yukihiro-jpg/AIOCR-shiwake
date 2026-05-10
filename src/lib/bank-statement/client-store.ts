@@ -4,7 +4,8 @@ export interface Client {
   id: string
   name: string
   createdAt: string
-  taxType?: TaxType  // exempt=免税, standard=原則課税, simplified=簡易課税
+  taxType?: TaxType
+  fiscalYearEndMonth?: number  // 決算月（1-12、例: 3月決算=3）
 }
 
 const CLIENTS_KEY = 'bank-statement-clients'

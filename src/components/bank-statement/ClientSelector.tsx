@@ -13,6 +13,7 @@ export default function ClientSelector({ onSelect }: Props) {
   const [search, setSearch] = useState('')
   const [newName, setNewName] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [newFiscalMonth, setNewFiscalMonth] = useState(3)
 
   useEffect(() => {
     setClients(getClients())
@@ -27,8 +28,10 @@ export default function ClientSelector({ onSelect }: Props) {
   const handleAdd = () => {
     if (!newName.trim()) return
     const client = addClient(newName.trim())
+    updateClient(client.id, { fiscalYearEndMonth: newFiscalMonth })
     setClients(getClients())
     setNewName('')
+    setNewFiscalMonth(3)
     setShowAdd(false)
   }
 
@@ -81,7 +84,7 @@ export default function ClientSelector({ onSelect }: Props) {
           {showAdd && (
             <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="text-sm font-medium text-gray-700 mb-2">新しい顧問先を登録</div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <input
                   type="text"
                   value={newName}
@@ -91,8 +94,12 @@ export default function ClientSelector({ onSelect }: Props) {
                   autoFocus
                   className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
+                <select value={newFiscalMonth} onChange={(e) => setNewFiscalMonth(parseInt(e.target.value))}
+                  className="px-2 py-2 text-sm border border-gray-300 rounded">
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => <option key={m} value={m}>{m}月決算</option>)}
+                </select>
                 <button onClick={handleAdd}
-                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">
                   登録
                 </button>
                 <button onClick={() => { setShowAdd(false); setNewName('') }}
