@@ -11,6 +11,7 @@ export interface ProcessingStatus {
   bankName?: string      // 銀行名
   accountType?: string   // 口座種類（普通/当座等）
   accountNumber?: string // 口座番号
+  receiveMethod?: string // 受取方法（紙コピー/PDF/CSV）
   monthlyProgress?: Record<string, string>  // "YYYY-MM" → 最終処理日 "DD"
 }
 

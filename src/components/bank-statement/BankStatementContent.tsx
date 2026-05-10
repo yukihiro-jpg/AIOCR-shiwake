@@ -956,7 +956,7 @@ export default function BankStatementContent() {
               ヘッダーの「アップロード」ボタンからファイルを選択できます
             </p>
           </div>
-          <ProcessingStatusTable clientId={selectedClient?.id || null} refreshKey={processingStatusVersion} />
+          <ProcessingStatusTable clientId={selectedClient?.id || null} refreshKey={processingStatusVersion} accountMaster={accountMaster} />
         </div>
       )}
 
