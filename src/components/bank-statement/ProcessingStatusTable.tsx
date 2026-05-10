@@ -294,10 +294,22 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
           } else {
             nextPeriod = `${months[0]}月分〜`
           }
-          const label = [s.bankName, s.accountType ? `（${s.accountType}）` : ''].filter(Boolean).join('')
-          const docLabel = s.docType || '資料'
-          const name = label ? `${label} ${docLabel}` : `${s.accountName} ${docLabel}`
-          return { name, nextPeriod, method: s.receiveMethod || '', docType: s.docType || '' }
+          // 資料名を種別に応じて生成
+          let name = ''
+          const dt = s.docType || ''
+          if (dt === 'ｸﾚｼﾞｯﾄ') {
+            name = [s.bankName, 'クレジット利用明細書'].filter(Boolean).join(' ')
+          } else if (dt === '通帳' || dt === '当座照合表') {
+            const parts = [s.bankName, s.accountType, s.accountNumber].filter(Boolean)
+            name = parts.length > 0 ? `${parts.join(' ')} ${dt === '当座照合表' ? '照合表' : '通帳'}` : `${s.accountName} ${dt}`
+          } else if (dt === '賃金台帳') {
+            name = '賃金台帳（給与明細一覧表）'
+          } else if (dt === '現金出納帳') {
+            name = '現金出納帳'
+          } else {
+            name = s.accountName || dt || '資料'
+          }
+          return { name, nextPeriod, method: s.receiveMethod || '', docType: dt }
         }).filter((i) => i.nextPeriod)
 
         // 受取方法でグループ化
