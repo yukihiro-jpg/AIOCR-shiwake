@@ -21,6 +21,8 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   const [showFiscalDialog, setShowFiscalDialog] = useState(false)
   const [fiscalMonth, setFiscalMonth] = useState(3)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showMailPreview, setShowMailPreview] = useState(false)
+  const [mailCopied, setMailCopied] = useState(false)
 
   useEffect(() => {
     setStatuses(getProcessingStatuses())
@@ -41,13 +43,13 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   const saveFiscalMonth = useCallback(() => {
     if (!clientId) return
     updateClient(clientId, { fiscalYearEndMonth: fiscalMonth })
-    setClient((prev) => prev ? { ...prev, fiscalYearEndMonth: fiscalMonth } : prev)
+    setClient((prev: Client | null) => prev ? { ...prev, fiscalYearEndMonth: fiscalMonth } : prev)
     setShowFiscalDialog(false)
   }, [clientId, fiscalMonth])
 
   const handleDetailChange = useCallback((code: string, field: string, value: string) => {
-    setStatuses((prev) => {
-      const updated = prev.map((s) => s.accountCode === code ? { ...s, [field]: value } : s)
+    setStatuses((prev: ProcessingStatus[]) => {
+      const updated = prev.map((s: ProcessingStatus) => s.accountCode === code ? { ...s, [field]: value } : s)
       saveProcessingStatuses(updated)
       return updated
     })
@@ -266,7 +268,101 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
           </tbody>
         </table>
       </div>
-      <div className="mt-1 text-xs text-gray-400">行をクリックして編集</div>
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-xs text-gray-400">行をクリックして編集</span>
+        {sorted.length > 0 && (
+          <button onClick={() => { setShowMailPreview(true); setMailCopied(false) }}
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">
+            📧 資料依頼メール作成
+          </button>
+        )}
+      </div>
+
+      {/* メールプレビュー */}
+      {showMailPreview && (() => {
+        // 各科目の次に必要な期間を計算
+        const items = sorted.map((s) => {
+          const progress = s.monthlyProgress || {}
+          const allYm = Object.keys(progress).sort()
+          const lastYm = allYm.length > 0 ? allYm[allYm.length - 1] : null
+          let nextPeriod = ''
+          if (lastYm) {
+            const [y, m] = lastYm.split('-').map(Number)
+            const nextM = m === 12 ? 1 : m + 1
+            const nextY = m === 12 ? y + 1 : y
+            nextPeriod = `${nextY}年${nextM}月分〜`
+          } else {
+            nextPeriod = `${months[0]}月分〜`
+          }
+          const label = [s.bankName, s.accountType ? `（${s.accountType}）` : ''].filter(Boolean).join('')
+          const docLabel = s.docType || '資料'
+          const name = label ? `${label} ${docLabel}` : `${s.accountName} ${docLabel}`
+          return { name, nextPeriod, method: s.receiveMethod || '', docType: s.docType || '' }
+        }).filter((i) => i.nextPeriod)
+
+        // 受取方法でグループ化
+        const groups: Record<string, typeof items> = {}
+        for (const item of items) {
+          const key = item.method || 'その他'
+          if (!groups[key]) groups[key] = []
+          groups[key].push(item)
+        }
+        const groupOrder = ['紙コピー', 'PDF', 'CSV', 'その他']
+        const groupLabels: Record<string, string> = {
+          '紙コピー': 'コピーをお願いしたい資料',
+          'PDF': 'PDFでお送りいただきたい資料',
+          'CSV': 'データ（CSV）でお送りいただきたい資料',
+          'その他': 'ご準備いただきたい資料',
+        }
+
+        const clientName = client?.name || '顧問先'
+
+        const htmlContent = `
+<p>${clientName} 御中</p>
+<p>お世話になっております。<br>下記の資料について、ご準備をお願いいたします。</p>
+${groupOrder.filter((g) => groups[g]?.length).map((g) => `
+<p><strong>■ ${groupLabels[g]}</strong></p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;border-color:#ccc;">
+<tr style="background:#f0f0f0;"><th style="text-align:left;">資料名</th><th style="text-align:left;">必要な期間</th></tr>
+${groups[g].map((i) => `<tr><td>${i.name}</td><td>${i.nextPeriod}最新分</td></tr>`).join('')}
+</table>`).join('')}
+<p>お手数をおかけしますが、ご対応のほどよろしくお願いいたします。</p>`
+
+        const textContent = `${clientName} 御中\n\nお世話になっております。\n下記の資料について、ご準備をお願いいたします。\n\n${groupOrder.filter((g) => groups[g]?.length).map((g) => `■ ${groupLabels[g]}\n${groups[g].map((i) => `  ・${i.name}：${i.nextPeriod}最新分`).join('\n')}`).join('\n\n')}\n\nお手数をおかけしますが、ご対応のほどよろしくお願いいたします。`
+
+        const copyHtml = async () => {
+          try {
+            const blob = new Blob([htmlContent], { type: 'text/html' })
+            const textBlob = new Blob([textContent], { type: 'text/plain' })
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob }),
+            ])
+            setMailCopied(true)
+            setTimeout(() => setMailCopied(false), 3000)
+          } catch {
+            await navigator.clipboard.writeText(textContent)
+            setMailCopied(true)
+            setTimeout(() => setMailCopied(false), 3000)
+          }
+        }
+
+        return (
+          <div className="mt-3 border rounded-lg overflow-hidden">
+            <div className="px-4 py-2 bg-green-50 border-b flex items-center justify-between">
+              <span className="text-sm font-bold text-green-800">資料依頼メール プレビュー</span>
+              <div className="flex gap-2">
+                <button onClick={copyHtml}
+                  className={`px-3 py-1 text-xs rounded ${mailCopied ? 'bg-green-700 text-white' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+                  {mailCopied ? '✓ コピーしました' : 'メール本文をコピー'}
+                </button>
+                <button onClick={() => setShowMailPreview(false)}
+                  className="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300">閉じる</button>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-white text-sm" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+          </div>
+        )
+      })()}
     </div>
   )
 }
