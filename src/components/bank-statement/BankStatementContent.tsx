@@ -1007,6 +1007,8 @@ export default function BankStatementContent() {
         open={showFixedJournal}
         onClose={() => setShowFixedJournal(false)}
         accountMaster={accountMaster}
+        subAccountMaster={subAccountMaster}
+        accountTaxMaster={accountTaxMaster}
         onTempCountChange={setTempCount}
       />
 

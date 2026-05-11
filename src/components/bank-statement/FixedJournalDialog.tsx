@@ -1,23 +1,26 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import type { AccountItem, JournalEntry } from '@/lib/bank-statement/types'
+import type { AccountItem, SubAccountItem, AccountTaxItem, JournalEntry } from '@/lib/bank-statement/types'
 import { getFixedJournals, addFixedJournal, deleteFixedJournal, type FixedJournalEntry, type FixedJournalLine } from '@/lib/bank-statement/fixed-journal-store'
 import { createBlankEntry, createCompoundEntry } from '@/lib/bank-statement/journal-mapper'
 import { appendTempEntries } from '@/lib/bank-statement/temp-store'
+import { isPL } from '@/lib/bank-statement/tax-codes'
 
 interface Props {
   open: boolean
   onClose: () => void
   accountMaster: AccountItem[]
+  subAccountMaster?: SubAccountItem[]
+  accountTaxMaster?: AccountTaxItem[]
   onTempCountChange: (count: number) => void
 }
 
 function emptyLine(): FixedJournalLine {
-  return { debitCode: '', debitName: '', creditCode: '', creditName: '', taxType: '', amount: 0 }
+  return { debitCode: '', debitName: '', debitSubCode: '', debitSubName: '', creditCode: '', creditName: '', creditSubCode: '', creditSubName: '', taxCode: '', taxType: '', amount: 0 }
 }
 
-export default function FixedJournalDialog({ open, onClose, accountMaster, onTempCountChange }: Props) {
+export default function FixedJournalDialog({ open, onClose, accountMaster, subAccountMaster, accountTaxMaster, onTempCountChange }: Props) {
   const [items, setItems] = useState<FixedJournalEntry[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [formLines, setFormLines] = useState<FixedJournalLine[]>([emptyLine()])
@@ -40,15 +43,43 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, onTem
     return acc?.shortName || acc?.name || ''
   }
 
+  const autoTaxCode = (code: string): { taxCode: string; taxType: string } => {
+    if (!accountTaxMaster || !code) return { taxCode: '', taxType: '' }
+    const tax = accountTaxMaster.find((t) => t.accountCode === code)
+    if (!tax || tax.categoryCode === '0') return { taxCode: '', taxType: '' }
+    if (tax.categoryCode === '1') return { taxCode: tax.salesTaxCode, taxType: tax.salesTaxName }
+    return { taxCode: tax.purchaseTaxCode, taxType: tax.purchaseTaxName }
+  }
+
   const updateLine = (idx: number, field: keyof FixedJournalLine, value: string | number) => {
     setFormLines((prev) => prev.map((l, i) => {
       if (i !== idx) return l
       const updated = { ...l, [field]: value }
-      if (field === 'debitCode') updated.debitName = resolveCode(value as string)
-      if (field === 'creditCode') updated.creditName = resolveCode(value as string)
+      if (field === 'debitCode') {
+        updated.debitName = resolveCode(value as string)
+        updated.debitSubCode = ''; updated.debitSubName = ''
+        // PL科目なら消費税コード自動設定
+        const acc = accountMaster.find((a) => a.code === value)
+        if (acc && isPL(acc.bsPl) && !updated.taxCode) {
+          const tax = autoTaxCode(value as string)
+          if (tax.taxCode) { updated.taxCode = tax.taxCode; updated.taxType = tax.taxType }
+        }
+      }
+      if (field === 'creditCode') {
+        updated.creditName = resolveCode(value as string)
+        updated.creditSubCode = ''; updated.creditSubName = ''
+        const acc = accountMaster.find((a) => a.code === value)
+        if (acc && isPL(acc.bsPl) && !updated.taxCode) {
+          const tax = autoTaxCode(value as string)
+          if (tax.taxCode) { updated.taxCode = tax.taxCode; updated.taxType = tax.taxType }
+        }
+      }
       return updated
     }))
   }
+
+  const getSubAccounts = (code: string) =>
+    code && subAccountMaster ? subAccountMaster.filter((s) => s.parentCode === code) : []
 
   const addLine = (afterIdx: number) => {
     const next = [...formLines]
@@ -111,25 +142,28 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, onTem
     const entries: JournalEntry[] = []
     for (const item of items) {
       if (!selectedIds.has(item.id)) continue
+      const applyLine = (entry: JournalEntry, l: FixedJournalLine) => {
+        entry.debitCode = l.debitCode; entry.debitName = l.debitName
+        entry.debitSubCode = l.debitSubCode || ''; entry.debitSubName = l.debitSubName || ''
+        entry.creditCode = l.creditCode; entry.creditName = l.creditName
+        entry.creditSubCode = l.creditSubCode || ''; entry.creditSubName = l.creditSubName || ''
+        entry.debitAmount = l.amount; entry.creditAmount = l.amount
+        entry.debitTaxCode = l.taxCode || ''; entry.debitTaxType = l.taxType || ''
+      }
       if (item.lines.length === 1) {
-        const l = item.lines[0]
         const e = createBlankEntry()
-        e.date = date; e.debitCode = l.debitCode; e.debitName = l.debitName
-        e.creditCode = l.creditCode; e.creditName = l.creditName
-        e.debitAmount = l.amount; e.creditAmount = l.amount
-        e.debitTaxType = l.taxType; e.description = item.description; e.originalDescription = item.description
+        e.date = date; applyLine(e, item.lines[0])
+        e.description = item.description; e.originalDescription = item.description
         entries.push(e)
       } else {
-        const first = item.lines[0]
         const parent = createBlankEntry()
-        parent.date = date; parent.debitCode = first.debitCode; parent.debitName = first.debitName
-        parent.creditCode = first.creditCode; parent.creditName = first.creditName
-        parent.debitAmount = first.amount; parent.creditAmount = first.amount
-        parent.debitTaxType = first.taxType; parent.description = item.description; parent.originalDescription = item.description
+        parent.date = date; applyLine(parent, item.lines[0])
+        parent.description = item.description; parent.originalDescription = item.description
         entries.push(parent)
         for (let i = 1; i < item.lines.length; i++) {
           const l = item.lines[i]
           const child = createCompoundEntry(parent)
+          applyLine(child, l)
           child.debitCode = l.debitCode; child.debitName = l.debitName
           child.creditCode = l.creditCode; child.creditName = l.creditName
           child.debitAmount = l.amount; child.creditAmount = l.amount
@@ -189,15 +223,34 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, onTem
                 <button onClick={() => removeLine(idx)} disabled={formLines.length <= 1}
                   className="w-6 h-6 text-xs text-red-500 hover:bg-red-50 rounded font-bold border border-red-200 disabled:opacity-30">-</button>
                 <input type="text" value={line.debitCode} onChange={(e) => updateLine(idx, 'debitCode', e.target.value)}
-                  placeholder="借方CD" className="w-16 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
-                <span className="text-xs text-gray-500 w-16 truncate">{line.debitName}</span>
+                  placeholder="借方CD" className="w-14 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
+                <span className="text-xs text-gray-500 w-14 truncate">{line.debitName}</span>
+                {getSubAccounts(line.debitCode).length > 0 && (
+                  <select value={line.debitSubCode || ''} onChange={(e) => {
+                    const sub = getSubAccounts(line.debitCode).find((s) => s.subCode === e.target.value)
+                    setFormLines((prev) => prev.map((l, j) => j === idx ? { ...l, debitSubCode: e.target.value, debitSubName: sub?.shortName || sub?.name || '' } : l))
+                  }} className="w-20 px-0.5 py-1 text-xs border border-gray-300 rounded">
+                    <option value="">補助</option>
+                    {getSubAccounts(line.debitCode).map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
+                  </select>
+                )}
                 <input type="text" value={line.creditCode} onChange={(e) => updateLine(idx, 'creditCode', e.target.value)}
-                  placeholder="貸方CD" className="w-16 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
-                <span className="text-xs text-gray-500 w-16 truncate">{line.creditName}</span>
+                  placeholder="貸方CD" className="w-14 px-1 py-1 text-sm border border-gray-300 rounded text-center" />
+                <span className="text-xs text-gray-500 w-14 truncate">{line.creditName}</span>
+                {getSubAccounts(line.creditCode).length > 0 && (
+                  <select value={line.creditSubCode || ''} onChange={(e) => {
+                    const sub = getSubAccounts(line.creditCode).find((s) => s.subCode === e.target.value)
+                    setFormLines((prev) => prev.map((l, j) => j === idx ? { ...l, creditSubCode: e.target.value, creditSubName: sub?.shortName || sub?.name || '' } : l))
+                  }} className="w-20 px-0.5 py-1 text-xs border border-gray-300 rounded">
+                    <option value="">補助</option>
+                    {getSubAccounts(line.creditCode).map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
+                  </select>
+                )}
                 <input type="text" value={line.amount || ''} onChange={(e) => updateLine(idx, 'amount', parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0)}
                   placeholder="金額" className="w-20 px-1 py-1 text-sm border border-gray-300 rounded text-right" />
-                <input type="text" value={line.taxType} onChange={(e) => updateLine(idx, 'taxType', e.target.value)}
-                  placeholder="税区" className="w-20 px-1 py-1 text-sm border border-gray-300 rounded" />
+                <input type="text" value={line.taxCode || ''} onChange={(e) => setFormLines((prev) => prev.map((l, j) => j === idx ? { ...l, taxCode: e.target.value } : l))}
+                  placeholder="税CD" className="w-12 px-1 py-1 text-xs border border-gray-300 rounded text-center" />
+                <span className="text-xs text-gray-500 w-16 truncate">{line.taxType}</span>
               </div>
             ))}
             <div className="flex items-center gap-2 pt-1">

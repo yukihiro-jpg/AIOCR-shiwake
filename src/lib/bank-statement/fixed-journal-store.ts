@@ -3,8 +3,13 @@ import { getSelectedClientId } from './client-store'
 export interface FixedJournalLine {
   debitCode: string
   debitName: string
+  debitSubCode?: string
+  debitSubName?: string
   creditCode: string
   creditName: string
+  creditSubCode?: string
+  creditSubName?: string
+  taxCode?: string
   taxType: string
   amount: number
 }
