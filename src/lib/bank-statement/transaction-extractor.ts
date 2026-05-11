@@ -1184,16 +1184,94 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
   }
 
   if (!mapping) {
-    // テキスト抽出はできたが列検出に失敗 → 列マッピングダイアログでユーザーに指定してもらう
-    // 最初のページの画像を生成（左パネル表示用）
-    const firstImage = await renderPdfPageToImage(file, 1, 2)
-    return {
-      pages: [],
-      rawPages: allRawPages,
-      pdfFile: file,
-      sourceType: 'pdf-text' as const,
-      needsColumnMapping: true,
-      pageImageUrls: [firstImage],
+    // テキスト抽出はできたが列検出に失敗 → Gemini OCRにフォールバック
+    console.log('Text PDF column detection failed, trying PDF-direct Gemini')
+
+    // 1段目: PDF を直接 Gemini に並列送信（チャンク分割）
+    try {
+      const data = await processPdfInParallel(file, 5, 4)
+      if (data.totalCount > 0) {
+        const pageCount = await getPdfPageCount(file)
+        const imgUrls: string[] = []
+        for (let i = 0; i < pageCount; i++) imgUrls.push(await renderPdfPageToImage(file, i + 1, 2))
+        const statementPages: StatementPage[] = []
+        for (let i = 0; i < pageCount; i++) {
+          const pageData = data.pages.find((p) => p.pageIndex === i)
+          const txs: BankTransaction[] = (pageData?.transactions || []).map((t, ri) => ({
+            id: generateId(), pageIndex: i, rowIndex: ri,
+            date: t.date, description: t.description || '',
+            deposit: t.deposit ?? null, withdrawal: t.withdrawal ?? null, balance: t.balance ?? 0,
+          }))
+          statementPages.push({
+            pageIndex: i, transactions: txs,
+            openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
+            imageDataUrl: imgUrls[i],
+          })
+        }
+        console.log(`PDF-direct OCR succeeded: ${data.totalCount} transactions`)
+        return { pages: updatePageBalances(statementPages), sourceType: 'pdf-ocr', needsColumnMapping: false }
+      }
+      console.log('PDF-direct OCR returned 0 transactions, falling back to image OCR')
+    } catch (e) {
+      console.log('PDF-direct OCR error, falling back to image OCR:', e)
+    }
+
+    // 2段目: 画像ベースのOCR（従来ロジック）
+    console.log('Falling back to image-based Gemini OCR')
+    const imageDataUrls: string[] = []
+    const pageCount = await getPdfPageCount(file)
+    for (let i = 0; i < pageCount; i++) {
+      imageDataUrls.push(await renderPdfPageToImage(file, i + 1, 3))
+    }
+
+    try {
+      const response = await fetch('/api/bank-statement/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '' }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Gemini OCR APIエラー')
+      }
+
+      const data = await response.json()
+      const apiCorrections: string[] = data.corrections || []
+      const geminiPages = data.pages as {
+        pageIndex: number
+        transactions: { date: string; description: string; deposit: number | null; withdrawal: number | null; balance: number }[]
+      }[]
+
+      const totalTx = geminiPages.reduce((s, gp) => s + (gp.transactions?.length || 0), 0)
+      if (totalTx === 0) throw new Error('Gemini OCRでも取引データを検出できませんでした')
+
+      const statementPages: StatementPage[] = geminiPages.map((gp, i) => ({
+        pageIndex: i,
+        transactions: (gp.transactions || []).map((t, ri) => ({
+          id: generateId(), pageIndex: i, rowIndex: ri,
+          date: t.date, description: t.description || '',
+          deposit: t.deposit ?? null, withdrawal: t.withdrawal ?? null,
+          balance: t.balance ?? 0,
+        })),
+        openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
+        imageDataUrl: imageDataUrls[i],
+      }))
+
+      return {
+        pages: updatePageBalances(statementPages),
+        sourceType: 'pdf-text' as const,
+        needsColumnMapping: false,
+        corrections: apiCorrections.length > 0 ? apiCorrections : undefined,
+      }
+    } catch {
+      // Gemini OCRも失敗 → 列マッピングダイアログを表示
+      return {
+        pages: [],
+        rawPages: allRawPages,
+        sourceType: 'pdf-text' as const,
+        needsColumnMapping: true,
+      }
     }
   }
 
