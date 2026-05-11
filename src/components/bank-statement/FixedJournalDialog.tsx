@@ -352,13 +352,19 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
                   </td>
                   <td className="px-2 py-2">
                     {item.lines.map((l, i) => (
-                      <div key={i} className="text-xs"><span className="text-blue-700 font-bold">{l.debitCode}</span> {l.debitName}</div>
+                      <div key={i} className="text-xs">
+                        <span className="text-blue-700 font-bold">{l.debitCode}</span> {l.debitName}
+                        {l.debitSubName && <span className="text-gray-400 ml-0.5">[{l.debitSubName}]</span>}
+                      </div>
                     ))}
                     {item.lines.length > 1 && <span className="text-xs text-violet-600">複合{item.lines.length}行</span>}
                   </td>
                   <td className="px-2 py-2">
                     {item.lines.map((l, i) => (
-                      <div key={i} className="text-xs"><span className="text-blue-700 font-bold">{l.creditCode}</span> {l.creditName}</div>
+                      <div key={i} className="text-xs">
+                        <span className="text-blue-700 font-bold">{l.creditCode}</span> {l.creditName}
+                        {l.creditSubName && <span className="text-gray-400 ml-0.5">[{l.creditSubName}]</span>}
+                      </div>
                     ))}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums">
@@ -368,7 +374,7 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
                   </td>
                   <td className="px-2 py-2">
                     {item.lines.map((l, i) => (
-                      <div key={i} className="text-xs">{l.taxType}</div>
+                      <div key={i} className="text-xs">{l.taxCode || '—'}{l.taxType ? ` ${l.taxType}` : ''}</div>
                     ))}
                   </td>
                   <td className="px-2 py-2 text-xs text-gray-600">{item.description}</td>
