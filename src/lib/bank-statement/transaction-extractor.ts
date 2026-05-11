@@ -806,16 +806,17 @@ function extractTransactions(
       }
       if (balance === null) continue
 
-      // 出金/入金列の非数値テキストを摘要に追加（振込先カタカナ等）
+      // 非数値テキストを摘要に追加（振込先カタカナ・摘要列等）
+      const dateX2 = headerXPos[mapping.dateColumn] ?? 0
       let extraDesc = ''
       for (let j = 0; j < row.cells.length; j++) {
         const cx = row.cellPositions[j] ?? 0
-        if (cx <= descX || cx >= balanceX) continue
+        if (cx <= dateX2) continue
         const cell = (row.cells[j] || '').trim()
         if (!cell) continue
         const textPart = cell.replace(/^[-\d,.\s]+/, '').trim()
         if (textPart && !/^[-\d,]+$/.test(textPart)) {
-          extraDesc = textPart
+          extraDesc += (extraDesc ? ' ' : '') + textPart
         }
       }
       if (extraDesc) {
