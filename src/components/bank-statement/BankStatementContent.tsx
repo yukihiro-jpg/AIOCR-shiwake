@@ -251,6 +251,32 @@ export default function BankStatementContent() {
           setParseElapsed(`${elapsed.toFixed(0)}秒`)
         }, 500)
 
+        if (config.documentType === 'yucho') {
+          // ゆうちょ受払通知票: テキストPDFをスクリプトで即時解析
+          const { parseYuchoPdf } = await import('@/lib/bank-statement/yucho-parser')
+          const result = await parseYuchoPdf(config.file)
+          clearInterval(progressTimer)
+          setLoadingProgress(100)
+          const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1)
+          setParseElapsed(`${elapsedSec}秒`)
+          pdfFileRef.current = result.pdfFile
+          setPages((prev) => [...prev, ...result.pages])
+          setCurrentPageIndex(0)
+          // 仕訳変換（通帳と同じmapper使用）
+          const { mapTransactionsToJournalEntries } = await import('@/lib/bank-statement/journal-mapper')
+          const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
+          const patterns = getPatterns()
+          const entries = mapTransactionsToJournalEntries(
+            result.pages, config.accountCode, config.accountName, patterns, accountMaster,
+            config.accountSubCode, config.accountSubName,
+          )
+          setJournalEntries((prev) => [...prev, ...entries])
+          setInfo(`ゆうちょ受払通知票から${result.pages.length}件の取引を抽出しました（${elapsedSec}秒）`)
+          setIsLoading(false)
+          setLoadingProgress(0)
+          return
+        }
+
         if (config.documentType === 'payroll') {
           clearInterval(progressTimer)
           setIsLoading(false)

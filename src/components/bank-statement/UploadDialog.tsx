@@ -19,6 +19,7 @@ const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: strin
   { value: 'sales-invoice', label: '売上請求書', desc: 'PDF / Excel', icon: '📄' },
   { value: 'purchase-invoice', label: '仕入請求書', desc: 'PDF / Excel', icon: '📑' },
   { value: 'receipt', label: 'レシート・領収書', desc: 'PDF', icon: '🧾' },
+  { value: 'yucho', label: 'ゆうちょ受払通知', desc: 'PDF', icon: '📮' },
   { value: 'payroll', label: '賃金台帳', desc: '貼り付け / Excel', icon: '👥' },
 ]
 
@@ -69,7 +70,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
     const period = { periodFrom: periodFrom || undefined, periodTo: periodTo || undefined }
     // 複数ファイルを順番にアップロード（呼び出し元で追記処理）
     for (const file of allFiles) {
-      if (docType === 'bank-statement' || docType === 'cash-book') {
+      if (docType === 'bank-statement' || docType === 'cash-book' || docType === 'yucho') {
         if (!accountCode || !accountName) return
         onUpload({ documentType: docType, accountCode, accountName, accountSubCode: accountSubCode || undefined, accountSubName: accountSubName || undefined, file, ...period })
       } else if (docType === 'receipt') {
@@ -104,7 +105,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
     setSelectedFiles([])
   }
 
-  const isBankLike = docType === 'bank-statement' || docType === 'cash-book'
+  const isBankLike = docType === 'bank-statement' || docType === 'cash-book' || docType === 'yucho'
   const isInvoice = docType === 'sales-invoice' || docType === 'purchase-invoice'
   const isReceipt = docType === 'receipt'
   const isCreditCard = docType === 'credit-card'

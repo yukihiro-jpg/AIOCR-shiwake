@@ -11,7 +11,7 @@ interface Props {
   accountMaster: AccountItem[]
 }
 
-const DOC_TYPES = ['通帳', '当座照合表', '現金出納帳', 'ｸﾚｼﾞｯﾄ', '賃金台帳', 'その他']
+const DOC_TYPES = ['通帳', '当座照合表', 'ゆうちょ受払', '現金出納帳', 'ｸﾚｼﾞｯﾄ', '賃金台帳', 'その他']
 const RECEIVE_METHODS = ['', '紙コピー', 'PDF', 'CSV']
 
 export default function ProcessingStatusTable({ clientId, refreshKey, accountMaster }: Props) {

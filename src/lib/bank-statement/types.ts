@@ -169,7 +169,7 @@ export interface ParseResult {
 }
 
 // 書類種別
-export type DocumentType = 'bank-statement' | 'sales-invoice' | 'purchase-invoice' | 'cash-book' | 'receipt' | 'credit-card' | 'payroll'
+export type DocumentType = 'bank-statement' | 'sales-invoice' | 'purchase-invoice' | 'cash-book' | 'receipt' | 'credit-card' | 'payroll' | 'yucho'
 
 // アップロード設定
 export interface UploadConfig {
