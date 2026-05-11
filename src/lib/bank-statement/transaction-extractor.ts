@@ -146,12 +146,13 @@ function detectColumnsByKeywordPositions(rows: RawTableRow[]): ColumnMapping | n
       else if (HEADER_DEPOSIT.some((k) => cl.includes(k))) count++
       else if (HEADER_DESC.some((k) => cl.includes(k))) count++
       else if (HEADER_BALANCE.some((k) => cl.includes(k))) count++
+      else if (HEADER_SIGNED.some((k) => cl.includes(k))) count++
     }
     if (count > bestCount) { bestCount = count; bestRow = row }
   }
   if (!bestRow || bestCount < 2) return null
 
-  let dateX = -1, descX = -1, depositX = -1, withdrawX = -1, balanceX = -1
+  let dateX = -1, descX = -1, depositX = -1, withdrawX = -1, balanceX = -1, signedX = -1
   // メインヘッダ行からキーワード位置を取得
   for (let i = 0; i < bestRow.cells.length; i++) {
     const cl = (bestRow.cells[i] || '').replace(/[\s　]/g, '')
@@ -162,6 +163,8 @@ function detectColumnsByKeywordPositions(rows: RawTableRow[]): ColumnMapping | n
     if (withdrawX < 0 && matchHeaderKeyword(cl, HEADER_WITHDRAW)) withdrawX = x
     if (depositX < 0 && matchHeaderKeyword(cl, HEADER_DEPOSIT)) depositX = x
     if (balanceX < 0 && matchHeaderKeyword(cl, HEADER_BALANCE)) balanceX = x
+    // 符号付き金額列（「金額」「取引金額」等）
+    if (signedX < 0 && depositX < 0 && withdrawX < 0 && matchHeaderKeyword(cl, HEADER_SIGNED)) signedX = x
   }
   // 残高が別行にある場合、前後5行から探す
   if (balanceX < 0) {
@@ -178,24 +181,27 @@ function detectColumnsByKeywordPositions(rows: RawTableRow[]): ColumnMapping | n
     }
   }
 
-  if (dateX < 0 || balanceX < 0 || (depositX < 0 && withdrawX < 0)) return null
+  if (dateX < 0 || balanceX < 0 || (depositX < 0 && withdrawX < 0 && signedX < 0)) return null
 
   const cols: { type: string; x: number }[] = []
   if (dateX >= 0) cols.push({ type: 'date', x: dateX })
   if (descX >= 0) cols.push({ type: 'desc', x: descX })
   if (withdrawX >= 0) cols.push({ type: 'withdraw', x: withdrawX })
   if (depositX >= 0) cols.push({ type: 'deposit', x: depositX })
+  if (signedX >= 0 && depositX < 0 && withdrawX < 0) cols.push({ type: 'signed', x: signedX })
   if (balanceX >= 0) cols.push({ type: 'balance', x: balanceX })
   cols.sort((a, b) => a.x - b.x)
 
   const xPositions = cols.map((c) => c.x)
+  const signedIdx = cols.findIndex((c) => c.type === 'signed')
 
   return {
     dateColumn: cols.findIndex((c) => c.type === 'date'),
     descriptionColumn: cols.findIndex((c) => c.type === 'desc'),
-    withdrawalColumn: cols.findIndex((c) => c.type === 'withdraw'),
-    depositColumn: cols.findIndex((c) => c.type === 'deposit'),
+    withdrawalColumn: signedIdx >= 0 ? signedIdx : cols.findIndex((c) => c.type === 'withdraw'),
+    depositColumn: signedIdx >= 0 ? signedIdx : cols.findIndex((c) => c.type === 'deposit'),
     balanceColumn: cols.findIndex((c) => c.type === 'balance'),
+    signedAmountColumn: signedIdx >= 0 ? signedIdx : undefined,
     columnXPositions: xPositions,
   }
 }
@@ -772,6 +778,8 @@ function extractTransactions(
       const depositX = headerXPos[mapping.depositColumn] ?? 0
       const descX = headerXPos[mapping.descriptionColumn] ?? 0
       const balanceX = headerXPos[mapping.balanceColumn] ?? 9999
+      const isSigned = typeof mapping.signedAmountColumn === 'number' && mapping.signedAmountColumn >= 0
+
       for (let i = row.cells.length - 1; i >= 0; i--) {
         const val = parseAmount(row.cells[i])
         if (val === null) continue
@@ -781,9 +789,18 @@ function extractTransactions(
           if (isNaN(balNum)) continue
           balance = balNum
         } else {
-          const x = row.cellPositions[i] ?? 0
-          if (x < depositX) withdrawal = val
-          else deposit = val
+          if (isSigned) {
+            // 符号付き1列金額: マイナス=出金、プラス=入金
+            const signed = parseSignedAmount(row.cells[i])
+            if (signed != null) {
+              if (signed > 0) deposit = signed
+              else if (signed < 0) withdrawal = Math.abs(signed)
+            }
+          } else {
+            const x = row.cellPositions[i] ?? 0
+            if (x < depositX) withdrawal = val
+            else deposit = val
+          }
           break
         }
       }
@@ -796,8 +813,8 @@ function extractTransactions(
         if (cx <= descX || cx >= balanceX) continue
         const cell = (row.cells[j] || '').trim()
         if (!cell) continue
-        const textPart = cell.replace(/^[\d,.\s]+/, '').trim()
-        if (textPart && !/^\d+$/.test(textPart)) {
+        const textPart = cell.replace(/^[-\d,.\s]+/, '').trim()
+        if (textPart && !/^[-\d,]+$/.test(textPart)) {
           extraDesc = textPart
         }
       }
