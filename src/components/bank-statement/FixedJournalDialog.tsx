@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { AccountItem, SubAccountItem, AccountTaxItem, JournalEntry } from '@/lib/bank-statement/types'
-import { getFixedJournals, addFixedJournal, deleteFixedJournal, type FixedJournalEntry, type FixedJournalLine } from '@/lib/bank-statement/fixed-journal-store'
+import { getFixedJournals, addFixedJournal, deleteFixedJournal, updateFixedJournal, type FixedJournalEntry, type FixedJournalLine } from '@/lib/bank-statement/fixed-journal-store'
 import { createBlankEntry, createCompoundEntry } from '@/lib/bank-statement/journal-mapper'
 import { appendTempEntries } from '@/lib/bank-statement/temp-store'
 import { isPL } from '@/lib/bank-statement/tax-codes'
@@ -23,6 +23,7 @@ function emptyLine(): FixedJournalLine {
 export default function FixedJournalDialog({ open, onClose, accountMaster, subAccountMaster, accountTaxMaster, onTempCountChange }: Props) {
   const [items, setItems] = useState<FixedJournalEntry[]>([])
   const [showAdd, setShowAdd] = useState(false)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [formLines, setFormLines] = useState<FixedJournalLine[]>([emptyLine()])
   const [formDesc, setFormDesc] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -94,11 +95,23 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
 
   const handleRegister = () => {
     if (formLines.every((l) => !l.debitCode && !l.creditCode)) return
-    addFixedJournal({ lines: formLines, description: formDesc.slice(0, 25) })
+    if (editingItemId) {
+      updateFixedJournal(editingItemId, { lines: formLines, description: formDesc.slice(0, 25) })
+      setEditingItemId(null)
+    } else {
+      addFixedJournal({ lines: formLines, description: formDesc.slice(0, 25) })
+    }
     setItems(getFixedJournals())
     setShowAdd(false)
     setFormLines([emptyLine()])
     setFormDesc('')
+  }
+
+  const handleEdit = (item: FixedJournalEntry) => {
+    setEditingItemId(item.id)
+    setFormLines(item.lines.map((l) => ({ ...l })))
+    setFormDesc(item.description)
+    setShowAdd(true)
   }
 
   const toggleSelect = (id: string) => {
@@ -210,7 +223,7 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[85vh] flex flex-col">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-800">定型処理仕訳</h2>
-          <button onClick={() => { setShowAdd(!showAdd); if (!showAdd) setFormLines([emptyLine()]) }}
+          <button onClick={() => { setShowAdd(!showAdd); if (!showAdd) { setFormLines([emptyLine()]); setFormDesc(''); setEditingItemId(null) } }}
             className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">+ 新規登録</button>
         </div>
 
@@ -256,10 +269,14 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
             <div className="flex items-center gap-2 pt-1">
               <input type="text" value={formDesc} onChange={(e) => setFormDesc(e.target.value.slice(0, 25))}
                 maxLength={25} placeholder="摘要（25文字以内）" className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded" />
-              <button onClick={handleRegister} className="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">登録</button>
-              <button onClick={() => setShowAdd(false)} className="px-3 py-1 text-sm bg-gray-200 rounded">取消</button>
+              <button onClick={handleRegister} className="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+                {editingItemId ? '更新' : '登録'}
+              </button>
+              <button onClick={() => { setShowAdd(false); setEditingItemId(null); setFormLines([emptyLine()]); setFormDesc('') }}
+                className="px-3 py-1 text-sm bg-gray-200 rounded">取消</button>
             </div>
-            {formLines.length > 1 && <p className="text-xs text-blue-600">複合仕訳（{formLines.length}行）として登録されます</p>}
+            {editingItemId && <p className="text-xs text-amber-600 font-bold">編集中 — 変更を反映するには「更新」を押してください</p>}
+            {formLines.length > 1 && <p className="text-xs text-blue-600">複合仕訳（{formLines.length}行）として{editingItemId ? '更新' : '登録'}されます</p>}
           </div>
         )}
 
@@ -355,7 +372,9 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
                     ))}
                   </td>
                   <td className="px-2 py-2 text-xs text-gray-600">{item.description}</td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-2 text-center space-x-2">
+                    <button onClick={() => handleEdit(item)}
+                      className="text-xs text-blue-600 hover:underline">編集</button>
                     <button onClick={() => { deleteFixedJournal(item.id); setItems(getFixedJournals()) }}
                       className="text-xs text-red-500 hover:underline">削除</button>
                   </td>

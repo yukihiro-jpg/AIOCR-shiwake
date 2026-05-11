@@ -69,3 +69,12 @@ export function deleteFixedJournal(id: string): void {
   const items = getFixedJournals().filter((i) => i.id !== id)
   saveFixedJournals(items)
 }
+
+export function updateFixedJournal(id: string, update: Omit<FixedJournalEntry, 'id'>): void {
+  const items = getFixedJournals()
+  const idx = items.findIndex((i) => i.id === id)
+  if (idx >= 0) {
+    items[idx] = { ...items[idx], ...update }
+    saveFixedJournals(items)
+  }
+}
