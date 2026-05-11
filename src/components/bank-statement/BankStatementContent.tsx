@@ -716,7 +716,7 @@ export default function BankStatementContent() {
       setError(null)
       setInfo(`${journalEntries.length}件を一時保存しました（合計${totalCount}件）`)
     }
-  }, [journalEntries, selectedEntryIds, accountMaster])
+  }, [journalEntries, selectedEntryIds, accountMaster, uploadConfig])
 
   // 一時保存データをまとめてCSV出力
   const handleTempExport = useCallback(() => {
