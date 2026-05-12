@@ -190,12 +190,19 @@ function formatDateForFileName(): string {
  * Unicode文字列をShift-JIS (ANSI) のバイト配列に変換
  */
 function unicodeToShiftJIS(str: string): ArrayBuffer {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-  const Encoding = require('encoding-japanese') as any
-  const unicodeArray = Encoding.stringToCode(str)
-  const sjisArray: number[] = Encoding.convert(unicodeArray, { to: 'SJIS', from: 'UNICODE' })
-  const buf = new ArrayBuffer(sjisArray.length)
-  const view = new DataView(buf)
-  for (let i = 0; i < sjisArray.length; i++) view.setUint8(i, sjisArray[i])
-  return buf
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+    const Encoding = require('encoding-japanese') as any
+    const unicodeArray = Encoding.stringToCode(str)
+    const sjisArray: number[] = Encoding.convert(unicodeArray, { to: 'SJIS', from: 'UNICODE' })
+    const buf = new ArrayBuffer(sjisArray.length)
+    const view = new DataView(buf)
+    for (let i = 0; i < sjisArray.length; i++) view.setUint8(i, sjisArray[i])
+    return buf
+  } catch {
+    console.warn('encoding-japanese not available, falling back to UTF-8 with BOM')
+    const bom = '﻿'
+    const encoder = new TextEncoder()
+    return encoder.encode(bom + str).buffer
+  }
 }
