@@ -7,7 +7,7 @@ interface Props {
   open: boolean
   entry: JournalEntry | null
   relatedEntries: JournalEntry[] // 複合仕訳の場合の全行
-  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string) => void
+  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string) => void
   onCancel: () => void
 }
 
@@ -18,6 +18,7 @@ export default function LearnPatternDialog({
   const [amountMax, setAmountMax] = useState('')
   const [matchType, setMatchType] = useState<'exact' | 'partial'>('partial')
   const [matchText, setMatchText] = useState('')
+  const [convertedDesc, setConvertedDesc] = useState('')
 
   // エントリが変わるたびに一致文言をリセット
   const entryId = entry?.id
@@ -25,6 +26,7 @@ export default function LearnPatternDialog({
     if (entry) {
       setMatchText(entry.originalDescription || entry.description || '')
       setMatchType('partial')
+      setConvertedDesc('')
       setAmountMin('')
       setAmountMax('')
     }
@@ -35,14 +37,14 @@ export default function LearnPatternDialog({
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, false, matchType, matchText || undefined)
+    onConfirm(min, max, false, matchType, matchText || undefined, convertedDesc || undefined)
     setAmountMin(''); setAmountMax('')
   }
 
   const handleRegisterAndApply = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, true, matchType, matchText || undefined)
+    onConfirm(min, max, true, matchType, matchText || undefined, convertedDesc || undefined)
     setAmountMin(''); setAmountMax('')
   }
 
@@ -106,6 +108,22 @@ export default function LearnPatternDialog({
               {matchType === 'exact'
                 ? '摘要がこの文言と完全に一致する場合に適用されます'
                 : '摘要にこの文言が含まれる場合に適用されます（完全一致パターンが優先）'}
+            </p>
+          </div>
+
+          {/* 変換後摘要 */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">
+              変換後の摘要（任意）— 空欄なら元の摘要を保持
+            </label>
+            <input type="text" value={convertedDesc} onChange={(e) => setConvertedDesc(e.target.value)}
+              maxLength={40}
+              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded"
+              placeholder={matchType === 'exact' ? '例: 支払手数料' : '例: 荷造運賃（一致部分を置換）'} />
+            <p className="text-xs text-gray-400 mt-1">
+              {matchType === 'exact'
+                ? '設定すると摘要全体がこのテキストに置換されます'
+                : '設定すると一致部分のみがこのテキストに置換されます（残りは保持）'}
             </p>
           </div>
 

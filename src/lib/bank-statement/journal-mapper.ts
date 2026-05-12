@@ -111,7 +111,12 @@ export function mapTransactionsToJournalEntries(
         if (pattern.lines?.[0]?.description) {
           entry.description = pattern.lines[0].description
         } else if (pattern.convertedDescription) {
-          entry.description = pattern.convertedDescription
+          if (pattern.matchType === 'exact') {
+            entry.description = pattern.convertedDescription
+          } else {
+            const mt = pattern.matchText || pattern.keyword
+            entry.description = tx.description.replace(mt, pattern.convertedDescription)
+          }
         }
         // 備考列がある場合はパターン摘要の後に連結
         if (tx.memoText) {

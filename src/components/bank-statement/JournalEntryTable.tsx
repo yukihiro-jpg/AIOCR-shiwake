@@ -111,19 +111,19 @@ export default function JournalEntryTable({
 
   // パターン学習ダイアログ確定
   const handleLearnConfirm = useCallback(
-    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string) => {
+    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
       const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
 
       const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax)
-      // matchType/matchText をパターンに保存
-      if (patternId && (matchType || matchText)) {
+      if (patternId) {
         const patterns = getPatterns()
         const pat = patterns.find((p: PatternEntry) => p.id === patternId)
         if (pat) {
           if (matchType) pat.matchType = matchType
           if (matchText) pat.matchText = matchText
+          if (convertedDesc !== undefined) pat.convertedDescription = convertedDesc
           savePatterns(patterns)
         }
       }
@@ -239,11 +239,17 @@ export default function JournalEntryTable({
       })
       if (matchedPat) {
         updatedEntry.patternId = matchedPat.id
-        // 完全一致パターンで変換後摘要がある場合のみ摘要を上書き
-        if (matchedPat.matchType === 'exact' && firstLine.description) {
-          updatedEntry.description = firstLine.description
+        const converted = matchedPat.convertedDescription
+        if (converted) {
+          if (matchedPat.matchType === 'exact') {
+            // 完全一致: 摘要全体を変換後テキストに置換
+            updatedEntry.description = converted
+          } else {
+            // 部分一致: 一致部分のみを変換後テキストに置換、残りは保持
+            const mt = matchedPat.matchText || matchedPat.keyword
+            updatedEntry.description = (e.originalDescription || e.description || '').replace(mt, converted)
+          }
         }
-        // 部分一致の場合は元の摘要を保持
       }
       updatedEntry.debitTaxCode = firstLine.taxCode
       updatedEntry.debitTaxType = firstLine.taxCategory
