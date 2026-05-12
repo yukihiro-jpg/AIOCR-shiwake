@@ -96,10 +96,10 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
   const handleRegister = () => {
     if (formLines.every((l) => !l.debitCode && !l.creditCode)) return
     if (editingItemId) {
-      updateFixedJournal(editingItemId, { lines: formLines, description: formDesc.slice(0, 25) })
+      updateFixedJournal(editingItemId, { lines: formLines, description: formDesc.slice(0, 40) })
       setEditingItemId(null)
     } else {
-      addFixedJournal({ lines: formLines, description: formDesc.slice(0, 25) })
+      addFixedJournal({ lines: formLines, description: formDesc.slice(0, 40) })
     }
     setItems(getFixedJournals())
     setShowAdd(false)
@@ -267,8 +267,8 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
               </div>
             ))}
             <div className="flex items-center gap-2 pt-1">
-              <input type="text" value={formDesc} onChange={(e) => setFormDesc(e.target.value.slice(0, 25))}
-                maxLength={25} placeholder="摘要（25文字以内）" className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded" />
+              <input type="text" value={formDesc} onChange={(e) => setFormDesc(e.target.value.slice(0, 40))}
+                maxLength={40} placeholder="摘要（40文字以内）" className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded" />
               <button onClick={handleRegister} className="px-4 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
                 {editingItemId ? '更新' : '登録'}
               </button>

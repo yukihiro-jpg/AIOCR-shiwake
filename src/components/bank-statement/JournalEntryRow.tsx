@@ -248,7 +248,7 @@ function JournalEntryRowInner({
           </td>
         )}
 
-        {/* 摘要（25文字制限） */}
+        {/* 摘要（40文字制限） */}
         <td style={CB}>
           <DescriptionInput
             value={entry.description}
@@ -293,7 +293,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
           handleNav(e)
         } else handleNav(e)
       }}
-      placeholder="摘要" maxLength={25}
+      placeholder="摘要" maxLength={40}
       lang="ja"
       style={{ imeMode: 'active' } as React.CSSProperties}
       className="w-full px-1.5 py-1 text-sm bg-transparent border-0 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded text-gray-800" />

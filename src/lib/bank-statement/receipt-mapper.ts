@@ -26,7 +26,7 @@ export function receiptToEntries(
   const entries: JournalEntry[] = []
 
   for (const rcp of receipts) {
-    const description = `${rcp.storeName}_${rcp.mainContent}`.slice(0, 25)
+    const description = `${rcp.storeName}_${rcp.mainContent}`.slice(0, 40)
     const date = rcp.receiptDate.replace(/-/g, '')
     const totalAmount = rcp.taxLines.reduce((s, t) => s + t.totalAmount, 0)
     const hasInvoice = !!rcp.invoiceNumber

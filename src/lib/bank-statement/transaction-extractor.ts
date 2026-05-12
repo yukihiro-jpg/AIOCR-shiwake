@@ -895,7 +895,7 @@ function extractTransactions(
       const memo = getCellByColumn(row, mapping.memoColumn).trim()
       if (memo) {
         memoText = memo
-        descWithMemo = `${description}_${memo}`.slice(0, 25)
+        descWithMemo = `${description}_${memo}`.slice(0, 40)
       }
     }
 

@@ -479,6 +479,17 @@ export default function BankStatementContent() {
           clearInterval(progressTimer)
           setLoadingProgress(100)
 
+          if (result.pdfFile) pdfFileRef.current = result.pdfFile
+
+          if (result.needsColumnMapping && result.rawPages) {
+            setRawPages(result.rawPages)
+            setPendingSourceType(result.sourceType)
+            setPendingImageUrls(result.pageImageUrls || null)
+            setShowColumnMapping(true)
+            setIsLoading(false)
+            return
+          }
+
           if (result.ocrFailed) {
             setPages(result.pages)
             setCurrentPageIndex(0)

@@ -28,7 +28,7 @@ export function creditCardToEntries(
     const amount = Math.abs(tx.amount)
     const isRefund = tx.amount < 0
     const descBase = tx.storeName || ''
-    const description = descBase.slice(0, 25)
+    const description = descBase.slice(0, 40)
     const usageDateStr = tx.usageDate.replace(/-/g, '')
     // パターン学習用: 日付部分を除去（毎月変わるためパターンマッチの邪魔になる）
     const storeNameForPattern = stripDateFromDescription(descBase)

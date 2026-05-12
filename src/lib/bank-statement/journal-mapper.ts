@@ -115,7 +115,7 @@ export function mapTransactionsToJournalEntries(
         }
         // 備考列がある場合はパターン摘要の後に連結
         if (tx.memoText) {
-          entry.description = `${entry.description}_${tx.memoText}`.slice(0, 25)
+          entry.description = `${entry.description}_${tx.memoText}`.slice(0, 40)
         }
         // 補助科目コードの反映（通帳口座側はアップロード設定を優先、相手科目側のみパターン適用）
         if (pDebitSubCode && entry.debitCode !== accountCode) { entry.debitSubCode = pDebitSubCode; entry.debitSubName = pDebitSubName }

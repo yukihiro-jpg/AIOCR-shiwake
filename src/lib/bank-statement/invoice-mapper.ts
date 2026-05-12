@@ -157,7 +157,7 @@ function makeEntry(p: {
   entry.debitTaxType = p.taxType
   entry.debitTaxRate = p.taxRate ? taxRateToCode(p.taxRate) : ''
   entry.debitBusinessType = p.hasInvoice != null ? (p.hasInvoice ? '0' : '1') : '0'
-  entry.description = p.description.slice(0, 25)
+  entry.description = p.description.slice(0, 40)
   entry.originalDescription = p.description
   return entry
 }
