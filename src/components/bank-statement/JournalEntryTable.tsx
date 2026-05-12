@@ -230,17 +230,24 @@ export default function JournalEntryTable({
         }
       }
 
-      // 摘要・消費税コード・事業者区分を反映
-      updatedEntry.description = firstLine.description || e.description
+      // 摘要: 元の摘要を保持（パターンの変換後摘要がある場合のみ上書き、ただし部分一致は元を保持）
+      const matchedPatterns = getPatterns()
+      const matchedPat = matchedPatterns.find((p: PatternEntry) => {
+        const mt = (p.matchText || p.keyword).toLowerCase()
+        const ed = (e.originalDescription || '').toLowerCase()
+        return p.matchType === 'exact' ? ed === mt : ed.includes(mt) || mt.includes(ed)
+      })
+      if (matchedPat) {
+        updatedEntry.patternId = matchedPat.id
+        // 完全一致パターンで変換後摘要がある場合のみ摘要を上書き
+        if (matchedPat.matchType === 'exact' && firstLine.description) {
+          updatedEntry.description = firstLine.description
+        }
+        // 部分一致の場合は元の摘要を保持
+      }
       updatedEntry.debitTaxCode = firstLine.taxCode
       updatedEntry.debitTaxType = firstLine.taxCategory
       updatedEntry.debitBusinessType = firstLine.businessType
-
-      const patterns = getPatterns()
-      const matchedPat = patterns.find((p) =>
-        p.keyword.toLowerCase() === (e.originalDescription || '').toLowerCase(),
-      )
-      if (matchedPat) updatedEntry.patternId = matchedPat.id
       newEntries.push(updatedEntry)
 
       // 複合仕訳パターンの追加行をそのまま展開
