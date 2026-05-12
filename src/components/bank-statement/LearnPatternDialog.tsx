@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { JournalEntry } from '@/lib/bank-statement/types'
 
 interface Props {
@@ -19,16 +19,18 @@ export default function LearnPatternDialog({
   const [matchType, setMatchType] = useState<'exact' | 'partial'>('partial')
   const [matchText, setMatchText] = useState('')
 
-  // エントリが変わったら一致文言を初期化
+  // エントリが変わるたびに一致文言をリセット
   const entryId = entry?.id
-  useState(() => { if (entry) setMatchText(entry.originalDescription || entry.description || '') })
+  useEffect(() => {
+    if (entry) {
+      setMatchText(entry.originalDescription || entry.description || '')
+      setMatchType('partial')
+      setAmountMin('')
+      setAmountMax('')
+    }
+  }, [entryId])
 
   if (!open || !entry) return null
-
-  // 初回表示時にmatchTextが空なら設定
-  if (!matchText && entry) {
-    setMatchText(entry.originalDescription || entry.description || '')
-  }
 
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
