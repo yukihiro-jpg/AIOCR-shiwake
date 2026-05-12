@@ -756,10 +756,16 @@ function extractTransactions(
     if (!date) continue // 日付もデータもない行はスキップ（ヘッダー等）
     lastDate = date
 
-    let baseDesc =
-      mapping.descriptionColumn >= 0
-        ? getCellByColumn(row, mapping.descriptionColumn)
-        : ''
+    let baseDesc = ''
+    if (mapping.descriptionColumns && mapping.descriptionColumns.length > 0) {
+      // 複数列の摘要を結合
+      baseDesc = mapping.descriptionColumns
+        .map((col) => (row.cells[col] || '').trim())
+        .filter(Boolean)
+        .join(' ')
+    } else if (mapping.descriptionColumn >= 0) {
+      baseDesc = getCellByColumn(row, mapping.descriptionColumn)
+    }
     // 勘定日が摘要に結合されている場合、先頭の d.d.d を除去
     baseDesc = baseDesc.replace(/^\d{1,2}\.\s?\d{1,2}\.\s?\d{1,2}/, '').trim()
     const txTypeText = hasTxType ? getCellByColumn(row, txTypeCol!).trim() : ''
@@ -942,20 +948,8 @@ async function parseCsvFile(file: File): Promise<ParseResult> {
   }
   const rawRows: RawTableRow[] = rows.map((cells, i) => ({ cells, rowIndex: i }))
   const allRawPages = [rawRows]
-  const mapping = detectColumnMappingFromAllPages(allRawPages)
-  if (!mapping) {
-    return { pages: [], rawPages: allRawPages, sourceType: 'excel', needsColumnMapping: true }
-  }
-  const transactions = extractTransactions(rawRows, mapping, 0)
-  const statementPages: StatementPage[] = [{
-    pageIndex: 0,
-    transactions,
-    openingBalance: 0,
-    closingBalance: 0,
-    isBalanceValid: true,
-    balanceDifference: 0,
-  }]
-  return { pages: updatePageBalances(statementPages), sourceType: 'excel', needsColumnMapping: false }
+  // Excel/CSVは常に列マッピングダイアログを表示（ユーザーが確認・修正可能）
+  return { pages: [], rawPages: allRawPages, sourceType: 'excel', needsColumnMapping: true }
 }
 
 // BOM/Shift-JIS判定付きデコード
@@ -1303,21 +1297,24 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
 
 async function parseExcelFile(file: File): Promise<ParseResult> {
   const excelResults = await parseExcel(file)
-
   const allRawPages = excelResults.map((r) => r.rows)
-  const mapping = detectColumnMappingFromAllPages(allRawPages)
-
-  if (!mapping) {
-    return {
-      pages: [],
-      rawPages: allRawPages,
-      sourceType: 'excel',
-      needsColumnMapping: true,
-    }
+  // Excel/CSVは常に列マッピングダイアログを表示（ユーザーが確認・修正可能）
+  return {
+    pages: [],
+    rawPages: allRawPages,
+    sourceType: 'excel',
+    needsColumnMapping: true,
   }
+}
 
-  const statementPages: StatementPage[] = excelResults.map((result, i) => {
-    const transactions = extractTransactions(result.rows, mapping, i)
+// 旧parseExcelFile互換（自動検出パス - 列マッピング確定後に呼ばれる）
+function _parseExcelAuto(allRawPages: RawTableRow[][]): ParseResult {
+  const mapping = detectColumnMappingFromAllPages(allRawPages)
+  if (!mapping) {
+    return { pages: [], rawPages: allRawPages, sourceType: 'excel', needsColumnMapping: true }
+  }
+  const statementPages: StatementPage[] = allRawPages.map((rows, i) => {
+    const transactions = extractTransactions(rows, mapping, i)
     return {
       pageIndex: i,
       transactions,

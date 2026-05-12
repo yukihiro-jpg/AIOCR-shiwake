@@ -144,15 +144,16 @@ export interface RawTableRow {
 export interface ColumnMapping {
   dateColumn: number
   descriptionColumn: number
+  descriptionColumns?: number[]   // 摘要が複数列の場合（結合して摘要にする）
   depositColumn: number
   withdrawalColumn: number
   balanceColumn: number
-  transactionTypeColumn?: number // 取引区分列（摘要と別列で存在する場合）
-  signedAmountColumn?: number    // 入出金を1列で表す場合(正=入金,負=出金)
-  directionColumn?: number       // 受払区分列（受入/払出で入出金を判別）
+  transactionTypeColumn?: number
+  signedAmountColumn?: number
+  directionColumn?: number
   extraColumns?: { col: number; name: string; direction: 'credit' | 'debit' }[]
-  memoColumn?: number            // 備考列（摘要に連結）
-  columnXPositions?: number[]    // 各列ヘッダの中心X座標（PDF空セル対策）
+  memoColumn?: number
+  columnXPositions?: number[]
 }
 
 // パース結果
