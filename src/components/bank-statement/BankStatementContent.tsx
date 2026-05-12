@@ -222,12 +222,44 @@ export default function BankStatementContent() {
       // 処理対象期間でフィルタ
       const from = config.periodFrom?.replace(/-/g, '') || ''
       const to = config.periodTo?.replace(/-/g, '') || ''
+
+      // 期間前の最終取引の残高を開始残高として設定
+      if (from && result.pages.length > 0) {
+        let lastBalanceBeforePeriod = 0
+        let found = false
+        for (const page of result.pages) {
+          for (const tx of page.transactions) {
+            const txDate = tx.date.replace(/-/g, '')
+            if (txDate < from) {
+              lastBalanceBeforePeriod = tx.balance
+              found = true
+            }
+          }
+        }
+        if (found) {
+          result.pages[0].openingBalance = lastBalanceBeforePeriod
+        }
+      }
+
       const filtered = entriesWithTax.filter((e) => {
         if (!e.date) return true
         if (from && e.date < from) return false
         if (to && e.date > to) return false
         return true
       })
+
+      // 期間フィルタ後のページも開始残高を反映
+      if (from) {
+        setPages((prev) => {
+          if (prev.length > 0 && result.pages[0]) {
+            const updated = [...prev]
+            updated[0] = { ...updated[0], openingBalance: result.pages[0].openingBalance }
+            return updated
+          }
+          return prev
+        })
+      }
+
       setJournalEntries((prev) => [...prev, ...filtered])
     },
     [accountMaster],
