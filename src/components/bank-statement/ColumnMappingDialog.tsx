@@ -5,6 +5,7 @@ import type { RawTableRow, ColumnMapping } from '@/lib/bank-statement/types'
 
 interface Props {
   rawPages: RawTableRow[][]
+  initialMapping?: ColumnMapping
   onConfirm: (mapping: ColumnMapping) => void
   onCancel: () => void
 }
@@ -17,15 +18,16 @@ const COLUMN_ROLES = [
   { key: 'balanceColumn', label: '残高', color: 'bg-purple-100 border-purple-400', multi: false },
 ] as const
 
-export default function ColumnMappingDialog({ rawPages, onConfirm, onCancel }: Props) {
+export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel }: Props) {
   const [mapping, setMapping] = useState<Record<string, number>>({
-    dateColumn: -1,
-    depositColumn: -1,
-    withdrawalColumn: -1,
-    balanceColumn: -1,
+    dateColumn: initialMapping?.dateColumn ?? -1,
+    depositColumn: initialMapping?.depositColumn ?? -1,
+    withdrawalColumn: initialMapping?.withdrawalColumn ?? -1,
+    balanceColumn: initialMapping?.balanceColumn ?? -1,
   })
-  // 摘要は複数列対応
-  const [descColumns, setDescColumns] = useState<number[]>([])
+  const [descColumns, setDescColumns] = useState<number[]>(
+    initialMapping?.descriptionColumns || (initialMapping?.descriptionColumn != null && initialMapping.descriptionColumn >= 0 ? [initialMapping.descriptionColumn] : [])
+  )
   const [activeRole, setActiveRole] = useState<string>('dateColumn')
 
   const sampleRows = rawPages[0]?.slice(0, 25) || []

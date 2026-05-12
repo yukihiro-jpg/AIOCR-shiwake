@@ -625,6 +625,15 @@ export default function BankStatementContent() {
     (mapping: ColumnMapping) => {
       if (!rawPages || !pendingSourceType || !uploadConfig) return
 
+      // Excelマッピングを科目CD別に学習保存
+      if (uploadConfig.accountCode && pendingSourceType === 'excel') {
+        try {
+          const cid = localStorage.getItem('bank-statement-selected-client') || ''
+          const key = `bs-excel-mapping-${cid}-${uploadConfig.accountCode}`
+          localStorage.setItem(key, JSON.stringify(mapping))
+        } catch { /* ignore */ }
+      }
+
       setShowColumnMapping(false)
       setIsLoading(true)
 
@@ -1033,6 +1042,15 @@ export default function BankStatementContent() {
       {showColumnMapping && rawPages && (
         <ColumnMappingDialog
           rawPages={rawPages}
+          initialMapping={(() => {
+            if (!uploadConfig?.accountCode) return undefined
+            try {
+              const cid = localStorage.getItem('bank-statement-selected-client') || ''
+              const key = `bs-excel-mapping-${cid}-${uploadConfig.accountCode}`
+              const saved = localStorage.getItem(key)
+              return saved ? JSON.parse(saved) : undefined
+            } catch { return undefined }
+          })()}
           onConfirm={handleColumnMappingConfirm}
           onCancel={() => {
             setShowColumnMapping(false)

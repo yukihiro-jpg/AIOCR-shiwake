@@ -7,7 +7,7 @@ interface Props {
   open: boolean
   entry: JournalEntry | null
   relatedEntries: JournalEntry[] // 複合仕訳の場合の全行
-  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean) => void
+  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string) => void
   onCancel: () => void
 }
 
@@ -16,20 +16,31 @@ export default function LearnPatternDialog({
 }: Props) {
   const [amountMin, setAmountMin] = useState('')
   const [amountMax, setAmountMax] = useState('')
+  const [matchType, setMatchType] = useState<'exact' | 'partial'>('partial')
+  const [matchText, setMatchText] = useState('')
+
+  // エントリが変わったら一致文言を初期化
+  const entryId = entry?.id
+  useState(() => { if (entry) setMatchText(entry.originalDescription || entry.description || '') })
 
   if (!open || !entry) return null
+
+  // 初回表示時にmatchTextが空なら設定
+  if (!matchText && entry) {
+    setMatchText(entry.originalDescription || entry.description || '')
+  }
 
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, false)
+    onConfirm(min, max, false, matchType, matchText || undefined)
     setAmountMin(''); setAmountMax('')
   }
 
   const handleRegisterAndApply = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, true)
+    onConfirm(min, max, true, matchType, matchText || undefined)
     setAmountMin(''); setAmountMax('')
   }
 
@@ -71,6 +82,29 @@ export default function LearnPatternDialog({
             {relatedEntries.length > 1 && (
               <span className="text-xs text-violet-600 font-medium">（複合仕訳 {relatedEntries.length}行）</span>
             )}
+          </div>
+
+          {/* 一致方式設定 */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">一致方式</label>
+            <div className="flex gap-3 mb-2">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" checked={matchType === 'partial'} onChange={() => setMatchType('partial')} className="accent-blue-600" />
+                <span className="text-sm">部分一致</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" checked={matchType === 'exact'} onChange={() => setMatchType('exact')} className="accent-blue-600" />
+                <span className="text-sm">完全一致</span>
+              </label>
+            </div>
+            <input type="text" value={matchText} onChange={(e) => setMatchText(e.target.value)}
+              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded"
+              placeholder="一致判定に使う文言" />
+            <p className="text-xs text-gray-400 mt-1">
+              {matchType === 'exact'
+                ? '摘要がこの文言と完全に一致する場合に適用されます'
+                : '摘要にこの文言が含まれる場合に適用されます（完全一致パターンが優先）'}
+            </p>
           </div>
 
           {/* 金額範囲設定 */}

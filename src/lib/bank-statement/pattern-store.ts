@@ -63,9 +63,15 @@ export function findPattern(
 
   const matches = patterns
     .filter((p) => {
-      const keyMatch = p.keyword.toLowerCase() === desc ||
-        desc.includes(p.keyword.toLowerCase()) ||
-        p.keyword.toLowerCase().includes(desc)
+      const matchText = (p.matchText || p.keyword).toLowerCase()
+      const isExact = p.matchType === 'exact'
+      let keyMatch: boolean
+      if (isExact) {
+        keyMatch = desc === matchText
+      } else {
+        // 部分一致: 摘要がマッチテキストを含む or マッチテキストが摘要を含む
+        keyMatch = desc.includes(matchText) || matchText.includes(desc)
+      }
       if (!keyMatch) return false
       if (amount != null) {
         if (p.amountMin != null && amount < p.amountMin) return false
@@ -80,9 +86,14 @@ export function findPattern(
         const bMatch = b.accountCode === accountCode ? 1 : 0
         if (aMatch !== bMatch) return bMatch - aMatch
       }
-      const aExact = a.keyword.toLowerCase() === desc ? 1 : 0
-      const bExact = b.keyword.toLowerCase() === desc ? 1 : 0
-      if (aExact !== bExact) return bExact - aExact
+      // 完全一致パターンを部分一致より優先
+      const aExactType = a.matchType === 'exact' ? 1 : 0
+      const bExactType = b.matchType === 'exact' ? 1 : 0
+      if (aExactType !== bExactType) return bExactType - aExactType
+      // マッチテキストが長い方を優先（より具体的なパターン）
+      const aLen = (a.matchText || a.keyword).length
+      const bLen = (b.matchText || b.keyword).length
+      if (aLen !== bLen) return bLen - aLen
       const aRange = (a.amountMax ?? Infinity) - (a.amountMin ?? 0)
       const bRange = (b.amountMax ?? Infinity) - (b.amountMin ?? 0)
       if (aRange !== bRange) return aRange - bRange

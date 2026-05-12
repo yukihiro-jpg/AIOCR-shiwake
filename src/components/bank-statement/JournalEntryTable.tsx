@@ -12,7 +12,8 @@ import {
   createBlankEntry,
   createCompoundEntry,
 } from '@/lib/bank-statement/journal-mapper'
-import { learnFromEntriesWithRange, getPatterns } from '@/lib/bank-statement/pattern-store'
+import { learnFromEntriesWithRange, getPatterns, savePatterns } from '@/lib/bank-statement/pattern-store'
+import type { PatternEntry } from '@/lib/bank-statement/types'
 import { saveSubAccountMaster } from '@/lib/bank-statement/account-master'
 import { isPL, isBS, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
 import JournalEntryRow from './JournalEntryRow'
@@ -110,12 +111,22 @@ export default function JournalEntryTable({
 
   // パターン学習ダイアログ確定
   const handleLearnConfirm = useCallback(
-    (amountMin: number | null, amountMax: number | null, applyToAll: boolean) => {
+    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
       const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
 
       const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax)
+      // matchType/matchText をパターンに保存
+      if (patternId && (matchType || matchText)) {
+        const patterns = getPatterns()
+        const pat = patterns.find((p: PatternEntry) => p.id === patternId)
+        if (pat) {
+          if (matchType) pat.matchType = matchType
+          if (matchText) pat.matchText = matchText
+          savePatterns(patterns)
+        }
+      }
       const learnedIds = new Set(learnRelatedEntries.map((e) => e.id))
       const updatedEntries = entries.map((e) =>
         learnedIds.has(e.id) ? { ...e, patternId } : e,

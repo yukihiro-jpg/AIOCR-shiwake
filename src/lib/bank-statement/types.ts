@@ -114,12 +114,14 @@ export interface PatternLine {
 
 // 学習パターン
 export interface PatternEntry {
-  id: string                   // 一意ID
+  id: string
   keyword: string              // 通帳の元の摘要（マッチング用）
-  amountMin: number | null     // 金額下限（null=制限なし）
-  amountMax: number | null     // 金額上限（null=制限なし）
-  accountCode?: string         // 処理科目コード（口座別パターン分離用）
-  lines: PatternLine[]         // 仕訳行（1行 or 複合仕訳で複数行）
+  matchType?: 'exact' | 'partial'  // 完全一致 or 部分一致（デフォルト: partial）
+  matchText?: string               // 一致判定用テキスト（未設定時はkeywordを使用）
+  amountMin: number | null
+  amountMax: number | null
+  accountCode?: string
+  lines: PatternLine[]
   useCount: number
   // 旧互換フィールド
   convertedDescription?: string
