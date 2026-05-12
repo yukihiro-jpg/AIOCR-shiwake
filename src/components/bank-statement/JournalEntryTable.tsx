@@ -133,10 +133,19 @@ export default function JournalEntryTable({
       )
 
       if (applyToAll) {
+        const effectiveMatchText = (matchText || originalDesc).toLowerCase()
+        const isExactMatch = matchType === 'exact'
         const targets = updatedEntries.filter((e) => {
           if (learnedIds.has(e.id)) return false
           if (e.parentId) return false
-          if ((e.originalDescription || '').toLowerCase() !== originalDesc.toLowerCase()) return false
+          if (e.patternId) return false  // 既にパターン適用済みはスキップ
+          const eDesc = (e.originalDescription || e.description || '').toLowerCase()
+          if (!eDesc) return false
+          if (isExactMatch) {
+            if (eDesc !== effectiveMatchText) return false
+          } else {
+            if (!eDesc.includes(effectiveMatchText)) return false
+          }
           const amt = e.debitAmount || e.creditAmount || 0
           if (amountMin != null && amt < amountMin) return false
           if (amountMax != null && amt > amountMax) return false
