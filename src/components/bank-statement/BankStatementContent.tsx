@@ -261,6 +261,16 @@ export default function BankStatementContent() {
       }
 
       setJournalEntries((prev) => [...prev, ...filtered])
+
+      // 取引はあるが仕訳が0件の場合に警告
+      const totalTx = result.pages.reduce((s, p) => s + p.transactions.length, 0)
+      if (totalTx > 0 && filtered.length === 0) {
+        if (from || to) {
+          setError(`${totalTx}件の取引がありますが、処理対象期間（${from || '?'}〜${to || '?'}）に該当する仕訳がありません。期間設定を確認してください。`)
+        } else {
+          setError(`${totalTx}件の取引がありますが、仕訳データが作成されませんでした。入金・出金列が正しくマッピングされているか確認してください。`)
+        }
+      }
     },
     [accountMaster],
   )

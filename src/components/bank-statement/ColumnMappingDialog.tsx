@@ -77,9 +77,8 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     return COLUMN_ROLES.find((r) => r.key === role)?.color || ''
   }
 
-  const canConfirm =
-    mapping.dateColumn >= 0 &&
-    (mapping.balanceColumn >= 0 || mapping.depositColumn >= 0 || mapping.withdrawalColumn >= 0)
+  const hasAmount = mapping.depositColumn >= 0 || mapping.withdrawalColumn >= 0
+  const canConfirm = mapping.dateColumn >= 0 && hasAmount
 
   const handleConfirm = () => {
     onConfirm({
@@ -177,8 +176,11 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
         </div>
 
         <div className="p-4 border-t border-gray-200 flex justify-between items-center">
-          <div className="text-xs text-gray-500">
-            {descColumns.length > 1 && `摘要: ${descColumns.length}列を結合して摘要にします`}
+          <div className="text-xs">
+            {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
+            {mapping.dateColumn >= 0 && !hasAmount && (
+              <span className="text-red-500 font-bold">※ 入金または出金の列を選択してください</span>
+            )}
           </div>
           <div className="flex gap-2">
             <button onClick={onCancel} className="px-6 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">キャンセル</button>
