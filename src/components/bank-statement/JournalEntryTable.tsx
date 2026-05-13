@@ -116,7 +116,7 @@ export default function JournalEntryTable({
       const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
 
-      const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax)
+      const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax, bankAccountCode)
       if (patternId) {
         const patterns = getPatterns()
         const pat = patterns.find((p: PatternEntry) => p.id === patternId)

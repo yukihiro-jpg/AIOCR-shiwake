@@ -111,6 +111,7 @@ export function learnFromEntriesWithRange(
   entries: JournalEntry[],
   amountMin: number | null,
   amountMax: number | null,
+  accountCode?: string,
 ): string {
   if (!originalDescription || entries.length === 0) return ''
 
@@ -134,7 +135,8 @@ export function learnFromEntriesWithRange(
   // 同じキーワード+金額範囲のパターンがあれば更新、なければ新規
   const existing = patterns.find(
     (p) => p.keyword.toLowerCase() === originalDescription.toLowerCase() &&
-      p.amountMin === amountMin && p.amountMax === amountMax,
+      p.amountMin === amountMin && p.amountMax === amountMax &&
+      (p.accountCode || '') === (accountCode || ''),
   )
 
   if (existing) {
@@ -149,6 +151,7 @@ export function learnFromEntriesWithRange(
       keyword: originalDescription,
       amountMin,
       amountMax,
+      accountCode: accountCode || undefined,
       lines,
       useCount: 1,
     })
