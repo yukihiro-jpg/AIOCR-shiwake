@@ -747,16 +747,42 @@ export default function BankStatementContent() {
     const totalCount = appendTempEntries(completed)
     setTempCount(totalCount)
 
-    // 処理状況を更新: 現在アップロードされた通帳の科目コード単位で最終取引日を記録
-    if (uploadConfig?.accountCode) {
+    // 処理状況を更新: 仕訳エントリの科目コードから通帳科目を検出して記録
+    const accountCode = uploadConfig?.accountCode
+    if (accountCode) {
       const dates = completed.map((e) => e.date).filter((d) => d && d.length === 8)
       if (dates.length > 0) {
-        updateProcessingStatus(
-          uploadConfig.accountCode,
-          uploadConfig.accountName || '',
-          dates,
-          completed.length,
-        )
+        updateProcessingStatus(accountCode, uploadConfig?.accountName || '', dates, completed.length)
+        setProcessingStatusVersion((v) => v + 1)
+      }
+    } else {
+      // uploadConfigがない場合、借方/貸方から通帳科目を推定して更新
+      const codeMap = new Map<string, { name: string; dates: string[] }>()
+      for (const e of completed) {
+        if (!e.date || e.date.length !== 8) continue
+        const codes = [
+          { code: e.debitCode, name: e.debitName },
+          { code: e.creditCode, name: e.creditName },
+        ]
+        for (const { code, name } of codes) {
+          if (!code) continue
+          const acc = accountMaster.find((a) => a.code === code)
+          if (acc && (acc.bsPl === 'BS' || !acc.bsPl)) {
+            const existing = codeMap.get(code) || { name, dates: [] }
+            existing.dates.push(e.date)
+            codeMap.set(code, existing)
+          }
+        }
+      }
+      // 最も多く使われたBS科目を進捗更新
+      let maxCode = ''
+      let maxCount = 0
+      for (const [code, data] of Array.from(codeMap.entries())) {
+        if (data.dates.length > maxCount) { maxCode = code; maxCount = data.dates.length }
+      }
+      if (maxCode && maxCount > 0) {
+        const data = codeMap.get(maxCode)!
+        updateProcessingStatus(maxCode, data.name, data.dates, completed.length)
         setProcessingStatusVersion((v) => v + 1)
       }
     }
