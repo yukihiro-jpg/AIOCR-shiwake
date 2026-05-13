@@ -218,8 +218,20 @@ export default function PatternListDialog({ open, onClose }: Props) {
                     className={`border-b border-gray-100 hover:bg-gray-50 ${dup ? 'bg-amber-50' : ''}`}>
                     {li === 0 && (
                       <td className="px-3 py-2 align-top" rowSpan={displayLines.length}>
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-col gap-0.5">
                           <span className="font-medium text-gray-800 text-xs break-all">{p.keyword}</span>
+                          {p.accountCode && (
+                            <span className="text-[10px] text-blue-600 bg-blue-50 px-1 rounded inline-block w-fit">科目:{p.accountCode}</span>
+                          )}
+                          {p.matchType && (
+                            <span className={`text-[10px] px-1 rounded inline-block w-fit ${p.matchType === 'exact' ? 'text-red-600 bg-red-50' : 'text-green-600 bg-green-50'}`}>
+                              {p.matchType === 'exact' ? '完全一致' : '部分一致'}
+                              {p.matchText && p.matchText !== p.keyword ? `「${p.matchText}」` : ''}
+                            </span>
+                          )}
+                          {p.convertedDescription && (
+                            <span className="text-[10px] text-purple-600 bg-purple-50 px-1 rounded inline-block w-fit">→{p.convertedDescription}</span>
+                          )}
                           {dup && (
                             <span className="text-xs text-amber-600 font-bold">* 重複あり</span>
                           )}
