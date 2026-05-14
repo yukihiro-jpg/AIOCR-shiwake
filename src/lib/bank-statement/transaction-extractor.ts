@@ -390,7 +390,9 @@ function formatDate(year: number, month: number, day: number): string {
 }
 
 function parseAmount(text: string): number | null {
-  const cleaned = text.replace(/[¥￥,、\s]/g, '').replace(/▲|△|-/g, '-')
+  let cleaned = text.replace(/[¥￥,、\s]/g, '').replace(/▲|△|-/g, '-')
+  // 括弧表記 (1,234) を負数として処理（会計のマイナス表記）
+  if (/^\([\d]+\)$/.test(cleaned)) cleaned = cleaned.slice(1, -1)
   if (!cleaned || cleaned === '-' || cleaned === '*') return null
   const num = parseInt(cleaned, 10)
   return isNaN(num) ? null : Math.abs(num)
@@ -832,8 +834,12 @@ function extractTransactions(
       // Excel/CSV: 従来のインデックスベース抽出
       if (hasBalanceCol) {
         const balanceText = getCellByColumn(row, mapping.balanceColumn)
-        balance = parseAmount(balanceText)
-        if (balance === null) continue
+        // 残高は符号を保持（括弧表記やマイナスも対応）
+        let balCleaned = balanceText.replace(/[¥￥,、\s　]/g, '').replace(/[▲△]/g, '-')
+        if (/^\(.+\)$/.test(balCleaned)) balCleaned = '-' + balCleaned.slice(1, -1)
+        const balNum = parseInt(balCleaned, 10)
+        if (isNaN(balNum)) { balance = parseAmount(balanceText); if (balance === null) continue }
+        else balance = balNum
       }
 
       // 受払区分 + 金額1列モード
