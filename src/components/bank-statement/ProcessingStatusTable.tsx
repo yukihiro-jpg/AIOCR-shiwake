@@ -23,6 +23,7 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showMailPreview, setShowMailPreview] = useState(false)
   const [mailCopied, setMailCopied] = useState(false)
+  const [manualEditMode, setManualEditMode] = useState(false)
 
   useEffect(() => {
     setStatuses(getProcessingStatuses())
@@ -128,6 +129,10 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
         <div className="flex gap-2">
           <button onClick={() => setShowFiscalDialog(true)}
             className="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300">決算月変更</button>
+          <button onClick={() => setManualEditMode((v) => !v)}
+            className={`px-2 py-1 text-xs rounded ${manualEditMode ? 'bg-amber-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>
+            {manualEditMode ? '手入力モード ON' : '手入力モード'}
+          </button>
           <button onClick={() => setShowAddDialog(true)}
             className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">+ 科目追加</button>
         </div>
@@ -248,8 +253,27 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
                     const day = s.monthlyProgress?.[ym]
                     const hasData = !!day
                     return (
-                      <td key={m} className={`px-1 py-1 text-center ${hasData ? 'bg-blue-100 text-blue-800 font-bold' : 'text-gray-300'}`}>
-                        {hasData ? `${parseInt(m)}/${day}` : ''}
+                      <td key={m} className={`px-1 py-1 text-center ${hasData ? 'bg-blue-100 text-blue-800 font-bold' : 'text-gray-300'} ${manualEditMode ? 'cursor-pointer hover:bg-yellow-100' : ''}`}
+                        onClick={manualEditMode ? (e) => {
+                          e.stopPropagation()
+                          const input = prompt(`${parseInt(m)}月の最終処理日（日のみ、例: 31）を入力\n空欄で削除`, day || '')
+                          if (input === null) return
+                          const updated = { ...s.monthlyProgress || {} }
+                          if (input.trim()) {
+                            updated[ym] = input.trim().padStart(2, '0')
+                          } else {
+                            delete updated[ym]
+                          }
+                          handleDetailChange(s.accountCode, 'monthlyProgress', JSON.stringify(updated))
+                          // monthlyProgressはオブジェクトなので直接更新
+                          setStatuses((prev) => prev.map((st) =>
+                            st.accountCode === s.accountCode ? { ...st, monthlyProgress: updated, lastUpdated: new Date().toISOString() } : st
+                          ))
+                          saveProcessingStatuses(statuses.map((st) =>
+                            st.accountCode === s.accountCode ? { ...st, monthlyProgress: updated, lastUpdated: new Date().toISOString() } : st
+                          ))
+                        } : undefined}>
+                        {hasData ? `${parseInt(m)}/${day}` : manualEditMode ? '—' : ''}
                       </td>
                     )
                   })}
