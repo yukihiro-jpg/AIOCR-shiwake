@@ -108,16 +108,19 @@ export function mapTransactionsToJournalEntries(
       // パターンの変換後摘要・patternId・補助科目を適用
       if (pattern) {
         entry.patternId = pattern.id
-        if (pattern.lines?.[0]?.description) {
-          entry.description = pattern.lines[0].description
-        } else if (pattern.convertedDescription) {
+        if (pattern.convertedDescription) {
+          // 変換後摘要が明示的に設定されている場合
           if (pattern.matchType === 'exact') {
             entry.description = pattern.convertedDescription
           } else {
             const mt = pattern.matchText || pattern.keyword
             entry.description = tx.description.replace(mt, pattern.convertedDescription)
           }
+        } else if (pattern.matchType === 'exact' && pattern.lines?.[0]?.description) {
+          // 完全一致で変換後摘要なし → パターンの摘要を使用
+          entry.description = pattern.lines[0].description
         }
+        // 部分一致で変換後摘要なし → 元の摘要をそのまま保持
         // 備考列がある場合はパターン摘要の後に連結
         if (tx.memoText) {
           entry.description = `${entry.description}_${tx.memoText}`.slice(0, 40)
