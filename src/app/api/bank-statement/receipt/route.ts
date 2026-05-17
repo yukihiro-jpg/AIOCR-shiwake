@@ -35,13 +35,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GEMINI_API_KEY が設定されていません。' }, { status: 500 })
     }
 
-    const { images } = await request.json()
+    const { images, geminiModel } = await request.json()
     if (!images || !Array.isArray(images) || images.length === 0) {
       return NextResponse.json({ error: '画像データがありません' }, { status: 400 })
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+    const modelName = geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { temperature: 0 } })
 
     const startTime = Date.now()

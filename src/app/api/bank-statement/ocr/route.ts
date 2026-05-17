@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { images, templateHint } = await request.json()
+    const { images, templateHint, geminiModel } = await request.json()
     console.log(`OCR request: ${images?.length || 0} pages${templateHint ? ' (with template)' : ''}`)
 
     if (!images || !Array.isArray(images) || images.length === 0) {
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+    const modelName = geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
     console.log(`Using model: ${modelName}, sending ${images.length} pages in parallel`)
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { temperature: 0 } })
 

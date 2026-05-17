@@ -71,14 +71,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GEMINI_API_KEY が設定されていません' }, { status: 500 })
     }
 
-    const { pdfData, startPage, endPage } = await request.json()
+    const { pdfData, startPage, endPage, geminiModel } = await request.json()
     if (!pdfData) {
       return NextResponse.json({ error: 'PDFデータがありません' }, { status: 400 })
     }
 
     const base64 = pdfData.replace(/^data:application\/pdf;base64,/, '')
     const genAI = new GoogleGenerativeAI(apiKey)
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+    const modelName = geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
     // ページ範囲指定がある場合: オリジナルPDFをそのまま送り、プロンプトで範囲指定
     if (typeof startPage === 'number' && typeof endPage === 'number') {

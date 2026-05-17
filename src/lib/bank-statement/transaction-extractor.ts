@@ -10,6 +10,11 @@ import { parseExcel } from './excel-parser'
 import { updatePageBalances } from './balance-validator'
 import { getTemplatePromptAddition, learnBankTemplate } from './bank-template'
 
+function getGeminiModel(): string {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem('bs-gemini-model') || ''
+}
+
 interface OcrPdfPage {
   pageIndex: number
   transactions: {
@@ -47,7 +52,7 @@ async function processPdfInParallel(
       const r = await fetch('/api/bank-statement/ocr-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdfData: originalBase64 }),
+        body: JSON.stringify({ pdfData: originalBase64, geminiModel: getGeminiModel() }),
       })
       if (r.ok) {
         const data = await r.json()
@@ -75,7 +80,7 @@ async function processPdfInParallel(
         const r = await fetch('/api/bank-statement/ocr-pdf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdfData: originalBase64, startPage: range.startPage, endPage: range.endPage }),
+          body: JSON.stringify({ pdfData: originalBase64, startPage: range.startPage, endPage: range.endPage, geminiModel: getGeminiModel() }),
         })
         if (r.ok) {
           const data = await r.json()
@@ -1054,7 +1059,7 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
       const response = await fetch('/api/bank-statement/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '' }),
+        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
       })
 
       if (!response.ok) {
@@ -1228,7 +1233,7 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
       const response = await fetch('/api/bank-statement/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '' }),
+        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
       })
 
       if (!response.ok) {

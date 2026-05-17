@@ -75,6 +75,10 @@ export default function BankStatementContent() {
   const [showFixedJournal, setShowFixedJournal] = useState(false)
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
   const [showPayroll, setShowPayroll] = useState(false)
+  const [geminiModel, setGeminiModel] = useState(() => {
+    if (typeof window === 'undefined') return 'gemini-2.5-flash'
+    return localStorage.getItem('bs-gemini-model') || 'gemini-2.5-flash'
+  })
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
   const [tempCount, setTempCount] = useState(() => getTempEntryCount())
@@ -380,7 +384,7 @@ export default function BankStatementContent() {
           const response = await fetch('/api/bank-statement/credit-card', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls }),
+            body: JSON.stringify({ images: imageDataUrls, geminiModel }),
           })
 
           if (!response.ok) {
@@ -455,7 +459,7 @@ export default function BankStatementContent() {
           const response = await fetch('/api/bank-statement/receipt', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls }),
+            body: JSON.stringify({ images: imageDataUrls, geminiModel }),
           })
           clearInterval(progressTimer)
           setLoadingProgress(100)
@@ -535,7 +539,7 @@ export default function BankStatementContent() {
           const response = await fetch('/api/bank-statement/invoice', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls, type: invoiceType }),
+            body: JSON.stringify({ images: imageDataUrls, type: invoiceType, geminiModel }),
           })
           clearInterval(progressTimer)
           setLoadingProgress(100)
@@ -871,6 +875,14 @@ export default function BankStatementContent() {
             className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
             インボイス登録簿
           </button>
+          <select value={geminiModel} onChange={(e) => {
+            setGeminiModel(e.target.value)
+            localStorage.setItem('bs-gemini-model', e.target.value)
+          }} className="px-2 py-1 text-xs bg-white/10 text-white rounded border border-white/20">
+            <option value="gemini-2.5-flash" className="text-black">Gemini 2.5 Flash</option>
+            <option value="gemini-3.0-flash" className="text-black">Gemini 3 Flash</option>
+            <option value="gemini-2.5-pro" className="text-black">Gemini 2.5 Pro</option>
+          </select>
           {journalEntries.length > 0 && (
             <>
               <button onClick={handleTempSave}
