@@ -64,6 +64,9 @@ interface Transaction {
   balance: number
 }
 
+export const runtime = 'nodejs'
+export const maxDuration = 300
+
 export async function POST(request: NextRequest) {
   try {
     const apiKey = process.env.GEMINI_API_KEY
@@ -71,22 +74,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GEMINI_API_KEY が設定されていません' }, { status: 500 })
     }
 
-    const { pdfData, startPage, endPage, geminiModel } = await request.json()
-    if (!pdfData) {
-      return NextResponse.json({ error: 'PDFデータがありません' }, { status: 400 })
+    const { fileUri, mimeType, startPage, endPage, geminiModel } = await request.json()
+    if (!fileUri) {
+      return NextResponse.json(
+        { error: 'fileUri がありません（事前に /api/bank-statement/gemini-upload でアップロードしてください）' },
+        { status: 400 },
+      )
     }
+    const fileMime = mimeType || 'application/pdf'
 
-    const base64 = pdfData.replace(/^data:application\/pdf;base64,/, '')
     const genAI = new GoogleGenerativeAI(apiKey)
     const modelName = geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
-    // ページ範囲指定がある場合: オリジナルPDFをそのまま送り、プロンプトで範囲指定
+    // ページ範囲指定がある場合: 同じファイル参照にプロンプトで範囲指定
     if (typeof startPage === 'number' && typeof endPage === 'number') {
-      return await processPageRange(genAI, modelName, base64, startPage, endPage)
+      return await processPageRange(genAI, modelName, fileUri, fileMime, startPage, endPage)
     }
 
     // ページ範囲指定なし: 全ページ処理
-    return await processSinglePdf(genAI, modelName, base64)
+    return await processSinglePdf(genAI, modelName, fileUri, fileMime)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'OCR処理に失敗しました'
     console.error('OCR-PDF error:', err)
@@ -97,7 +103,8 @@ export async function POST(request: NextRequest) {
 async function processPageRange(
   genAI: GoogleGenerativeAI,
   modelName: string,
-  base64: string,
+  fileUri: string,
+  mimeType: string,
   startPage: number,
   endPage: number,
 ): Promise<NextResponse> {
@@ -115,11 +122,11 @@ page フィールドには0始まりのページ番号を入れてください�
         model: modelName,
         generationConfig: { temperature: 0, maxOutputTokens: 64000 },
       })
-      console.log(`OCR-PDF: pages ${startPage}-${endPage - 1} (attempt ${attempt}) sending to ${modelName}`)
+      console.log(`OCR-PDF: pages ${startPage}-${endPage - 1} (attempt ${attempt}) sending fileUri to ${modelName}`)
       const startTime = Date.now()
       const result = await model.generateContent([
         pagePrompt,
-        { inlineData: { mimeType: 'application/pdf', data: base64 } },
+        { fileData: { mimeType, fileUri } },
       ])
       const responseText = result.response.text()
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
@@ -177,7 +184,8 @@ page フィールドには0始まりのページ番号を入れてください�
 async function processSinglePdf(
   genAI: GoogleGenerativeAI,
   modelName: string,
-  base64: string,
+  fileUri: string,
+  mimeType: string,
 ): Promise<NextResponse> {
     const model = genAI.getGenerativeModel({
       model: modelName,
@@ -186,11 +194,11 @@ async function processSinglePdf(
 
     const prompt = `${BASE_PROMPT}\nPDF 全ページから取引データを読み取って JSON で返してください。`
 
-    console.log(`OCR-PDF: sending full PDF (${(base64.length / 1024).toFixed(0)} KB base64) to ${modelName}`)
+    console.log(`OCR-PDF: sending fileUri (full PDF) to ${modelName}`)
     const startTime = Date.now()
     const result = await model.generateContent([
       prompt,
-      { inlineData: { mimeType: 'application/pdf', data: base64 } },
+      { fileData: { mimeType, fileUri } },
     ])
     const responseText = result.response.text()
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)

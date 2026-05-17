@@ -26,9 +26,44 @@ interface OcrPdfPage {
   }[]
 }
 
+interface GeminiFileRef {
+  name: string
+  uri: string
+  mimeType: string
+  state: string
+}
+
 /**
- * オリジナルPDFをそのまま(チャンク分割なし)Geminiに送り、ページ範囲で分割処理
- * pdf-libのチャンク分割はフォントデータが消えるため廃止
+ * Gemini File API へファイル(Blob)をアップロードし、fileUri を取得する
+ * 大きなPDFをリクエスト本体に含めずに済むため、ボディサイズ制限とチャンク分割の遅さを回避できる
+ */
+async function uploadToGeminiFileApi(blob: Blob, displayName: string, mimeType?: string): Promise<GeminiFileRef> {
+  const form = new FormData()
+  form.append('file', blob, displayName)
+  form.append('displayName', displayName)
+  if (mimeType) form.append('mimeType', mimeType)
+
+  const r = await fetch('/api/bank-statement/gemini-upload', { method: 'POST', body: form })
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    throw new Error(err.error || `Gemini File API アップロード失敗 (HTTP ${r.status})`)
+  }
+  return (await r.json()) as GeminiFileRef
+}
+
+function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) throw new Error('画像形式が不正です (data URL ではありません)')
+  const mimeType = m[1]
+  const bin = atob(m[2])
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return { blob: new Blob([bytes], { type: mimeType }), mimeType }
+}
+
+/**
+ * Gemini File API を使ってPDFを処理: 先にアップロードして fileUri を取得し、
+ * ページ範囲ごとの並列リクエストでは fileUri のみを送信する
  */
 async function processPdfInParallel(
   file: File,
@@ -38,13 +73,9 @@ async function processPdfInParallel(
   const totalPages = await getPdfPageCount(file)
   console.log(`[processPdfInParallel] 開始: file=${file.name}, size=${file.size}, totalPages=${totalPages}, chunkSize=${chunkSize}, concurrency=${concurrency}`)
 
-  // オリジナルPDFをbase64に変換（1回だけ）
-  const pdfBuffer = await file.arrayBuffer()
-  const bytes = new Uint8Array(pdfBuffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-  const originalBase64 = btoa(binary)
-  console.log(`[processPdfInParallel] オリジナルPDF base64: ${(originalBase64.length / 1024).toFixed(0)} KB`)
+  // 先にPDFを Gemini File API へアップロード（1回だけ）
+  const fileRef = await uploadToGeminiFileApi(file, file.name || 'statement.pdf', 'application/pdf')
+  console.log(`[processPdfInParallel] uploaded fileUri=${fileRef.uri}`)
 
   // 小さいPDFはそのまま1リクエスト
   if (totalPages <= chunkSize) {
@@ -52,7 +83,7 @@ async function processPdfInParallel(
       const r = await fetch('/api/bank-statement/ocr-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdfData: originalBase64, geminiModel: getGeminiModel() }),
+        body: JSON.stringify({ fileUri: fileRef.uri, mimeType: fileRef.mimeType, geminiModel: getGeminiModel() }),
       })
       if (r.ok) {
         const data = await r.json()
@@ -64,7 +95,7 @@ async function processPdfInParallel(
     return { totalCount: 0, pages: [] }
   }
 
-  // ページ範囲リストを作成（オリジナルPDFをそのまま送り、プロンプトで範囲指定）
+  // ページ範囲リストを作成（同じファイル参照を使い、プロンプトで範囲指定）
   const ranges: { startPage: number; endPage: number }[] = []
   for (let start = 0; start < totalPages; start += chunkSize) {
     ranges.push({ startPage: start, endPage: Math.min(start + chunkSize, totalPages) })
@@ -80,7 +111,7 @@ async function processPdfInParallel(
         const r = await fetch('/api/bank-statement/ocr-pdf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pdfData: originalBase64, startPage: range.startPage, endPage: range.endPage, geminiModel: getGeminiModel() }),
+          body: JSON.stringify({ fileUri: fileRef.uri, mimeType: fileRef.mimeType, startPage: range.startPage, endPage: range.endPage, geminiModel: getGeminiModel() }),
         })
         if (r.ok) {
           const data = await r.json()
@@ -1056,10 +1087,21 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     }
 
     try {
+      // 各ページ画像を Gemini File API へ並列アップロード（リクエスト本体に画像を含めない）
+      const uploadStart = Date.now()
+      const imageRefs = await Promise.all(
+        imageDataUrls.map(async (url, i) => {
+          const { blob, mimeType } = dataUrlToBlob(url)
+          const ref = await uploadToGeminiFileApi(blob, `page-${i + 1}.png`, mimeType)
+          return { fileUri: ref.uri, mimeType: ref.mimeType }
+        }),
+      )
+      console.log(`Image upload: ${imageRefs.length}枚を ${((Date.now() - uploadStart) / 1000).toFixed(1)}s でアップロード`)
+
       const response = await fetch('/api/bank-statement/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
+        body: JSON.stringify({ files: imageRefs, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
       })
 
       if (!response.ok) {
@@ -1230,10 +1272,20 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     }
 
     try {
+      const uploadStart = Date.now()
+      const imageRefs = await Promise.all(
+        imageDataUrls.map(async (url, i) => {
+          const { blob, mimeType } = dataUrlToBlob(url)
+          const ref = await uploadToGeminiFileApi(blob, `page-${i + 1}.png`, mimeType)
+          return { fileUri: ref.uri, mimeType: ref.mimeType }
+        }),
+      )
+      console.log(`Image upload: ${imageRefs.length}枚を ${((Date.now() - uploadStart) / 1000).toFixed(1)}s でアップロード`)
+
       const response = await fetch('/api/bank-statement/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: imageDataUrls, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
+        body: JSON.stringify({ files: imageRefs, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
       })
 
       if (!response.ok) {

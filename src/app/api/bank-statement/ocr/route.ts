@@ -72,6 +72,9 @@ interface Transaction {
   balance: number
 }
 
+export const runtime = 'nodejs'
+export const maxDuration = 300
+
 function verifyAndCorrectTransactions(transactions: Transaction[]): {
   corrected: Transaction[]
   corrections: string[]
@@ -140,19 +143,14 @@ function verifyAndCorrectTransactions(transactions: Transaction[]): {
 async function processOnePage(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   model: any,
-  imageDataUrl: string,
+  fileRef: { fileUri: string; mimeType: string },
   pageIndex: number,
   promptAddition: string = '',
 ): Promise<{ pageIndex: number; transactions: Transaction[]; error?: string }> {
-  const base64Match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
-  if (!base64Match) {
-    return { pageIndex, transactions: [], error: '画像形式が不正です' }
-  }
-
   const fullPrompt = PROMPT_PER_PAGE + promptAddition
   const result = await model.generateContent([
     fullPrompt,
-    { inlineData: { mimeType: base64Match[1], data: base64Match[2] } },
+    { fileData: { mimeType: fileRef.mimeType, fileUri: fileRef.fileUri } },
   ])
 
   const responseText = result.response.text()
@@ -187,16 +185,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { images, templateHint, geminiModel } = await request.json()
-    console.log(`OCR request: ${images?.length || 0} pages${templateHint ? ' (with template)' : ''}`)
+    const { files, templateHint, geminiModel } = await request.json()
+    console.log(`OCR request: ${files?.length || 0} files (fileUri)${templateHint ? ' (with template)' : ''}`)
 
-    if (!images || !Array.isArray(images) || images.length === 0) {
-      return NextResponse.json({ error: '画像データがありません' }, { status: 400 })
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return NextResponse.json(
+        { error: 'fileUri がありません（事前に /api/bank-statement/gemini-upload でアップロードしてください）' },
+        { status: 400 },
+      )
     }
+
+    const fileRefs: { fileUri: string; mimeType: string }[] = files.map((f: { fileUri: string; mimeType?: string }) => ({
+      fileUri: f.fileUri,
+      mimeType: f.mimeType || 'image/png',
+    }))
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const modelName = geminiModel || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-    console.log(`Using model: ${modelName}, sending ${images.length} pages in parallel`)
+    console.log(`Using model: ${modelName}, sending ${fileRefs.length} pages in parallel`)
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { temperature: 0 } })
 
     // テンプレート情報があればプロンプトに追加
@@ -204,10 +210,10 @@ export async function POST(request: NextRequest) {
 
     // 全ページを並列でAPIに送信
     const startTime = Date.now()
-    const promises = images.map((img: string, i: number) => processOnePage(model, img, i, promptAddition))
+    const promises = fileRefs.map((ref, i) => processOnePage(model, ref, i, promptAddition))
     const results = await Promise.all(promises)
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-    console.log(`All ${images.length} pages completed in ${elapsed}s (parallel)`)
+    console.log(`All ${fileRefs.length} pages completed in ${elapsed}s (parallel)`)
 
     // 全ページの取引を結合してページ順にソート
     const allTransactions: Transaction[] = []
@@ -227,7 +233,7 @@ export async function POST(request: NextRequest) {
 
     // ページごとにグループ化
     const pageGroups: Record<number, Transaction[]> = {}
-    for (let i = 0; i < images.length; i++) pageGroups[i] = []
+    for (let i = 0; i < fileRefs.length; i++) pageGroups[i] = []
 
     for (const tx of corrected) {
       const idx = tx.page ?? 0
