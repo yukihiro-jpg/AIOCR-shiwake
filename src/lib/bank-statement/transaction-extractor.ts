@@ -1014,7 +1014,7 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     // スキャンPDF: まず PDF を直接 Gemini に並列送信（チャンク分割）
     console.log('Scanned/complex PDF detected, trying PDF-direct Gemini first (parallel)')
     try {
-      const data = await processPdfInParallel(file, 5, 4)
+      const data = await processPdfInParallel(file, 30, 3)
       if (data.totalCount > 0) {
         const pdfPageCount = await getPdfPageCount(file)
         // 左パネル表示用に画像も生成
@@ -1194,7 +1194,7 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
 
     // 1段目: PDF を直接 Gemini に並列送信（チャンク分割）
     try {
-      const data = await processPdfInParallel(file, 5, 4)
+      const data = await processPdfInParallel(file, 30, 3)
       if (data.totalCount > 0) {
         const pageCount = await getPdfPageCount(file)
         const imgUrls: string[] = []
