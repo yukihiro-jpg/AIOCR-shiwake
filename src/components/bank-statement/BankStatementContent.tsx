@@ -880,7 +880,10 @@ export default function BankStatementContent() {
             localStorage.setItem('bs-gemini-model', e.target.value)
           }} className="px-2 py-1 text-xs bg-white/10 text-white rounded border border-white/20">
             <option value="gemini-2.5-flash" className="text-black">Gemini 2.5 Flash</option>
-            <option value="gemini-3.0-flash" className="text-black">Gemini 3 Flash</option>
+            <option value="gemini-2.5-flash-preview-05-20" className="text-black">Gemini 2.5 Flash Preview</option>
+            <option value="gemini-3.0-flash" className="text-black">Gemini 3.0 Flash</option>
+            <option value="gemini-3.0-flash-001" className="text-black">Gemini 3.0 Flash 001</option>
+            <option value="gemini-2.0-flash" className="text-black">Gemini 2.0 Flash</option>
             <option value="gemini-2.5-pro" className="text-black">Gemini 2.5 Pro</option>
           </select>
           {journalEntries.length > 0 && (
