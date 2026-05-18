@@ -61,6 +61,43 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
   return { blob: new Blob([bytes], { type: mimeType }), mimeType }
 }
 
+// items を concurrency 本のワーカーで処理（ローリング並列：終わったワーカーから次を取る）
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  async function loop() {
+    while (true) {
+      const idx = next++
+      if (idx >= items.length) return
+      results[idx] = await worker(items[idx], idx)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => loop()),
+  )
+  return results
+}
+
+// 全ページ画像レンダリングを並列実行（OCR と並走させるためのヘルパー）
+async function renderAllPagesInParallel(
+  file: File,
+  pageCount: number,
+  scale: number = 2,
+  concurrency: number = 4,
+): Promise<string[]> {
+  const indices = Array.from({ length: pageCount }, (_, i) => i)
+  const start = Date.now()
+  const urls = await runWithConcurrency(indices, concurrency, async (i) => {
+    return renderPdfPageToImage(file, i + 1, scale)
+  })
+  console.log(`[renderAllPagesInParallel] ${pageCount}ページを ${((Date.now() - start) / 1000).toFixed(1)}s で完了 (並列=${concurrency})`)
+  return urls
+}
+
 /**
  * Gemini File API を使ってPDFを処理: 先にアップロードして fileUri を取得し、
  * ページ範囲ごとの並列リクエストでは fileUri のみを送信する
@@ -101,7 +138,7 @@ async function processPdfInParallel(
     ranges.push({ startPage: start, endPage: Math.min(start + chunkSize, totalPages) })
   }
 
-  console.log(`PDF: ${ranges.length}リクエスト (ページ範囲指定, concurrency=${concurrency})`)
+  console.log(`PDF: ${ranges.length}リクエスト (chunkSize=${chunkSize}, concurrency=${concurrency})`)
   const startTime = Date.now()
 
   async function fetchRangeWithRetry(range: { startPage: number; endPage: number }) {
@@ -134,21 +171,18 @@ async function processPdfInParallel(
     return { totalCount: 0, pages: [] }
   }
 
-  // 並列度を制限して処理
+  // ローリング並列：終わったワーカーから次の range を取る（テールレイテンシを最小化）
+  const allResults = await runWithConcurrency(ranges, concurrency, fetchRangeWithRetry)
+
   const mergedMap = new Map<number, OcrPdfPage>()
   let totalCount = 0
-  for (let i = 0; i < ranges.length; i += concurrency) {
-    const batch = ranges.slice(i, i + concurrency)
-    const batchResults = await Promise.all(batch.map(fetchRangeWithRetry))
-    for (const data of batchResults) {
-      totalCount += data.totalCount || 0
-      for (const pg of data.pages || []) {
-        const existing = mergedMap.get(pg.pageIndex)
-        if (existing) existing.transactions.push(...pg.transactions)
-        else mergedMap.set(pg.pageIndex, { pageIndex: pg.pageIndex, transactions: pg.transactions })
-      }
+  for (const data of allResults) {
+    totalCount += data.totalCount || 0
+    for (const pg of data.pages || []) {
+      const existing = mergedMap.get(pg.pageIndex)
+      if (existing) existing.transactions.push(...pg.transactions)
+      else mergedMap.set(pg.pageIndex, { pageIndex: pg.pageIndex, transactions: pg.transactions })
     }
-    console.log(`Batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(ranges.length / concurrency)} 完了`)
   }
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
   console.log(`All ${ranges.length} page ranges completed in ${elapsed}s, total=${totalCount} transactions`)
@@ -1042,15 +1076,16 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
   const { pages: rawPages, isTextPdf } = await parsePdfText(file)
 
   if (!isTextPdf) {
-    // スキャンPDF: まず PDF を直接 Gemini に並列送信（チャンク分割）
-    console.log('Scanned/complex PDF detected, trying PDF-direct Gemini first (parallel)')
+    // スキャンPDF: PDF を直接 Gemini に「1ページ=1リクエスト」で並列送信
+    // 同時に左パネル表示用の画像レンダリングも並走させる（OCRの裏に隠す）
+    console.log('Scanned/complex PDF detected, trying PDF-direct Gemini first (page-parallel)')
     try {
-      const data = await processPdfInParallel(file, 5, 4)
+      const pdfPageCount = await getPdfPageCount(file)
+      const [data, imageUrls] = await Promise.all([
+        processPdfInParallel(file, 1, 15),
+        renderAllPagesInParallel(file, pdfPageCount, 2, 4),
+      ])
       if (data.totalCount > 0) {
-        const pdfPageCount = await getPdfPageCount(file)
-        // 左パネル表示用に画像も生成
-        const imageUrls: string[] = []
-        for (let i = 0; i < pdfPageCount; i++) imageUrls.push(await renderPdfPageToImage(file, i + 1, 2))
         const statementPages: StatementPage[] = []
         for (let i = 0; i < pdfPageCount; i++) {
           const pg = data.pages.find((p) => p.pageIndex === i)
@@ -1234,13 +1269,15 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     // テキスト抽出はできたが列検出に失敗 → Gemini OCRにフォールバック
     console.log('Text PDF column detection failed, trying PDF-direct Gemini')
 
-    // 1段目: PDF を直接 Gemini に並列送信（チャンク分割）
+    // 1段目: PDF を直接 Gemini に「1ページ=1リクエスト」で並列送信
+    // 画像レンダリングも OCR と並走させる（裏に隠す）
     try {
-      const data = await processPdfInParallel(file, 5, 4)
+      const pageCount = await getPdfPageCount(file)
+      const [data, imgUrls] = await Promise.all([
+        processPdfInParallel(file, 1, 15),
+        renderAllPagesInParallel(file, pageCount, 2, 4),
+      ])
       if (data.totalCount > 0) {
-        const pageCount = await getPdfPageCount(file)
-        const imgUrls: string[] = []
-        for (let i = 0; i < pageCount; i++) imgUrls.push(await renderPdfPageToImage(file, i + 1, 2))
         const statementPages: StatementPage[] = []
         for (let i = 0; i < pageCount; i++) {
           const pageData = data.pages.find((p) => p.pageIndex === i)
