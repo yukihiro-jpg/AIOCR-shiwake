@@ -77,7 +77,13 @@ export default function BankStatementContent() {
   const [showPayroll, setShowPayroll] = useState(false)
   const [geminiModel, setGeminiModel] = useState(() => {
     if (typeof window === 'undefined') return 'gemini-2.5-flash'
-    return localStorage.getItem('bs-gemini-model') || 'gemini-2.5-flash'
+    const stored = localStorage.getItem('bs-gemini-model')
+    // 旧プレビューモデル名を正式リリース名に移行
+    if (stored === 'gemini-3-flash-preview') {
+      localStorage.setItem('bs-gemini-model', 'gemini-3.5-flash')
+      return 'gemini-3.5-flash'
+    }
+    return stored || 'gemini-2.5-flash'
   })
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
@@ -879,8 +885,8 @@ export default function BankStatementContent() {
             setGeminiModel(e.target.value)
             localStorage.setItem('bs-gemini-model', e.target.value)
           }} className="px-2 py-1 text-xs bg-white/10 text-white rounded border border-white/20">
+            <option value="gemini-3.5-flash" className="text-black">Gemini 3.5 Flash</option>
             <option value="gemini-2.5-flash" className="text-black">Gemini 2.5 Flash</option>
-            <option value="gemini-3-flash-preview" className="text-black">Gemini 3 Flash</option>
             <option value="gemini-2.5-pro" className="text-black">Gemini 2.5 Pro</option>
           </select>
           {journalEntries.length > 0 && (
