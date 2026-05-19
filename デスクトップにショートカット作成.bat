@@ -7,9 +7,7 @@ set "TARGET=%~dp0起動.bat"
 set "ICON=%~dp0kaikei-taisho-fileapi.ico"
 set "SHORTCUT=%USERPROFILE%\Desktop\会計大将インポート変換（FileAPI版）.lnk"
 
-echo デスクトップにショートカットを作成します:
-echo   %SHORTCUT%
-echo.
+echo デスクトップにショートカットを作成: %SHORTCUT%
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('%SHORTCUT%');" ^
@@ -20,12 +18,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s.Save()"
 
 if exist "%SHORTCUT%" (
-  echo.
   echo 完了しました。デスクトップにアイコンができています。
-  echo ダブルクリックでアプリが起動します（毎回 GitHub から最新版を取得）。
 ) else (
-  echo.
-  echo [エラー] ショートカットの作成に失敗しました。
+  echo [エラー] ショートカット作成に失敗
 )
 pause
 endlocal

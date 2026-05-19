@@ -1,5 +1,5 @@
 @echo off
-chcp 932 > /dev/null
+chcp 932 > nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
@@ -11,7 +11,7 @@ echo ============================================================
 echo.
 
 REM Node.js 確認
-where node >/dev/null 2>&1
+where node > nul 2>&1
 if errorlevel 1 (
   echo [エラー] Node.js が見つかりません。 https://nodejs.org/ja から LTS版 をインストールしてください。
   pause & exit /b 1
@@ -24,8 +24,8 @@ if not exist package.json (
   pause & exit /b 1
 )
 
-REM Git で最新コード取得し再起動（bat 自己書き換え対策のため reset/call/exit を1行で）
-where git >/dev/null 2>&1
+REM Git で最新コード取得 → 自己再起動（bat 自己書き換え対策のため reset/call/exit は1行）
+where git > nul 2>&1
 if errorlevel 1 (
   echo [情報] Git が見つかりません。自動更新はスキップします。
   goto :MAIN
@@ -39,12 +39,12 @@ git fetch origin --quiet && git reset --hard origin/claude/gemini-file-api-kp4Qk
 
 
 :MAIN
-REM npm install 必要判定（package-lock.json のハッシュを node_modules\.lock-stamp と比較）
+REM npm install 必要判定（package-lock.json のハッシュ比較）
 set "NEED_INSTALL="
 if not exist node_modules set "NEED_INSTALL=1"
 if exist package-lock.json (
   set "CURR_HASH="
-  for /f "delims=" %%h in ('git hash-object package-lock.json 2^>nul') do set "CURR_HASH=%%h"
+  for /f "delims=" %%h in ('git hash-object package-lock.json 2^> nul') do set "CURR_HASH=%%h"
   set "STORED_HASH="
   if exist node_modules\.lock-stamp set /p STORED_HASH=<node_modules\.lock-stamp
   if not "!CURR_HASH!"=="!STORED_HASH!" set "NEED_INSTALL=1"
@@ -61,13 +61,13 @@ if defined NEED_INSTALL (
 
 REM .env.local の作成・APIキー設定
 if not exist .env.local (
-  echo GEMINI_API_KEY=your_gemini_api_key> .env.local
+  echo GEMINI_API_KEY=your_gemini_api_key>.env.local
   echo [初回] .env.local を作成しました。メモ帳が開きます。
   echo   GEMINI_API_KEY= の右側を実際のキーで書き換えて保存してください。
   notepad .env.local
   pause
 )
-findstr /R /C:"^GEMINI_API_KEY=your_gemini_api_key$" .env.local >/dev/null 2>&1
+findstr /R /C:"^GEMINI_API_KEY=your_gemini_api_key$" .env.local > nul 2>&1
 if not errorlevel 1 (
   echo [エラー] .env.local の GEMINI_API_KEY がまだ初期値のままです。
   notepad .env.local
@@ -75,7 +75,7 @@ if not errorlevel 1 (
 )
 
 REM ブラウザを少し遅れて起動（通帳CSV変換画面へ直行）
-start "" /B cmd /c "timeout /t 8 /nobreak >/dev/null & start "" http://localhost:3000/bank-statement"
+start "" /B cmd /c "timeout /t 8 /nobreak > nul & start "" http://localhost:3000/bank-statement"
 
 echo.
 echo サーバを起動します。ブラウザが自動で開きます。
