@@ -128,17 +128,33 @@ export default function JournalEntryTable({
         }
       }
       const learnedIds = new Set(learnRelatedEntries.map((e) => e.id))
-      const updatedEntries = entries.map((e) =>
-        learnedIds.has(e.id) ? { ...e, patternId } : e,
-      )
+      const primaryId = learnDialogEntry.id
+      const effectiveMatchTextRaw = matchText || originalDesc
+      const isExactMatch = matchType === 'exact'
+      // 学習元の主行にも patternId と変換後摘要を即時反映する
+      // （子行は元々それぞれの摘要を保持するため description は更新しない）
+      const updatedEntries = entries.map((e) => {
+        if (!learnedIds.has(e.id)) return e
+        const updated: JournalEntry = { ...e, patternId }
+        if (convertedDesc && e.id === primaryId) {
+          const sourceText = e.originalDescription || e.description || ''
+          if (isExactMatch) {
+            updated.description = convertedDesc
+          } else if (effectiveMatchTextRaw) {
+            updated.description = sourceText.replace(effectiveMatchTextRaw, convertedDesc)
+          }
+        }
+        return updated
+      })
 
       if (applyToAll) {
-        const effectiveMatchText = (matchText || originalDesc).toLowerCase()
-        const isExactMatch = matchType === 'exact'
+        const effectiveMatchText = effectiveMatchTextRaw.toLowerCase()
         const targets = updatedEntries.filter((e) => {
           if (learnedIds.has(e.id)) return false
           if (e.parentId) return false
-          if (e.patternId) return false  // 既にパターン適用済みはスキップ
+          // 既に「別の」パターン適用済みの行はスキップ。同じパターン（再学習で更新中のもの）の
+          // 行は変換後摘要が変わった可能性があるため対象に含めて再反映する
+          if (e.patternId && e.patternId !== patternId) return false
           const eDesc = (e.originalDescription || e.description || '').toLowerCase()
           if (!eDesc) return false
           if (isExactMatch) {
