@@ -1,5 +1,5 @@
 @echo off
-chcp 932 > /dev/null
+chcp 932 > nul
 setlocal
 cd /d "%~dp0"
 
@@ -10,7 +10,7 @@ echo ============================================================
 echo.
 
 REM Git 確認
-where git >/dev/null 2>&1
+where git >nul 2>&1
 if errorlevel 1 (
   echo [エラー] Git for Windows がインストールされていません。
   echo.
