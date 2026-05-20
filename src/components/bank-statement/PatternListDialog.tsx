@@ -201,6 +201,7 @@ export default function PatternListDialog({ open, onClose }: Props) {
                 <th className="px-3 py-2 text-left border-b border-gray-300 font-medium">借方</th>
                 <th className="px-3 py-2 text-left border-b border-gray-300 font-medium">貸方</th>
                 <th className="px-3 py-2 text-left border-b border-gray-300 font-medium w-20">税CD</th>
+                <th className="px-3 py-2 text-center border-b border-gray-300 font-medium w-20">インボイス</th>
                 <th className="px-3 py-2 text-left border-b border-gray-300 font-medium w-28">摘要</th>
                 <th className="px-3 py-2 text-center border-b border-gray-300 font-medium w-20">下限</th>
                 <th className="px-3 py-2 text-center border-b border-gray-300 font-medium w-20">上限</th>
@@ -310,6 +311,28 @@ export default function PatternListDialog({ open, onClose }: Props) {
                         <span className="text-xs text-gray-600">{line.taxCode} {line.taxCategory ? `(${line.taxCategory})` : ''}</span>
                       )}
                     </td>
+                    {/* インボイス登録状況（businessType: '0'=登録 '1'=未登録） */}
+                    <td className="px-2 py-1 text-center">
+                      {isEditing && editData ? (
+                        <button
+                          type="button"
+                          onClick={() => updateLine(li, 'businessType', (editData.lines[li]?.businessType === '1') ? '0' : '1')}
+                          title={editData.lines[li]?.businessType === '1' ? 'インボイス未登録（クリックで登録者に変更）' : 'インボイス登録者（クリックで未登録に変更）'}
+                          className={`px-1.5 py-0.5 text-xs rounded border ${
+                            editData.lines[li]?.businessType === '1'
+                              ? 'text-red-600 border-red-300 bg-red-50 font-bold'
+                              : 'text-gray-500 border-gray-300 bg-white'
+                          }`}>
+                          {editData.lines[li]?.businessType === '1' ? '※未登録' : '登録'}
+                        </button>
+                      ) : (
+                        line.businessType === '1' ? (
+                          <span className="text-red-500 font-bold text-sm" title="インボイス未登録">※</span>
+                        ) : (
+                          <span className="text-gray-300 text-xs" title="インボイス登録者">—</span>
+                        )
+                      )}
+                    </td>
                     {/* 摘要 */}
                     <td className="px-2 py-1">
                       {isEditing && editData ? (
@@ -360,7 +383,7 @@ export default function PatternListDialog({ open, onClose }: Props) {
               })}
               {visiblePatterns.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={10} className="px-3 py-8 text-center text-gray-400">
                     {filterDuplicates ? '重複しているパターンはありません。' : 'パターンがまだ学習されていません。'}
                   </td>
                 </tr>
