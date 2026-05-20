@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, type SyncStatus } from '@/lib/bank-statement/drive-sync'
+import { uploadClientToDrive, uploadAllClientsToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, type SyncStatus } from '@/lib/bank-statement/drive-sync'
 
 interface Props {
   clientId: string | null
   clientName: string | null
 }
 
-type SyncState = 'idle' | 'uploading' | 'downloading' | 'error'
+type SyncState = 'idle' | 'uploading' | 'downloading' | 'uploadingAll' | 'error'
 
 export default function DriveSyncButton({ clientId, clientName }: Props) {
   const [connected, setConnected] = useState(false)
@@ -55,6 +55,27 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
     setSyncState('idle')
     setTimeout(() => { setMessage('') }, 4000)
   }, [clientId, clientName])
+
+  const handleUploadAll = useCallback(async () => {
+    if (!window.confirm('現在この PC に保存されている全顧問先のデータを Drive にアップロードします。よろしいですか？\n（既に Drive 上にあるデータは上書きされます）')) return
+    setSyncState('uploadingAll')
+    setMessage('全データをアップロード中...')
+    try {
+      const result = await uploadAllClientsToDrive((cur, total, name) => {
+        setMessage(`(${cur}/${total}) ${name} をアップロード中...`)
+      })
+      if (result.failed.length > 0) {
+        setMessage(`完了: ${result.uploaded}/${result.total}件 (失敗: ${result.failed.join(', ')})`)
+      } else {
+        setMessage(`${result.uploaded}件の顧問先データを全てアップロードしました`)
+      }
+    } catch (err) {
+      setMessage(`エラー: ${err instanceof Error ? err.message : '一括アップロード失敗'}`)
+      setSyncState('error')
+    }
+    setSyncState('idle')
+    setTimeout(() => { setMessage('') }, 8000)
+  }, [])
 
   const handleDownload = useCallback(async () => {
     if (!clientId) { setMessage('顧問先を選択してください'); return }
@@ -115,6 +136,11 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
         title="現在の顧問先データをDriveにアップロード"
         className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50">
         {syncState === 'uploading' ? '...' : '↑保存'}
+      </button>
+      <button onClick={handleUploadAll} disabled={syncState !== 'idle'}
+        title="全顧問先のデータをまとめてDriveにアップロード（初回セットアップ用）"
+        className="px-2 py-1 text-xs bg-emerald-700 hover:bg-emerald-800 text-white rounded disabled:opacity-50">
+        {syncState === 'uploadingAll' ? '...' : '↑全件'}
       </button>
       <button onClick={handleDownload} disabled={syncState !== 'idle'}
         title="Driveから現在の顧問先データをダウンロード"

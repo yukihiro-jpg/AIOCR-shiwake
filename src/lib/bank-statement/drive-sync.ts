@@ -84,6 +84,35 @@ export async function downloadClientFromDrive(clientId: string, clientName: stri
   return downloaded
 }
 
+/**
+ * 全顧問先のデータをまとめて Drive にアップロード
+ * 進捗を逐次レポートしながら全件処理。
+ */
+export async function uploadAllClientsToDrive(
+  onProgress?: (current: number, total: number, clientName: string) => void,
+): Promise<{ uploaded: number; total: number; failed: string[] }> {
+  const clientListRaw = localStorage.getItem('bank-statement-clients')
+  if (!clientListRaw) return { uploaded: 0, total: 0, failed: [] }
+  let clients: Array<{ id: string; name: string }> = []
+  try { clients = JSON.parse(clientListRaw) } catch { return { uploaded: 0, total: 0, failed: [] } }
+
+  let uploaded = 0
+  const failed: string[] = []
+  for (let i = 0; i < clients.length; i++) {
+    const c = clients[i]
+    if (!c.id) continue
+    onProgress?.(i + 1, clients.length, c.name || c.id)
+    try {
+      await uploadClientToDrive(c.id, c.name || null)
+      uploaded++
+    } catch (err) {
+      console.warn(`[drive-sync] upload failed for ${c.name || c.id}:`, err)
+      failed.push(c.name || c.id)
+    }
+  }
+  return { uploaded, total: clients.length, failed }
+}
+
 /** Drive連携ステータスを確認 */
 export async function getDriveConnected(): Promise<boolean> {
   try {
