@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'NOT_AUTHENTICATED' }, { status: 401 })
     }
     console.error('Drive changes error:', err)
-    return NextResponse.json({ error: 'failed' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: `Drive changes failed: ${detail}` }, { status: 500 })
   }
 }

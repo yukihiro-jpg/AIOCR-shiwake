@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'NOT_AUTHENTICATED' }, { status: 401 })
     }
     console.error('Drive read error:', err)
-    return NextResponse.json({ error: 'Drive read failed' }, { status: 500 })
+    return NextResponse.json({ error: `Drive read failed: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 })
   }
 }
 
@@ -226,7 +226,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'NOT_AUTHENTICATED' }, { status: 401 })
     }
     console.error('Drive write error:', err)
-    return NextResponse.json({ error: 'Drive write failed' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: `Drive write failed: ${detail}` }, { status: 500 })
   }
 }
 
@@ -254,6 +255,6 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'NOT_AUTHENTICATED' }, { status: 401 })
     }
     console.error('Drive bulk write error:', err)
-    return NextResponse.json({ error: 'Drive bulk write failed' }, { status: 500 })
+    return NextResponse.json({ error: `Drive bulk write failed: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 })
   }
 }
