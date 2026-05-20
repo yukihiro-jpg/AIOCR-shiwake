@@ -15,6 +15,10 @@ export function salesInvoiceToEntries(
   debitName: string,
   creditCode: string,
   creditName: string,
+  debitSubCode?: string,
+  debitSubName?: string,
+  creditSubCode?: string,
+  creditSubName?: string,
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -29,6 +33,7 @@ export function salesInvoiceToEntries(
       const line = inv.taxLines[0]
       const entry = makeEntry({
         date, debitCode, debitName, creditCode, creditName,
+        debitSubCode, debitSubName, creditSubCode, creditSubName,
         amount: totalAmount,
         taxType: line ? getTaxCategory('sales', line.taxRate, true) : '',
         taxRate: line?.taxRate,
@@ -39,6 +44,7 @@ export function salesInvoiceToEntries(
     } else {
       const parentEntry = makeEntry({
         date, debitCode, debitName,
+        debitSubCode, debitSubName,
         creditCode: '997', creditName: '諸口',
         amount: totalAmount, taxType: '',
         description,
@@ -50,6 +56,7 @@ export function salesInvoiceToEntries(
           date,
           debitCode: '997', debitName: '諸口',
           creditCode, creditName,
+          creditSubCode, creditSubName,
           amount: line.totalAmount,
           taxType: getTaxCategory('sales', line.taxRate, true),
           taxRate: line.taxRate,
@@ -75,6 +82,10 @@ export function purchaseInvoiceToEntries(
   debitName: string,
   creditCode: string,
   creditName: string,
+  debitSubCode?: string,
+  debitSubName?: string,
+  creditSubCode?: string,
+  creditSubName?: string,
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -90,6 +101,7 @@ export function purchaseInvoiceToEntries(
       const line = inv.taxLines[0]
       const entry = makeEntry({
         date, debitCode, debitName, creditCode, creditName,
+        debitSubCode, debitSubName, creditSubCode, creditSubName,
         amount: totalAmount,
         taxType: line ? getTaxCategory('purchase', line.taxRate, hasInvoice) : '',
         taxRate: line?.taxRate,
@@ -101,6 +113,7 @@ export function purchaseInvoiceToEntries(
       const parentEntry = makeEntry({
         date, debitCode: '997', debitName: '諸口',
         creditCode, creditName,
+        creditSubCode, creditSubName,
         amount: totalAmount, taxType: '',
         description,
       })
@@ -110,6 +123,7 @@ export function purchaseInvoiceToEntries(
         const childEntry = makeEntry({
           date,
           debitCode, debitName,
+          debitSubCode, debitSubName,
           creditCode: '997', creditName: '諸口',
           amount: line.totalAmount,
           taxType: getTaxCategory('purchase', line.taxRate, hasInvoice),
@@ -147,6 +161,8 @@ function taxRateToCode(taxRate: string): string {
 function makeEntry(p: {
   date: string; debitCode: string; debitName: string;
   creditCode: string; creditName: string; amount: number;
+  debitSubCode?: string; debitSubName?: string;
+  creditSubCode?: string; creditSubName?: string;
   taxType: string; taxRate?: string; hasInvoice?: boolean; description: string;
 }): JournalEntry {
   const entry = createBlankEntry()
@@ -154,8 +170,12 @@ function makeEntry(p: {
   entry.date = p.date
   entry.debitCode = p.debitCode
   entry.debitName = p.debitName
+  entry.debitSubCode = p.debitSubCode || ''
+  entry.debitSubName = p.debitSubName || ''
   entry.creditCode = p.creditCode
   entry.creditName = p.creditName
+  entry.creditSubCode = p.creditSubCode || ''
+  entry.creditSubName = p.creditSubName || ''
   entry.debitAmount = p.amount
   entry.creditAmount = p.amount
   entry.debitTaxType = p.taxType

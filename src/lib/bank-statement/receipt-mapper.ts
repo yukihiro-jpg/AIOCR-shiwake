@@ -22,6 +22,8 @@ export function receiptToEntries(
   receipts: ReceiptData[],
   creditCode: string,
   creditName: string,
+  creditSubCode?: string,
+  creditSubName?: string,
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -35,6 +37,7 @@ export function receiptToEntries(
       const line = rcp.taxLines[0]
       const entry = makeEntry({
         date, debitCode: '', debitName: '', creditCode, creditName,
+        creditSubCode, creditSubName,
         amount: totalAmount,
         taxType: line ? getTaxCategory(line.taxRate, hasInvoice) : '',
         taxRate: line?.taxRate, hasInvoice,
@@ -47,6 +50,7 @@ export function receiptToEntries(
         date,
         debitCode: '997', debitName: '諸口',
         creditCode, creditName,
+        creditSubCode, creditSubName,
         amount: totalAmount,
         taxType: '',
         description,
@@ -88,6 +92,7 @@ function taxRateToCode(taxRate: string): string {
 function makeEntry(p: {
   date: string; debitCode: string; debitName: string;
   creditCode: string; creditName: string; amount: number;
+  creditSubCode?: string; creditSubName?: string;
   taxType: string; taxRate?: string; hasInvoice?: boolean;
   description: string; originalDescription: string;
 }): JournalEntry {
@@ -98,6 +103,8 @@ function makeEntry(p: {
   entry.debitName = p.debitName
   entry.creditCode = p.creditCode
   entry.creditName = p.creditName
+  entry.creditSubCode = p.creditSubCode || ''
+  entry.creditSubName = p.creditSubName || ''
   entry.debitAmount = p.amount
   entry.creditAmount = p.amount
   entry.debitTaxType = p.taxType

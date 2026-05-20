@@ -446,7 +446,7 @@ export default function BankStatementContent() {
               invoiceNumber: r.invoiceNumber,
               taxLines: [{ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
               pageIndex: r.pageIndex,
-            })), config.creditCode!, config.creditName!)
+            })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
             setJournalEntries((prev) => [...prev, ...entries])
             setInfo(`${textResult.receipts.length}件のレシートをテキスト解析しました（${elapsedSec}秒）`)
             setIsLoading(false)
@@ -487,7 +487,7 @@ export default function BankStatementContent() {
           setPages((prev) => [...prev, ...statementPages])
 
           const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
-          const entries = receiptToEntries(receipts, config.creditCode!, config.creditName!)
+          const entries = receiptToEntries(receipts, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)
@@ -575,9 +575,13 @@ export default function BankStatementContent() {
           const dName = config.debitName || ''
           const cCode = config.creditCode || ''
           const cName = config.creditName || ''
+          const dSubCode = config.debitSubCode || ''
+          const dSubName = config.debitSubName || ''
+          const cSubCode = config.creditSubCode || ''
+          const cSubName = config.creditSubName || ''
           const entries = config.documentType === 'sales-invoice'
-            ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName)
-            : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName)
+            ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
+            : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)
