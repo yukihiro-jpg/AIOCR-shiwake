@@ -1,8 +1,55 @@
-import type { JournalEntry, InvoiceData, AccountItem } from './types'
+import type { JournalEntry, InvoiceData, AccountItem, PatternEntry } from './types'
 import { createBlankEntry } from './journal-mapper'
+import { findPattern } from './pattern-store'
 
 let idCounter = 0
 function genId(): string { return `inv-${Date.now()}-${++idCounter}` }
+
+/**
+ * 請求書から生成した仕訳に学習パターンを適用する。
+ * 単一行の仕訳に対して originalDescription（請求先名_主内容）と金額でパターン検索し、
+ * 一致したら科目・補助科目・税CD・事業者区分・変換後摘要を上書きする。
+ * 複合仕訳（parentId が設定済み or isCompound=true）はスキップして既存構造を壊さない。
+ */
+export function applyPatternsToInvoiceEntries(
+  entries: JournalEntry[],
+  patterns: PatternEntry[],
+): JournalEntry[] {
+  if (!patterns || patterns.length === 0) return entries
+  return entries.map((e) => {
+    if (e.isCompound || e.parentId) return e
+    const keyword = e.originalDescription || e.description
+    if (!keyword) return e
+    const amount = e.debitAmount || e.creditAmount || 0
+    const pattern = findPattern(patterns, keyword, amount)
+    if (!pattern) return e
+    const line = pattern.lines?.[0]
+    if (!line) return e
+    const updated: JournalEntry = { ...e }
+    if (line.debitCode) {
+      updated.debitCode = line.debitCode
+      updated.debitName = line.debitName || ''
+      updated.debitSubCode = line.debitSubCode || ''
+      updated.debitSubName = line.debitSubName || ''
+    }
+    if (line.creditCode) {
+      updated.creditCode = line.creditCode
+      updated.creditName = line.creditName || ''
+      updated.creditSubCode = line.creditSubCode || ''
+      updated.creditSubName = line.creditSubName || ''
+    }
+    if (line.taxCode) updated.debitTaxCode = line.taxCode
+    if (line.taxCategory) updated.debitTaxType = line.taxCategory
+    if (line.businessType) updated.debitBusinessType = line.businessType
+    if (pattern.convertedDescription) {
+      updated.description = pattern.convertedDescription.slice(0, 40)
+    } else if (line.description) {
+      updated.description = line.description.slice(0, 40)
+    }
+    updated.patternId = pattern.id
+    return updated
+  })
+}
 
 /**
  * 列マッピング設定（Excel/CSV 取り込み用）

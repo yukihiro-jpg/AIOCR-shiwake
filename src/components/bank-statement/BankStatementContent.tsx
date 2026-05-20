@@ -599,7 +599,7 @@ export default function BankStatementContent() {
           setCurrentPageIndex(0)
 
           // 仕訳生成
-          const { salesInvoiceToEntries, purchaseInvoiceToEntries } = await import('@/lib/bank-statement/invoice-mapper')
+          const { salesInvoiceToEntries, purchaseInvoiceToEntries, applyPatternsToInvoiceEntries } = await import('@/lib/bank-statement/invoice-mapper')
           // 借方・貸方どちらか片方未入力の場合は空文字で渡し、ユーザーが後で補完できる
           const dCode = config.debitCode || ''
           const dName = config.debitName || ''
@@ -609,9 +609,12 @@ export default function BankStatementContent() {
           const dSubName = config.debitSubName || ''
           const cSubCode = config.creditSubCode || ''
           const cSubName = config.creditSubName || ''
-          const entries = config.documentType === 'sales-invoice'
+          const rawEntries = config.documentType === 'sales-invoice'
             ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
             : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
+          // 学習パターンを適用（請求先名_内容 + 金額でマッチ）
+          const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
+          const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns())
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)
@@ -726,7 +729,7 @@ export default function BankStatementContent() {
       setShowInvoiceColumnMapping(false)
       setIsLoading(true)
       try {
-        const { rowsToInvoiceData, salesInvoiceToEntries, purchaseInvoiceToEntries } =
+        const { rowsToInvoiceData, salesInvoiceToEntries, purchaseInvoiceToEntries, applyPatternsToInvoiceEntries } =
           await import('@/lib/bank-statement/invoice-mapper')
         const invoices = rowsToInvoiceData(invoiceRawRows, mapping)
         if (invoices.length === 0) throw new Error('有効な請求書行が見つかりませんでした（金額・日付が空かもしれません）')
@@ -739,9 +742,12 @@ export default function BankStatementContent() {
         const dSubName = uploadConfig.debitSubName || ''
         const cSubCode = uploadConfig.creditSubCode || ''
         const cSubName = uploadConfig.creditSubName || ''
-        const entries = uploadConfig.documentType === 'sales-invoice'
+        const rawEntries = uploadConfig.documentType === 'sales-invoice'
           ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
           : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
+        // 学習パターンを適用（請求先名_内容 + 金額でマッチ）
+        const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
+        const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns())
         setJournalEntries((prev) => [...prev, ...entries])
         setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
       } catch (err) {
