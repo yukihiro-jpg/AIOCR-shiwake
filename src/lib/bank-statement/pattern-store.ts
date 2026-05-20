@@ -63,6 +63,11 @@ export function findPattern(
 
   const matches = patterns
     .filter((p) => {
+      // 科目スコープ: パターンに accountCode が設定されている場合は、
+      // 現在の口座科目と一致する場合のみマッチ対象とする。
+      // （例：136筑波銀行で学習したパターンが144千葉銀行に誤適用されないように）
+      // accountCode を持たない（旧式・口座非依存）パターンは引き続き全口座にマッチする。
+      if (p.accountCode && accountCode && p.accountCode !== accountCode) return false
       const matchText = (p.matchText || p.keyword).toLowerCase()
       const isExact = p.matchType === 'exact'
       let keyMatch: boolean
