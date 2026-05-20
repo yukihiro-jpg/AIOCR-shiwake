@@ -208,6 +208,7 @@ export interface InvoiceData {
     taxAmount: number       // 消費税額
     totalAmount: number     // 税込金額
   }[]
+  totalAmount?: number      // 請求金額/振込金額（taxLines が空の場合のフォールバック）
   pageStart: number         // 開始ページ
   pageEnd: number           // 終了ページ
 }

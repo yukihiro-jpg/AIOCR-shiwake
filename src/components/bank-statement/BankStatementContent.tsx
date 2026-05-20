@@ -570,9 +570,14 @@ export default function BankStatementContent() {
 
           // 仕訳生成
           const { salesInvoiceToEntries, purchaseInvoiceToEntries } = await import('@/lib/bank-statement/invoice-mapper')
+          // 借方・貸方どちらか片方未入力の場合は空文字で渡し、ユーザーが後で補完できる
+          const dCode = config.debitCode || ''
+          const dName = config.debitName || ''
+          const cCode = config.creditCode || ''
+          const cName = config.creditName || ''
           const entries = config.documentType === 'sales-invoice'
-            ? salesInvoiceToEntries(invoices, config.debitCode!, config.debitName!, config.creditCode!, config.creditName!)
-            : purchaseInvoiceToEntries(invoices, config.debitCode!, config.debitName!, config.creditCode!, config.creditName!)
+            ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName)
+            : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName)
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)

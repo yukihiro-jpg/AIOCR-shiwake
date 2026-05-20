@@ -90,7 +90,8 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
           file, ...period,
         })
       } else {
-        if (!debitCode || !creditCode) return
+        // 請求書アップロードは借方・貸方のいずれか片方だけ設定されていれば可
+        if (isInvoice ? (!debitCode && !creditCode) : (!debitCode || !creditCode)) return
         onUpload({
           documentType: docType,
           accountCode: '', accountName: '',
@@ -116,7 +117,8 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
         isBankLike ? !!(accountCode && accountName)
           : isCreditCard ? !!(creditCode && creditName)
             : isReceipt ? !!(creditCode && creditName)
-              : !!(debitCode && creditCode)
+              : isInvoice ? !!(debitCode || creditCode)
+                : !!(debitCode && creditCode)
       )
   )
 
@@ -357,6 +359,9 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
                     docType === 'sales-invoice' ? ['売上', '収入'] : ['買掛', '未払'],
                     creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
                   )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    借方・貸方のいずれか片方だけ選択した状態でもアップロードできます（未入力の側は解析後に各仕訳で個別に設定してください）。
+                  </p>
                 </>
               )}
             </div>

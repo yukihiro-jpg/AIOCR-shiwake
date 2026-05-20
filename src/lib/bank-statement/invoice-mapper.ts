@@ -21,7 +21,9 @@ export function salesInvoiceToEntries(
   for (const inv of invoices) {
     const description = `${inv.counterpartName}_${inv.mainContent}`
     const date = inv.invoiceDate.replace(/-/g, '')
-    const totalAmount = inv.taxLines.reduce((s, t) => s + t.totalAmount, 0)
+    // taxLines が空でも請求書全体の totalAmount（請求金額/振込金額）を採用
+    const taxLineTotal = inv.taxLines.reduce((s, t) => s + (t.totalAmount || 0), 0)
+    const totalAmount = taxLineTotal > 0 ? taxLineTotal : (inv.totalAmount || 0)
 
     if (inv.taxLines.length <= 1) {
       const line = inv.taxLines[0]
@@ -79,7 +81,9 @@ export function purchaseInvoiceToEntries(
   for (const inv of invoices) {
     const description = `${inv.counterpartName}_${inv.mainContent}`
     const date = inv.invoiceDate.replace(/-/g, '')
-    const totalAmount = inv.taxLines.reduce((s, t) => s + t.totalAmount, 0)
+    // taxLines が空でも請求書全体の totalAmount（請求金額/振込金額）を採用
+    const taxLineTotal = inv.taxLines.reduce((s, t) => s + (t.totalAmount || 0), 0)
+    const totalAmount = taxLineTotal > 0 ? taxLineTotal : (inv.totalAmount || 0)
     const hasInvoice = !!inv.invoiceNumber
 
     if (inv.taxLines.length <= 1) {
