@@ -43,7 +43,12 @@ export default function JournalEntryTable({
   hideBalance, onSelectionChange, onPageChange,
 }: Props) {
   const [selectedRange, setSelectedRange] = useState<Set<string>>(new Set())
-  const [lastClickedId, setLastClickedId] = useState<string | null>(null)
+  // 範囲選択のアンカー（最後にクリックされた行ID）。クロージャ古さの影響を受けないよう ref で管理。
+  const lastClickedIdRef = useRef<string | null>(null)
+  const selectedEntryIdRef = useRef<string | null>(selectedEntryId)
+  useEffect(() => { selectedEntryIdRef.current = selectedEntryId }, [selectedEntryId])
+  const selectedRangeRef = useRef<Set<string>>(selectedRange)
+  useEffect(() => { selectedRangeRef.current = selectedRange }, [selectedRange])
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [bulkField, setBulkField] = useState<string>('')
   const [bulkValue, setBulkValue] = useState<string>('')
@@ -309,69 +314,79 @@ export default function JournalEntryTable({
 
   const handleRowSelect = useCallback(
     (entryId: string, e?: React.MouseEvent) => {
-      // Shift+クリック: lastClickedIdから範囲選択
-      if (e?.shiftKey && lastClickedId) {
-        e.preventDefault()
-        const s = entries.findIndex((en) => en.id === lastClickedId)
-        const ed = entries.findIndex((en) => en.id === entryId)
-        if (s >= 0 && ed >= 0) {
-          const [from, to] = s < ed ? [s, ed] : [ed, s]
-          const range = new Set<string>()
-          for (let i = from; i <= to; i++) range.add(entries[i].id)
-          setSelectedRange(range)
-          setShowBulkEdit(true)
+      // ref で最新の entries / lastClickedId / selectedRange を参照（クロージャ古さ回避）
+      const list = entriesRef.current
+      const currentRange = selectedRangeRef.current
+
+      // Shift+クリック: lastClickedId からの範囲選択（lastClickedId 未設定なら現在の単一選択を起点に）
+      if (e?.shiftKey) {
+        const anchorId = lastClickedIdRef.current || selectedEntryIdRef.current
+        if (anchorId) {
+          e.preventDefault()
+          const s = list.findIndex((en) => en.id === anchorId)
+          const ed = list.findIndex((en) => en.id === entryId)
+          if (s >= 0 && ed >= 0) {
+            const [from, to] = s < ed ? [s, ed] : [ed, s]
+            const range = new Set<string>()
+            for (let i = from; i <= to; i++) range.add(list[i].id)
+            setSelectedRange(range)
+            setShowBulkEdit(true)
+            // アンカーは維持し、selectedEntryId を移動させない（サイドパネルが暴れないように）
+          }
+          return
         }
-        setLastClickedId(entryId)
-        return
       }
       // Ctrl/Cmd+クリック: 個別にトグル追加
       if (e && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
-        const newRange = new Set(selectedRange)
-        // 範囲がまだ無い場合は既存の単一選択をseedとして含める
-        if (newRange.size === 0 && selectedEntryId) newRange.add(selectedEntryId)
+        const newRange = new Set(currentRange)
+        if (newRange.size === 0 && selectedEntryIdRef.current) newRange.add(selectedEntryIdRef.current)
         if (newRange.has(entryId)) newRange.delete(entryId)
         else newRange.add(entryId)
         setSelectedRange(newRange)
         setShowBulkEdit(newRange.size > 0)
-        setLastClickedId(entryId)
+        lastClickedIdRef.current = entryId
         return
       }
-      // 通常クリック: 単一選択・範囲解除
+      // 通常クリック: 単一選択・範囲解除（アンカー更新）
       setSelectedRange(new Set())
       setShowBulkEdit(false)
-      setLastClickedId(entryId)
+      lastClickedIdRef.current = entryId
       onSelect(entryId)
     },
-    [entries, lastClickedId, selectedEntryId, selectedRange, onSelect],
+    [onSelect],
   )
 
   // チェックボックスのクリック処理（範囲/個別トグル対応）
   const handleCheckToggle = useCallback(
     (entryId: string, e: React.MouseEvent) => {
-      // Shift+クリック: 直前チェック項目から範囲選択
-      if (e.shiftKey && lastClickedId) {
-        const s = entries.findIndex((en) => en.id === lastClickedId)
-        const ed = entries.findIndex((en) => en.id === entryId)
-        if (s >= 0 && ed >= 0) {
-          const [from, to] = s < ed ? [s, ed] : [ed, s]
-          const newRange = new Set(selectedRange)
-          for (let i = from; i <= to; i++) newRange.add(entries[i].id)
-          setSelectedRange(newRange)
-          setShowBulkEdit(newRange.size > 0)
+      const list = entriesRef.current
+      const currentRange = selectedRangeRef.current
+      // Shift+クリック: アンカー（最後にクリックされた行 or 単一選択行）から範囲選択
+      if (e.shiftKey) {
+        const anchorId = lastClickedIdRef.current || selectedEntryIdRef.current
+        if (anchorId) {
+          const s = list.findIndex((en) => en.id === anchorId)
+          const ed = list.findIndex((en) => en.id === entryId)
+          if (s >= 0 && ed >= 0) {
+            const [from, to] = s < ed ? [s, ed] : [ed, s]
+            const newRange = new Set(currentRange)
+            for (let i = from; i <= to; i++) newRange.add(list[i].id)
+            setSelectedRange(newRange)
+            setShowBulkEdit(newRange.size > 0)
+          }
+          return
         }
-        setLastClickedId(entryId)
-        return
       }
       // 通常/Ctrl+クリック: 単独でトグル
-      const newRange = new Set(selectedRange)
+      const newRange = new Set(currentRange)
       if (newRange.has(entryId)) newRange.delete(entryId)
       else newRange.add(entryId)
       setSelectedRange(newRange)
       setShowBulkEdit(newRange.size > 0)
-      setLastClickedId(entryId)
+      lastClickedIdRef.current = entryId
     },
-    [entries, lastClickedId, selectedRange],
+    [],
   )
 
   // 現在のフィルタで表示されている行のIDを算出
