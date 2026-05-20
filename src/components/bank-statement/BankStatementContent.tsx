@@ -10,6 +10,7 @@ import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog
 import StatementViewer from '@/components/bank-statement/StatementViewer'
 import JournalEntryTable from '@/components/bank-statement/JournalEntryTable'
 import ColumnMappingDialog from '@/components/bank-statement/ColumnMappingDialog'
+import InvoiceColumnMappingDialog, { type InvoiceColumnMapping } from '@/components/bank-statement/InvoiceColumnMappingDialog'
 import CsvExportButton from '@/components/bank-statement/CsvExportButton'
 import { appendTempEntries, getTempEntryCount, clearTempEntries, getTempEntries } from '@/lib/bank-statement/temp-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
@@ -155,6 +156,9 @@ export default function BankStatementContent() {
   const [showColumnMapping, setShowColumnMapping] = useState(false)
   const [rawPages, setRawPages] = useState<RawTableRow[][] | null>(null)
   const [pendingSourceType, setPendingSourceType] = useState<ParseResult['sourceType'] | null>(null)
+  // 請求書（Excel/CSV）列マッピング用
+  const [showInvoiceColumnMapping, setShowInvoiceColumnMapping] = useState(false)
+  const [invoiceRawRows, setInvoiceRawRows] = useState<RawTableRow[] | null>(null)
   const [pendingImageUrls, setPendingImageUrls] = useState<string[] | null>(null)
 
   // 以下は顧問先選択後の処理
@@ -533,7 +537,33 @@ export default function BankStatementContent() {
         }
 
         if (config.documentType === 'sales-invoice' || config.documentType === 'purchase-invoice') {
-          // 請求書処理
+          // Excel/CSV: 列マッピングダイアログで処理
+          const ext = config.file.name.toLowerCase().split('.').pop() || ''
+          if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+            const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
+            let sheetRows: RawTableRow[] = []
+            if (ext === 'csv') {
+              const text = await config.file.text()
+              const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
+              sheetRows = lines.map((l, i) => ({
+                cells: parseCsvLine(l),
+                rowIndex: i,
+              }))
+            } else {
+              const sheets = await parseExcel(config.file)
+              if (!sheets.length) throw new Error('Excel ファイルにシートがありません')
+              sheetRows = sheets[0].rows
+            }
+            clearInterval(progressTimer)
+            setLoadingProgress(0)
+            if (sheetRows.length === 0) throw new Error('行データが見つかりませんでした')
+            setInvoiceRawRows(sheetRows)
+            setShowInvoiceColumnMapping(true)
+            setIsLoading(false)
+            return
+          }
+
+          // PDF: Gemini OCR 処理
           const { renderPdfPageToImage, getPdfPageCount } = await import('@/lib/bank-statement/pdf-text-parser')
           const pageCount = await getPdfPageCount(config.file)
           const imageDataUrls: string[] = []
@@ -688,6 +718,40 @@ export default function BankStatementContent() {
       }
     },
     [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls],
+  )
+
+  const handleInvoiceColumnMappingConfirm = useCallback(
+    async (mapping: InvoiceColumnMapping) => {
+      if (!invoiceRawRows || !uploadConfig) return
+      setShowInvoiceColumnMapping(false)
+      setIsLoading(true)
+      try {
+        const { rowsToInvoiceData, salesInvoiceToEntries, purchaseInvoiceToEntries } =
+          await import('@/lib/bank-statement/invoice-mapper')
+        const invoices = rowsToInvoiceData(invoiceRawRows, mapping)
+        if (invoices.length === 0) throw new Error('有効な請求書行が見つかりませんでした（金額・日付が空かもしれません）')
+
+        const dCode = uploadConfig.debitCode || ''
+        const dName = uploadConfig.debitName || ''
+        const cCode = uploadConfig.creditCode || ''
+        const cName = uploadConfig.creditName || ''
+        const dSubCode = uploadConfig.debitSubCode || ''
+        const dSubName = uploadConfig.debitSubName || ''
+        const cSubCode = uploadConfig.creditSubCode || ''
+        const cSubName = uploadConfig.creditSubName || ''
+        const entries = uploadConfig.documentType === 'sales-invoice'
+          ? salesInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
+          : purchaseInvoiceToEntries(invoices, dCode, dName, cCode, cName, dSubCode, dSubName, cSubCode, cSubName)
+        setJournalEntries((prev) => [...prev, ...entries])
+        setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '請求書取り込みに失敗しました')
+      } finally {
+        setIsLoading(false)
+        setInvoiceRawRows(null)
+      }
+    },
+    [invoiceRawRows, uploadConfig],
   )
 
   const handleEntrySelect = useCallback(
@@ -1095,6 +1159,19 @@ export default function BankStatementContent() {
         />
       )}
 
+      {/* 請求書 Excel/CSV 用 列マッピングダイアログ */}
+      {showInvoiceColumnMapping && invoiceRawRows && uploadConfig && (
+        <InvoiceColumnMappingDialog
+          rows={invoiceRawRows}
+          isPurchase={uploadConfig.documentType === 'purchase-invoice'}
+          onConfirm={handleInvoiceColumnMappingConfirm}
+          onCancel={() => {
+            setShowInvoiceColumnMapping(false)
+            setInvoiceRawRows(null)
+          }}
+        />
+      )}
+
       {/* パターン一覧ダイアログ */}
       <PatternListDialog open={showPatternList} onClose={() => setShowPatternList(false)} />
 
@@ -1141,4 +1218,27 @@ export default function BankStatementContent() {
     </div>
     )
   )
+}
+
+// 簡易 CSV 1行パーサ（ダブルクオート対応）
+function parseCsvLine(line: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuote) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++ } else { inQuote = false }
+      } else {
+        cur += ch
+      }
+    } else {
+      if (ch === '"') inQuote = true
+      else if (ch === ',') { out.push(cur); cur = '' }
+      else cur += ch
+    }
+  }
+  out.push(cur)
+  return out.map((s) => s.trim())
 }
