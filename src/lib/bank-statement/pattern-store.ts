@@ -47,6 +47,42 @@ export function getPatterns(): PatternEntry[] {
 export function savePatterns(patterns: PatternEntry[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getPatternKey(), JSON.stringify(patterns))
+  // Drive 自動同期: クライアントが選択されている場合のみ debounce 付きで Push
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./drive-sync').then(({ schedulePushToDrive }) => {
+      schedulePushToDrive(cid, 'patterns', patterns)
+    }).catch(() => { /* Drive 未設定でもローカル保存は成功 */ })
+  }
+}
+
+/**
+ * Drive から取得したパターンとローカルのパターンをマージしてローカルに反映。
+ * - 両者にあるパターンは useCount が大きい方 + updatedAt が新しい方を採用
+ * - 片方にしかないものは両方とも残す
+ */
+export function mergePatternsFromDrive(remote: PatternEntry[]): { added: number; updated: number } {
+  if (typeof window === 'undefined') return { added: 0, updated: 0 }
+  const local = getPatterns()
+  const map = new Map<string, PatternEntry>()
+  for (const p of local) map.set(p.id, p)
+  let added = 0
+  let updated = 0
+  for (const r of remote) {
+    const existing = map.get(r.id)
+    if (!existing) {
+      map.set(r.id, r); added++
+    } else {
+      // 使用回数が多い方をベース、より新しい lines を採用
+      const useCount = Math.max(existing.useCount, r.useCount)
+      const merged: PatternEntry = { ...existing, ...r, useCount }
+      if (JSON.stringify(existing) !== JSON.stringify(merged)) updated++
+      map.set(r.id, merged)
+    }
+  }
+  const result = Array.from(map.values())
+  localStorage.setItem(getPatternKey(), JSON.stringify(result))
+  return { added, updated }
 }
 
 /**

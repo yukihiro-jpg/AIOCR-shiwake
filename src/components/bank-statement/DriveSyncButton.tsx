@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected } from '@/lib/bank-statement/drive-sync'
+import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, type SyncStatus } from '@/lib/bank-statement/drive-sync'
 
 interface Props {
   clientId: string | null
@@ -14,9 +14,15 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
   const [connected, setConnected] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [message, setMessage] = useState('')
+  const [autoStatus, setAutoStatus] = useState<SyncStatus | null>(null)
 
   useEffect(() => {
     getDriveConnected().then(setConnected)
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = subscribeSyncStatus((s) => setAutoStatus(s))
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -83,9 +89,28 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
     )
   }
 
+  // 自動同期ステータスの表示テキスト
+  const autoBadge = (() => {
+    if (!autoStatus) return null
+    if (autoStatus.pushing || autoStatus.pendingPushes > 0) return { text: '同期中', cls: 'text-amber-300' }
+    if (autoStatus.error) return { text: '同期エラー', cls: 'text-red-400', title: autoStatus.error }
+    if (autoStatus.lastSyncAt) {
+      const sec = Math.floor((Date.now() - autoStatus.lastSyncAt.getTime()) / 1000)
+      if (sec < 60) return { text: '同期済', cls: 'text-emerald-300', title: `最終同期: ${sec}秒前` }
+      const min = Math.floor(sec / 60)
+      return { text: `${min}分前`, cls: 'text-emerald-300', title: `最終同期: ${min}分前` }
+    }
+    return null
+  })()
+
   return (
     <div className="flex items-center gap-1">
       <span className="text-xs text-green-400 font-medium">Drive</span>
+      {autoBadge && (
+        <span className={`text-[10px] ${autoBadge.cls} px-1 rounded`} title={autoBadge.title}>
+          {autoBadge.text}
+        </span>
+      )}
       <button onClick={handleUpload} disabled={syncState !== 'idle'}
         title="現在の顧問先データをDriveにアップロード"
         className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50">

@@ -33,6 +33,9 @@ async function getAuthedDrive() {
 }
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || ''
+// 既存のフォルダ名 "accounting-app-data" は前身アプリのデータと衝突するので、
+// 環境変数で別名（例: 事務所アプリ共有データ）を指定できるようにする。
+const APP_FOLDER_NAME = process.env.GOOGLE_DRIVE_DATA_FOLDER_NAME || 'accounting-app-data'
 
 // フォルダ名に使えない/面倒な文字をサニタイズ
 function sanitizeFolderName(name: string): string {
@@ -192,7 +195,7 @@ export async function GET(request: NextRequest) {
     const key = request.nextUrl.searchParams.get('key')
     if (!key) return NextResponse.json({ error: 'key is required' }, { status: 400 })
 
-    const appFolder = await findOrCreateFolder(drive, 'accounting-app-data', ROOT_FOLDER_ID)
+    const appFolder = await findOrCreateFolder(drive, APP_FOLDER_NAME, ROOT_FOLDER_ID)
     const clientFolder = await resolveClientFolder(drive, clientId, clientName, appFolder)
     const data = await readFile(drive, `${key}.json`, clientFolder)
 
@@ -213,7 +216,7 @@ export async function POST(request: NextRequest) {
     const { clientId = '_global', clientName = null, key, data } = await request.json()
     if (!key) return NextResponse.json({ error: 'key is required' }, { status: 400 })
 
-    const appFolder = await findOrCreateFolder(drive, 'accounting-app-data', ROOT_FOLDER_ID)
+    const appFolder = await findOrCreateFolder(drive, APP_FOLDER_NAME, ROOT_FOLDER_ID)
     const clientFolder = await resolveClientFolder(drive, clientId, clientName, appFolder)
     await writeFile(drive, `${key}.json`, clientFolder, JSON.stringify(data))
 
@@ -233,7 +236,7 @@ export async function PUT(request: NextRequest) {
     const drive = await getAuthedDrive()
     const { items } = await request.json() as { items: { clientId: string; clientName?: string | null; key: string; data: unknown }[] }
 
-    const appFolder = await findOrCreateFolder(drive, 'accounting-app-data', ROOT_FOLDER_ID)
+    const appFolder = await findOrCreateFolder(drive, APP_FOLDER_NAME, ROOT_FOLDER_ID)
     const folderCache: Record<string, string> = {}
 
     for (const item of items) {

@@ -669,6 +669,39 @@ export default function BankStatementContent() {
     [applyParseResultFn],
   )
 
+  // Drive 自動同期: 顧問先選択中にポーリングを開始し、リモート変更があれば該当データを取り込む
+  useEffect(() => {
+    if (!selectedClient) return
+    let cancelled = false
+    let stopFn: (() => void) | null = null
+    ;(async () => {
+      const { startAutoSyncPolling, stopAutoSyncPolling } = await import('@/lib/bank-statement/drive-sync')
+      if (cancelled) return
+      startAutoSyncPolling(selectedClient.id, selectedClient.name, async (changedKeys) => {
+        // 変更があったキーごとに該当データを Drive から取り直してローカルにマージ
+        for (const key of changedKeys) {
+          try {
+            const nameParam = selectedClient.name ? `&clientName=${encodeURIComponent(selectedClient.name)}` : ''
+            const res = await fetch(`/api/drive?clientId=${encodeURIComponent(selectedClient.id)}${nameParam}&key=${encodeURIComponent(key)}`, { cache: 'no-store' })
+            if (!res.ok) continue
+            const { data } = await res.json()
+            if (data == null) continue
+            if (key === 'patterns' && Array.isArray(data)) {
+              const { mergePatternsFromDrive } = await import('@/lib/bank-statement/pattern-store')
+              mergePatternsFromDrive(data)
+            }
+            // 他カテゴリは別コミットで追加予定
+          } catch { /* ignore individual failures */ }
+        }
+      })
+      stopFn = stopAutoSyncPolling
+    })()
+    return () => {
+      cancelled = true
+      stopFn?.()
+    }
+  }, [selectedClient])
+
   // ページ遷移時にオンデマンドで画像を生成（テキストPDF用）
   useEffect(() => {
     if (!pdfFileRef.current || pages.length === 0) return
