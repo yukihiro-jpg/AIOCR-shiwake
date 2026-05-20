@@ -627,6 +627,8 @@ function TaxCodeField({
 
 function handleNav(e: React.KeyboardEvent<HTMLInputElement>) {
   const el = e.currentTarget
+  // Shift キーを押している間はセル内のテキスト範囲選択中なので、隣セルに移動しない
+  if (e.shiftKey) return
   if (e.key === 'Enter') { e.preventDefault(); navCell(el, 'down') }
   else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); navCell(el, e.key === 'ArrowUp' ? 'up' : 'down') }
   else if (e.key === 'ArrowLeft' && el.selectionStart === 0) navCell(el, 'left')

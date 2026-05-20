@@ -7,7 +7,7 @@ interface Props {
   open: boolean
   entry: JournalEntry | null
   relatedEntries: JournalEntry[] // 複合仕訳の場合の全行
-  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string) => void
+  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean) => void
   onCancel: () => void
 }
 
@@ -19,6 +19,7 @@ export default function LearnPatternDialog({
   const [matchType, setMatchType] = useState<'exact' | 'partial'>('partial')
   const [matchText, setMatchText] = useState('')
   const [convertedDesc, setConvertedDesc] = useState('')
+  const [overrideExisting, setOverrideExisting] = useState(false)
 
   // エントリが変わるたびに一致文言をリセット
   const entryId = entry?.id
@@ -29,6 +30,7 @@ export default function LearnPatternDialog({
       setConvertedDesc('')
       setAmountMin('')
       setAmountMax('')
+      setOverrideExisting(false)
     }
   }, [entryId])
 
@@ -37,14 +39,14 @@ export default function LearnPatternDialog({
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, false, matchType, matchText || undefined, convertedDesc || undefined)
+    onConfirm(min, max, false, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting)
     setAmountMin(''); setAmountMax('')
   }
 
   const handleRegisterAndApply = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, true, matchType, matchText || undefined, convertedDesc || undefined)
+    onConfirm(min, max, true, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting)
     setAmountMin(''); setAmountMax('')
   }
 
@@ -142,6 +144,25 @@ export default function LearnPatternDialog({
             <p className="text-xs text-gray-400 mt-1">
               この範囲内の金額のとき、このパターンが適用されます
             </p>
+          </div>
+
+          {/* 既存パターン上書き */}
+          <div className="pt-2 border-t border-gray-100">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={overrideExisting}
+                onChange={(e) => setOverrideExisting(e.target.checked)}
+                className="mt-0.5 accent-blue-600"
+              />
+              <span className="text-xs text-gray-700">
+                既に別のパターンが当たっている行も上書きする
+                <span className="block text-gray-400 mt-0.5">
+                  通常は ON 不要。先に広い範囲のパターンを登録してしまった等、
+                  既に別パターンが付いた行を当パターンで上書きしたい時にチェック。
+                </span>
+              </span>
+            </label>
           </div>
         </div>
 

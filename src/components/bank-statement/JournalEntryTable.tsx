@@ -111,7 +111,7 @@ export default function JournalEntryTable({
 
   // パターン学習ダイアログ確定
   const handleLearnConfirm = useCallback(
-    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string) => {
+    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
       const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
@@ -152,9 +152,10 @@ export default function JournalEntryTable({
         const targets = updatedEntries.filter((e) => {
           if (learnedIds.has(e.id)) return false
           if (e.parentId) return false
-          // 既に「別の」パターン適用済みの行はスキップ。同じパターン（再学習で更新中のもの）の
-          // 行は変換後摘要が変わった可能性があるため対象に含めて再反映する
-          if (e.patternId && e.patternId !== patternId) return false
+          // 既に「別の」パターン適用済みの行はスキップ（ただし overrideExisting=true なら強制上書き）。
+          // 同じパターン（再学習で更新中のもの）の行は変換後摘要が変わった可能性があるため
+          // overrideExisting に関わらず対象に含めて再反映する
+          if (e.patternId && e.patternId !== patternId && !overrideExisting) return false
           const eDesc = (e.originalDescription || e.description || '').toLowerCase()
           if (!eDesc) return false
           if (isExactMatch) {
