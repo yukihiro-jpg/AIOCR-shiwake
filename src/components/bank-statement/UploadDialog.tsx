@@ -10,6 +10,8 @@ interface Props {
   isLoading: boolean
   lastPeriodFrom?: string
   lastPeriodTo?: string
+  /** true の場合、トリガーボタン・モーダル枠なしで本体フォームのみインライン描画する */
+  inline?: boolean
 }
 
 const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: string }[] = [
@@ -23,7 +25,7 @@ const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: strin
   { value: 'payroll', label: '賃金台帳', desc: '貼り付け / Excel', icon: '👥' },
 ]
 
-export default function UploadDialog({ accountMaster, subAccountMaster, onUpload, isLoading, lastPeriodFrom, lastPeriodTo }: Props) {
+export default function UploadDialog({ accountMaster, subAccountMaster, onUpload, isLoading, lastPeriodFrom, lastPeriodTo, inline = false }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [docType, setDocType] = useState<DocumentType>('bank-statement')
   const [accountCode, setAccountCode] = useState('')
@@ -183,25 +185,14 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
     )
   }
 
-  return (
+  // フォーム本体（インライン・モーダル両モード共通）
+  const formBody = (
     <>
-      <button onClick={() => setIsOpen(true)}
-        className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded">
-        アップロード
-      </button>
-
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="p-5 border-b border-gray-200">
-              <h2 className="text-lg font-bold text-gray-800">ファイルのアップロード</h2>
-            </div>
-
-            <div className="p-5 space-y-4">
+            <div className={inline ? 'p-4 space-y-3' : 'p-5 space-y-4'}>
               {/* 書類種別 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">書類の種類</label>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className={inline ? 'grid grid-cols-8 gap-1.5' : 'grid grid-cols-4 gap-1.5'}>
                   {DOC_TYPES.map((dt) => (
                     <button key={dt.value}
                       onClick={() => setDocType(dt.value)}
@@ -366,18 +357,47 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
               )}
             </div>
 
-            <div className="p-4 border-t border-gray-200 flex gap-2">
-              <button onClick={() => { setIsOpen(false); setSelectedFile(null) }}
-                className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">
-                キャンセル
-              </button>
+            <div className={`${inline ? 'pt-3 border-t border-gray-200' : 'p-4 border-t border-gray-200'} flex gap-2`}>
+              {!inline && (
+                <button onClick={() => { setIsOpen(false); setSelectedFile(null) }}
+                  className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">
+                  キャンセル
+                </button>
+              )}
               <button onClick={handleSubmit} disabled={!canSubmit}
-                className={`flex-1 py-2 text-sm font-medium rounded-lg ${
+                className={`${inline ? 'px-8' : 'flex-1'} py-2 text-sm font-medium rounded-lg ${
                   canSubmit ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}>
                 {isLoading ? '解析中...' : allFiles.length > 1 ? `${allFiles.length}件アップロード` : 'アップロード'}
               </button>
             </div>
+    </>
+  )
+
+  // インライン描画
+  if (inline) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+        {formBody}
+      </div>
+    )
+  }
+
+  // 従来のモーダル描画（トリガーボタン + モーダル）
+  return (
+    <>
+      <button onClick={() => setIsOpen(true)}
+        className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded">
+        アップロード
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-800">ファイルのアップロード</h2>
+            </div>
+            {formBody}
           </div>
         </div>
       )}

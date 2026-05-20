@@ -6,11 +6,13 @@ import { uploadClientToDrive, uploadAllClientsToDrive, downloadClientFromDrive, 
 interface Props {
   clientId: string | null
   clientName: string | null
+  /** メニュー内に縦並びで描画するモード（ステータスバッジは別途 DriveStatusBadge を使用） */
+  inMenu?: boolean
 }
 
 type SyncState = 'idle' | 'uploading' | 'downloading' | 'uploadingAll' | 'error'
 
-export default function DriveSyncButton({ clientId, clientName }: Props) {
+export default function DriveSyncButton({ clientId, clientName, inMenu = false }: Props) {
   const [connected, setConnected] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [message, setMessage] = useState('')
@@ -102,10 +104,40 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
     return (
       <div className="flex items-center gap-2">
         <a href="/api/auth/google"
-          className="px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1">
+          className={inMenu
+            ? "block w-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded text-center"
+            : "px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1"}>
           Drive連携
         </a>
         {message && <span className="text-xs text-green-400">{message}</span>}
+      </div>
+    )
+  }
+
+  // メニュー内モード: 縦並び・大きめのボタン
+  if (inMenu) {
+    return (
+      <div className="flex flex-col gap-1.5 min-w-[200px]">
+        <button onClick={handleUpload} disabled={syncState !== 'idle'}
+          title="現在の顧問先データをDriveにアップロード"
+          className="w-full px-3 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50 text-left flex items-center gap-2">
+          <span>↑</span><span>保存（この顧問先）</span>
+        </button>
+        <button onClick={handleUploadAll} disabled={syncState !== 'idle'}
+          title="全顧問先のデータをまとめてDriveにアップロード（初回セットアップ用）"
+          className="w-full px-3 py-2 text-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded disabled:opacity-50 text-left flex items-center gap-2">
+          <span>↑</span><span>全件保存（全顧問先・初回用）</span>
+        </button>
+        <button onClick={handleDownload} disabled={syncState !== 'idle'}
+          title="Driveから現在の顧問先データをダウンロード"
+          className="w-full px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded disabled:opacity-50 text-left flex items-center gap-2">
+          <span>↓</span><span>読込（強制再同期）</span>
+        </button>
+        <button onClick={handleDisconnect}
+          className="w-full px-3 py-1.5 text-xs text-gray-500 hover:text-red-500 text-left" title="Drive連携解除">
+          Drive 連携を解除
+        </button>
+        {message && <div className="text-xs text-amber-700 px-1 break-all">{message}</div>}
       </div>
     )
   }
@@ -132,23 +164,6 @@ export default function DriveSyncButton({ clientId, clientName }: Props) {
           {autoBadge.text}
         </span>
       )}
-      <button onClick={handleUpload} disabled={syncState !== 'idle'}
-        title="現在の顧問先データをDriveにアップロード"
-        className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50">
-        {syncState === 'uploading' ? '...' : '↑保存'}
-      </button>
-      <button onClick={handleUploadAll} disabled={syncState !== 'idle'}
-        title="全顧問先のデータをまとめてDriveにアップロード（初回セットアップ用）"
-        className="px-2 py-1 text-xs bg-emerald-700 hover:bg-emerald-800 text-white rounded disabled:opacity-50">
-        {syncState === 'uploadingAll' ? '...' : '↑全件'}
-      </button>
-      <button onClick={handleDownload} disabled={syncState !== 'idle'}
-        title="Driveから現在の顧問先データをダウンロード"
-        className="px-2 py-1 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded disabled:opacity-50">
-        {syncState === 'downloading' ? '...' : '↓読込'}
-      </button>
-      <button onClick={handleDisconnect}
-        className="px-1 py-1 text-xs text-gray-400 hover:text-red-400" title="Drive連携解除">×</button>
       {message && <span className="text-xs text-amber-300 ml-1">{message}</span>}
     </div>
   )

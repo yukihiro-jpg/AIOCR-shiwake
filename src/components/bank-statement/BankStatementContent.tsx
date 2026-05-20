@@ -17,6 +17,7 @@ import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statemen
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
 import DriveSyncButton from '@/components/bank-statement/DriveSyncButton'
+import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
 import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected } from '@/lib/bank-statement/drive-sync'
 import ProcessingStatusTable from '@/components/bank-statement/ProcessingStatusTable'
 import { updateProcessingStatus } from '@/lib/bank-statement/processing-status-store'
@@ -962,25 +963,11 @@ export default function BankStatementContent() {
             className="text-xs text-gray-400 hover:text-white hover:underline">
             顧問先一覧
           </button>
-          <UploadDialog
-            accountMaster={accountMaster}
-            subAccountMaster={subAccountMaster}
-            onUpload={handleUpload}
-            isLoading={isLoading}
-            lastPeriodFrom={lastPeriodFrom}
-            lastPeriodTo={lastPeriodTo}
-          />
         </div>
         <div className="flex items-center gap-2">
+          {/* Drive 同期ステータス（バッジのみ） */}
           <DriveSyncButton clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} />
-          <AccountMasterUploader
-            accountMaster={accountMaster}
-            subAccountMaster={subAccountMaster}
-            accountTaxMaster={accountTaxMaster}
-            onAccountUpdate={handleAccountMasterUpdate}
-            onSubAccountUpdate={handleSubAccountMasterUpdate}
-            onAccountTaxUpdate={setAccountTaxMaster}
-          />
+          {/* 常用ボタン */}
           <button onClick={() => setShowPatternList(true)}
             className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
             パターン一覧
@@ -989,18 +976,58 @@ export default function BankStatementContent() {
             className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
             定型仕訳
           </button>
-          <button onClick={() => setShowInvoiceRegistry(true)}
-            className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
-            インボイス登録簿
-          </button>
-          <select value={geminiModel} onChange={(e) => {
-            setGeminiModel(e.target.value)
-            localStorage.setItem('bs-gemini-model', e.target.value)
-          }} className="px-2 py-1 text-xs bg-white/10 text-white rounded border border-white/20">
-            <option value="gemini-3.5-flash" className="text-black">Gemini 3.5 Flash</option>
-            <option value="gemini-2.5-flash" className="text-black">Gemini 2.5 Flash</option>
-            <option value="gemini-2.5-pro" className="text-black">Gemini 2.5 Pro</option>
-          </select>
+          {/* メニュー: 保存/全件/読込・科目マスタ・インボイス登録簿・Gemini モデル */}
+          <HeaderMenuDropdown
+            buttonLabel="メニュー"
+            items={[
+              {
+                label: 'Drive 同期操作',
+                render: (
+                  <DriveSyncButton inMenu
+                    clientId={selectedClient?.id || null}
+                    clientName={selectedClient?.name || null} />
+                ),
+              },
+              { divider: true },
+              {
+                label: '科目マスタ',
+                render: (
+                  <div className="-mx-1">
+                    <AccountMasterUploader
+                      accountMaster={accountMaster}
+                      subAccountMaster={subAccountMaster}
+                      accountTaxMaster={accountTaxMaster}
+                      onAccountUpdate={handleAccountMasterUpdate}
+                      onSubAccountUpdate={handleSubAccountMasterUpdate}
+                      onAccountTaxUpdate={setAccountTaxMaster}
+                    />
+                  </div>
+                ),
+              },
+              {
+                label: 'インボイス登録簿',
+                icon: '📋',
+                onClick: () => setShowInvoiceRegistry(true),
+              },
+              { divider: true },
+              {
+                label: 'Gemini モデル',
+                render: (
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Gemini モデル</label>
+                    <select value={geminiModel} onChange={(e) => {
+                      setGeminiModel(e.target.value)
+                      localStorage.setItem('bs-gemini-model', e.target.value)
+                    }} className="w-full px-2 py-1 text-xs border border-gray-300 rounded">
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                    </select>
+                  </div>
+                ),
+              },
+            ]}
+          />
           {journalEntries.length > 0 && (
             <>
               <button onClick={handleTempSave}
@@ -1166,11 +1193,18 @@ export default function BankStatementContent() {
         />
       ) : (
         <div className="flex-1 overflow-auto p-6">
-          <div className="text-center text-gray-500 mb-4">
-            <p className="text-lg mb-2">通帳PDFまたはExcelファイルをアップロードしてください</p>
-            <p className="text-sm">
-              ヘッダーの「アップロード」ボタンからファイルを選択できます
-            </p>
+          {/* インライン版アップロード UI（書類タイプを横一列に表示） */}
+          <div className="mb-6">
+            <h2 className="text-base font-bold text-gray-700 mb-2">ファイルのアップロード</h2>
+            <UploadDialog
+              inline
+              accountMaster={accountMaster}
+              subAccountMaster={subAccountMaster}
+              onUpload={handleUpload}
+              isLoading={isLoading}
+              lastPeriodFrom={lastPeriodFrom}
+              lastPeriodTo={lastPeriodTo}
+            />
           </div>
           <ProcessingStatusTable clientId={selectedClient?.id || null} refreshKey={processingStatusVersion} accountMaster={accountMaster} />
         </div>
