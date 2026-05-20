@@ -33,9 +33,9 @@ async function getAuthedDrive() {
 }
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || ''
-// 既存のフォルダ名 "accounting-app-data" は前身アプリのデータと衝突するので、
-// 環境変数で別名（例: 事務所アプリ共有データ）を指定できるようにする。
-const APP_FOLDER_NAME = process.env.GOOGLE_DRIVE_DATA_FOLDER_NAME || 'accounting-app-data'
+// 前身アプリは "accounting-app-data" を使っていたが、本アプリは別フォルダにデータを格納する。
+// 環境変数 GOOGLE_DRIVE_DATA_FOLDER_NAME で上書きも可能。
+const APP_FOLDER_NAME = process.env.GOOGLE_DRIVE_DATA_FOLDER_NAME || '事務所アプリ共有データ'
 
 // フォルダ名に使えない/面倒な文字をサニタイズ
 function sanitizeFolderName(name: string): string {

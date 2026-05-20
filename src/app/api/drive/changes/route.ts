@@ -8,7 +8,7 @@ import { google } from 'googleapis'
 import { cookies } from 'next/headers'
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || ''
-const APP_FOLDER_NAME = process.env.GOOGLE_DRIVE_DATA_FOLDER_NAME || 'accounting-app-data'
+const APP_FOLDER_NAME = process.env.GOOGLE_DRIVE_DATA_FOLDER_NAME || '事務所アプリ共有データ'
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
