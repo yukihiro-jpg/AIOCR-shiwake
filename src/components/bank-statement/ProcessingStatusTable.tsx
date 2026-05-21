@@ -304,17 +304,33 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
 
       {/* メールプレビュー */}
       {showMailPreview && (() => {
-        // 各科目の次に必要な期間を計算
+        // 各科目の次に必要な期間を計算（最後に登録されている「年月＋日」の翌日から）
         const items = sorted.map((s) => {
           const progress = s.monthlyProgress || {}
-          const allYm = Object.keys(progress).sort()
+          const allYm = Object.keys(progress).filter((k) => progress[k]).sort()
           const lastYm = allYm.length > 0 ? allYm[allYm.length - 1] : null
           let nextPeriod = ''
           if (lastYm) {
             const [y, m] = lastYm.split('-').map(Number)
-            const nextM = m === 12 ? 1 : m + 1
-            const nextY = m === 12 ? y + 1 : y
-            nextPeriod = `${nextY}年${nextM}月分〜`
+            // 登録されている日（"15" 等の文字列、または日付）から数値部分を抽出
+            const rawDay = String(progress[lastYm] || '').trim()
+            const dayMatch = rawDay.match(/(\d{1,2})/)
+            const lastDay = dayMatch ? parseInt(dayMatch[1]) : 0
+            const daysInMonth = new Date(y, m, 0).getDate()
+            let nextY = y, nextM = m, nextD = lastDay + 1
+            if (nextD > daysInMonth) {
+              // 月末を超えるので翌月 1 日に繰り上げ
+              nextD = 1
+              if (nextM === 12) { nextM = 1; nextY = y + 1 } else { nextM += 1 }
+            }
+            if (lastDay > 0) {
+              nextPeriod = `${nextY}年${nextM}月${nextD}日分〜`
+            } else {
+              // 日付未指定の場合は翌月開始（従来動作）
+              const fallbackM = m === 12 ? 1 : m + 1
+              const fallbackY = m === 12 ? y + 1 : y
+              nextPeriod = `${fallbackY}年${fallbackM}月分〜`
+            }
           } else {
             nextPeriod = `${months[0]}月分〜`
           }

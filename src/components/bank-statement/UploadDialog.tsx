@@ -185,6 +185,149 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
     )
   }
 
+  // ファイル選択セクション（左半分 / モーダルの上部）
+  const fileSection = (!isPayroll && (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        ファイル ({isCreditCard ? 'PDF' : isInvoice ? 'PDF/Excel/CSV' : 'PDF/Excel/CSV'})
+      </label>
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
+        onDrop={(e) => {
+          e.preventDefault(); e.stopPropagation()
+          setIsDragOver(false)
+          const files = Array.from(e.dataTransfer.files)
+          if (files.length === 0) return
+          const accepted = acceptFiles.split(',').map((s) => s.trim().toLowerCase())
+          const validFiles = files.filter((f) => accepted.some((ext) => f.name.toLowerCase().endsWith(ext)))
+          const rejected = files.length - validFiles.length
+          if (rejected > 0) alert(`${rejected}件のファイルは非対応の形式のためスキップしました。\n対応: ${acceptFiles}`)
+          if (validFiles.length === 0) return
+          if (validFiles.length === 1) { setSelectedFile(validFiles[0]); setSelectedFiles([]) }
+          else { setSelectedFiles(validFiles); setSelectedFile(null) }
+        }}
+        className={`border-2 border-dashed rounded-lg ${inline ? 'p-8 min-h-[160px] flex items-center justify-center' : 'p-6'} text-center cursor-pointer transition-colors ${
+          isDragOver
+            ? 'border-blue-500 bg-blue-100'
+            : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+        }`}>
+        {allFiles.length > 1 ? (
+          <div>
+            <p className="text-sm font-medium text-gray-800">{allFiles.length}件のファイルを選択中</p>
+            <div className="text-xs text-gray-500 mt-1 max-h-20 overflow-auto">
+              {allFiles.map((f, i) => <div key={i}>{f.name} ({(f.size / 1024).toFixed(1)} KB)</div>)}
+            </div>
+            <p className="text-xs text-gray-400 mt-2">クリックまたはドラッグして変更</p>
+          </div>
+        ) : selectedFile ? (
+          <div>
+            <p className="text-sm font-medium text-gray-800">{selectedFile.name}</p>
+            <p className="text-xs text-gray-500 mt-1">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+            <p className="text-xs text-gray-400 mt-2">クリックまたはドラッグして変更</p>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm text-gray-600 font-medium">
+              {isDragOver ? 'ここにドロップ' : 'クリックしてファイルを選択'}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">またはファイルをここにドラッグ&ドロップ</p>
+          </div>
+        )}
+      </div>
+      <input ref={fileInputRef} type="file" accept={acceptFiles} multiple
+        onChange={(e) => {
+          const files = e.target.files ? Array.from(e.target.files) : []
+          if (files.length === 1) { setSelectedFile(files[0]); setSelectedFiles([]) }
+          else if (files.length > 1) { setSelectedFiles(files); setSelectedFile(null) }
+        }}
+        className="hidden" />
+    </div>
+  ))
+
+  // 処理対象期間セクション
+  const periodSection = (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">処理対象期間</label>
+      <div className="flex items-center gap-2">
+        <input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)}
+          className="flex-1 px-2 py-2 border border-gray-300 rounded-lg text-sm" />
+        <span className="text-sm text-gray-500">〜</span>
+        <input type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)}
+          className="flex-1 px-2 py-2 border border-gray-300 rounded-lg text-sm" />
+      </div>
+      {lastPeriodFrom && lastPeriodTo && (
+        <button onClick={() => { setPeriodFrom(lastPeriodFrom); setPeriodTo(lastPeriodTo) }}
+          className="mt-1 text-xs text-blue-600 hover:underline">
+          前回の期間をセット（{lastPeriodFrom} 〜 {lastPeriodTo}）
+        </button>
+      )}
+    </div>
+  )
+
+  // 科目選択セクション
+  const accountSection = (
+    isBankLike ? (
+      renderAccountSelector(
+        docType === 'cash-book' ? '現金の勘定科目' : '通帳の勘定科目',
+        accountCode, setAccountCode, accountName, setAccountName,
+        docType === 'cash-book' ? ['現金'] : ['預金', '当座', '普通', '定期'],
+        accountSubCode, setAccountSubCode, accountSubName, setAccountSubName,
+      )
+    ) : isCreditCard ? (
+      <>
+        {renderAccountSelector(
+          'クレジットカードの勘定科目（貸方に設定されます）',
+          creditCode, setCreditCode, creditName, setCreditName,
+          ['未払', 'クレジ', 'カード'],
+          creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
+        )}
+        <p className="text-xs text-gray-500 mt-1">
+          各取引の貸方に {creditName || '—'}({creditCode || '—'}) {creditSubName ? `[${creditSubName}]` : ''} が設定されます。
+        </p>
+      </>
+    ) : isReceipt ? (
+      renderAccountSelector(
+        '支払原資の勘定科目（貸方に設定されます）',
+        creditCode, setCreditCode, creditName, setCreditName,
+        ['現金', '預金', '普通'],
+        creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
+      )
+    ) : isPayroll ? (
+      <>
+        {renderAccountSelector(
+          '支払手段の科目（未払費用・普通預金等）',
+          creditCode, setCreditCode, creditName, setCreditName,
+          ['未払', '預金', '当座', '普通'],
+          creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
+        )}
+        <p className="text-xs text-gray-500 mt-1">
+          差引支給額の貸方科目として使用します。借方科目（給与手当・役員報酬等）は解析後に設定します。
+        </p>
+      </>
+    ) : (
+      <>
+        {renderAccountSelector(
+          docType === 'sales-invoice' ? '借方科目（売掛金等）' : '借方科目（仕入・経費等）',
+          debitCode, setDebitCode, debitName, setDebitName,
+          docType === 'sales-invoice' ? ['売掛', '未収'] : ['仕入', '経費', '消耗', '通信', '水道'],
+          debitSubCode, setDebitSubCode, debitSubName, setDebitSubName,
+        )}
+        {renderAccountSelector(
+          docType === 'sales-invoice' ? '貸方科目（売上等）' : '貸方科目（買掛金等）',
+          creditCode, setCreditCode, creditName, setCreditName,
+          docType === 'sales-invoice' ? ['売上', '収入'] : ['買掛', '未払'],
+          creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
+        )}
+        <p className="text-xs text-gray-500 mt-1">
+          借方・貸方のいずれか片方だけ選択した状態でもアップロードできます（未入力の側は解析後に各仕訳で個別に設定してください）。
+        </p>
+      </>
+    )
+  )
+
   // フォーム本体（インライン・モーダル両モード共通）
   const formBody = (
     <>
@@ -217,142 +360,22 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
                 </div>
               )}
 
-              {/* ファイル選択（クリック or ドラッグ&ドロップ）- 賃金台帳以外 */}
-              {!isPayroll && <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  ファイル ({isCreditCard ? 'PDF' : isInvoice ? 'PDF/Excel/CSV' : 'PDF/Excel/CSV'})
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
-                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true) }}
-                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false) }}
-                  onDrop={(e) => {
-                    e.preventDefault(); e.stopPropagation()
-                    setIsDragOver(false)
-                    const files = Array.from(e.dataTransfer.files)
-                    if (files.length === 0) return
-                    const accepted = acceptFiles.split(',').map((s) => s.trim().toLowerCase())
-                    const validFiles = files.filter((f) => accepted.some((ext) => f.name.toLowerCase().endsWith(ext)))
-                    const rejected = files.length - validFiles.length
-                    if (rejected > 0) alert(`${rejected}件のファイルは非対応の形式のためスキップしました。\n対応: ${acceptFiles}`)
-                    if (validFiles.length === 0) return
-                    if (validFiles.length === 1) { setSelectedFile(validFiles[0]); setSelectedFiles([]) }
-                    else { setSelectedFiles(validFiles); setSelectedFile(null) }
-                  }}
-                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-                    isDragOver
-                      ? 'border-blue-500 bg-blue-100'
-                      : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                  }`}>
-                  {allFiles.length > 1 ? (
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{allFiles.length}件のファイルを選択中</p>
-                      <div className="text-xs text-gray-500 mt-1 max-h-20 overflow-auto">
-                        {allFiles.map((f, i) => <div key={i}>{f.name} ({(f.size / 1024).toFixed(1)} KB)</div>)}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-2">クリックまたはドラッグして変更</p>
-                    </div>
-                  ) : selectedFile ? (
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{selectedFile.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                      <p className="text-xs text-gray-400 mt-2">クリックまたはドラッグして変更</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-sm text-gray-600 font-medium">
-                        {isDragOver ? 'ここにドロップ' : 'クリックしてファイルを選択'}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">またはファイルをここにドラッグ&ドロップ</p>
-                    </div>
-                  )}
+              {/* インライン: 左ファイル / 右 期間+科目 の2カラム。モーダル: 縦積み */}
+              {inline ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    {fileSection}
+                  </div>
+                  <div className="space-y-3">
+                    {periodSection}
+                    {accountSection}
+                  </div>
                 </div>
-                <input ref={fileInputRef} type="file" accept={acceptFiles} multiple
-                  onChange={(e) => {
-                    const files = e.target.files ? Array.from(e.target.files) : []
-                    if (files.length === 1) { setSelectedFile(files[0]); setSelectedFiles([]) }
-                    else if (files.length > 1) { setSelectedFiles(files); setSelectedFile(null) }
-                  }}
-                  className="hidden" />
-              </div>}
-
-              {/* 処理対象期間 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">処理対象期間</label>
-                <div className="flex items-center gap-2">
-                  <input type="date" value={periodFrom} onChange={(e) => setPeriodFrom(e.target.value)}
-                    className="flex-1 px-2 py-2 border border-gray-300 rounded-lg text-sm" />
-                  <span className="text-sm text-gray-500">〜</span>
-                  <input type="date" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)}
-                    className="flex-1 px-2 py-2 border border-gray-300 rounded-lg text-sm" />
-                </div>
-                {lastPeriodFrom && lastPeriodTo && (
-                  <button onClick={() => { setPeriodFrom(lastPeriodFrom); setPeriodTo(lastPeriodTo) }}
-                    className="mt-1 text-xs text-blue-600 hover:underline">
-                    前回の期間をセット（{lastPeriodFrom} 〜 {lastPeriodTo}）
-                  </button>
-                )}
-              </div>
-
-              {/* 科目選択 */}
-              {isBankLike ? (
-                renderAccountSelector(
-                  docType === 'cash-book' ? '現金の勘定科目' : '通帳の勘定科目',
-                  accountCode, setAccountCode, accountName, setAccountName,
-                  docType === 'cash-book' ? ['現金'] : ['預金', '当座', '普通', '定期'],
-                  accountSubCode, setAccountSubCode, accountSubName, setAccountSubName,
-                )
-              ) : isCreditCard ? (
-                <>
-                  {renderAccountSelector(
-                    'クレジットカードの勘定科目（貸方に設定されます）',
-                    creditCode, setCreditCode, creditName, setCreditName,
-                    ['未払', 'クレジ', 'カード'],
-                    creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    各取引の貸方に {creditName || '—'}({creditCode || '—'}) {creditSubName ? `[${creditSubName}]` : ''} が設定されます。
-                  </p>
-                </>
-              ) : isReceipt ? (
-                <>
-                  {renderAccountSelector(
-                    '支払原資の勘定科目（貸方に設定されます）',
-                    creditCode, setCreditCode, creditName, setCreditName,
-                    ['現金', '預金', '普通'],
-                    creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
-                  )}
-                </>
-              ) : isPayroll ? (
-                <>
-                  {renderAccountSelector(
-                    '支払手段の科目（未払費用・普通預金等）',
-                    creditCode, setCreditCode, creditName, setCreditName,
-                    ['未払', '預金', '当座', '普通'],
-                    creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    差引支給額の貸方科目として使用します。借方科目（給与手当・役員報酬等）は解析後に設定します。
-                  </p>
-                </>
               ) : (
                 <>
-                  {renderAccountSelector(
-                    docType === 'sales-invoice' ? '借方科目（売掛金等）' : '借方科目（仕入・経費等）',
-                    debitCode, setDebitCode, debitName, setDebitName,
-                    docType === 'sales-invoice' ? ['売掛', '未収'] : ['仕入', '経費', '消耗', '通信', '水道'],
-                    debitSubCode, setDebitSubCode, debitSubName, setDebitSubName,
-                  )}
-                  {renderAccountSelector(
-                    docType === 'sales-invoice' ? '貸方科目（売上等）' : '貸方科目（買掛金等）',
-                    creditCode, setCreditCode, creditName, setCreditName,
-                    docType === 'sales-invoice' ? ['売上', '収入'] : ['買掛', '未払'],
-                    creditSubCode, setCreditSubCode, creditSubName, setCreditSubName,
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    借方・貸方のいずれか片方だけ選択した状態でもアップロードできます（未入力の側は解析後に各仕訳で個別に設定してください）。
-                  </p>
+                  {fileSection}
+                  {periodSection}
+                  {accountSection}
                 </>
               )}
             </div>
