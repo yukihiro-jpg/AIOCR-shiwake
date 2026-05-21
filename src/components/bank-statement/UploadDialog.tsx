@@ -380,7 +380,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
               )}
             </div>
 
-            <div className={`${inline ? 'pt-3 border-t border-gray-200' : 'p-4 border-t border-gray-200'} flex gap-2`}>
+            <div className={`${inline ? 'pt-4 mt-3 border-t border-gray-200 flex justify-center' : 'p-4 border-t border-gray-200 flex gap-2'}`}>
               {!inline && (
                 <button onClick={() => { setIsOpen(false); setSelectedFile(null) }}
                   className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">
@@ -388,8 +388,8 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
                 </button>
               )}
               <button onClick={handleSubmit} disabled={!canSubmit}
-                className={`${inline ? 'px-8' : 'flex-1'} py-2 text-sm font-medium rounded-lg ${
-                  canSubmit ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                className={`${inline ? 'px-16 py-3 text-base shadow-md' : 'flex-1 py-2 text-sm'} font-bold rounded-lg transition-colors ${
+                  canSubmit ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}>
                 {isLoading ? '解析中...' : allFiles.length > 1 ? `${allFiles.length}件アップロード` : 'アップロード'}
               </button>
