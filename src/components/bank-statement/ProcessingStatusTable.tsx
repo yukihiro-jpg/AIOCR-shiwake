@@ -24,6 +24,8 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   const [showMailPreview, setShowMailPreview] = useState(false)
   const [mailCopied, setMailCopied] = useState(false)
   const [manualEditMode, setManualEditMode] = useState(false)
+  // 表示する会計年度のオフセット（0=今日基準の当期, -1=前期, +1=翌期）
+  const [fiscalYearOffset, setFiscalYearOffset] = useState<number | null>(null)
 
   useEffect(() => {
     setStatuses(getProcessingStatuses())
@@ -87,7 +89,26 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   const now = new Date()
   const currentMonth = now.getMonth() + 1
   const currentYear = now.getFullYear()
-  const fiscalStartYear = currentMonth > endMonth ? currentYear : currentYear - 1
+  // 今日基準の期首年
+  const autoFiscalStartYear = currentMonth > endMonth ? currentYear : currentYear - 1
+
+  // monthlyProgress に登録されているデータのうち、最新の年月が属する期首年を求める
+  const dataLatestStartYear = (() => {
+    let latest = ''
+    for (const s of statuses) {
+      for (const ym of Object.keys(s.monthlyProgress || {})) {
+        if (s.monthlyProgress?.[ym] && ym > latest) latest = ym
+      }
+    }
+    if (!latest) return null
+    const [y, m] = latest.split('-').map(Number)
+    return m > endMonth ? y : y - 1
+  })()
+
+  // 初期表示の年度: データがあればその年度、なければ当期。ユーザーが切り替えたらそれを優先。
+  const defaultOffset = dataLatestStartYear != null ? dataLatestStartYear - autoFiscalStartYear : 0
+  const effectiveOffset = fiscalYearOffset != null ? fiscalYearOffset : defaultOffset
+  const fiscalStartYear = autoFiscalStartYear + effectiveOffset
 
   function getYearMonth(monthStr: string): string {
     const m = parseInt(monthStr)
@@ -120,10 +141,23 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
   return (
     <div className="mt-6 mx-auto" style={{ maxWidth: '95vw' }}>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm font-bold text-gray-700">
+        <div className="text-sm font-bold text-gray-700 flex items-center gap-2">
           進捗管理表
-          <span className="ml-2 text-xs text-gray-400 font-normal">
-            ({fiscalStartYear + 1}年{endMonth}月期 / {months[0]}月〜{months[11]}月)
+          <span className="inline-flex items-center gap-1 ml-1">
+            <button onClick={() => setFiscalYearOffset(effectiveOffset - 1)}
+              title="前の期を表示"
+              className="px-1.5 py-0.5 text-xs bg-gray-200 rounded hover:bg-gray-300">◀ 前期</button>
+            <span className="text-xs text-gray-500 font-normal min-w-[150px] text-center">
+              {fiscalStartYear + 1}年{endMonth}月期 / {months[0]}月〜{months[11]}月
+            </span>
+            <button onClick={() => setFiscalYearOffset(effectiveOffset + 1)}
+              title="次の期を表示"
+              className="px-1.5 py-0.5 text-xs bg-gray-200 rounded hover:bg-gray-300">次期 ▶</button>
+            {effectiveOffset !== 0 && (
+              <button onClick={() => setFiscalYearOffset(0)}
+                title="今日を含む当期に戻す"
+                className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">当期へ</button>
+            )}
           </span>
         </div>
         <div className="flex gap-2">
