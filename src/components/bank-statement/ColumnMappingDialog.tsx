@@ -6,7 +6,7 @@ import type { RawTableRow, ColumnMapping } from '@/lib/bank-statement/types'
 interface Props {
   rawPages: RawTableRow[][]
   initialMapping?: ColumnMapping
-  onConfirm: (mapping: ColumnMapping) => void
+  onConfirm: (mapping: ColumnMapping, options?: { expandAbbreviations?: boolean }) => void
   onCancel: () => void
 }
 
@@ -29,6 +29,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     initialMapping?.descriptionColumns || (initialMapping?.descriptionColumn != null && initialMapping.descriptionColumn >= 0 ? [initialMapping.descriptionColumn] : [])
   )
   const [activeRole, setActiveRole] = useState<string>('dateColumn')
+  const [expandAbbreviations, setExpandAbbreviations] = useState(false)
 
   const sampleRows = rawPages[0]?.slice(0, 25) || []
   const maxCols = Math.max(...sampleRows.map((r) => r.cells.length), 0)
@@ -88,7 +89,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
       depositColumn: mapping.depositColumn >= 0 ? mapping.depositColumn : mapping.withdrawalColumn,
       withdrawalColumn: mapping.withdrawalColumn >= 0 ? mapping.withdrawalColumn : mapping.depositColumn,
       balanceColumn: mapping.balanceColumn,
-    })
+    }, { expandAbbreviations })
   }
 
   return (
@@ -175,7 +176,16 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
           </table>
         </div>
 
-        <div className="p-4 border-t border-gray-200 flex justify-between items-center">
+        <div className="px-4 pt-3 border-t border-gray-200">
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input type="checkbox" checked={expandAbbreviations}
+              onChange={(e) => setExpandAbbreviations(e.target.checked)}
+              className="w-4 h-4 accent-blue-600" />
+            摘要の略記（〃・同上・先頭スペースで支払先名を省略）を AI で補完する
+            <span className="text-gray-400">（現金出納帳などで名前部分が省略されている顧問先向け）</span>
+          </label>
+        </div>
+        <div className="p-4 flex justify-between items-center">
           <div className="text-xs">
             {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
             {mapping.dateColumn >= 0 && !hasAmount && (

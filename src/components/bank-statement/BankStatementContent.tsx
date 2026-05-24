@@ -720,7 +720,7 @@ export default function BankStatementContent() {
   }, [currentPageIndex, pages])
 
   const handleColumnMappingConfirm = useCallback(
-    (mapping: ColumnMapping) => {
+    async (mapping: ColumnMapping, options?: { expandAbbreviations?: boolean }) => {
       if (!rawPages || !pendingSourceType || !uploadConfig) return
 
       // Excelマッピングを科目CD別に学習保存
@@ -737,6 +737,44 @@ export default function BankStatementContent() {
 
       try {
         const result: ParseResult = applyColumnMapping(rawPages, mapping, pendingSourceType)
+
+        // 摘要の略記補完（AI）: 全ページの取引摘要を順番に Gemini へ渡して名前部分を補完
+        if (options?.expandAbbreviations) {
+          const flat: { pi: number; ti: number }[] = []
+          const descriptions: string[] = []
+          result.pages.forEach((page, pi) => {
+            page.transactions.forEach((tx, ti) => {
+              flat.push({ pi, ti })
+              descriptions.push(tx.description || '')
+            })
+          })
+          if (descriptions.length > 0) {
+            setInfo('摘要の略記を AI で補完中...')
+            try {
+              const res = await fetch('/api/bank-statement/expand-descriptions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ descriptions, geminiModel }),
+              })
+              if (res.ok) {
+                const data = await res.json()
+                const expanded: string[] = data.descriptions || []
+                if (expanded.length === descriptions.length) {
+                  flat.forEach((loc, i) => {
+                    result.pages[loc.pi].transactions[loc.ti].description = expanded[i]
+                  })
+                }
+                if (data.warning) setError(`摘要補完の注意: ${data.warning}（元の摘要を使用しました）`)
+              } else {
+                const d = await res.json().catch(() => ({}))
+                setError(`摘要補完に失敗しました（元の摘要を使用）: ${d.error || res.status}`)
+              }
+            } catch (e) {
+              setError(`摘要補完に失敗しました（元の摘要を使用）: ${e instanceof Error ? e.message : ''}`)
+            }
+          }
+        }
+
         // 列マッピング結果のページに画像URLを付与
         if (pendingImageUrls) {
           result.pages = result.pages.map((page, i) => ({
@@ -754,7 +792,7 @@ export default function BankStatementContent() {
         setPendingImageUrls(null)
       }
     },
-    [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls],
+    [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls, geminiModel],
   )
 
   const handleInvoiceColumnMappingConfirm = useCallback(
