@@ -174,9 +174,9 @@ export async function parseCreditCardCsv(file: File): Promise<CreditCardData | n
   let descCol = -1
   let amountCol = -1
 
-  const DATE_KW = ['ご利用日', '利用日', '取引日', '日付']
-  const DESC_KW = ['ご利用内容', '利用内容', '利用先', '利用店名', '摘要', '内容']
-  const AMT_KW = ['金額', '利用金額', 'ご利用金額', '請求金額']
+  const DATE_KW = ['ご利用日', '利用日', '取引日', '日付', 'ご利用年月日', '利用年月日', '年月日', 'ご利用日付']
+  const DESC_KW = ['ご利用内容', '利用内容', '利用先', '利用店名', '加盟店', '店名', '摘要', '内容', 'ご利用先']
+  const AMT_KW = ['ご利用額', '利用額', '金額', '利用金額', 'ご利用金額', '請求金額', 'お支払金額', '支払金額']
 
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
     const r = rows[i]

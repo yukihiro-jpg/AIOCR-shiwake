@@ -8,9 +8,11 @@ interface Props {
   initialMapping?: ColumnMapping
   onConfirm: (mapping: ColumnMapping, options?: { expandAbbreviations?: boolean }) => void
   onCancel: () => void
+  /** 'credit-card' のときは 日付/摘要/金額 の3役割（入金・出金・残高なし） */
+  mode?: 'bank' | 'credit-card'
 }
 
-const COLUMN_ROLES = [
+const BANK_ROLES = [
   { key: 'dateColumn', label: '日付', color: 'bg-blue-100 border-blue-400', multi: false },
   { key: 'descriptionColumn', label: '摘要', color: 'bg-green-100 border-green-400', multi: true },
   { key: 'depositColumn', label: '入金', color: 'bg-yellow-100 border-yellow-400', multi: false },
@@ -18,7 +20,15 @@ const COLUMN_ROLES = [
   { key: 'balanceColumn', label: '残高', color: 'bg-purple-100 border-purple-400', multi: false },
 ] as const
 
-export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel }: Props) {
+const CREDIT_CARD_ROLES = [
+  { key: 'dateColumn', label: '利用日', color: 'bg-blue-100 border-blue-400', multi: false },
+  { key: 'descriptionColumn', label: '利用内容（摘要）', color: 'bg-green-100 border-green-400', multi: true },
+  { key: 'depositColumn', label: '利用金額', color: 'bg-yellow-100 border-yellow-400', multi: false },
+] as const
+
+export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel, mode = 'bank' }: Props) {
+  const isCreditCard = mode === 'credit-card'
+  const COLUMN_ROLES = isCreditCard ? CREDIT_CARD_ROLES : BANK_ROLES
   const [mapping, setMapping] = useState<Record<string, number>>({
     dateColumn: initialMapping?.dateColumn ?? -1,
     depositColumn: initialMapping?.depositColumn ?? -1,
@@ -96,9 +106,11 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
         <div className="p-5 border-b border-gray-200">
-          <h2 className="text-lg font-bold text-gray-800">列のマッピング</h2>
+          <h2 className="text-lg font-bold text-gray-800">列のマッピング{isCreditCard ? '（クレジットカード）' : ''}</h2>
           <p className="text-sm text-gray-500 mt-1">
-            各列の役割を指定してください。摘要は複数列を選択できます。
+            {isCreditCard
+              ? '各列の役割を指定してください。利用日・利用金額は必須です。'
+              : '各列の役割を指定してください。摘要は複数列を選択できます。'}
           </p>
         </div>
 
@@ -176,20 +188,22 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
           </table>
         </div>
 
-        <div className="px-4 pt-3 border-t border-gray-200">
-          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-            <input type="checkbox" checked={expandAbbreviations}
-              onChange={(e) => setExpandAbbreviations(e.target.checked)}
-              className="w-4 h-4 accent-blue-600" />
-            摘要の略記（〃・同上・先頭スペースで支払先名を省略）を AI で補完する
-            <span className="text-gray-400">（現金出納帳などで名前部分が省略されている顧問先向け）</span>
-          </label>
-        </div>
+        {!isCreditCard && (
+          <div className="px-4 pt-3 border-t border-gray-200">
+            <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={expandAbbreviations}
+                onChange={(e) => setExpandAbbreviations(e.target.checked)}
+                className="w-4 h-4 accent-blue-600" />
+              摘要の略記（〃・同上・先頭スペースで支払先名を省略）を AI で補完する
+              <span className="text-gray-400">（現金出納帳などで名前部分が省略されている顧問先向け）</span>
+            </label>
+          </div>
+        )}
         <div className="p-4 flex justify-between items-center">
           <div className="text-xs">
             {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
             {mapping.dateColumn >= 0 && !hasAmount && (
-              <span className="text-red-500 font-bold">※ 入金または出金の列を選択してください</span>
+              <span className="text-red-500 font-bold">※ {isCreditCard ? '利用金額' : '入金または出金'}の列を選択してください</span>
             )}
           </div>
           <div className="flex gap-2">

@@ -160,6 +160,9 @@ export default function BankStatementContent() {
   // 請求書（Excel/CSV）列マッピング用
   const [showInvoiceColumnMapping, setShowInvoiceColumnMapping] = useState(false)
   const [invoiceRawRows, setInvoiceRawRows] = useState<RawTableRow[] | null>(null)
+  // クレジットカード（Excel/CSV）列マッピング用（自動検出失敗時のフォールバック）
+  const [showCcColumnMapping, setShowCcColumnMapping] = useState(false)
+  const [ccRawRows, setCcRawRows] = useState<RawTableRow[] | null>(null)
   const [pendingImageUrls, setPendingImageUrls] = useState<string[] | null>(null)
 
   // 以下は顧問先選択後の処理
@@ -352,7 +355,27 @@ export default function BankStatementContent() {
             const { parseCreditCardCsv, creditCardToEntries } = await import('@/lib/bank-statement/credit-card-mapper')
             const ccData = await parseCreditCardCsv(config.file)
             if (!ccData || ccData.transactions.length === 0) {
-              throw new Error('クレジットカード CSV の解析に失敗しました。ヘッダ行（ご利用日/ご利用内容/金額）が見つかりません。')
+              // 自動検出に失敗 → 列マッピング画面で手動指定（現金出納帳と同様）
+              let rows: RawTableRow[] = []
+              if (fName.endsWith('.csv')) {
+                const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
+                const text = decodeCsvText(await config.file.arrayBuffer())
+                rows = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
+                  .map((l, i) => ({ cells: parseCsvLine(l), rowIndex: i }))
+              } else {
+                const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
+                const sheets = await parseExcel(config.file)
+                rows = sheets[0]?.rows || []
+              }
+              clearInterval(progressTimer)
+              setLoadingProgress(0)
+              if (rows.length === 0) throw new Error('クレジットカードのファイルから行を読み取れませんでした。')
+              setUploadConfig(config)
+              uploadConfigRef.current = config
+              setCcRawRows(rows)
+              setShowCcColumnMapping(true)
+              setIsLoading(false)
+              return
             }
             const entries = creditCardToEntries(ccData, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
             // 左側表示用に仮想ページを生成（元データの一覧表示）
@@ -795,6 +818,72 @@ export default function BankStatementContent() {
       }
     },
     [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls, geminiModel],
+  )
+
+  const handleCcColumnMappingConfirm = useCallback(
+    async (mapping: ColumnMapping) => {
+      if (!ccRawRows || !uploadConfig) return
+      setShowCcColumnMapping(false)
+      setIsLoading(true)
+      try {
+        const dateCol = mapping.dateColumn
+        const amountCol = mapping.depositColumn >= 0 ? mapping.depositColumn : mapping.withdrawalColumn
+        const descCols = mapping.descriptionColumns && mapping.descriptionColumns.length > 0
+          ? mapping.descriptionColumns
+          : (mapping.descriptionColumn >= 0 ? [mapping.descriptionColumn] : [])
+
+        const parseDate = (raw: string): string => {
+          const s = String(raw || '').trim()
+          let m = s.match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/)
+          if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+          return ''
+        }
+        const parseAmt = (raw: string): number => {
+          const c = String(raw || '').replace(/[,¥￥\s　]/g, '').replace(/[△▲]/g, '-')
+          const n = parseInt(c, 10)
+          return isNaN(n) ? NaN : n
+        }
+
+        const transactions: { usageDate: string; storeName: string; amount: number; memo: string }[] = []
+        for (const row of ccRawRows) {
+          const date = parseDate(row.cells[dateCol] || '')
+          if (!date) continue // ヘッダー・空行スキップ
+          const amount = parseAmt(row.cells[amountCol] || '')
+          if (isNaN(amount) || amount === 0) continue
+          const storeName = descCols.map((c) => (row.cells[c] || '').trim()).filter(Boolean).join(' ')
+          transactions.push({ usageDate: date, storeName, amount, memo: amount < 0 ? '返品・取消' : '' })
+        }
+        if (transactions.length === 0) throw new Error('有効なクレジットカード取引が見つかりませんでした（日付・金額の列を確認してください）。')
+
+        const paymentDate = transactions.reduce((a, t) => (t.usageDate > a ? t.usageDate : a), '')
+        const totalAmount = transactions.reduce((s, t) => s + t.amount, 0)
+        const ccData = { paymentDate: paymentDate || new Date().toISOString().slice(0, 10), totalAmount, cardName: '', transactions }
+
+        const { creditCardToEntries } = await import('@/lib/bank-statement/credit-card-mapper')
+        const entries = creditCardToEntries(ccData, uploadConfig.creditCode!, uploadConfig.creditName!, uploadConfig.creditSubCode, uploadConfig.creditSubName)
+        const ccPages: StatementPage[] = [{
+          pageIndex: 0,
+          transactions: ccData.transactions.map((t, i) => ({
+            id: `cc-tx-${Date.now()}-${i}`, pageIndex: 0, rowIndex: i,
+            date: t.usageDate, description: t.storeName,
+            deposit: t.amount > 0 ? t.amount : null,
+            withdrawal: t.amount < 0 ? Math.abs(t.amount) : null,
+            balance: 0,
+          })),
+          openingBalance: 0, closingBalance: totalAmount, isBalanceValid: true, balanceDifference: 0,
+        }]
+        setPages((prev) => [...prev, ...ccPages])
+        setUploadConfig({ ...uploadConfig, accountCode: uploadConfig.creditCode || '', accountName: uploadConfig.creditName || '' })
+        setJournalEntries((prev) => [...prev, ...entries])
+        setInfo(`クレジットカード（列マッピング）: ${entries.length}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'クレジットカードの取り込みに失敗しました')
+      } finally {
+        setIsLoading(false)
+        setCcRawRows(null)
+      }
+    },
+    [ccRawRows, uploadConfig],
   )
 
   const handleInvoiceColumnMappingConfirm = useCallback(
@@ -1281,6 +1370,19 @@ export default function BankStatementContent() {
           onCancel={() => {
             setShowInvoiceColumnMapping(false)
             setInvoiceRawRows(null)
+          }}
+        />
+      )}
+
+      {/* クレジットカード Excel/CSV 用 列マッピングダイアログ（自動検出失敗時） */}
+      {showCcColumnMapping && ccRawRows && (
+        <ColumnMappingDialog
+          mode="credit-card"
+          rawPages={[ccRawRows]}
+          onConfirm={handleCcColumnMappingConfirm}
+          onCancel={() => {
+            setShowCcColumnMapping(false)
+            setCcRawRows(null)
           }}
         />
       )}
