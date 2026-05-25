@@ -230,17 +230,21 @@ export default function JournalEntryTable({
         updatedEntry.creditSubName = firstLine.creditSubName || ''
       } else {
         const counter = getCounterpart(firstLine)
-        if (e.debitCode === bankAccountCode) {
+        if (bankAccountCode && e.debitCode === bankAccountCode) {
+          // 通帳科目が借方にある → 相手科目を貸方へ
           updatedEntry.creditCode = counter.code
           updatedEntry.creditName = counter.name
           updatedEntry.creditSubCode = firstLine.creditSubCode || firstLine.debitSubCode || ''
           updatedEntry.creditSubName = firstLine.creditSubName || firstLine.debitSubName || ''
-        } else if (e.creditCode === bankAccountCode) {
+        } else if (bankAccountCode && e.creditCode === bankAccountCode) {
+          // 通帳科目が貸方にある → 相手科目を借方へ
           updatedEntry.debitCode = counter.code
           updatedEntry.debitName = counter.name
           updatedEntry.debitSubCode = firstLine.debitSubCode || firstLine.creditSubCode || ''
           updatedEntry.debitSubName = firstLine.debitSubName || firstLine.creditSubName || ''
         } else {
+          // 固定科目が特定できない（クレカ等で空欄、または両側とも固定科目と異なる）
+          // → パターンの借方・貸方をそのまま適用する
           updatedEntry.debitCode = firstLine.debitCode
           updatedEntry.debitName = firstLine.debitName
           updatedEntry.debitSubCode = firstLine.debitSubCode || ''
