@@ -1029,7 +1029,7 @@ async function parseCsvFile(file: File): Promise<ParseResult> {
 }
 
 // BOM/Shift-JIS判定付きデコード
-function decodeCsvText(buffer: ArrayBuffer): string {
+export function decodeCsvText(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   // UTF-8 BOM
   if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {

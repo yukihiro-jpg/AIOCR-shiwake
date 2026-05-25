@@ -544,7 +544,9 @@ export default function BankStatementContent() {
             const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
             let sheetRows: RawTableRow[] = []
             if (ext === 'csv') {
-              const text = await config.file.text()
+              const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
+              const buffer = await config.file.arrayBuffer()
+              const text = decodeCsvText(buffer)  // UTF-8 / UTF-8 BOM / Shift_JIS 自動判定
               const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
               sheetRows = lines.map((l, i) => ({
                 cells: parseCsvLine(l),
