@@ -28,7 +28,7 @@ export function creditCardToEntries(
     const amount = Math.abs(tx.amount)
     const isRefund = tx.amount < 0
     const descBase = tx.storeName || ''
-    const description = descBase.slice(0, 40)
+    let description = descBase.slice(0, 40)
     const usageDateStr = tx.usageDate.replace(/-/g, '')
     // パターン学習用: 日付部分を除去（毎月変わるためパターンマッチの邪魔になる）
     const storeNameForPattern = stripDateFromDescription(descBase)
@@ -63,6 +63,20 @@ export function creditCardToEntries(
         businessType = line.businessType || ''
       }
       patternId = pattern.id
+
+      // 変換後摘要を適用（通帳・現金出納帳の journal-mapper と同じ挙動）
+      if (pattern.convertedDescription) {
+        if (pattern.matchType === 'exact') {
+          description = pattern.convertedDescription.slice(0, 40)
+        } else {
+          const mt = pattern.matchText || pattern.keyword
+          description = descBase.replace(mt, pattern.convertedDescription).slice(0, 40)
+        }
+      } else if (pattern.matchType === 'exact' && line?.description) {
+        // 完全一致で変換後摘要なし → パターンの摘要を使用
+        description = line.description.slice(0, 40)
+      }
+      // 部分一致で変換後摘要なし → 元の摘要をそのまま保持
     }
 
     // マイナス金額（返品・キャンセル）→ 貸借逆転
