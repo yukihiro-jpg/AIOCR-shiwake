@@ -24,9 +24,27 @@ export function getProcessingStatuses(): ProcessingStatus[] {
   if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(getKey())
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw) as ProcessingStatus[]
+      // monthlyProgress が文字列で保存されている不正データを修復（過去の不具合対策）
+      return parsed.map(normalizeStatus)
+    }
   } catch { /* ignore */ }
   return []
+}
+
+/** monthlyProgress が JSON 文字列になっている場合はオブジェクトに直す */
+function normalizeStatus(s: ProcessingStatus): ProcessingStatus {
+  const mp = s.monthlyProgress as unknown
+  if (typeof mp === 'string') {
+    try {
+      const obj = JSON.parse(mp)
+      return { ...s, monthlyProgress: obj && typeof obj === 'object' ? obj : {} }
+    } catch {
+      return { ...s, monthlyProgress: {} }
+    }
+  }
+  return s
 }
 
 export function saveProcessingStatuses(statuses: ProcessingStatus[]): void {

@@ -298,8 +298,7 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
                           } else {
                             delete updated[ym]
                           }
-                          handleDetailChange(s.accountCode, 'monthlyProgress', JSON.stringify(updated))
-                          // monthlyProgressはオブジェクトなので直接更新
+                          // monthlyProgress はオブジェクトなので直接更新（文字列化しない）
                           setStatuses((prev) => prev.map((st) =>
                             st.accountCode === s.accountCode ? { ...st, monthlyProgress: updated, lastUpdated: new Date().toISOString() } : st
                           ))
