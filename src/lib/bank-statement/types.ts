@@ -107,6 +107,7 @@ export interface PatternLine {
   creditSubName?: string
   taxCode: string
   taxCategory: string
+  taxRate?: string           // 税率コード（'4'=10%, '5'=8%軽減, '3'=8%）
   businessType: string
   description: string        // 変換後の摘要
   amount: number             // 金額（複合仕訳の各行の金額を保持）

@@ -41,6 +41,7 @@ export function creditCardToEntries(
     let expenseSubName = ''
     let taxCode = ''
     let taxCategory = ''
+    let taxRate = ''
     let businessType = ''
     let patternId: string | null = null
 
@@ -60,6 +61,7 @@ export function creditCardToEntries(
         }
         taxCode = line.taxCode || ''
         taxCategory = line.taxCategory || ''
+        taxRate = line.taxRate || ''
         businessType = line.businessType || ''
       }
       patternId = pattern.id
@@ -95,7 +97,7 @@ export function creditCardToEntries(
       debitAmount: amount,
       debitTaxAmount: 0,
       debitTaxCode: taxCode,
-      debitTaxRate: taxCode ? '4' : '',
+      debitTaxRate: taxRate || (taxCode ? '4' : ''),
       debitBusinessType: businessType,
       creditCode: isRefund ? expenseCode : creditCardAccountCode,
       creditName: isRefund ? expenseName : creditCardAccountName,

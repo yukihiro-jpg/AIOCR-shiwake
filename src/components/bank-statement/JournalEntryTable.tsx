@@ -279,6 +279,7 @@ export default function JournalEntryTable({
       }
       updatedEntry.debitTaxCode = firstLine.taxCode
       updatedEntry.debitTaxType = firstLine.taxCategory
+      if (firstLine.taxRate) updatedEntry.debitTaxRate = firstLine.taxRate
       updatedEntry.debitBusinessType = firstLine.businessType
       newEntries.push(updatedEntry)
 
@@ -298,6 +299,7 @@ export default function JournalEntryTable({
           compoundEntry.creditSubName = line.creditSubName || ''
           compoundEntry.debitTaxCode = line.taxCode
           compoundEntry.debitTaxType = line.taxCategory
+          if (line.taxRate) compoundEntry.debitTaxRate = line.taxRate
           compoundEntry.debitBusinessType = line.businessType
           compoundEntry.description = line.description
           compoundEntry.originalDescription = e.originalDescription

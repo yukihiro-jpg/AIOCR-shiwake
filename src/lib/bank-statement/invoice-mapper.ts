@@ -40,6 +40,7 @@ export function applyPatternsToInvoiceEntries(
     }
     if (line.taxCode) updated.debitTaxCode = line.taxCode
     if (line.taxCategory) updated.debitTaxType = line.taxCategory
+    if (line.taxRate) updated.debitTaxRate = line.taxRate
     if (line.businessType) updated.debitBusinessType = line.businessType
     if (pattern.convertedDescription) {
       updated.description = pattern.convertedDescription.slice(0, 40)

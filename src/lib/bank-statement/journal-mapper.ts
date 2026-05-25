@@ -53,6 +53,7 @@ export function mapTransactionsToJournalEntries(
       const pCreditSubName = pLine?.creditSubName || ''
       const pTaxCode = pLine?.taxCode || pattern?.taxCode || ''
       const pTaxCategory = pLine?.taxCategory || pattern?.taxCategory || ''
+      const pTaxRate = pLine?.taxRate || ''
       const pBusinessType = pLine?.businessType || pattern?.businessType || ''
       const isCompoundPattern = pattern?.lines && pattern.lines.length > 1
 
@@ -67,6 +68,7 @@ export function mapTransactionsToJournalEntries(
           creditAmount: amount,
           taxCode: pTaxCode,
           taxCategory: pTaxCategory,
+          taxRate: pTaxRate,
           businessType: pBusinessType,
         })
       } else if (isDeposit) {
@@ -81,6 +83,7 @@ export function mapTransactionsToJournalEntries(
           creditAmount: amount,
           taxCode: pTaxCode,
           taxCategory: pTaxCategory,
+          taxRate: pTaxRate,
           businessType: pBusinessType,
         })
       } else {
@@ -95,6 +98,7 @@ export function mapTransactionsToJournalEntries(
           creditAmount: amount,
           taxCode: pattern?.taxCode || '',
           taxCategory: pTaxCategory,
+          taxRate: pTaxRate,
           businessType: pBusinessType,
         })
       }
@@ -201,6 +205,7 @@ interface EntryParams {
   creditAmount: number
   taxCode: string
   taxCategory: string
+  taxRate?: string
   businessType: string
 }
 
@@ -219,7 +224,7 @@ function createEntry(tx: BankTransaction, params: EntryParams): JournalEntry {
     debitAmount: params.debitAmount,
     debitTaxAmount: 0,
     debitTaxCode: params.taxCode,
-    debitTaxRate: '',
+    debitTaxRate: params.taxRate || '',
     debitBusinessType: params.businessType,
     creditCode: params.creditCode,
     creditName: params.creditName,
