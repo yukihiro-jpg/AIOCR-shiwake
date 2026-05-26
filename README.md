@@ -1,133 +1,80 @@
-# 年末調整書類アップロードアプリ
+# 会計大将インポートデータ変換アプリ
 
-年末調整に必要な控除証明書等を、顧問先の従業員がスマートフォンで撮影してGoogle Drive共有ドライブにPDFとして保管するWebアプリケーションです。
+通帳・現金出納帳・クレジットカード明細・請求書・レシート・賃金台帳などを
+AI（Gemini）OCR や Excel/CSV 取り込みで解析し、会計ソフト「会計大将」向けの
+インポート CSV に変換する Web アプリケーションです。税理士事務所での記帳代行
+業務の効率化を目的としています。
 
-## 機能
+## 主な機能
 
-### 従業員向け（スマホ）
-- QRコードまたはURLからアクセス
-- 氏名を入力し、該当する書類を撮影
-- 送信ボタンで一括アップロード
+- **多様な証憑の取り込み**
+  - 通帳・現金出納帳（PDF / Excel / CSV、列マッピング対応）
+  - クレジットカード明細（PDF の Gemini OCR / Excel・CSV の列マッピング）
+  - 売上請求書・仕入請求書（PDF / Excel / CSV）
+  - レシート・領収書、ゆうちょ受払通知、賃金台帳
+- **パターン学習**：摘要・金額から借方/貸方科目・補助科目・消費税率(10%/8%軽減)・
+  インボイス登録区分・変換後摘要を自動適用。顧問先（科目コード）単位でスコープ管理
+- **進捗管理表**：顧問先ごとに月別の処理状況を記録（会計年度の切替対応、資料依頼メール作成）
+- **Google Drive 同期**：顧問先・学習パターン・科目/税率マスタ・進捗表を事務所内で共有
+- **会計大将向け CSV 出力**（Shift_JIS）
 
-### 対応書類
-- 生命保険料控除証明書
-- 地震保険料控除証明書
-- 国民年金保険料控除証明書
-- 国民健康保険の支払証明
-- 小規模企業共済掛金払込証明書
-- iDeCo掛金払込証明書
-- 住宅借入金等特別控除申告書（2年目以降）
-- 住宅取得資金に係る借入金の年末残高証明書（2年目以降）
-- 前職の源泉徴収票
+## 動作環境
 
-### 管理者向け
-- 顧問先ごとのアップロードURL・QRコード生成
-- 進捗管理スプレッドシート（従業員コード順、未提出者別シート）
-- 毎朝6:30の進捗メール通知（全顧問先まとめ）
+- Node.js（LTS 推奨）
+- ブラウザ（Chrome 等）
 
 ## セットアップ
 
-### 1. Google Cloud設定
+### 1. 依存パッケージのインストール
 
-1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成
-2. 以下のAPIを有効化:
-   - Google Drive API
-   - Google Sheets API
-   - Gmail API
-3. 「サービスアカウント」を作成し、JSONキーをダウンロード
-4. Google Drive共有ドライブでサービスアカウントのメールアドレスを「コンテンツ管理者」として追加
+```
+npm install
+```
 
 ### 2. 環境変数の設定
 
-`.env.example` をコピーして `.env.local` を作成:
+プロジェクト直下に `.env.local` を作成し、以下を設定します（`.env.example` 参照）。
 
-```bash
-cp .env.example .env.local
+```
+# Gemini API（OCR 解析に使用）
+GEMINI_API_KEY=your_gemini_api_key
+
+# Google OAuth（Drive 同期に使用）
+GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
+GOOGLE_DRIVE_FOLDER_ID=Driveの保存先親フォルダID
+NEXTAUTH_URL=http://localhost:3000
+
+# 任意: Drive データ保存フォルダ名（既定: 事務所アプリ共有データ）
+# GOOGLE_DRIVE_DATA_FOLDER_NAME=事務所アプリ共有データ
 ```
 
-以下の値を設定:
+> `.env.local` は機密情報のため Git には含まれません。バックアップは安全な場所に保管してください。
 
-| 変数 | 説明 |
-|------|------|
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | サービスアカウントのメールアドレス |
-| `GOOGLE_PRIVATE_KEY` | サービスアカウントの秘密鍵 |
-| `GOOGLE_SHARED_DRIVE_ID` | 共有ドライブのID |
-| `GOOGLE_SPREADSHEET_ID` | 進捗管理用スプレッドシートのID |
-| `NOTIFICATION_EMAIL` | 進捗メール送信先アドレス |
-| `NEXT_PUBLIC_APP_URL` | デプロイ後のアプリURL |
+### 3. 起動
 
-### 3. 顧問先の登録
-
-`src/lib/clients.ts` に顧問先情報を追加:
-
-```typescript
-const clients: Client[] = [
-  {
-    id: 'abc-company',        // URLに使用するID
-    name: '株式会社ABC',       // 表示名
-    driveFolderId: 'xxxxx',   // Google Drive上のフォルダID
-  },
-]
 ```
-
-### 4. Google Drive上の準備
-
-各顧問先フォルダ内に「従業員一覧」という名前のGoogleスプレッドシートを配置:
-
-| A列（従業員コード） | B列（氏名） |
-|---------------------|-------------|
-| 001 | 山田太郎 |
-| 002 | 鈴木花子 |
-| ... | ... |
-
-### 5. アプリの起動
-
-```bash
-npm install
 npm run dev
 ```
 
-## 定期実行の設定（cron）
+ブラウザで http://localhost:3000/bank-statement を開きます。
 
-### スプレッドシート更新（毎日0:00）
-```bash
-0 0 * * * cd /path/to/project && npm run cron:spreadsheet
-```
+## Google Drive 同期のセットアップ
 
-### 進捗メール送信（毎朝6:30）
-```bash
-30 6 * * * cd /path/to/project && npm run cron:email
-```
+事務所内の複数 PC で顧問先・学習パターン等を共有する手順は
+[`docs/google-drive-sync-setup.md`](docs/google-drive-sync-setup.md) を参照してください。
 
-## Google Driveフォルダ構造
+## ディレクトリ概要
 
-```
-共有ドライブ/
-├── 株式会社A/
-│   ├── 従業員一覧（Googleスプレッドシート）
-│   ├── 山田太郎/
-│   │   ├── 生命保険料控除証明書.pdf
-│   │   └── 国民年金保険料控除証明書.pdf
-│   └── 鈴木花子/
-│       └── ...
-├── 株式会社B/
-│   └── ...
-```
+- `src/app/bank-statement/` … 画面のエントリ
+- `src/components/bank-statement/` … UI コンポーネント
+- `src/lib/bank-statement/` … 解析・変換・パターン・同期などのロジック
+- `src/app/api/bank-statement/` … Gemini OCR 等の API ルート
+- `src/app/api/drive/` … Google Drive 同期 API
+- `docs/` … セットアップ手順書
 
-## デプロイ
+## バックアップ・復旧
 
-### Vercel（推奨）
-1. GitHubリポジトリと連携
-2. 環境変数を設定
-3. デプロイ
-
-### その他
-Node.js 18以上の環境で `npm run build && npm run start` で起動可能です。
-
-## 技術スタック
-
-- Next.js 14 (App Router) + TypeScript
-- Tailwind CSS
-- Google APIs (Drive, Sheets, Gmail)
-- pdf-lib + sharp (画像→PDF変換)
-- qrcode (QRコード生成)
+PC 入れ替え時の復旧手順は、Drive 同期手順書および
+`.env.local` のバックアップを参照してください。データ本体（顧問先・パターン・
+進捗表）は Drive に同期されているため、`.env.local` とコードがあれば復旧できます。

@@ -23,7 +23,15 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
+
+# backups
+*.zip
+
+# editor
+.vscode/
+.idea/
 
 # vercel
 .vercel
