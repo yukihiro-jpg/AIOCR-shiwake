@@ -163,6 +163,10 @@ export default function BankStatementContent() {
   // クレジットカード（Excel/CSV）列マッピング用（自動検出失敗時のフォールバック）
   const [showCcColumnMapping, setShowCcColumnMapping] = useState(false)
   const [ccRawRows, setCcRawRows] = useState<RawTableRow[] | null>(null)
+  // 日付一括変更（クレジットカード等）
+  const [showBulkDateDialog, setShowBulkDateDialog] = useState(false)
+  const [bulkDate, setBulkDate] = useState('')
+  const [bulkDateAddToDesc, setBulkDateAddToDesc] = useState(false)
   const [pendingImageUrls, setPendingImageUrls] = useState<string[] | null>(null)
 
   // 以下は顧問先選択後の処理
@@ -820,6 +824,24 @@ export default function BankStatementContent() {
     [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls, geminiModel],
   )
 
+  // 日付一括変更を適用
+  const handleBulkDateApply = useCallback(() => {
+    if (!bulkDate) { setError('変更後の日付を選択してください'); return }
+    const newDate = bulkDate.replace(/-/g, '')
+    setJournalEntries((prev) => prev.map((e) => {
+      let description = e.description
+      // 「解析時の日付を摘要に追加」: 元の日付（現在の e.date）から "_M月D日利用分" を付与（重複防止）
+      if (bulkDateAddToDesc && e.date && e.date.length === 8 && !/利用分$/.test(description)) {
+        const m = parseInt(e.date.slice(4, 6))
+        const d = parseInt(e.date.slice(6, 8))
+        if (m && d) description = `${e.description}_${m}月${d}日利用分`
+      }
+      return { ...e, date: newDate, description }
+    }))
+    setShowBulkDateDialog(false)
+    setInfo(`仕訳データの日付を ${bulkDate} に一括変更しました${bulkDateAddToDesc ? '（摘要に利用日を追加）' : ''}`)
+  }, [bulkDate, bulkDateAddToDesc])
+
   const handleCcColumnMappingConfirm = useCallback(
     async (mapping: ColumnMapping) => {
       if (!ccRawRows || !uploadConfig) return
@@ -1159,6 +1181,13 @@ export default function BankStatementContent() {
           />
           {journalEntries.length > 0 && (
             <>
+              {uploadConfig?.documentType === 'credit-card' && (
+                <button onClick={() => setShowBulkDateDialog(true)}
+                  title="全仕訳の日付をまとめて変更"
+                  className="px-3 py-1.5 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded">
+                  日付一括変更
+                </button>
+              )}
               <button onClick={handleTempSave}
                 className="px-3 py-1.5 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded">
                 {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '一時保存'}
@@ -1385,6 +1414,49 @@ export default function BankStatementContent() {
             setCcRawRows(null)
           }}
         />
+      )}
+
+      {/* 日付一括変更ダイアログ */}
+      {showBulkDateDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-5 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-800">日付の一括変更</h2>
+              <p className="text-xs text-gray-500 mt-1">表示中の全仕訳（{journalEntries.length}件）の日付をまとめて変更します。</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">変更後の日付</label>
+                <input type="date" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                <p className="text-xs text-gray-400 mt-1">例: クレジットカードの引落日に揃える</p>
+              </div>
+              <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={bulkDateAddToDesc}
+                  onChange={(e) => setBulkDateAddToDesc(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 accent-indigo-600" />
+                <span>
+                  解析時の日付を摘要に追加する
+                  <span className="block text-xs text-gray-400 mt-0.5">
+                    各仕訳の摘要末尾に、元々解析されていた利用日を「_〇月〇日利用分」として追加します。
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="p-4 border-t border-gray-200 flex gap-2">
+              <button onClick={() => setShowBulkDateDialog(false)}
+                className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">
+                キャンセル
+              </button>
+              <button onClick={handleBulkDateApply} disabled={!bulkDate}
+                className={`flex-1 py-2 text-sm font-bold rounded-lg ${
+                  bulkDate ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}>
+                一括変更を実行
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* パターン一覧ダイアログ */}
