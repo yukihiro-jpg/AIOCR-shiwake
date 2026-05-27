@@ -221,6 +221,11 @@ export default function JournalEntryTable({
 
     const newEntries: JournalEntry[] = []
     for (const e of entries) {
+      // 再反映対象の行に紐づく「既存のパターン生成・複合子行」は除去する
+      // （この後で複合パターンの子行を作り直すため。残すと反映のたびに子行が増殖する）
+      if (e.parentId && targetIds.has(e.parentId) && e.patternId) {
+        continue
+      }
       if (!targetIds.has(e.id)) {
         newEntries.push(e)
         continue
