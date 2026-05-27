@@ -109,6 +109,8 @@ export default function JournalEntryTable({
   // 反映確認ダイアログ
   const [applyTargetEntries, setApplyTargetEntries] = useState<JournalEntry[]>([])
   const [applyPatternLines, setApplyPatternLines] = useState<PatternLine[]>([])
+  // 反映対象パターンのメタ情報（摘要変換を確実に適用するため getPatterns 再検索に頼らない）
+  const [applyPatternMeta, setApplyPatternMeta] = useState<{ id: string; matchType?: 'exact' | 'partial'; matchText?: string; convertedDescription?: string } | null>(null)
   const [applyAmountRange, setApplyAmountRange] = useState<{ min: number | null; max: number | null } | null>(null)
   const [showApplyDialog, setShowApplyDialog] = useState(false)
   // パターン詳細ダイアログ
@@ -180,6 +182,7 @@ export default function JournalEntryTable({
 
         setApplyTargetEntries(targets)
         setApplyPatternLines(pat.lines)
+        setApplyPatternMeta({ id: pat.id, matchType: pat.matchType, matchText: pat.matchText || pat.keyword, convertedDescription: pat.convertedDescription })
         setApplyAmountRange({ min: amountMin, max: amountMax })
         setShowApplyDialog(true)
         onEntriesChange(updatedEntries)
@@ -256,24 +259,22 @@ export default function JournalEntryTable({
         }
       }
 
-      // 摘要: 元の摘要を保持（パターンの変換後摘要がある場合のみ上書き、ただし部分一致は元を保持）
-      const matchedPatterns = getPatterns()
-      const matchedPat = matchedPatterns.find((p: PatternEntry) => {
-        const mt = (p.matchText || p.keyword).toLowerCase()
-        const ed = (e.originalDescription || '').toLowerCase()
-        return p.matchType === 'exact' ? ed === mt : ed.includes(mt) || mt.includes(ed)
-      })
-      if (matchedPat) {
-        updatedEntry.patternId = matchedPat.id
-        const converted = matchedPat.convertedDescription
+      // 摘要: 反映対象パターン（applyPatternMeta）の変換後摘要を適用
+      // getPatterns の再検索ではなく、今まさに反映中のパターンを直接使うことで確実に反映する
+      const meta = applyPatternMeta
+      if (meta) {
+        updatedEntry.patternId = meta.id
+        const converted = meta.convertedDescription
         if (converted) {
-          if (matchedPat.matchType === 'exact') {
+          if (meta.matchType === 'exact') {
             // 完全一致: 摘要全体を変換後テキストに置換
             updatedEntry.description = converted
           } else {
             // 部分一致: 一致部分のみを変換後テキストに置換、残りは保持
-            const mt = matchedPat.matchText || matchedPat.keyword
-            updatedEntry.description = (e.originalDescription || e.description || '').replace(mt, converted)
+            const mt = meta.matchText || ''
+            updatedEntry.description = mt
+              ? (e.originalDescription || e.description || '').replace(mt, converted)
+              : converted
           }
         }
       }
@@ -316,8 +317,9 @@ export default function JournalEntryTable({
     setShowApplyDialog(false)
     setApplyTargetEntries([])
     setApplyPatternLines([])
+    setApplyPatternMeta(null)
     setApplyAmountRange(null)
-  }, [applyTargetEntries, applyPatternLines, entries, onEntriesChange, bankAccountCode])
+  }, [applyTargetEntries, applyPatternLines, applyPatternMeta, entries, onEntriesChange, bankAccountCode])
 
   const handleRowSelect = useCallback(
     (entryId: string, e?: React.MouseEvent) => {
@@ -1201,6 +1203,7 @@ export default function JournalEntryTable({
           setShowApplyDialog(false)
           setApplyTargetEntries([])
           setApplyPatternLines([])
+          setApplyPatternMeta(null)
           setApplyAmountRange(null)
         }}
       />

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import type { JournalEntry } from '@/lib/bank-statement/types'
+import { getPatterns } from '@/lib/bank-statement/pattern-store'
 
 interface Props {
   open: boolean
@@ -21,10 +22,20 @@ export default function LearnPatternDialog({
   const [convertedDesc, setConvertedDesc] = useState('')
   const [overrideExisting, setOverrideExisting] = useState(false)
 
-  // エントリが変わるたびに一致文言をリセット
+  // エントリが変わるたびに初期化。既にパターン適用済み(patternId あり)なら
+  // そのパターンの内容を読み込んで初期表示する。
   const entryId = entry?.id
   useEffect(() => {
-    if (entry) {
+    if (!entry) return
+    const existing = entry.patternId ? getPatterns().find((p) => p.id === entry.patternId) : null
+    if (existing) {
+      setMatchText(existing.matchText || existing.keyword || entry.originalDescription || entry.description || '')
+      setMatchType(existing.matchType === 'exact' ? 'exact' : 'partial')
+      setConvertedDesc(existing.convertedDescription || '')
+      setAmountMin(existing.amountMin != null ? String(existing.amountMin) : '')
+      setAmountMax(existing.amountMax != null ? String(existing.amountMax) : '')
+      setOverrideExisting(false)
+    } else {
       setMatchText(entry.originalDescription || entry.description || '')
       setMatchType('partial')
       setConvertedDesc('')
