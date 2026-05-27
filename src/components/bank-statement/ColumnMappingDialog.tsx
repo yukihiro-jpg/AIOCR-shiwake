@@ -17,6 +17,8 @@ const BANK_ROLES = [
   { key: 'descriptionColumn', label: '摘要', color: 'bg-green-100 border-green-400', multi: true },
   { key: 'depositColumn', label: '入金', color: 'bg-yellow-100 border-yellow-400', multi: false },
   { key: 'withdrawalColumn', label: '出金', color: 'bg-red-100 border-red-400', multi: false },
+  { key: 'amountColumn', label: '金額(1列)', color: 'bg-teal-100 border-teal-400', multi: false },
+  { key: 'directionColumn', label: '受払区分', color: 'bg-orange-100 border-orange-400', multi: false },
   { key: 'balanceColumn', label: '残高', color: 'bg-purple-100 border-purple-400', multi: false },
 ] as const
 
@@ -33,6 +35,8 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     dateColumn: initialMapping?.dateColumn ?? -1,
     depositColumn: initialMapping?.depositColumn ?? -1,
     withdrawalColumn: initialMapping?.withdrawalColumn ?? -1,
+    amountColumn: initialMapping?.signedAmountColumn ?? -1,
+    directionColumn: initialMapping?.directionColumn ?? -1,
     balanceColumn: initialMapping?.balanceColumn ?? -1,
   })
   const [descColumns, setDescColumns] = useState<number[]>(
@@ -88,7 +92,12 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     return COLUMN_ROLES.find((r) => r.key === role)?.color || ''
   }
 
-  const hasAmount = mapping.depositColumn >= 0 || mapping.withdrawalColumn >= 0
+  // 金額の指定方法: 入金/出金の2列、または「金額(1列)」（符号付き or 受払区分と併用）
+  const useSingleAmount = !isCreditCard && mapping.amountColumn >= 0
+  const useDirection = useSingleAmount && mapping.directionColumn >= 0
+  const hasAmount = isCreditCard
+    ? mapping.depositColumn >= 0
+    : (mapping.depositColumn >= 0 || mapping.withdrawalColumn >= 0 || mapping.amountColumn >= 0)
   const canConfirm = mapping.dateColumn >= 0 && hasAmount
 
   const handleConfirm = () => {
@@ -96,9 +105,11 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
       dateColumn: mapping.dateColumn,
       descriptionColumn: descColumns.length > 0 ? descColumns[0] : -1,
       descriptionColumns: descColumns.length > 1 ? descColumns : undefined,
-      depositColumn: mapping.depositColumn >= 0 ? mapping.depositColumn : mapping.withdrawalColumn,
-      withdrawalColumn: mapping.withdrawalColumn >= 0 ? mapping.withdrawalColumn : mapping.depositColumn,
+      depositColumn: useSingleAmount ? -1 : (mapping.depositColumn >= 0 ? mapping.depositColumn : mapping.withdrawalColumn),
+      withdrawalColumn: useSingleAmount ? -1 : (mapping.withdrawalColumn >= 0 ? mapping.withdrawalColumn : mapping.depositColumn),
       balanceColumn: mapping.balanceColumn,
+      signedAmountColumn: useSingleAmount ? mapping.amountColumn : undefined,
+      directionColumn: useDirection ? mapping.directionColumn : undefined,
     }, { expandAbbreviations })
   }
 
@@ -143,6 +154,14 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
             上のボタンで役割を選択 → 下のテーブルで列ヘッダーをクリック
             {activeRole === 'descriptionColumn' && <span className="text-green-600 font-bold ml-1">（摘要: 複数列選択可）</span>}
           </p>
+          {!isCreditCard && (
+            <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded px-2 py-1">
+              金額の指定は次の3通り：
+              <b>①入金・出金の2列</b> ／
+              <b>②金額(1列)</b>（プラス=入金・マイナス=出金の符号付き1列）／
+              <b>③金額(1列)＋受払区分</b>（金額はすべて正の数。「受入/入金」→入金、「払出/出金」→出金で振り分け）
+            </p>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto p-4">
@@ -203,7 +222,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
           <div className="text-xs">
             {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
             {mapping.dateColumn >= 0 && !hasAmount && (
-              <span className="text-red-500 font-bold">※ {isCreditCard ? '利用金額' : '入金または出金'}の列を選択してください</span>
+              <span className="text-red-500 font-bold">※ {isCreditCard ? '利用金額' : '入金/出金、または金額(1列)'}の列を選択してください</span>
             )}
           </div>
           <div className="flex gap-2">
