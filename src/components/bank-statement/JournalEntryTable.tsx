@@ -138,42 +138,47 @@ export default function JournalEntryTable({
       const primaryId = learnDialogEntry.id
       const effectiveMatchTextRaw = matchText || originalDesc
       const isExactMatch = matchType === 'exact'
-      // 学習元の主行にも patternId と変換後摘要を即時反映する
-      // （子行は元々それぞれの摘要を保持するため description は更新しない）
+      const effectiveMatchText = effectiveMatchTextRaw.toLowerCase()
+
+      // ある仕訳に対する変換後摘要を計算（変換後摘要が空なら元の摘要を維持）
+      const computeDesc = (e: JournalEntry): string => {
+        if (!convertedDesc) return e.description
+        const sourceText = e.originalDescription || e.description || ''
+        if (isExactMatch) return convertedDesc
+        return effectiveMatchTextRaw ? sourceText.replace(effectiveMatchTextRaw, convertedDesc) : convertedDesc
+      }
+      // この仕訳がパターンの一致条件を満たすか
+      const matchesPattern = (e: JournalEntry): boolean => {
+        if (e.parentId) return false
+        const eDesc = (e.originalDescription || e.description || '').toLowerCase()
+        if (!eDesc) return false
+        if (isExactMatch ? eDesc !== effectiveMatchText : !eDesc.includes(effectiveMatchText)) return false
+        const amt = e.debitAmount || e.creditAmount || 0
+        if (amountMin != null && amt < amountMin) return false
+        if (amountMax != null && amt > amountMax) return false
+        return true
+      }
+
+      // 学習元の主行 + （applyToAll時）一致する他の行に、patternId と変換後摘要を即時反映する
       const updatedEntries = entries.map((e) => {
-        if (!learnedIds.has(e.id)) return e
-        const updated: JournalEntry = { ...e, patternId }
-        if (convertedDesc && e.id === primaryId) {
-          const sourceText = e.originalDescription || e.description || ''
-          if (isExactMatch) {
-            updated.description = convertedDesc
-          } else if (effectiveMatchTextRaw) {
-            updated.description = sourceText.replace(effectiveMatchTextRaw, convertedDesc)
-          }
+        if (learnedIds.has(e.id)) {
+          const updated: JournalEntry = { ...e, patternId }
+          if (convertedDesc && e.id === primaryId) updated.description = computeDesc(e)
+          return updated
         }
-        return updated
+        if (applyToAll && convertedDesc && matchesPattern(e)) {
+          // 別パターン適用済みは override 時のみ上書き
+          if (e.patternId && e.patternId !== patternId && !overrideExisting) return e
+          return { ...e, patternId, description: computeDesc(e) }
+        }
+        return e
       })
 
       if (applyToAll) {
-        const effectiveMatchText = effectiveMatchTextRaw.toLowerCase()
         const targets = updatedEntries.filter((e) => {
           if (learnedIds.has(e.id)) return false
-          if (e.parentId) return false
-          // 既に「別の」パターン適用済みの行はスキップ（ただし overrideExisting=true なら強制上書き）。
-          // 同じパターン（再学習で更新中のもの）の行は変換後摘要が変わった可能性があるため
-          // overrideExisting に関わらず対象に含めて再反映する
           if (e.patternId && e.patternId !== patternId && !overrideExisting) return false
-          const eDesc = (e.originalDescription || e.description || '').toLowerCase()
-          if (!eDesc) return false
-          if (isExactMatch) {
-            if (eDesc !== effectiveMatchText) return false
-          } else {
-            if (!eDesc.includes(effectiveMatchText)) return false
-          }
-          const amt = e.debitAmount || e.creditAmount || 0
-          if (amountMin != null && amt < amountMin) return false
-          if (amountMax != null && amt > amountMax) return false
-          return true
+          return matchesPattern(e)
         })
 
         const patterns = getPatterns()
