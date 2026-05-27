@@ -301,7 +301,8 @@ export default function JournalEntryTable({
           compoundEntry.debitTaxType = line.taxCategory
           if (line.taxRate) compoundEntry.debitTaxRate = line.taxRate
           compoundEntry.debitBusinessType = line.businessType
-          compoundEntry.description = line.description
+          // 複合仕訳の各行も、1行目（変換後摘要を適用済み）と同じ摘要にそろえる
+          compoundEntry.description = updatedEntry.description
           compoundEntry.originalDescription = e.originalDescription
           // パターンの学習時金額を復元（997自動計算対象の最終行以外）
           compoundEntry.debitAmount = line.amount || 0

@@ -152,8 +152,10 @@ export function mapTransactionsToJournalEntries(
           compoundEntry.creditSubName = line.creditSubName || ''
           compoundEntry.debitTaxCode = line.taxCode
           compoundEntry.debitTaxType = line.taxCategory
+          if (line.taxRate) compoundEntry.debitTaxRate = line.taxRate
           compoundEntry.debitBusinessType = line.businessType
-          compoundEntry.description = line.description
+          // 複合仕訳の各行も、1行目（変換後摘要を適用済み）と同じ摘要にそろえる
+          compoundEntry.description = entry.description
           compoundEntry.originalDescription = tx.description
           // パターンの学習時金額を復元
           compoundEntry.debitAmount = line.amount || 0
