@@ -752,8 +752,8 @@ export default function BankStatementContent() {
     async (mapping: ColumnMapping, options?: { expandAbbreviations?: boolean }) => {
       if (!rawPages || !pendingSourceType || !uploadConfig) return
 
-      // Excelマッピングを科目CD別に学習保存
-      if (uploadConfig.accountCode && pendingSourceType === 'excel') {
+      // 列マッピングを科目CD別に学習保存（Excel/CSV/PDF表 すべて対象）
+      if (uploadConfig.accountCode) {
         try {
           const cid = localStorage.getItem('bank-statement-selected-client') || ''
           const key = `bs-excel-mapping-${cid}-${uploadConfig.accountCode}`
