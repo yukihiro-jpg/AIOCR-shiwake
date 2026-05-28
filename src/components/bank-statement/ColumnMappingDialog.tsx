@@ -44,6 +44,13 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
   )
   const [activeRole, setActiveRole] = useState<string>('dateColumn')
   const [expandAbbreviations, setExpandAbbreviations] = useState(false)
+  // 内訳列（複合仕訳生成用）。ボタンで有効化したときだけ使用
+  const [extrasEnabled, setExtrasEnabled] = useState<boolean>(
+    !!(initialMapping?.extraColumns && initialMapping.extraColumns.length > 0)
+  )
+  const [extraColumns, setExtraColumns] = useState<{ col: number; name: string; direction: 'credit' | 'debit' }[]>(
+    initialMapping?.extraColumns ? [...initialMapping.extraColumns] : []
+  )
 
   const sampleRows = rawPages[0]?.slice(0, 25) || []
   const maxCols = Math.max(...sampleRows.map((r) => r.cells.length), 0)
@@ -101,6 +108,10 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
   const canConfirm = mapping.dateColumn >= 0 && hasAmount
 
   const handleConfirm = () => {
+    // 内訳列: 有効かつ列が選択済みのものだけ採用
+    const validExtras = extrasEnabled
+      ? extraColumns.filter((e) => e.col >= 0 && e.name.trim().length > 0)
+      : []
     onConfirm({
       dateColumn: mapping.dateColumn,
       descriptionColumn: descColumns.length > 0 ? descColumns[0] : -1,
@@ -110,6 +121,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
       balanceColumn: mapping.balanceColumn,
       signedAmountColumn: useSingleAmount ? mapping.amountColumn : undefined,
       directionColumn: useDirection ? mapping.directionColumn : undefined,
+      extraColumns: validExtras.length > 0 ? validExtras : undefined,
     }, { expandAbbreviations })
   }
 
@@ -161,6 +173,76 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
               <b>②金額(1列)</b>（プラス=入金・マイナス=出金の符号付き1列）／
               <b>③金額(1列)＋受払区分</b>（金額はすべて正の数。「受入/入金」→入金、「払出/出金」→出金で振り分け）
             </p>
+          )}
+          {!isCreditCard && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-bold text-gray-700">内訳列を使う</span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    1取引（1行）を複合仕訳に展開（通帳の動きは取引金額1回のみ・諸口を経由して各内訳に振り分け）
+                  </span>
+                </div>
+                <button
+                  onClick={() => setExtrasEnabled((v) => !v)}
+                  className={`px-3 py-1 text-xs rounded font-medium ${
+                    extrasEnabled ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {extrasEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              {extrasEnabled && (
+                <div className="mt-2 space-y-1.5">
+                  {extraColumns.map((ec, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
+                      <select
+                        value={ec.col}
+                        onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, col: parseInt(e.target.value) } : x))}
+                        className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                      >
+                        <option value={-1}>列を選択</option>
+                        {Array.from({ length: maxCols }, (_, k) => (
+                          <option key={k} value={k}>列{k + 1}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={ec.name}
+                        onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                        placeholder="科目名（例: 家賃、ガス代、預り敷金返済）"
+                        className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
+                      />
+                      <select
+                        value={ec.direction}
+                        onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, direction: e.target.value as 'credit' | 'debit' } : x))}
+                        className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                      >
+                        <option value="credit">収入（貸方科目）</option>
+                        <option value="debit">返金/相殺（借方科目）</option>
+                      </select>
+                      <button
+                        onClick={() => setExtraColumns((prev) => prev.filter((_, j) => j !== i))}
+                        className="px-2 text-xs text-red-500 hover:text-red-700"
+                        title="この内訳列を削除"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setExtraColumns((prev) => [...prev, { col: -1, name: '', direction: 'credit' }])}
+                    className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+                  >
+                    + 内訳列を追加
+                  </button>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    収入の内訳（家賃・ガス代等）は「収入」、敷金返済や返金は「返金/相殺」を選択。<br />
+                    各内訳が「諸口 ↔ 該当科目」の複合仕訳として展開され、通帳側の動きは取引金額1回だけになります。
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

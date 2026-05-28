@@ -28,6 +28,13 @@ export function mapTransactionsToJournalEntries(
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
+  // 諸口科目を科目マスタから検索（無ければ 997 / 諸口 を既定とする）
+  const shoguchi = accountMaster.find((a) =>
+    a.name === '諸口' || a.shortName === '諸口' || a.code === '997'
+  )
+  const shoguchiCode = shoguchi?.code || '997'
+  const shoguchiName = shoguchi?.shortName || shoguchi?.name || '諸口'
+
   for (const page of pages) {
     for (const tx of page.transactions) {
       // 入出金がどちらもない行はスキップ（残高のみの行）
@@ -72,8 +79,12 @@ export function mapTransactionsToJournalEntries(
           businessType: pBusinessType,
         })
       } else if (isDeposit) {
-        const counterCode = pattern ? (pCreditCode !== accountCode ? pCreditCode : pDebitCode !== accountCode ? pDebitCode : '') : ''
-        const counterName = pattern ? (pCreditCode !== accountCode ? pCreditName : pDebitCode !== accountCode ? pDebitName : '') : ''
+        // 内訳列がある場合: 親仕訳は「通帳 / 諸口」とし、通帳側の動きは取引金額ジャストにする
+        const useShoguchi = tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)
+        const counterCode = useShoguchi ? shoguchiCode
+          : pattern ? (pCreditCode !== accountCode ? pCreditCode : pDebitCode !== accountCode ? pDebitCode : '') : ''
+        const counterName = useShoguchi ? shoguchiName
+          : pattern ? (pCreditCode !== accountCode ? pCreditName : pDebitCode !== accountCode ? pDebitName : '') : ''
         entry = createEntry(tx, {
           debitCode: accountCode,
           debitName: accountName,
@@ -81,14 +92,17 @@ export function mapTransactionsToJournalEntries(
           creditCode: counterCode,
           creditName: counterName,
           creditAmount: amount,
-          taxCode: pTaxCode,
-          taxCategory: pTaxCategory,
-          taxRate: pTaxRate,
-          businessType: pBusinessType,
+          taxCode: useShoguchi ? '' : pTaxCode,
+          taxCategory: useShoguchi ? '' : pTaxCategory,
+          taxRate: useShoguchi ? '' : pTaxRate,
+          businessType: useShoguchi ? '' : pBusinessType,
         })
       } else {
-        const counterCode = pattern ? (pDebitCode !== accountCode ? pDebitCode : pCreditCode !== accountCode ? pCreditCode : '') : ''
-        const counterName = pattern ? (pDebitCode !== accountCode ? pDebitName : pCreditCode !== accountCode ? pCreditName : '') : ''
+        const useShoguchi = tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)
+        const counterCode = useShoguchi ? shoguchiCode
+          : pattern ? (pDebitCode !== accountCode ? pDebitCode : pCreditCode !== accountCode ? pCreditCode : '') : ''
+        const counterName = useShoguchi ? shoguchiName
+          : pattern ? (pDebitCode !== accountCode ? pDebitName : pCreditCode !== accountCode ? pCreditName : '') : ''
         entry = createEntry(tx, {
           debitCode: counterCode,
           debitName: counterName,
@@ -96,10 +110,10 @@ export function mapTransactionsToJournalEntries(
           creditCode: accountCode,
           creditName: accountName,
           creditAmount: amount,
-          taxCode: pattern?.taxCode || '',
-          taxCategory: pTaxCategory,
-          taxRate: pTaxRate,
-          businessType: pBusinessType,
+          taxCode: useShoguchi ? '' : (pattern?.taxCode || ''),
+          taxCategory: useShoguchi ? '' : pTaxCategory,
+          taxRate: useShoguchi ? '' : pTaxRate,
+          businessType: useShoguchi ? '' : pBusinessType,
         })
       }
 
@@ -166,6 +180,8 @@ export function mapTransactionsToJournalEntries(
 
       // 追加列から複合仕訳を生成（家賃収入/預り敷金等の内訳列）
       // パターンが複合仕訳（複数行）の場合はパターン側で処理済みなのでスキップ
+      // 親仕訳は「通帳 ↔ 諸口」で全額1件、子仕訳は「諸口 ↔ 各科目」とすることで
+      // 通帳の動きが内訳数だけ増えるのを防ぎ、実際の通帳推移と一致させる。
       if (tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)) {
         for (const extra of tx.extras) {
           const compEntry = createCompoundEntry(entry)
@@ -177,15 +193,17 @@ export function mapTransactionsToJournalEntries(
             extra.name.includes(a.name) || extra.name.includes(a.shortName)
           )
           if (extra.direction === 'credit') {
+            // 収入系内訳: 借方 諸口 / 貸方 該当科目
+            compEntry.debitCode = shoguchiCode
+            compEntry.debitName = shoguchiName
             compEntry.creditCode = matchedAcc?.code || ''
             compEntry.creditName = matchedAcc?.shortName || matchedAcc?.name || extra.name
-            compEntry.debitCode = accountCode
-            compEntry.debitName = accountName
           } else {
+            // 返金・相殺系内訳: 借方 該当科目 / 貸方 諸口
             compEntry.debitCode = matchedAcc?.code || ''
             compEntry.debitName = matchedAcc?.shortName || matchedAcc?.name || extra.name
-            compEntry.creditCode = accountCode
-            compEntry.creditName = accountName
+            compEntry.creditCode = shoguchiCode
+            compEntry.creditName = shoguchiName
           }
           compEntry.debitAmount = extra.amount
           compEntry.creditAmount = extra.amount
