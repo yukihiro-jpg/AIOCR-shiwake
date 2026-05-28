@@ -1373,6 +1373,7 @@ export default function BankStatementContent() {
       {showColumnMapping && rawPages && (
         <ColumnMappingDialog
           rawPages={rawPages}
+          accountMaster={accountMaster}
           initialMapping={(() => {
             if (!uploadConfig?.accountCode) return undefined
             try {
@@ -1409,6 +1410,7 @@ export default function BankStatementContent() {
         <ColumnMappingDialog
           mode="credit-card"
           rawPages={[ccRawRows]}
+          accountMaster={accountMaster}
           onConfirm={handleCcColumnMappingConfirm}
           onCancel={() => {
             setShowCcColumnMapping(false)

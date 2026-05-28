@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { RawTableRow, ColumnMapping } from '@/lib/bank-statement/types'
+import type { RawTableRow, ColumnMapping, AccountItem } from '@/lib/bank-statement/types'
 
 interface Props {
   rawPages: RawTableRow[][]
@@ -10,6 +10,8 @@ interface Props {
   onCancel: () => void
   /** 'credit-card' のときは 日付/摘要/金額 の3役割（入金・出金・残高なし） */
   mode?: 'bank' | 'credit-card'
+  /** 内訳列の科目名選択肢として使う（顧問先の科目マスタ） */
+  accountMaster?: AccountItem[]
 }
 
 const BANK_ROLES = [
@@ -28,7 +30,7 @@ const CREDIT_CARD_ROLES = [
   { key: 'depositColumn', label: '利用金額', color: 'bg-yellow-100 border-yellow-400', multi: false },
 ] as const
 
-export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel, mode = 'bank' }: Props) {
+export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel, mode = 'bank', accountMaster }: Props) {
   const isCreditCard = mode === 'credit-card'
   const COLUMN_ROLES = isCreditCard ? CREDIT_CARD_ROLES : BANK_ROLES
   const [mapping, setMapping] = useState<Record<string, number>>({
@@ -206,13 +208,33 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                           <option key={k} value={k}>列{k + 1}</option>
                         ))}
                       </select>
-                      <input
-                        type="text"
-                        value={ec.name}
-                        onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
-                        placeholder="科目名（例: 家賃、ガス代、預り敷金返済）"
-                        className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
-                      />
+                      {accountMaster && accountMaster.length > 0 ? (
+                        <>
+                          <input
+                            type="text"
+                            list={`extra-acct-list-${i}`}
+                            value={ec.name}
+                            onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                            placeholder="科目名を選択 or 入力"
+                            className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
+                          />
+                          <datalist id={`extra-acct-list-${i}`}>
+                            {accountMaster.map((a) => (
+                              <option key={a.code} value={a.shortName || a.name}>
+                                {a.code} - {a.shortName || a.name}
+                              </option>
+                            ))}
+                          </datalist>
+                        </>
+                      ) : (
+                        <input
+                          type="text"
+                          value={ec.name}
+                          onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                          placeholder="科目名（例: 家賃、ガス代、預り敷金返済）"
+                          className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
+                        />
+                      )}
                       <select
                         value={ec.direction}
                         onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, direction: e.target.value as 'credit' | 'debit' } : x))}
