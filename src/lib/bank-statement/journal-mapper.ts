@@ -187,21 +187,34 @@ export function mapTransactionsToJournalEntries(
           const compEntry = createCompoundEntry(entry)
           compEntry.description = entry.description
           compEntry.originalDescription = entry.originalDescription
-          // 科目マスタから名前で検索
-          const matchedAcc = accountMaster.find((a) =>
-            a.name.includes(extra.name) || a.shortName.includes(extra.name) ||
-            extra.name.includes(a.name) || extra.name.includes(a.shortName)
-          )
+          // 科目マスタから検索
+          // 1) extra.name の先頭に "コード:" が付いていればコードで厳密一致
+          // 2) なければ name/shortName で名前一致（空文字の誤マッチを防ぐためのガード入り）
+          const codeMatch = extra.name.match(/^\s*(\d+)\s*[:：]\s*/)
+          const cleanName = codeMatch ? extra.name.slice(codeMatch[0].length).trim() : extra.name.trim()
+          let matchedAcc: AccountItem | undefined
+          if (codeMatch) {
+            matchedAcc = accountMaster.find((a) => a.code === codeMatch[1])
+          }
+          if (!matchedAcc && cleanName) {
+            matchedAcc = accountMaster.find((a) => {
+              const n = a.name || ''
+              const sn = a.shortName || ''
+              if (n && (n === cleanName || n.includes(cleanName) || cleanName.includes(n))) return true
+              if (sn && (sn === cleanName || sn.includes(cleanName) || cleanName.includes(sn))) return true
+              return false
+            })
+          }
           if (extra.direction === 'credit') {
             // 収入系内訳: 借方 諸口 / 貸方 該当科目
             compEntry.debitCode = shoguchiCode
             compEntry.debitName = shoguchiName
             compEntry.creditCode = matchedAcc?.code || ''
-            compEntry.creditName = matchedAcc?.shortName || matchedAcc?.name || extra.name
+            compEntry.creditName = matchedAcc?.shortName || matchedAcc?.name || cleanName
           } else {
             // 返金・相殺系内訳: 借方 該当科目 / 貸方 諸口
             compEntry.debitCode = matchedAcc?.code || ''
-            compEntry.debitName = matchedAcc?.shortName || matchedAcc?.name || extra.name
+            compEntry.debitName = matchedAcc?.shortName || matchedAcc?.name || cleanName
             compEntry.creditCode = shoguchiCode
             compEntry.creditName = shoguchiName
           }

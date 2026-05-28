@@ -195,11 +195,11 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                 </button>
               </div>
               {extrasEnabled && (
-                <div className="mt-2 space-y-1.5 max-h-[180px] overflow-y-auto pr-1 border border-gray-100 rounded p-1.5 bg-white">
+                <div className="mt-2 max-h-[180px] overflow-y-auto pr-1 border border-gray-100 rounded p-1.5 bg-white grid grid-cols-2 gap-x-2 gap-y-1.5">
                   {extraColumns.map((ec, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5 border border-transparent hover:border-blue-200"
+                      className="flex items-center gap-1 bg-gray-50 rounded px-1.5 py-1 border border-transparent hover:border-blue-200 min-w-0"
                       onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50') }}
                       onDragLeave={(e) => { e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50') }}
                       onDrop={(e) => {
@@ -214,9 +214,9 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                       <select
                         value={ec.col}
                         onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, col: parseInt(e.target.value) } : x))}
-                        className="text-xs border border-gray-300 rounded px-1 py-0.5 w-24 shrink-0"
+                        className="text-xs border border-gray-300 rounded px-0.5 py-0.5 w-16 shrink-0"
                       >
-                        <option value={-1}>列を選択</option>
+                        <option value={-1}>列…</option>
                         {Array.from({ length: maxCols }, (_, k) => (
                           <option key={k} value={k}>列{k + 1}</option>
                         ))}
@@ -228,15 +228,14 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                             list={`extra-acct-list-${i}`}
                             value={ec.name}
                             onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
-                            placeholder="科目名を選択 or 入力"
-                            className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
+                            placeholder="科目を選択 or 入力"
+                            className="flex-1 min-w-0 text-xs border border-gray-300 rounded px-1 py-0.5"
                           />
                           <datalist id={`extra-acct-list-${i}`}>
-                            {accountMaster.map((a) => (
-                              <option key={a.code} value={a.shortName || a.name}>
-                                {a.code} - {a.shortName || a.name}
-                              </option>
-                            ))}
+                            {accountMaster.map((a) => {
+                              const label = `${a.code}:${a.shortName || a.name}`
+                              return <option key={a.code} value={label}>{label}</option>
+                            })}
                           </datalist>
                         </>
                       ) : (
@@ -244,27 +243,32 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                           type="text"
                           value={ec.name}
                           onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
-                          placeholder="科目名（例: 家賃、ガス代、預り敷金返済）"
-                          className="flex-1 text-xs border border-gray-300 rounded px-2 py-0.5"
+                          placeholder="科目名"
+                          className="flex-1 min-w-0 text-xs border border-gray-300 rounded px-1 py-0.5"
                         />
                       )}
                       <select
                         value={ec.direction}
                         onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, direction: e.target.value as 'credit' | 'debit' } : x))}
-                        className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                        className="text-xs border border-gray-300 rounded px-0.5 py-0.5 w-20 shrink-0"
+                        title="収入 = 借方諸口/貸方該当科目, 返金 = 借方該当科目/貸方諸口"
                       >
-                        <option value="credit">収入（貸方科目）</option>
-                        <option value="debit">返金/相殺（借方科目）</option>
+                        <option value="credit">収入</option>
+                        <option value="debit">返金</option>
                       </select>
                       <button
                         onClick={() => setExtraColumns((prev) => prev.filter((_, j) => j !== i))}
-                        className="px-2 text-xs text-red-500 hover:text-red-700"
+                        className="px-1 text-xs text-red-500 hover:text-red-700 shrink-0"
                         title="この内訳列を削除"
                       >
                         ✕
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+              {extrasEnabled && (
+                <div className="mt-1.5">
                   <button
                     onClick={() => setExtraColumns((prev) => [...prev, { col: -1, name: '', direction: 'credit' }])}
                     className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
