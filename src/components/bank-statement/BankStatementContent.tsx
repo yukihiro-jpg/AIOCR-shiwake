@@ -1145,6 +1145,7 @@ export default function BankStatementContent() {
                 render: (
                   <div className="-mx-1">
                     <AccountMasterUploader
+                      embedded
                       accountMaster={accountMaster}
                       subAccountMaster={subAccountMaster}
                       accountTaxMaster={accountTaxMaster}

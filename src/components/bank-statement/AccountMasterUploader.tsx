@@ -32,6 +32,8 @@ interface Props {
   onAccountUpdate: (items: AccountItem[]) => void
   onSubAccountUpdate: (items: SubAccountItem[]) => void
   onAccountTaxUpdate: (items: AccountTaxItem[]) => void
+  /** メニュー（白背景）内に埋め込むとき true。トリガーボタンを濃い文字色にする */
+  embedded?: boolean
 }
 
 export default function AccountMasterUploader({
@@ -41,6 +43,7 @@ export default function AccountMasterUploader({
   onAccountUpdate,
   onSubAccountUpdate,
   onAccountTaxUpdate,
+  embedded = false,
 }: Props) {
   const accountInputRef = useRef<HTMLInputElement>(null)
   const subAccountInputRef = useRef<HTMLInputElement>(null)
@@ -84,11 +87,13 @@ export default function AccountMasterUploader({
     <div className="relative">
       <button
         onClick={() => setShowPanel(!showPanel)}
-        className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20"
+        className={embedded
+          ? "w-full text-left px-3 py-2 text-sm font-medium text-gray-800 hover:bg-blue-50 rounded flex items-center gap-2"
+          : "px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20"}
       >
         科目マスタ
         {accountMaster.length > 0 && (
-          <span className="ml-1 text-white/70">({accountMaster.length})</span>
+          <span className={embedded ? "ml-1 text-gray-500" : "ml-1 text-white/70"}>({accountMaster.length})</span>
         )}
       </button>
 
