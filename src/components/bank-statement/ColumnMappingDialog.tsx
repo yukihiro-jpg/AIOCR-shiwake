@@ -195,13 +195,26 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                 </button>
               </div>
               {extrasEnabled && (
-                <div className="mt-2 space-y-1.5">
+                <div className="mt-2 space-y-1.5 max-h-[180px] overflow-y-auto pr-1 border border-gray-100 rounded p-1.5 bg-white">
                   {extraColumns.map((ec, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5 border border-transparent hover:border-blue-200"
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50') }}
+                      onDragLeave={(e) => { e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50') }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50')
+                        const colStr = e.dataTransfer.getData('text/column-index')
+                        const col = parseInt(colStr)
+                        if (!isNaN(col)) setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, col } : x))
+                      }}
+                      title="下のテーブルの列ヘッダーをここにドラッグすると列を割り当てられます"
+                    >
                       <select
                         value={ec.col}
                         onChange={(e) => setExtraColumns((prev) => prev.map((x, j) => j === i ? { ...x, col: parseInt(e.target.value) } : x))}
-                        className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                        className="text-xs border border-gray-300 rounded px-1 py-0.5 w-24 shrink-0"
                       >
                         <option value={-1}>列を選択</option>
                         {Array.from({ length: maxCols }, (_, k) => (
@@ -260,7 +273,9 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                   </button>
                   <p className="text-[11px] text-gray-500 mt-1">
                     収入の内訳（家賃・ガス代等）は「収入」、敷金返済や返金は「返金/相殺」を選択。<br />
-                    各内訳が「諸口 ↔ 該当科目」の複合仕訳として展開され、通帳側の動きは取引金額1回だけになります。
+                    <b>列の指定：</b>プルダウンから選ぶ、または <b>下のテーブルの列ヘッダー（列6 等）を該当の内訳行へドラッグ＆ドロップ</b> でも設定できます。<br />
+                    各内訳が「諸口 ↔ 該当科目」の複合仕訳として展開され、通帳側の動きは取引金額1回だけになります。<br />
+                    ※ 内訳列を使うときも、「入金」（または「出金」）は<b>取引金額の合計列</b>として必ず指定してください。
                   </p>
                 </div>
               )}
@@ -276,7 +291,13 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
                   <th
                     key={i}
                     onClick={() => handleColumnClick(i)}
-                    className={`border border-gray-300 px-2 py-2 cursor-pointer hover:bg-blue-50 transition-colors min-w-[80px] ${getColumnColor(i)}`}
+                    draggable={extrasEnabled}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/column-index', String(i))
+                      e.dataTransfer.effectAllowed = 'copy'
+                    }}
+                    className={`border border-gray-300 px-2 py-2 cursor-pointer hover:bg-blue-50 transition-colors min-w-[80px] ${getColumnColor(i)} ${extrasEnabled ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                    title={extrasEnabled ? 'クリック=役割を割当 / 上の内訳列にドラッグ&ドロップ可' : undefined}
                   >
                     <div className="text-center">
                       <span className="block text-gray-400">列{i + 1}</span>
