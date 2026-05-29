@@ -8,7 +8,7 @@ interface Props {
   open: boolean
   entry: JournalEntry | null
   relatedEntries: JournalEntry[] // 複合仕訳の場合の全行
-  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean) => void
+  onConfirm: (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean, replaceEntireDescription?: boolean) => void
   onCancel: () => void
 }
 
@@ -21,6 +21,7 @@ export default function LearnPatternDialog({
   const [matchText, setMatchText] = useState('')
   const [convertedDesc, setConvertedDesc] = useState('')
   const [overrideExisting, setOverrideExisting] = useState(false)
+  const [replaceEntireDescription, setReplaceEntireDescription] = useState(false)
 
   // エントリが変わるたびに初期化。既にパターン適用済み(patternId あり)なら
   // そのパターンの内容を読み込んで初期表示する。
@@ -35,6 +36,7 @@ export default function LearnPatternDialog({
       setAmountMin(existing.amountMin != null ? String(existing.amountMin) : '')
       setAmountMax(existing.amountMax != null ? String(existing.amountMax) : '')
       setOverrideExisting(false)
+      setReplaceEntireDescription(!!existing.replaceEntireDescription)
     } else {
       setMatchText(entry.originalDescription || entry.description || '')
       setMatchType('partial')
@@ -42,6 +44,7 @@ export default function LearnPatternDialog({
       setAmountMin('')
       setAmountMax('')
       setOverrideExisting(false)
+      setReplaceEntireDescription(false)
     }
   }, [entryId])
 
@@ -50,14 +53,14 @@ export default function LearnPatternDialog({
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, false, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting)
+    onConfirm(min, max, false, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting, replaceEntireDescription)
     setAmountMin(''); setAmountMax('')
   }
 
   const handleRegisterAndApply = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
-    onConfirm(min, max, true, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting)
+    onConfirm(min, max, true, matchType, matchText || undefined, convertedDesc || undefined, overrideExisting, replaceEntireDescription)
     setAmountMin(''); setAmountMax('')
   }
 
@@ -132,11 +135,23 @@ export default function LearnPatternDialog({
             <input type="text" value={convertedDesc} onChange={(e) => setConvertedDesc(e.target.value)}
               maxLength={40}
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded"
-              placeholder={matchType === 'exact' ? '例: 支払手数料' : '例: 荷造運賃（一致部分を置換）'} />
+              placeholder={matchType === 'exact' || replaceEntireDescription ? '例: 支払手数料' : '例: 荷造運賃（一致部分を置換）'} />
+            {matchType === 'partial' && (
+              <label className="flex items-start gap-2 mt-1.5 text-xs text-gray-700 cursor-pointer">
+                <input type="checkbox" className="mt-0.5 accent-blue-600"
+                  checked={replaceEntireDescription}
+                  onChange={(e) => setReplaceEntireDescription(e.target.checked)} />
+                <span>
+                  摘要を全体置換する（一致部分の前後（例：「1-」等）も含めて、変換後摘要に置き換える）
+                </span>
+              </label>
+            )}
             <p className="text-xs text-gray-400 mt-1">
               {matchType === 'exact'
                 ? '設定すると摘要全体がこのテキストに置換されます'
-                : '設定すると一致部分のみがこのテキストに置換されます（残りは保持）'}
+                : replaceEntireDescription
+                  ? '一致部分の前後も含めて、摘要全体がこのテキストに置換されます'
+                  : '設定すると一致部分のみがこのテキストに置換されます（残りは保持）'}
             </p>
           </div>
 

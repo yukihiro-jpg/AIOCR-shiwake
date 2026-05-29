@@ -110,7 +110,7 @@ export default function JournalEntryTable({
   const [applyTargetEntries, setApplyTargetEntries] = useState<JournalEntry[]>([])
   const [applyPatternLines, setApplyPatternLines] = useState<PatternLine[]>([])
   // 反映対象パターンのメタ情報（摘要変換を確実に適用するため getPatterns 再検索に頼らない）
-  const [applyPatternMeta, setApplyPatternMeta] = useState<{ id: string; matchType?: 'exact' | 'partial'; matchText?: string; convertedDescription?: string } | null>(null)
+  const [applyPatternMeta, setApplyPatternMeta] = useState<{ id: string; matchType?: 'exact' | 'partial'; matchText?: string; convertedDescription?: string; replaceEntireDescription?: boolean } | null>(null)
   const [applyAmountRange, setApplyAmountRange] = useState<{ min: number | null; max: number | null } | null>(null)
   const [showApplyDialog, setShowApplyDialog] = useState(false)
   // パターン詳細ダイアログ
@@ -118,7 +118,7 @@ export default function JournalEntryTable({
 
   // パターン学習ダイアログ確定
   const handleLearnConfirm = useCallback(
-    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean) => {
+    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean, replaceEntireDescription?: boolean) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
       const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
@@ -131,6 +131,7 @@ export default function JournalEntryTable({
           if (matchType) pat.matchType = matchType
           if (matchText) pat.matchText = matchText
           if (convertedDesc !== undefined) pat.convertedDescription = convertedDesc
+          pat.replaceEntireDescription = !!replaceEntireDescription
           savePatterns(patterns)
         }
       }
@@ -138,13 +139,14 @@ export default function JournalEntryTable({
       const primaryId = learnDialogEntry.id
       const effectiveMatchTextRaw = matchText || originalDesc
       const isExactMatch = matchType === 'exact'
+      const fullReplace = isExactMatch || !!replaceEntireDescription
       const effectiveMatchText = effectiveMatchTextRaw.toLowerCase()
 
       // ある仕訳に対する変換後摘要を計算（変換後摘要が空なら元の摘要を維持）
       const computeDesc = (e: JournalEntry): string => {
         if (!convertedDesc) return e.description
         const sourceText = e.originalDescription || e.description || ''
-        if (isExactMatch) return convertedDesc
+        if (fullReplace) return convertedDesc
         return effectiveMatchTextRaw ? sourceText.replace(effectiveMatchTextRaw, convertedDesc) : convertedDesc
       }
       // この仕訳がパターンの一致条件を満たすか
@@ -187,7 +189,7 @@ export default function JournalEntryTable({
 
         setApplyTargetEntries(targets)
         setApplyPatternLines(pat.lines)
-        setApplyPatternMeta({ id: pat.id, matchType: pat.matchType, matchText: pat.matchText || pat.keyword, convertedDescription: pat.convertedDescription })
+        setApplyPatternMeta({ id: pat.id, matchType: pat.matchType, matchText: pat.matchText || pat.keyword, convertedDescription: pat.convertedDescription, replaceEntireDescription: pat.replaceEntireDescription })
         setApplyAmountRange({ min: amountMin, max: amountMax })
         setShowApplyDialog(true)
         onEntriesChange(updatedEntries)
@@ -276,8 +278,8 @@ export default function JournalEntryTable({
         updatedEntry.patternId = meta.id
         const converted = meta.convertedDescription
         if (converted) {
-          if (meta.matchType === 'exact') {
-            // 完全一致: 摘要全体を変換後テキストに置換
+          if (meta.matchType === 'exact' || meta.replaceEntireDescription) {
+            // 完全一致 or 全体置換指定: 摘要全体を変換後テキストに置換
             updatedEntry.description = converted
           } else {
             // 部分一致: 一致部分のみを変換後テキストに置換、残りは保持

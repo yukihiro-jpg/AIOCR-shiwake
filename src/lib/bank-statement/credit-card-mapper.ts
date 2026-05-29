@@ -68,7 +68,7 @@ export function creditCardToEntries(
 
       // 変換後摘要を適用（通帳・現金出納帳の journal-mapper と同じ挙動）
       if (pattern.convertedDescription) {
-        if (pattern.matchType === 'exact') {
+        if (pattern.matchType === 'exact' || pattern.replaceEntireDescription) {
           description = pattern.convertedDescription.slice(0, 40)
         } else {
           const mt = pattern.matchText || pattern.keyword

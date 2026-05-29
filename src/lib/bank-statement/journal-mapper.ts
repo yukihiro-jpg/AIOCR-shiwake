@@ -128,7 +128,7 @@ export function mapTransactionsToJournalEntries(
         entry.patternId = pattern.id
         if (pattern.convertedDescription) {
           // 変換後摘要が明示的に設定されている場合
-          if (pattern.matchType === 'exact') {
+          if (pattern.matchType === 'exact' || pattern.replaceEntireDescription) {
             entry.description = pattern.convertedDescription
           } else {
             const mt = pattern.matchText || pattern.keyword

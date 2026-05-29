@@ -119,6 +119,7 @@ export interface PatternEntry {
   keyword: string              // 通帳の元の摘要（マッチング用）
   matchType?: 'exact' | 'partial'  // 完全一致 or 部分一致（デフォルト: partial）
   matchText?: string               // 一致判定用テキスト（未設定時はkeywordを使用）
+  replaceEntireDescription?: boolean  // true なら部分一致でも変換後摘要で摘要全体を置換
   amountMin: number | null
   amountMax: number | null
   accountCode?: string
