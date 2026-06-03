@@ -195,6 +195,8 @@ export default function BankStatementContent() {
       if (typeof window !== 'undefined') {
         const m410 = taxMaster.find((t) => t.accountCode === '410')
         console.log('[applyParse] taxMaster 件数=', taxMaster.length, ' 410=', m410)
+        const e410 = entries.filter((e) => e.debitCode === '410' || e.creditCode === '410')
+        console.log('[applyParse] 生成された仕訳総数=', entries.length, ' うち410=', e410.length, e410.map((e) => ({ d: e.debitCode, c: e.creditCode, taxCode: e.debitTaxCode, taxRate: e.debitTaxRate })))
       }
       const entriesWithTax = entries.map((e) => {
         const updated = { ...e }
