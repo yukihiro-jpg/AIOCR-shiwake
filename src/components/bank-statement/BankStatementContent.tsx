@@ -208,18 +208,21 @@ export default function BankStatementContent() {
         }
         // 消費税CD
         const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
-        const needsTaxRate = !updated.debitTaxRate
-        if (needsTaxCode || needsTaxRate) {
-          // 1. 科目別消費税マスタから検索
-          const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
-          const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
-          const tax = debitTax || creditTax
+        // 1. 科目別消費税マスタを常に参照（税率はマスタを最優先で反映。
+        //    パターン由来の古い税率('4'固定等)があってもマスタの軽減8%等で上書きする）
+        const masterDebitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
+        const masterCreditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
+        const masterTax = masterDebitTax || masterCreditTax
+        if (masterTax?.taxRate) {
+          updated.debitTaxRate = masterTax.taxRate
+        }
+        if (needsTaxCode || !updated.debitTaxRate) {
+          const tax = masterTax
           if (tax) {
             if (needsTaxCode) {
               updated.debitTaxCode = tax.taxCode
               updated.debitTaxType = tax.taxName
             }
-            if (needsTaxRate && tax.taxRate) updated.debitTaxRate = tax.taxRate
           } else if (needsTaxCode) {
             // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
             const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
