@@ -1159,20 +1159,34 @@ export default function BankStatementContent() {
                       onAccountTaxUpdate={(items) => {
                         setAccountTaxMaster(items)
                         // マスタ更新時、画面上の仕訳の税率を最新マスタで再計算
+                        // 診断: コンソールに更新件数を出力（"債益増資"などのトラブル時に確認用）
+                        let updatedCount = 0
+                        let rateUpdatedCount = 0
+                        let sampleWithRate: AccountTaxItem | undefined
                         setJournalEntries((prev) => prev.map((e) => {
                           const debitTax = getDefaultTaxCode(items, e.debitCode)
                           const creditTax = getDefaultTaxCode(items, e.creditCode)
                           const tax = debitTax || creditTax
                           if (!tax) return e
+                          if (!sampleWithRate) sampleWithRate = items.find((i) => i.salesTaxRate || i.purchaseTaxRate)
                           const updated = { ...e }
+                          let changed = false
                           // 税CD/区分は空のときだけ補完、税率はマスタ値が優先
                           if (!updated.debitTaxCode || updated.debitTaxCode === '0') {
                             updated.debitTaxCode = tax.taxCode
                             updated.debitTaxType = tax.taxName
+                            changed = true
                           }
-                          if (tax.taxRate) updated.debitTaxRate = tax.taxRate
-                          return updated
+                          if (tax.taxRate && updated.debitTaxRate !== tax.taxRate) {
+                            updated.debitTaxRate = tax.taxRate
+                            changed = true
+                            rateUpdatedCount++
+                          }
+                          if (changed) updatedCount++
+                          return changed ? updated : e
                         }))
+                        console.log(`[taxMaster] 取り込み ${items.length}件 / 仕訳更新 ${updatedCount}件 / うち税率変更 ${rateUpdatedCount}件`)
+                        console.log('[taxMaster] 税率を持つ最初の科目:', sampleWithRate)
                       }}
                     />
                   </div>
