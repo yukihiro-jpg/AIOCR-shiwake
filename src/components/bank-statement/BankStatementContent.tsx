@@ -1187,6 +1187,9 @@ export default function BankStatementContent() {
                         }))
                         console.log(`[taxMaster] 取り込み ${items.length}件 / 仕訳更新 ${updatedCount}件 / うち税率変更 ${rateUpdatedCount}件`)
                         console.log('[taxMaster] 税率を持つ最初の科目:', sampleWithRate)
+                        console.log('[taxMaster] 先頭3件(全フィールド):', items.slice(0, 3))
+                        const item410 = items.find((i) => i.accountCode === '410')
+                        console.log('[taxMaster] 410科目:', item410)
                       }}
                     />
                   </div>
