@@ -191,6 +191,11 @@ export default function BankStatementContent() {
       )
       // 科目別消費税CDを自動設定（パターン学習で設定済みでないもの）
       const taxMaster = loadAccountTaxMaster()
+      // 診断: 410が含まれているか・rateがあるか確認
+      if (typeof window !== 'undefined') {
+        const m410 = taxMaster.find((t) => t.accountCode === '410')
+        console.log('[applyParse] taxMaster 件数=', taxMaster.length, ' 410=', m410)
+      }
       const entriesWithTax = entries.map((e) => {
         const updated = { ...e }
         // 科目名が空の場合、科目チェックリストから補完
@@ -215,6 +220,10 @@ export default function BankStatementContent() {
           const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
           const tax = debitTax || creditTax
           if (tax) {
+            // 診断: 410ヒット時のtax内容
+            if (updated.creditCode === '410' || updated.debitCode === '410') {
+              console.log('[applyParse] 410 entry:', { debitCode: updated.debitCode, creditCode: updated.creditCode, tax, needsTaxCode, needsTaxRate, before: updated.debitTaxRate })
+            }
             if (needsTaxCode) {
               updated.debitTaxCode = tax.taxCode
               updated.debitTaxType = tax.taxName
