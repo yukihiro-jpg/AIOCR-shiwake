@@ -207,16 +207,20 @@ export default function BankStatementContent() {
           updated.debitBusinessType = '0'
         }
         // 消費税CD
-        if (!updated.debitTaxCode || updated.debitTaxCode === '0') {
+        const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
+        const needsTaxRate = !updated.debitTaxRate
+        if (needsTaxCode || needsTaxRate) {
           // 1. 科目別消費税マスタから検索
           const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
           const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
           const tax = debitTax || creditTax
           if (tax) {
-            updated.debitTaxCode = tax.taxCode
-            updated.debitTaxType = tax.taxName
-            if (tax.taxRate) updated.debitTaxRate = tax.taxRate
-          } else {
+            if (needsTaxCode) {
+              updated.debitTaxCode = tax.taxCode
+              updated.debitTaxType = tax.taxName
+            }
+            if (needsTaxRate && tax.taxRate) updated.debitTaxRate = tax.taxRate
+          } else if (needsTaxCode) {
             // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
             const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
             const creditAcc = accountMaster.find((a) => a.code === updated.creditCode)
