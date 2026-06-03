@@ -215,6 +215,7 @@ export default function BankStatementContent() {
           if (tax) {
             updated.debitTaxCode = tax.taxCode
             updated.debitTaxType = tax.taxName
+            if (tax.taxRate) updated.debitTaxRate = tax.taxRate
           } else {
             // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
             const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)

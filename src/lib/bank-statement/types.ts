@@ -81,8 +81,10 @@ export interface AccountTaxItem {
   categoryName: string       // 科目名称（売上, 仕入, 対象外）
   purchaseTaxCode: string    // 仕入消費税コード
   purchaseTaxName: string    // 仕入消費税名称
+  purchaseTaxRate?: string   // 仕入消費税率区分（'4'=10%, '5'=8%軽減, '3'=8% 等）
   salesTaxCode: string       // 売上消費税コード
   salesTaxName: string       // 売上消費税名称
+  salesTaxRate?: string      // 売上消費税率区分
 }
 
 // 補助科目マスタ

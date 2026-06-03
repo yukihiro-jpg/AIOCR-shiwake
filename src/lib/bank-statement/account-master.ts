@@ -207,8 +207,10 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
     const categoryName = cells[4]?.trim() || ''
     const purchaseTaxCode = cells[5]?.trim() || '0'
     const purchaseTaxName = cells[6]?.trim() || ''
+    const purchaseTaxRate = cells[7]?.trim() || ''  // 税率区分（4=10%, 5=8%軽減 等）
     const salesTaxCode = cells[9]?.trim() || '0'
     const salesTaxName = cells[10]?.trim() || ''
+    const salesTaxRate = cells[11]?.trim() || ''
 
     // +マーク行のみが科目の親行（補助科目行はスキップ）
     if (subFlag !== '+' && accountCode && /^\d+$/.test(accountCode)) {
@@ -220,8 +222,10 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
         categoryName,
         purchaseTaxCode,
         purchaseTaxName,
+        purchaseTaxRate,
         salesTaxCode,
         salesTaxName,
+        salesTaxRate,
       })
     } else if (subFlag === '+') {
       items.push({
@@ -231,8 +235,10 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
         categoryName,
         purchaseTaxCode,
         purchaseTaxName,
+        purchaseTaxRate,
         salesTaxCode,
         salesTaxName,
+        salesTaxRate,
       })
     }
   }
@@ -246,20 +252,20 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
 export function getDefaultTaxCode(
   accountTaxMaster: AccountTaxItem[],
   accountCode: string,
-): { taxCode: string; taxName: string } | null {
+): { taxCode: string; taxName: string; taxRate?: string } | null {
   const item = accountTaxMaster.find((t) => t.accountCode === accountCode)
   if (!item) return null
 
   if (item.categoryCode === '1') {
     // 売上: 売上消費税コードを使用
     if (item.salesTaxCode && item.salesTaxCode !== '0') {
-      return { taxCode: item.salesTaxCode, taxName: item.salesTaxName || '' }
+      return { taxCode: item.salesTaxCode, taxName: item.salesTaxName || '', taxRate: item.salesTaxRate }
     }
   }
   if (item.categoryCode === '2') {
     // 仕入: 仕入消費税コードを使用
     if (item.purchaseTaxCode && item.purchaseTaxCode !== '0') {
-      return { taxCode: item.purchaseTaxCode, taxName: item.purchaseTaxName || '' }
+      return { taxCode: item.purchaseTaxCode, taxName: item.purchaseTaxName || '', taxRate: item.purchaseTaxRate }
     }
   }
 
