@@ -601,11 +601,12 @@ function TaxCodeField({
           className="w-7 shrink-0 px-0 py-0.5 text-xs font-bold bg-transparent border-0 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded text-center" />
         <span className="text-xs text-gray-600 shrink-0">{shortTaxName(taxType)}</span>
         {showRate && (
-          <select value={taxRate || '4'}
+          <select key={taxRate || '4'} value={taxRate === '5' || taxRate === '3' ? taxRate : '4'}
             onChange={(e) => onRateChange(e.target.value)}
             className="ml-0.5 text-xs bg-transparent border-0 outline-none text-blue-600 font-medium cursor-pointer py-0 px-0">
             <option value="4">10%</option>
             <option value="5">8%軽</option>
+            <option value="3">8%</option>
           </select>
         )}
       </div>

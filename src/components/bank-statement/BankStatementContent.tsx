@@ -191,13 +191,6 @@ export default function BankStatementContent() {
       )
       // 科目別消費税CDを自動設定（パターン学習で設定済みでないもの）
       const taxMaster = loadAccountTaxMaster()
-      // 診断: 410が含まれているか・rateがあるか確認
-      if (typeof window !== 'undefined') {
-        const m410 = taxMaster.find((t) => t.accountCode === '410')
-        console.log('[applyParse] taxMaster 件数=', taxMaster.length, ' 410=', m410)
-        const e410 = entries.filter((e) => e.debitCode === '410' || e.creditCode === '410')
-        console.log('[applyParse] 生成された仕訳総数=', entries.length, ' うち410=', e410.length, e410.map((e) => ({ d: e.debitCode, c: e.creditCode, taxCode: e.debitTaxCode, taxRate: e.debitTaxRate })))
-      }
       const entriesWithTax = entries.map((e) => {
         const updated = { ...e }
         // 科目名が空の場合、科目チェックリストから補完
@@ -222,10 +215,6 @@ export default function BankStatementContent() {
           const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
           const tax = debitTax || creditTax
           if (tax) {
-            // 診断: 410ヒット時のtax内容
-            if (updated.creditCode === '410' || updated.debitCode === '410') {
-              console.log('[applyParse] 410 entry:', { debitCode: updated.debitCode, creditCode: updated.creditCode, tax, needsTaxCode, needsTaxRate, before: updated.debitTaxRate })
-            }
             if (needsTaxCode) {
               updated.debitTaxCode = tax.taxCode
               updated.debitTaxType = tax.taxName
@@ -299,19 +288,7 @@ export default function BankStatementContent() {
         })
       }
 
-      // 診断: filtered内の410の最終税率
-      if (typeof window !== 'undefined') {
-        const f410 = filtered.filter((e) => e.debitCode === '410' || e.creditCode === '410')
-        console.log('[final] filtered 410=', f410.length, f410.map((e) => ({ taxCode: e.debitTaxCode, taxRate: e.debitTaxRate, desc: e.description })))
-      }
-      setJournalEntries((prev) => {
-        const merged = [...prev, ...filtered]
-        if (typeof window !== 'undefined') {
-          const all410 = merged.filter((e) => e.debitCode === '410' || e.creditCode === '410')
-          console.log('[final] 画面に乗る全410=', all410.length, all410.map((e) => ({ taxRate: e.debitTaxRate, desc: e.description })))
-        }
-        return merged
-      })
+      setJournalEntries((prev) => [...prev, ...filtered])
 
       // 取引はあるが仕訳が0件の場合に警告
       const totalTx = result.pages.reduce((s, p) => s + p.transactions.length, 0)
@@ -1181,17 +1158,12 @@ export default function BankStatementContent() {
                       onSubAccountUpdate={handleSubAccountMasterUpdate}
                       onAccountTaxUpdate={(items) => {
                         setAccountTaxMaster(items)
-                        // マスタ更新時、画面上の仕訳の税率を最新マスタで再計算
-                        // 診断: コンソールに更新件数を出力（"債益増資"などのトラブル時に確認用）
-                        let updatedCount = 0
-                        let rateUpdatedCount = 0
-                        let sampleWithRate: AccountTaxItem | undefined
+                        // マスタ更新時、画面上の既存仕訳の税率も最新マスタで再計算する
                         setJournalEntries((prev) => prev.map((e) => {
                           const debitTax = getDefaultTaxCode(items, e.debitCode)
                           const creditTax = getDefaultTaxCode(items, e.creditCode)
                           const tax = debitTax || creditTax
                           if (!tax) return e
-                          if (!sampleWithRate) sampleWithRate = items.find((i) => i.salesTaxRate || i.purchaseTaxRate)
                           const updated = { ...e }
                           let changed = false
                           // 税CD/区分は空のときだけ補完、税率はマスタ値が優先
@@ -1203,16 +1175,9 @@ export default function BankStatementContent() {
                           if (tax.taxRate && updated.debitTaxRate !== tax.taxRate) {
                             updated.debitTaxRate = tax.taxRate
                             changed = true
-                            rateUpdatedCount++
                           }
-                          if (changed) updatedCount++
                           return changed ? updated : e
                         }))
-                        console.log(`[taxMaster] 取り込み ${items.length}件 / 仕訳更新 ${updatedCount}件 / うち税率変更 ${rateUpdatedCount}件`)
-                        console.log('[taxMaster] 税率を持つ最初の科目:', sampleWithRate)
-                        console.log('[taxMaster] 先頭3件(全フィールド):', items.slice(0, 3))
-                        const item410 = items.find((i) => i.accountCode === '410')
-                        console.log('[taxMaster] 410科目:', item410)
                       }}
                     />
                   </div>

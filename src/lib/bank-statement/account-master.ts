@@ -196,14 +196,6 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
   const startIndex = isHeaderLine(lines[0], ['科目', 'コード', 'ｺｰﾄﾞ', '消費税']) ? 1 : 0
 
   const items: AccountTaxItem[] = []
-  // 診断: 最初の数行の cells を出力
-  if (typeof window !== 'undefined') {
-    console.log('[parseTax] startIndex=', startIndex, 'delimiter=', JSON.stringify(delimiter), 'totalLines=', lines.length)
-    for (let k = 0; k < Math.min(3, lines.length - startIndex); k++) {
-      const c = splitLine(lines[startIndex + k], delimiter)
-      console.log(`[parseTax] line ${startIndex + k}: cells.length=${c.length}`, c)
-    }
-  }
   for (let i = startIndex; i < lines.length; i++) {
     const cells = splitLine(lines[i], delimiter)
     if (cells.length < 7) continue
