@@ -1156,7 +1156,24 @@ export default function BankStatementContent() {
                       accountTaxMaster={accountTaxMaster}
                       onAccountUpdate={handleAccountMasterUpdate}
                       onSubAccountUpdate={handleSubAccountMasterUpdate}
-                      onAccountTaxUpdate={setAccountTaxMaster}
+                      onAccountTaxUpdate={(items) => {
+                        setAccountTaxMaster(items)
+                        // マスタ更新時、画面上の仕訳の税率を最新マスタで再計算
+                        setJournalEntries((prev) => prev.map((e) => {
+                          const debitTax = getDefaultTaxCode(items, e.debitCode)
+                          const creditTax = getDefaultTaxCode(items, e.creditCode)
+                          const tax = debitTax || creditTax
+                          if (!tax) return e
+                          const updated = { ...e }
+                          // 税CD/区分は空のときだけ補完、税率はマスタ値が優先
+                          if (!updated.debitTaxCode || updated.debitTaxCode === '0') {
+                            updated.debitTaxCode = tax.taxCode
+                            updated.debitTaxType = tax.taxName
+                          }
+                          if (tax.taxRate) updated.debitTaxRate = tax.taxRate
+                          return updated
+                        }))
+                      }}
                     />
                   </div>
                 ),
