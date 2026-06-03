@@ -299,7 +299,19 @@ export default function BankStatementContent() {
         })
       }
 
-      setJournalEntries((prev) => [...prev, ...filtered])
+      // 診断: filtered内の410の最終税率
+      if (typeof window !== 'undefined') {
+        const f410 = filtered.filter((e) => e.debitCode === '410' || e.creditCode === '410')
+        console.log('[final] filtered 410=', f410.length, f410.map((e) => ({ taxCode: e.debitTaxCode, taxRate: e.debitTaxRate, desc: e.description })))
+      }
+      setJournalEntries((prev) => {
+        const merged = [...prev, ...filtered]
+        if (typeof window !== 'undefined') {
+          const all410 = merged.filter((e) => e.debitCode === '410' || e.creditCode === '410')
+          console.log('[final] 画面に乗る全410=', all410.length, all410.map((e) => ({ taxRate: e.debitTaxRate, desc: e.description })))
+        }
+        return merged
+      })
 
       // 取引はあるが仕訳が0件の場合に警告
       const totalTx = result.pages.reduce((s, p) => s + p.transactions.length, 0)
