@@ -832,6 +832,37 @@ export default function BankStatementContent() {
     [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls, geminiModel],
   )
 
+  // 画面上の全仕訳の消費税CD・税率を、現在の科目別消費税マスタで再計算する
+  const handleRecalcTax = useCallback(() => {
+    const taxMaster = loadAccountTaxMaster()
+    if (taxMaster.length === 0) {
+      setError('科目別消費税マスタが登録されていません。先に取り込んでください。')
+      return
+    }
+    let changed = 0
+    setJournalEntries((prev) => prev.map((e) => {
+      const dt = getDefaultTaxCode(taxMaster, e.debitCode)
+      const ct = getDefaultTaxCode(taxMaster, e.creditCode)
+      const tax = dt || ct
+      if (!tax) return e
+      const u = { ...e }
+      let diff = false
+      // 税CD・区分は空のときだけ補完、税率はマスタ優先で上書き
+      if (!u.debitTaxCode || u.debitTaxCode === '0') {
+        u.debitTaxCode = tax.taxCode
+        u.debitTaxType = tax.taxName
+        diff = true
+      }
+      if (tax.taxRate && u.debitTaxRate !== tax.taxRate) {
+        u.debitTaxRate = tax.taxRate
+        diff = true
+      }
+      if (diff) changed++
+      return diff ? u : e
+    }))
+    setInfo(`消費税率を科目別消費税マスタに基づいて再計算しました（${changed}件更新）`)
+  }, [])
+
   // 日付一括変更を適用
   const handleBulkDateApply = useCallback(() => {
     if (!bulkDate) { setError('変更後の日付を選択してください'); return }
@@ -1219,6 +1250,11 @@ export default function BankStatementContent() {
                   日付一括変更
                 </button>
               )}
+              <button onClick={handleRecalcTax}
+                title="画面上の全仕訳の消費税CD・税率を、科目別消費税マスタに基づいて再計算します"
+                className="px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded">
+                消費税再計算
+              </button>
               <button onClick={handleTempSave}
                 className="px-3 py-1.5 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded">
                 {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '一時保存'}
