@@ -208,20 +208,19 @@ export default function BankStatementContent() {
         }
         // 消費税CD
         const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
-        // 1. 科目別消費税マスタを常に参照（税率はマスタを最優先で反映。
-        //    パターン由来の古い税率('4'固定等)があってもマスタの軽減8%等で上書きする）
-        const masterDebitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
-        const masterCreditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
-        const masterTax = masterDebitTax || masterCreditTax
-        if (masterTax?.taxRate) {
-          updated.debitTaxRate = masterTax.taxRate
-        }
-        if (needsTaxCode || !updated.debitTaxRate) {
-          const tax = masterTax
+        const needsTaxRate = !updated.debitTaxRate
+        if (needsTaxCode || needsTaxRate) {
+          // 1. 科目別消費税マスタを参照（空欄のときのみ補完。パターン等で既に設定済みの値は尊重）
+          const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
+          const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
+          const tax = debitTax || creditTax
           if (tax) {
             if (needsTaxCode) {
               updated.debitTaxCode = tax.taxCode
               updated.debitTaxType = tax.taxName
+            }
+            if (needsTaxRate && tax.taxRate) {
+              updated.debitTaxRate = tax.taxRate
             }
           } else if (needsTaxCode) {
             // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
@@ -832,38 +831,7 @@ export default function BankStatementContent() {
     [rawPages, pendingSourceType, uploadConfig, applyParseResultFn, pendingImageUrls, geminiModel],
   )
 
-  // 画面上の全仕訳の消費税CD・税率を、現在の科目別消費税マスタで再計算する
-  const handleRecalcTax = useCallback(() => {
-    const taxMaster = loadAccountTaxMaster()
-    if (taxMaster.length === 0) {
-      setError('科目別消費税マスタが登録されていません。先に取り込んでください。')
-      return
-    }
-    let changed = 0
-    setJournalEntries((prev) => prev.map((e) => {
-      const dt = getDefaultTaxCode(taxMaster, e.debitCode)
-      const ct = getDefaultTaxCode(taxMaster, e.creditCode)
-      const tax = dt || ct
-      if (!tax) return e
-      const u = { ...e }
-      let diff = false
-      // 税CD・区分は空のときだけ補完、税率はマスタ優先で上書き
-      if (!u.debitTaxCode || u.debitTaxCode === '0') {
-        u.debitTaxCode = tax.taxCode
-        u.debitTaxType = tax.taxName
-        diff = true
-      }
-      if (tax.taxRate && u.debitTaxRate !== tax.taxRate) {
-        u.debitTaxRate = tax.taxRate
-        diff = true
-      }
-      if (diff) changed++
-      return diff ? u : e
-    }))
-    setInfo(`消費税率を科目別消費税マスタに基づいて再計算しました（${changed}件更新）`)
-  }, [])
-
-  // 日付一括変更を適用
+// 日付一括変更を適用
   const handleBulkDateApply = useCallback(() => {
     if (!bulkDate) { setError('変更後の日付を選択してください'); return }
     const newDate = bulkDate.replace(/-/g, '')
@@ -1192,7 +1160,7 @@ export default function BankStatementContent() {
                       onSubAccountUpdate={handleSubAccountMasterUpdate}
                       onAccountTaxUpdate={(items) => {
                         setAccountTaxMaster(items)
-                        // マスタ更新時、画面上の既存仕訳の税率も最新マスタで再計算する
+                        // マスタ更新時、既存仕訳は空欄のときだけ補完（既に設定済みの値は尊重）
                         setJournalEntries((prev) => prev.map((e) => {
                           const debitTax = getDefaultTaxCode(items, e.debitCode)
                           const creditTax = getDefaultTaxCode(items, e.creditCode)
@@ -1200,13 +1168,12 @@ export default function BankStatementContent() {
                           if (!tax) return e
                           const updated = { ...e }
                           let changed = false
-                          // 税CD/区分は空のときだけ補完、税率はマスタ値が優先
                           if (!updated.debitTaxCode || updated.debitTaxCode === '0') {
                             updated.debitTaxCode = tax.taxCode
                             updated.debitTaxType = tax.taxName
                             changed = true
                           }
-                          if (tax.taxRate && updated.debitTaxRate !== tax.taxRate) {
+                          if (!updated.debitTaxRate && tax.taxRate) {
                             updated.debitTaxRate = tax.taxRate
                             changed = true
                           }
@@ -1250,11 +1217,6 @@ export default function BankStatementContent() {
                   日付一括変更
                 </button>
               )}
-              <button onClick={handleRecalcTax}
-                title="画面上の全仕訳の消費税CD・税率を、科目別消費税マスタに基づいて再計算します"
-                className="px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded">
-                消費税再計算
-              </button>
               <button onClick={handleTempSave}
                 className="px-3 py-1.5 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded">
                 {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '一時保存'}
