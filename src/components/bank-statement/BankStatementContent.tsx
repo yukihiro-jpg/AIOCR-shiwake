@@ -11,6 +11,7 @@ import StatementViewer from '@/components/bank-statement/StatementViewer'
 import JournalEntryTable from '@/components/bank-statement/JournalEntryTable'
 import ColumnMappingDialog from '@/components/bank-statement/ColumnMappingDialog'
 import InvoiceColumnMappingDialog, { type InvoiceColumnMapping } from '@/components/bank-statement/InvoiceColumnMappingDialog'
+import ReceiptColumnMappingDialog, { type ReceiptColumnMapping } from '@/components/bank-statement/ReceiptColumnMappingDialog'
 import CsvExportButton from '@/components/bank-statement/CsvExportButton'
 import { appendTempEntries, getTempEntryCount, clearTempEntries, getTempEntries } from '@/lib/bank-statement/temp-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
@@ -163,6 +164,9 @@ export default function BankStatementContent() {
   // クレジットカード（Excel/CSV）列マッピング用（自動検出失敗時のフォールバック）
   const [showCcColumnMapping, setShowCcColumnMapping] = useState(false)
   const [ccRawRows, setCcRawRows] = useState<RawTableRow[] | null>(null)
+  // レシート・領収書（Excel/CSV）列マッピング用
+  const [showReceiptColumnMapping, setShowReceiptColumnMapping] = useState(false)
+  const [receiptRawRows, setReceiptRawRows] = useState<RawTableRow[] | null>(null)
   // 日付一括変更（クレジットカード等）
   const [showBulkDateDialog, setShowBulkDateDialog] = useState(false)
   const [bulkDate, setBulkDate] = useState('')
@@ -462,6 +466,33 @@ export default function BankStatementContent() {
         }
 
         if (config.documentType === 'receipt') {
+          // Excel/CSV: 列マッピングダイアログを表示
+          const fName = config.file.name.toLowerCase()
+          if (fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.csv')) {
+            let rows: RawTableRow[] = []
+            if (fName.endsWith('.csv')) {
+              const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
+              const text = decodeCsvText(await config.file.arrayBuffer())
+              rows = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
+                .map((l, i) => ({ cells: parseCsvLine(l), rowIndex: i }))
+            } else {
+              const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
+              const sheets = await parseExcel(config.file)
+              // 「レシート」「領収」を含むシートを優先、なければ先頭シート
+              const sheet = sheets.find((s) => /レシート|領収/.test(s.sheetName)) || sheets[0]
+              rows = sheet?.rows || []
+            }
+            clearInterval(progressTimer)
+            setLoadingProgress(0)
+            if (rows.length === 0) throw new Error('レシートファイルから行を読み取れませんでした。')
+            setUploadConfig(config)
+            uploadConfigRef.current = config
+            setReceiptRawRows(rows)
+            setShowReceiptColumnMapping(true)
+            setIsLoading(false)
+            return
+          }
+
           // レシート・領収書処理: まずテキストPDF解析を試行（無料・高速）
           const { parseReceiptTextPdf } = await import('@/lib/bank-statement/receipt-parser')
           const textResult = await parseReceiptTextPdf(config.file, (receipt, pageIdx, totalPages) => {
@@ -913,6 +944,123 @@ export default function BankStatementContent() {
       }
     },
     [ccRawRows, uploadConfig],
+  )
+
+  const handleReceiptColumnMappingConfirm = useCallback(
+    async (mapping: ReceiptColumnMapping) => {
+      if (!receiptRawRows || !uploadConfig) return
+      setShowReceiptColumnMapping(false)
+      setIsLoading(true)
+      try {
+        const parseDate = (raw: string): string => {
+          const s = String(raw || '').trim()
+          // Excel パーサが YYYY-MM-DD に変換済み
+          const m = s.match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/)
+          if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+          return ''
+        }
+        const parseAmt = (raw: string): number => {
+          const c = String(raw || '').replace(/[,¥￥\s　]/g, '').replace(/[△▲]/g, '-')
+          const n = parseInt(c, 10)
+          return isNaN(n) ? 0 : n
+        }
+
+        interface ReceiptRow {
+          receiptIndex: number
+          storeName: string
+          receiptDate: string
+          mainContent: string
+          invoiceNumber?: string
+          taxLines: { taxRate: string; netAmount: number; taxAmount: number; totalAmount: number }[]
+          pageIndex: number
+        }
+
+        const receipts: ReceiptRow[] = []
+        const dataRows = receiptRawRows.slice(mapping.headerRowIndex + 1)
+        for (let i = 0; i < dataRows.length; i++) {
+          const row = dataRows[i]
+          const date = parseDate(row.cells[mapping.dateColumn] || '')
+          if (!date) continue
+          const storeName = (row.cells[mapping.storeNameColumn] || '').trim()
+          if (!storeName) continue
+          const total = parseAmt(row.cells[mapping.totalAmountColumn] || '')
+          if (total <= 0) continue
+
+          const mainContent = mapping.mainContentColumns.length > 0
+            ? mapping.mainContentColumns.map((c) => (row.cells[c] || '').trim()).filter(Boolean).join(' ')
+            : ''
+          const invoiceNumber = mapping.invoiceNumberColumn >= 0
+            ? (row.cells[mapping.invoiceNumberColumn] || '').trim()
+            : ''
+          const memo = mapping.memoColumn >= 0 ? (row.cells[mapping.memoColumn] || '').trim() : ''
+
+          const amt10 = mapping.amount10Column >= 0 ? parseAmt(row.cells[mapping.amount10Column] || '') : 0
+          const amt8 = mapping.amount8Column >= 0 ? parseAmt(row.cells[mapping.amount8Column] || '') : 0
+          const amtEx = mapping.amountExemptColumn >= 0 ? parseAmt(row.cells[mapping.amountExemptColumn] || '') : 0
+
+          const taxLines: ReceiptRow['taxLines'] = []
+          if (amt10 > 0) taxLines.push({ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: amt10 })
+          if (amt8 > 0) taxLines.push({ taxRate: '8%', netAmount: 0, taxAmount: 0, totalAmount: amt8 })
+          if (amtEx > 0) taxLines.push({ taxRate: '非課税', netAmount: 0, taxAmount: 0, totalAmount: amtEx })
+
+          // 内訳が無い、または合計が支払総額と一致しない場合は支払総額1行（10%既定）にフォールバック
+          const breakdownSum = taxLines.reduce((s, t) => s + t.totalAmount, 0)
+          if (taxLines.length === 0 || breakdownSum !== total) {
+            taxLines.length = 0
+            taxLines.push({ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: total })
+          }
+
+          receipts.push({
+            receiptIndex: i,
+            storeName,
+            receiptDate: date,
+            mainContent: memo ? `${mainContent}${mainContent ? ' ' : ''}(${memo})` : mainContent,
+            invoiceNumber: invoiceNumber || undefined,
+            taxLines,
+            pageIndex: i,
+          })
+        }
+
+        if (receipts.length === 0) throw new Error('有効なレシート行が見つかりませんでした（日付・相手先・支払総額を確認してください）')
+
+        const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
+        const entries = receiptToEntries(
+          receipts,
+          uploadConfig.creditCode!,
+          uploadConfig.creditName!,
+          uploadConfig.creditSubCode,
+          uploadConfig.creditSubName,
+        )
+
+        // 左側プレビュー用に仮想ページを生成
+        const previewPage: StatementPage = {
+          pageIndex: 0,
+          transactions: receipts.map((r, i) => ({
+            id: `rcpt-prev-${Date.now()}-${i}`,
+            pageIndex: 0,
+            rowIndex: i,
+            date: r.receiptDate,
+            description: `${r.storeName}${r.mainContent ? '_' + r.mainContent : ''}`,
+            deposit: null,
+            withdrawal: r.taxLines.reduce((s, t) => s + t.totalAmount, 0),
+            balance: 0,
+          })),
+          openingBalance: 0,
+          closingBalance: 0,
+          isBalanceValid: true,
+          balanceDifference: 0,
+        }
+        setPages((prev) => [...prev, previewPage])
+        setJournalEntries((prev) => [...prev, ...entries])
+        setInfo(`${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'レシートの取り込みに失敗しました')
+      } finally {
+        setIsLoading(false)
+        setReceiptRawRows(null)
+      }
+    },
+    [receiptRawRows, uploadConfig],
   )
 
   const handleInvoiceColumnMappingConfirm = useCallback(
@@ -1443,6 +1591,18 @@ export default function BankStatementContent() {
           onCancel={() => {
             setShowCcColumnMapping(false)
             setCcRawRows(null)
+          }}
+        />
+      )}
+
+      {/* レシート・領収書 Excel/CSV 用 列マッピングダイアログ */}
+      {showReceiptColumnMapping && receiptRawRows && (
+        <ReceiptColumnMappingDialog
+          rows={receiptRawRows}
+          onConfirm={handleReceiptColumnMappingConfirm}
+          onCancel={() => {
+            setShowReceiptColumnMapping(false)
+            setReceiptRawRows(null)
           }}
         />
       )}

@@ -20,7 +20,7 @@ const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: strin
   { value: 'credit-card', label: 'クレジットカード', desc: 'CSV / Excel', icon: '💳' },
   { value: 'sales-invoice', label: '売上請求書', desc: 'PDF / Excel', icon: '📄' },
   { value: 'purchase-invoice', label: '仕入請求書', desc: 'PDF / Excel', icon: '📑' },
-  { value: 'receipt', label: 'レシート・領収書', desc: 'PDF', icon: '🧾' },
+  { value: 'receipt', label: 'レシート・領収書', desc: 'PDF / Excel', icon: '🧾' },
   { value: 'yucho', label: 'ゆうちょ受払通知', desc: 'PDF', icon: '📮' },
   { value: 'payroll', label: '賃金台帳', desc: '貼り付け / Excel', icon: '👥' },
 ]
