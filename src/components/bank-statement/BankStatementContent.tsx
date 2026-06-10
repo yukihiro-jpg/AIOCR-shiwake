@@ -1001,7 +1001,7 @@ export default function BankStatementContent() {
           const taxLines: ReceiptRow['taxLines'] = []
           if (amt10 > 0) taxLines.push({ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: amt10 })
           if (amt8 > 0) taxLines.push({ taxRate: '8%', netAmount: 0, taxAmount: 0, totalAmount: amt8 })
-          if (amtEx > 0) taxLines.push({ taxRate: '非課税', netAmount: 0, taxAmount: 0, totalAmount: amtEx })
+          if (amtEx > 0) taxLines.push({ taxRate: '対象外', netAmount: 0, taxAmount: 0, totalAmount: amtEx })
 
           // 内訳が無い、または合計が支払総額と一致しない場合は支払総額1行（10%既定）にフォールバック
           const breakdownSum = taxLines.reduce((s, t) => s + t.totalAmount, 0)
@@ -1030,6 +1030,7 @@ export default function BankStatementContent() {
           uploadConfig.creditName!,
           uploadConfig.creditSubCode,
           uploadConfig.creditSubName,
+          true, // 列マッピング経由は常にインボイス登録事業者扱い（経過措置※を付けない）
         )
 
         // 左側プレビュー用に仮想ページを生成

@@ -24,6 +24,7 @@ export function receiptToEntries(
   creditName: string,
   creditSubCode?: string,
   creditSubName?: string,
+  forceRegistered?: boolean,
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -31,7 +32,7 @@ export function receiptToEntries(
     const description = `${rcp.storeName}_${rcp.mainContent}`.slice(0, 40)
     const date = rcp.receiptDate.replace(/-/g, '')
     const totalAmount = rcp.taxLines.reduce((s, t) => s + t.totalAmount, 0)
-    const hasInvoice = !!rcp.invoiceNumber
+    const hasInvoice = forceRegistered ? true : !!rcp.invoiceNumber
 
     if (rcp.taxLines.length <= 1) {
       const line = rcp.taxLines[0]
@@ -78,6 +79,7 @@ export function receiptToEntries(
 }
 
 function getTaxCategory(taxRate: string, hasInvoice: boolean): string {
+  if (taxRate === '対象外') return ''
   if (taxRate === '非課税' || taxRate === '0%') return '非仕'
   const rate = taxRate.replace('%', '')
   if (hasInvoice) return `課仕${rate}%`
@@ -85,6 +87,7 @@ function getTaxCategory(taxRate: string, hasInvoice: boolean): string {
 }
 
 function taxRateToCode(taxRate: string): string {
+  if (taxRate === '対象外' || taxRate === '非課税' || taxRate === '0%') return ''
   if (taxRate.includes('8')) return '5'
   return '4'
 }
