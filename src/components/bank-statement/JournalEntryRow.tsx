@@ -148,7 +148,7 @@ function JournalEntryRowInner({
             subCode={entry.debitSubCode} subName={entry.debitSubName}
             accountMaster={accountMaster} subAccountMaster={subAccountMaster}
             onCodeChange={handleDebitCodeChange}
-            onSubCodeChange={(sc, sn) => { onChange(entry.id, 'debitSubCode', sc); onChange(entry.id, 'debitSubName', sn) }}
+            onSubCodeChange={(sc, sn) => { onChange(entry.id, '_debitSubFull' as keyof JournalEntry, `${sc}|${sn}`) }}
             onSubAccountRegister={onSubAccountRegister} />
         </td>
 
@@ -158,7 +158,7 @@ function JournalEntryRowInner({
             subCode={entry.creditSubCode} subName={entry.creditSubName}
             accountMaster={accountMaster} subAccountMaster={subAccountMaster}
             onCodeChange={handleCreditCodeChange}
-            onSubCodeChange={(sc, sn) => { onChange(entry.id, 'creditSubCode', sc); onChange(entry.id, 'creditSubName', sn) }}
+            onSubCodeChange={(sc, sn) => { onChange(entry.id, '_creditSubFull' as keyof JournalEntry, `${sc}|${sn}`) }}
             onSubAccountRegister={onSubAccountRegister} />
         </td>
 

@@ -570,6 +570,16 @@ export default function JournalEntryTable({
           const [code, name] = (value as string).split('|')
           return { ...e, debitTaxCode: code || '', debitTaxType: name || '' }
         }
+        // _debitSubFull: 借方補助コード+名称を一括更新（2回のsetStateで片方が消える問題の回避）
+        if (field === '_debitSubFull' as keyof JournalEntry) {
+          const [code, name] = (value as string).split('|')
+          return { ...e, debitSubCode: code || '', debitSubName: name || '' }
+        }
+        // _creditSubFull: 貸方補助コード+名称を一括更新
+        if (field === '_creditSubFull' as keyof JournalEntry) {
+          const [code, name] = (value as string).split('|')
+          return { ...e, creditSubCode: code || '', creditSubName: name || '' }
+        }
         return { ...e, [field]: value }
       }))
     },
