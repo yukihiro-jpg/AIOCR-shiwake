@@ -1,5 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+// pdfjs ワーカーを絶対https URLに固定（アプリ本体の import より前に実行）
+import './shim/pdf-worker'
 // /api/... をクライアント処理へ振り替える（アプリ本体の import より前に有効化）
 import { installApiShim, installSettingsButton } from './shim/api-shim'
 // 既存アプリのスタイルをそのまま利用（Tailwind + 独自CSS）
