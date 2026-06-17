@@ -1487,6 +1487,7 @@ export default function BankStatementContent() {
               currentPageIndex={currentPageIndex}
               onPageChange={setCurrentPageIndex}
               entries={journalEntries}
+              selectedTransactionId={selectedTransactionId}
               bankAccountCode={uploadConfig?.accountCode || ''}
               hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onBalanceOverride={handleBalanceOverride}
