@@ -35,7 +35,7 @@ if not exist ".git" (
   goto :MAIN
 )
 echo 最新コードを取得して再起動します...
-git fetch origin --quiet && git reset --hard origin/claude/gemini-file-api-kp4Qk --quiet && call "%~f0" --launched & exit /b
+git fetch origin --quiet && git reset --hard origin/main --quiet && call "%~f0" --launched & exit /b
 
 
 :MAIN

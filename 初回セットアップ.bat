@@ -22,11 +22,11 @@ if exist ".git" (
 )
 
 echo Git リポジトリとして初期化...
-git init -b claude/gemini-file-api-kp4Qk
-git remote add origin https://github.com/yukihiro-jpg/test-project.git
-git fetch origin claude/gemini-file-api-kp4Qk
+git init -b main
+git remote add origin https://github.com/yukihiro-jpg/AIOCR-shiwake.git
+git fetch origin main
 if errorlevel 1 ( echo [エラー] GitHub から取得失敗 & pause & exit /b 1 )
-git reset --hard origin/claude/gemini-file-api-kp4Qk
+git reset --hard origin/main
 if errorlevel 1 ( echo [エラー] git reset 失敗 & pause & exit /b 1 )
 
 echo.

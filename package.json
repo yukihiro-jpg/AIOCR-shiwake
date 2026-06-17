@@ -6,9 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "cron:spreadsheet": "npx tsx src/scripts/update-spreadsheet.ts",
-    "cron:email": "npx tsx src/scripts/send-progress-email.ts"
+    "lint": "next lint"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
