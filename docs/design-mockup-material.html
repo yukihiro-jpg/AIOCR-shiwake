@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja" translate="no">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="google" content="notranslate" />
+<title>会計大将インポートデータ変換 — Material Design 案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --blue:#1a73e8; --blue-700:#1967d2; --on-blue:#fff;
+  --pri-container:#d3e3fd; --on-pri-container:#041e49;
+  --bg:#f0f4f9; --surface:#ffffff; --surface-1:#f8fafd; --surface-2:#eef3fb;
+  --outline:#dadce0; --outline-soft:#e8eaed;
+  --ink:#1f1f1f; --ink-2:#5f6368; --ink-3:#80868b;
+  --err-container:#fce8e6; --err-ink:#c5221f;
+  --tertiary-container:#e9ddff; --tertiary-ink:#4f378a;
+  --success-container:#d7f2e3; --success-ink:#137333;
+  --radius:16px; --radius-sm:10px;
+  --e1:0 1px 2px rgba(60,64,67,.10), 0 1px 3px 1px rgba(60,64,67,.06);
+  --e2:0 1px 3px rgba(60,64,67,.12), 0 4px 8px 3px rgba(60,64,67,.08);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  font-family:"Google Sans","Roboto","Noto Sans JP",system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--bg); color:var(--ink); font-size:13px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.app{display:flex;flex-direction:column;height:100vh;}
+
+/* ---------- Top App Bar ---------- */
+.topbar{
+  display:flex;align-items:center;gap:16px;height:64px;padding:0 20px;
+  background:var(--surface);border-bottom:1px solid var(--outline-soft);
+  box-shadow:var(--e1);z-index:20;flex-shrink:0;
+}
+.brand{display:flex;align-items:center;gap:12px;}
+.logo{width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,#1a73e8,#4285f4 60%,#34a853);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:18px;
+  box-shadow:0 2px 6px rgba(26,115,232,.35);}
+.brand .title{font-size:18px;font-weight:500;letter-spacing:-.2px;color:var(--ink);}
+.client-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;
+  background:var(--pri-container);color:var(--on-pri-container);font-weight:500;font-size:13px;}
+.client-chip .dot{width:7px;height:7px;border-radius:50%;background:#34a853;}
+.link{color:var(--blue);font-weight:500;cursor:pointer;font-size:13px;}
+.link:hover{text-decoration:underline;}
+.topbar .spacer{flex:1;}
+.actions{display:flex;align-items:center;gap:8px;}
+
+/* Material buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;border-radius:999px;
+  font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:background .15s,box-shadow .15s;white-space:nowrap;}
+.btn .ic{font-size:16px;line-height:1;}
+.btn-text{background:transparent;color:var(--blue);}
+.btn-text:hover{background:rgba(26,115,232,.08);}
+.btn-tonal{background:var(--surface-2);color:var(--ink);}
+.btn-tonal:hover{background:#e3e9f3;box-shadow:var(--e1);}
+.btn-filled{background:var(--blue);color:#fff;box-shadow:var(--e1);}
+.btn-filled:hover{background:var(--blue-700);box-shadow:var(--e2);}
+.btn-outline{background:transparent;color:var(--ink);border:1px solid var(--outline);}
+.btn-outline:hover{background:var(--surface-1);}
+.btn-danger{background:transparent;color:var(--err-ink);border:1px solid #f3c9c6;}
+.btn-danger:hover{background:#fdeceb;}
+.btn-sm{height:32px;padding:0 12px;font-size:12.5px;}
+
+/* ---------- Status strip ---------- */
+.statusbar{display:flex;align-items:center;gap:10px;padding:8px 20px;background:var(--surface-1);
+  border-bottom:1px solid var(--outline-soft);color:var(--ink-2);font-size:12.5px;flex-shrink:0;}
+.chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;}
+.chip-success{background:var(--success-container);color:var(--success-ink);}
+.chip-info{background:var(--pri-container);color:var(--on-pri-container);}
+
+/* ---------- Main split ---------- */
+.main{display:grid;grid-template-columns:38% 1fr;gap:14px;padding:14px;flex:1;min-height:0;}
+.pane{background:var(--surface);border-radius:var(--radius);box-shadow:var(--e1);display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+
+/* pane header */
+.pane-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--outline-soft);flex-shrink:0;}
+.pane-head .h{font-size:15px;font-weight:500;}
+.pane-head .spacer{flex:1;}
+.icon-btn{width:34px;height:34px;border-radius:999px;border:none;background:transparent;color:var(--ink-2);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
+.icon-btn:hover{background:var(--surface-2);}
+.seg{display:flex;align-items:center;border:1px solid var(--outline);border-radius:999px;overflow:hidden;}
+.seg button{border:none;background:transparent;height:32px;padding:0 12px;cursor:pointer;font-size:13px;color:var(--ink-2);}
+.seg button:hover{background:var(--surface-1);}
+.seg .zoom{min-width:54px;text-align:center;border-left:1px solid var(--outline);border-right:1px solid var(--outline);color:var(--ink);font-weight:500;}
+
+/* ---------- Left preview table ---------- */
+.scroll{overflow:auto;flex:1;min-height:0;}
+.prev-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.prev-table td{padding:9px 12px;border-bottom:1px solid var(--outline-soft);vertical-align:top;}
+.prev-table tr:hover td{background:var(--surface-1);}
+.prev-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink);}
+.prev-table .date{white-space:nowrap;color:var(--ink-2);}
+.prev-table .desc{color:var(--ink);}
+.prev-table tr.sel td{background:#fef7e0;}     /* 選択（左）: 穏やかな黄系 */
+.prev-table tr.sel td:first-child{box-shadow:inset 3px 0 0 #f9ab00;}
+
+/* balance footer card */
+.balance{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 22px;padding:14px 16px;border-top:1px solid var(--outline-soft);
+  background:var(--surface-1);font-size:12.5px;flex-shrink:0;}
+.balance .row{display:flex;justify-content:space-between;gap:10px;}
+.balance .k{color:var(--ink-2);}
+.balance .v{font-variant-numeric:tabular-nums;font-weight:500;}
+.balance .v.plus{color:#137333;}
+.balance .v.minus{color:#c5221f;}
+.balance .full{grid-column:1/3;display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:11.5px;}
+
+/* ---------- Right journal table ---------- */
+.rtoolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--outline-soft);flex-shrink:0;flex-wrap:wrap;}
+.search{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;background:var(--surface-2);border-radius:999px;flex:1;max-width:280px;}
+.search input{border:none;background:transparent;outline:none;font-family:inherit;font-size:13px;width:100%;color:var(--ink);}
+.search .ic{color:var(--ink-3);}
+
+.jtable{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;}
+.jtable thead th{position:sticky;top:0;background:var(--surface-2);color:var(--ink-2);font-weight:500;
+  text-align:center;padding:10px 8px;border-bottom:1px solid var(--outline);white-space:nowrap;z-index:5;font-size:12px;}
+.jtable thead th .muted{font-weight:400;color:var(--ink-3);font-size:11px;}
+.jtable td{padding:7px 8px;border-bottom:1px solid var(--outline-soft);vertical-align:middle;}
+.jtable tbody tr:hover td{background:var(--surface-1);}
+.jtable .c{text-align:center;}
+.jtable .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;padding-right:12px;}
+.jtable .date{color:var(--ink-2);text-align:center;font-variant-numeric:tabular-nums;}
+.jtable .desc{color:var(--ink);}
+
+/* state backgrounds */
+.row-selected td{background:var(--pri-container)!important;}
+.row-compound td{background:var(--tertiary-container)!important;}
+.cell-empty{background:var(--err-container);border-radius:6px;}
+.star{color:#f9ab00;font-size:15px;}
+.star.off{color:var(--outline);}
+
+/* account code chip */
+.acc{display:inline-flex;align-items:baseline;gap:6px;}
+.acc .code{font-weight:700;color:var(--ink);}
+.acc .name{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);font-size:11.5px;font-weight:500;}
+.tax{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:#e8f0fe;color:#1967d2;font-size:11px;font-weight:500;}
+.tax.empty{background:var(--err-container);color:var(--err-ink);}
+.iv{color:var(--ink-3);}
+.rowact{display:flex;gap:2px;justify-content:flex-end;}
+.rowact button{width:26px;height:26px;border-radius:999px;border:none;background:transparent;color:var(--ink-3);cursor:pointer;font-size:14px;}
+.rowact button:hover{background:var(--surface-2);color:var(--blue);}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--blue);cursor:pointer;}
+
+/* legend */
+.legend{display:flex;gap:16px;align-items:center;padding:8px 16px;border-top:1px solid var(--outline-soft);background:var(--surface-1);font-size:11.5px;color:var(--ink-2);flex-shrink:0;flex-wrap:wrap;}
+.legend .sw{display:inline-flex;align-items:center;gap:6px;}
+.legend .box{width:16px;height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.06);}
+
+/* extended FAB */
+.fab{position:fixed;right:22px;bottom:22px;display:inline-flex;align-items:center;gap:10px;height:48px;padding:0 20px;
+  border-radius:16px;background:var(--surface);color:var(--blue);box-shadow:var(--e2);border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:500;}
+.fab:hover{background:var(--surface-1);}
+.note{position:fixed;left:14px;bottom:12px;font-size:11px;color:var(--ink-3);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top App Bar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">会</div>
+      <div class="title">会計大将インポートデータ変換</div>
+      <span class="client-chip"><span class="dot"></span>サンプル法人</span>
+      <span class="link">顧問先一覧</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="actions">
+      <button class="btn btn-tonal"><span class="ic">⛁</span>Drive連携</button>
+      <button class="btn btn-text">パターン一覧</button>
+      <button class="btn btn-text">定型仕訳</button>
+      <button class="btn btn-text">メニュー ▾</button>
+      <button class="btn btn-tonal"><span class="ic">⤓</span>一時保存</button>
+      <button class="btn btn-filled"><span class="ic">⭳</span>CSV出力</button>
+      <button class="btn btn-danger">アプリ終了</button>
+    </div>
+  </header>
+
+  <!-- Status strip -->
+  <div class="statusbar">
+    <span class="chip chip-success">✓ 解析完了 0.0秒</span>
+    <span>63件の取引を抽出</span>
+  </div>
+
+  <!-- Main split -->
+  <div class="main">
+
+    <!-- Left preview pane -->
+    <section class="pane">
+      <div class="pane-head">
+        <span class="h">取り込みデータ</span>
+        <span class="chip chip-info">通帳 / Excel</span>
+        <div class="spacer"></div>
+        <button class="btn btn-danger btn-sm">ファイル削除</button>
+        <div class="seg">
+          <button>−</button><button class="zoom">100%</button><button>＋</button>
+        </div>
+      </div>
+      <div class="scroll">
+        <table class="prev-table">
+          <tbody>
+            <tr><td class="date">2026-01-01</td><td class="desc">ラクテンショウケンカブシキガイシャ（米国株式積立代金）</td><td class="num">50,153</td><td class="num">2,081,206</td></tr>
+            <tr><td class="date">2026-01-02</td><td class="desc">ラクテンショウケンカブシキガイシャ（米国株式為替見直し代金）</td><td class="num">234</td><td class="num">2,080,972</td></tr>
+            <tr><td class="date">2026-01-05</td><td class="desc">ラクテンショウケンカブシキガイシャ（米国株式積立代金）</td><td class="num">43,506</td><td class="num">2,037,466</td></tr>
+            <tr><td class="date">2026-01-07</td><td class="desc">ラクテンショウケンカブシキガイシャ（自動スイープ）</td><td class="num">5,459</td><td class="num">2,042,925</td></tr>
+            <tr><td class="date">2026-01-07</td><td class="desc">常陽銀行 本店営業部 普通預金 0128690 イバ ラキケンギ ヨウセイショウカイ（依頼人名：クサカベ ユキヒロ）</td><td class="num">20,000</td><td class="num">2,022,925</td></tr>
+            <tr><td class="date">2026-01-13</td><td class="desc">（カ）ジ エーシービー</td><td class="num">386,149</td><td class="num">1,636,776</td></tr>
+            <tr><td class="date">2026-01-26</td><td class="desc">コクミンネンキンキキンレンゴ ウカイ（カクテイキョシュツネンキン）</td><td class="num">68,000</td><td class="num">1,568,776</td></tr>
+            <tr><td class="date">2026-01-27</td><td class="desc">ＤＦ．モリジ ユク</td><td class="num">9,900</td><td class="num">1,558,876</td></tr>
+            <tr><td class="date">2026-01-30</td><td class="desc">茨城県信用組合 上水戸支店 普通預金 7567505 （カ）エーデ ザ イン</td><td class="num">5,500</td><td class="num">1,553,376</td></tr>
+            <tr><td class="date">2026-01-31</td><td class="desc">ラクテンショウケンカブシキガイシャ（投信積立代金）</td><td class="num">300,000</td><td class="num">1,253,376</td></tr>
+            <tr><td class="date">2026-02-01</td><td class="desc">住信ＳＢＩネット銀行 キウイ支店 普通預金 4115670 クサカベ ユキヒロ（振込）</td><td class="num">250,000</td><td class="num">1,003,376</td></tr>
+            <tr class="sel"><td class="date">2026-02-02</td><td class="desc">クサカベゼイリシジムショ クサカベ ユキヒロ</td><td class="num">5,000,000</td><td class="num">6,003,376</td></tr>
+            <tr><td class="date">2026-02-02</td><td class="desc">ラクテンショウケンカブシキガイシャ（米国株式積立代金）</td><td class="num">85,152</td><td class="num">5,918,224</td></tr>
+            <tr><td class="date">2026-02-04</td><td class="desc">ラクテンショウケンカブシキガイシャ（自動スイープ）</td><td class="num">2,912</td><td class="num">5,921,136</td></tr>
+            <tr><td class="date">2026-02-05</td><td class="desc">ラクテンショウケンカブシキガイシャ（投信積立代金）</td><td class="num">200,000</td><td class="num">5,721,136</td></tr>
+            <tr><td class="date">2026-02-06</td><td class="desc">住信ＳＢＩネット銀行 キウイ支店 普通預金 4115670 クサカベ ユキヒロ（振込）</td><td class="num">1,000,000</td><td class="num">4,721,136</td></tr>
+            <tr><td class="date">2026-02-10</td><td class="desc">（カ）ジ エーシービー</td><td class="num">942,660</td><td class="num">3,778,476</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="balance">
+        <div class="row"><span class="k">開始残高</span><span class="v">¥2,131,359</span></div>
+        <div class="row"><span class="k">計算残高</span><span class="v">¥2,138,686</span></div>
+        <div class="row"><span class="k">入金合計</span><span class="v plus">+¥10,652,304</span></div>
+        <div class="row"><span class="k">通帳残高</span><span class="v">¥2,138,686</span></div>
+        <div class="row"><span class="k">出金合計</span><span class="v minus">−¥10,644,977</span></div>
+        <div class="row"><span class="k">検証</span><span class="chip chip-success">OK 一致</span></div>
+        <div class="full">残高をクリックして手動修正できます</div>
+      </div>
+    </section>
+
+    <!-- Right journal pane -->
+    <section class="pane">
+      <div class="pane-head">
+        <span class="h">仕訳データ</span>
+        <span class="chip chip-info">63件</span>
+        <span class="chip chip-success">残高一致</span>
+        <div class="spacer"></div>
+        <button class="btn btn-outline btn-sm">未入力のみ表示</button>
+        <button class="btn btn-outline btn-sm">全選択</button>
+        <button class="btn btn-danger btn-sm">選択削除</button>
+        <button class="btn btn-tonal btn-sm">仮払金一括登録</button>
+        <button class="btn btn-text btn-sm">＋ 選択行の上に1行追加</button>
+      </div>
+      <div class="rtoolbar">
+        <div class="search"><span class="ic">🔍</span><input placeholder="摘要を検索…" /></div>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn btn-tonal btn-sm">科目別一覧</button>
+      </div>
+      <div class="scroll">
+        <table class="jtable">
+          <thead>
+            <tr>
+              <th class="c"><input type="checkbox"></th>
+              <th>学習</th>
+              <th>日付</th>
+              <th>借方科目 <span class="muted">未処理</span></th>
+              <th>貸方科目 <span class="muted">未処理</span></th>
+              <th>金額</th>
+              <th>残高</th>
+              <th>消費税</th>
+              <th>iv</th>
+              <th style="text-align:left;padding-left:14px;">摘要</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star">★</span></td><td class="date">2026-01-01</td>
+              <td><span class="acc"><span class="code">190</span></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">50,153</td><td class="num">2,081,206</td><td class="c"><span class="tax">課10%</span></td><td class="c iv">—</td>
+              <td class="desc">楽天証券</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-01-02</td>
+              <td><span class="cell-empty" style="display:inline-block;width:64px;height:22px;"></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">234</td><td class="num">2,080,972</td><td class="c"><span class="tax empty">CD</span></td><td class="c iv">—</td>
+              <td class="desc">ラクテンショウケンカブシキガイシャ</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star">★</span></td><td class="date">2026-01-05</td>
+              <td><span class="acc"><span class="code">190</span></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">43,506</td><td class="num">2,037,466</td><td class="c"><span class="tax">課10%</span></td><td class="c iv">—</td>
+              <td class="desc">楽天証券</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+
+            <!-- 複合仕訳グループ（諸口） -->
+            <tr class="row-compound">
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-01-07</td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td><span class="acc"><span class="code">997</span><span class="name">諸口</span></span></td>
+              <td class="num">5,459</td><td class="num">2,042,925</td><td class="c"><span class="tax" style="background:#f1f3f4;color:#5f6368;">—</span></td><td class="c iv">—</td>
+              <td class="desc">ラクテンショウケンカブシキガイシャ（自動スイープ）</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr class="row-compound">
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-01-07</td>
+              <td><span class="acc"><span class="code">997</span><span class="name">諸口</span></span></td>
+              <td><span class="acc"><span class="code">521</span><span class="name">手数料</span></span></td>
+              <td class="num">5,459</td><td class="num"></td><td class="c"><span class="tax">課10%</span></td><td class="c iv">✓</td>
+              <td class="desc">内訳：振込手数料</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+
+            <!-- 選択中の行 -->
+            <tr class="row-selected">
+              <td class="c"><input type="checkbox" checked></td><td class="c"><span class="star off">★</span></td><td class="date">2026-02-02</td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td><span class="cell-empty" style="display:inline-block;width:64px;height:22px;"></span></td>
+              <td class="num">5,000,000</td><td class="num">6,003,376</td><td class="c"><span class="tax empty">CD</span></td><td class="c iv">—</td>
+              <td class="desc">クサカベゼイリシジムショ クサカベ ユキヒロ</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star">★</span></td><td class="date">2026-01-13</td>
+              <td><span class="acc"><span class="code">317</span></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">386,149</td><td class="num">1,636,776</td><td class="c"><span class="tax">課10%</span></td><td class="c iv">—</td>
+              <td class="desc">JCBカード引落</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-01-26</td>
+              <td><span class="cell-empty" style="display:inline-block;width:64px;height:22px;"></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">68,000</td><td class="num">1,568,776</td><td class="c"><span class="tax empty">CD</span></td><td class="c iv">—</td>
+              <td class="desc">コクミンネンキンキキンレンゴ ウカイ</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-01-27</td>
+              <td><span class="cell-empty" style="display:inline-block;width:64px;height:22px;"></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">9,900</td><td class="num">1,558,876</td><td class="c"><span class="tax empty">CD</span></td><td class="c iv">—</td>
+              <td class="desc">ＤＦ．モリジ ユク</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star">★</span></td><td class="date">2026-02-10</td>
+              <td><span class="acc"><span class="code">317</span></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">942,660</td><td class="num">3,778,476</td><td class="c"><span class="tax">課10%</span></td><td class="c iv">—</td>
+              <td class="desc">JCBカード引落</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+            <tr>
+              <td class="c"><input type="checkbox"></td><td class="c"><span class="star off">★</span></td><td class="date">2026-02-27</td>
+              <td><span class="acc"><span class="code">521</span><span class="name">支払手数料</span></span></td>
+              <td><span class="acc"><span class="code">112</span><span class="name">楽天</span></span></td>
+              <td class="num">145</td><td class="num">3,689,431</td><td class="c"><span class="tax">課10%</span></td><td class="c iv">—</td>
+              <td class="desc">振込手数料（内消費税 ¥13）</td><td><div class="rowact"><button>＋</button><button>☆</button><button>⋯</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span class="sw"><span class="box" style="background:var(--pri-container)"></span>選択中の行</span>
+        <span class="sw"><span class="box" style="background:var(--tertiary-container)"></span>複合仕訳（諸口）</span>
+        <span class="sw"><span class="box" style="background:var(--err-container)"></span>未入力（要対応）</span>
+        <span class="sw"><span class="star" style="font-size:13px">★</span>パターン学習で自動入力</span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<button class="fab">⚙ 設定</button>
+<div class="note">※ これはデザイン案のモックアップです（操作はできません）</div>
+</body>
+</html>
