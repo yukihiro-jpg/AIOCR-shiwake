@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { uploadClientToDrive, uploadAllClientsToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, importClientFromJsonFiles, type SyncStatus } from '@/lib/bank-statement/drive-sync'
+import { signIn as googleSignIn, signOut as googleSignOut } from '@/lib/bank-statement/google-auth'
 
 interface Props {
   clientId: string | null
@@ -117,8 +118,20 @@ export default function DriveSyncButton({ clientId, clientName, inMenu = false }
     }
   }, [clientId])
 
+  const handleConnect = async () => {
+    setMessage('Google にログイン中...')
+    try {
+      await googleSignIn()
+      setConnected(true)
+      setMessage('Google Drive に接続しました')
+      setTimeout(() => setMessage(''), 3000)
+    } catch (err) {
+      setMessage(`接続に失敗しました: ${err instanceof Error ? err.message : ''}`)
+    }
+  }
+
   const handleDisconnect = async () => {
-    await fetch('/api/drive/status', { method: 'DELETE' })
+    await googleSignOut()
     setConnected(false)
     setMessage('Google Drive との接続を解除しました')
     setTimeout(() => setMessage(''), 3000)
@@ -127,12 +140,12 @@ export default function DriveSyncButton({ clientId, clientName, inMenu = false }
   if (!connected) {
     return (
       <div className="flex items-center gap-2">
-        <a href="/api/auth/google"
+        <button onClick={handleConnect}
           className={inMenu
             ? "block w-full px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded text-center"
             : "px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1"}>
           Drive連携
-        </a>
+        </button>
         {message && <span className="text-xs text-green-400">{message}</span>}
       </div>
     )

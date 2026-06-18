@@ -1,4 +1,8 @@
 // Drive同期のクライアント側ヘルパー（UIから直接呼び出し可能）
+// 静的サイト化に伴い、サーバー（/api/drive*）ではなく drive-client / google-auth を直接呼ぶ。
+
+import { driveRead, driveWrite, driveBulkWrite, driveListChanges } from './drive-client'
+import { isConnected as authIsConnected } from './google-auth'
 
 export const STORAGE_KEY_MAP: Record<string, (cid: string) => string> = {
   'patterns': (cid) => `bs-patterns-${cid}`,
@@ -39,17 +43,7 @@ export async function uploadClientToDrive(clientId: string, clientName: string |
     items.push({ clientId, clientName, key: '_marker', data: { updated: new Date().toISOString() } })
   }
 
-  const res = await fetch('/api/drive', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.error || 'Drive upload failed')
-  }
-  const result = await res.json()
-  return result.count || 0
+  return await driveBulkWrite(items)
 }
 
 /**
@@ -59,21 +53,17 @@ export async function downloadClientFromDrive(clientId: string, clientName: stri
   let downloaded = 0
 
   // 顧問先一覧も取得
-  const globalRes = await fetch('/api/drive?clientId=_global&key=clients')
-  if (globalRes.ok) {
-    const { data } = await globalRes.json()
+  try {
+    const data = await driveRead('_global', null, 'clients')
     if (data && Array.isArray(data)) {
       localStorage.setItem('bank-statement-clients', JSON.stringify(data))
       downloaded++
     }
-  }
+  } catch { /* skip */ }
 
-  const nameParam = clientName ? `&clientName=${encodeURIComponent(clientName)}` : ''
   for (const key of STORAGE_KEYS) {
     try {
-      const res = await fetch(`/api/drive?clientId=${encodeURIComponent(clientId)}${nameParam}&key=${encodeURIComponent(key)}`)
-      if (!res.ok) continue
-      const { data } = await res.json()
+      const data = await driveRead(clientId, clientName, key)
       if (data != null) {
         const storageKey = STORAGE_KEY_MAP[key](clientId)
         localStorage.setItem(storageKey, JSON.stringify(data))
@@ -180,12 +170,7 @@ export async function uploadAllClientsToDrive(
 
 /** Drive連携ステータスを確認 */
 export async function getDriveConnected(): Promise<boolean> {
-  try {
-    const res = await fetch('/api/drive/status')
-    if (!res.ok) return false
-    const data = await res.json()
-    return !!data.connected
-  } catch { return false }
+  return authIsConnected()
 }
 
 // ---- 自動同期インフラ（debounce push + polling） ----
@@ -273,15 +258,13 @@ export function schedulePushToDrive(clientId: string, key: string, data: unknown
 }
 
 async function pushOneToDrive(clientId: string, key: string, data: unknown): Promise<void> {
-  const res = await fetch('/api/drive', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, key, data }),
-  })
-  if (!res.ok) {
-    if (res.status === 401) throw new Error('Drive 未連携（ログインしてください）')
-    const text = await res.text().catch(() => '')
-    throw new Error(`Drive Push 失敗 (${res.status}): ${text}`)
+  try {
+    await driveWrite(clientId, null, key, data)
+  } catch (err) {
+    if (err instanceof Error && err.message === 'NOT_AUTHENTICATED') {
+      throw new Error('Drive 未連携（ログインしてください）')
+    }
+    throw err
   }
 }
 
@@ -291,14 +274,14 @@ async function pushOneToDrive(clientId: string, key: string, data: unknown): Pro
  */
 export async function detectRemoteChanges(clientId: string, clientName: string | null): Promise<string[]> {
   try {
-    const nameParam = clientName ? `&clientName=${encodeURIComponent(clientName)}` : ''
-    const res = await fetch(`/api/drive/changes?clientId=${encodeURIComponent(clientId)}${nameParam}`, { cache: 'no-store' })
-    if (!res.ok) {
-      if (res.status === 401) emitStatus({ connected: false })
+    let json: { files: Array<{ name: string; modifiedTime: string }> }
+    try {
+      json = await driveListChanges(clientId, clientName)
+    } catch (e) {
+      if (e instanceof Error && e.message === 'NOT_AUTHENTICATED') emitStatus({ connected: false })
       return []
     }
     emitStatus({ connected: true, error: null })
-    const json = await res.json() as { files: Array<{ name: string; modifiedTime: string }> }
     const changed: string[] = []
     for (const f of json.files || []) {
       const key = f.name.replace(/\.json$/, '')
