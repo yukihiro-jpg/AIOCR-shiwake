@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { uploadClientToDrive, uploadAllClientsToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, type SyncStatus } from '@/lib/bank-statement/drive-sync'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { uploadClientToDrive, uploadAllClientsToDrive, downloadClientFromDrive, getDriveConnected, subscribeSyncStatus, importClientFromJsonFiles, type SyncStatus } from '@/lib/bank-statement/drive-sync'
 
 interface Props {
   clientId: string | null
@@ -17,6 +17,7 @@ export default function DriveSyncButton({ clientId, clientName, inMenu = false }
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [message, setMessage] = useState('')
   const [autoStatus, setAutoStatus] = useState<SyncStatus | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     getDriveConnected().then(setConnected)
@@ -93,6 +94,29 @@ export default function DriveSyncButton({ clientId, clientName, inMenu = false }
     setSyncState('idle')
   }, [clientId, clientName])
 
+  const handleImportFiles = useCallback(async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return
+    const hasClientFile = Array.from(fileList).some((f) => f.name.replace(/\.json$/i, '') !== 'clients')
+    if (hasClientFile && !clientId) {
+      setMessage('顧問先固有のファイルを取り込むには、先に顧問先を選択してください')
+      setTimeout(() => setMessage(''), 5000)
+      return
+    }
+    setMessage('JSONを取り込み中...')
+    try {
+      const { imported, skipped } = await importClientFromJsonFiles(clientId, fileList)
+      const parts: string[] = []
+      if (imported.length > 0) parts.push(`取込: ${imported.join(', ')}`)
+      if (skipped.length > 0) parts.push(`スキップ: ${skipped.join(' / ')}`)
+      parts.push('ページを再読込(F5)してください。')
+      setMessage(parts.join(' ／ '))
+    } catch (err) {
+      setMessage(`エラー: ${err instanceof Error ? err.message : '取込失敗'}`)
+      setSyncState('error')
+      setSyncState('idle')
+    }
+  }, [clientId])
+
   const handleDisconnect = async () => {
     await fetch('/api/drive/status', { method: 'DELETE' })
     setConnected(false)
@@ -132,6 +156,20 @@ export default function DriveSyncButton({ clientId, clientName, inMenu = false }
           title="Driveから現在の顧問先データをダウンロード"
           className="w-full px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded disabled:opacity-50 text-left flex items-center gap-2">
           <span>↓</span><span>読込（強制再同期）</span>
+        </button>
+        <div className="border-t border-gray-200 my-1" />
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".json,application/json"
+          multiple
+          className="hidden"
+          onChange={(e) => { handleImportFiles(e.target.files); e.target.value = '' }}
+        />
+        <button onClick={() => importInputRef.current?.click()} disabled={syncState !== 'idle'}
+          title="旧アプリが共有ドライブに残したJSONファイルを取り込みます。Driveから手元にダウンロードしたファイルを選択してください。顧問先固有のデータは、対象の顧問先を選択した状態で取り込んでください。"
+          className="w-full px-3 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded disabled:opacity-50 text-left flex items-center gap-2">
+          <span>⇪</span><span>旧データJSON取込（移行用）</span>
         </button>
         <button onClick={handleDisconnect}
           className="w-full px-3 py-1.5 text-xs text-gray-500 hover:text-red-500 text-left" title="Drive連携解除">

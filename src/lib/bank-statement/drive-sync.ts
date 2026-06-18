@@ -85,6 +85,71 @@ export async function downloadClientFromDrive(clientId: string, clientName: stri
 }
 
 /**
+ * 旧アプリ（bat版）が共有ドライブに残した JSON ファイルを、手元でダウンロードして取り込む。
+ * 各ファイルの中身は localStorage の値そのものなので、ファイル名（key）から
+ * STORAGE_KEY_MAP を引いて localStorage に書き戻すだけでよい。
+ *
+ * - `clients.json` → グローバルの顧問先一覧（bank-statement-clients）に id でマージ
+ * - `patterns.json` など顧問先固有のキー → 指定した clientId 配下に書き込み
+ * - `_marker.json` など対象外のキーはスキップ
+ *
+ * 取り込み後はアプリ自身が作成したデータとして扱われるため、
+ * その後「保存」すれば drive.file 権限でも Drive 同期できるようになる。
+ */
+export async function importClientFromJsonFiles(
+  clientId: string | null,
+  files: FileList | File[],
+): Promise<{ imported: string[]; skipped: string[]; clientsMerged: number }> {
+  const imported: string[] = []
+  const skipped: string[] = []
+  let clientsMerged = 0
+
+  for (const file of Array.from(files)) {
+    const key = file.name.replace(/\.json$/i, '')
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await file.text())
+    } catch {
+      skipped.push(`${file.name}（JSONとして読めません）`)
+      continue
+    }
+
+    // 顧問先一覧はグローバル。既存と id でマージ（取り込み側を優先）。
+    if (key === 'clients') {
+      try {
+        const existingRaw = localStorage.getItem('bank-statement-clients')
+        const existing: Array<{ id: string; name: string }> = existingRaw ? JSON.parse(existingRaw) : []
+        const incoming: Array<{ id: string; name: string }> = Array.isArray(parsed) ? parsed : []
+        const byId = new Map<string, { id: string; name: string }>()
+        for (const c of existing) if (c && c.id) byId.set(c.id, c)
+        for (const c of incoming) if (c && c.id) byId.set(c.id, c)
+        const merged = Array.from(byId.values())
+        localStorage.setItem('bank-statement-clients', JSON.stringify(merged))
+        clientsMerged = incoming.length
+        imported.push('顧問先一覧')
+      } catch {
+        skipped.push('clients.json（マージ失敗）')
+      }
+      continue
+    }
+
+    const keyFn = STORAGE_KEY_MAP[key]
+    if (!keyFn) {
+      skipped.push(`${file.name}（対象外のキー）`)
+      continue
+    }
+    if (!clientId) {
+      skipped.push(`${file.name}（顧問先が未選択）`)
+      continue
+    }
+    localStorage.setItem(keyFn(clientId), JSON.stringify(parsed))
+    imported.push(key)
+  }
+
+  return { imported, skipped, clientsMerged }
+}
+
+/**
  * 全顧問先のデータをまとめて Drive にアップロード
  * 進捗を逐次レポートしながら全件処理。
  */
