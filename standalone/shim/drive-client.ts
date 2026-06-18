@@ -6,9 +6,11 @@ import { jsonResponse } from './gemini-common'
 
 export const LS_DRIVE_CLIENT_ID = 'bs-drive-client-id'
 export const LS_DRIVE_FOLDER = 'bs-drive-folder-url'
-const LS_DRIVE_TOKEN = 'bs-drive-token'
+// スコープを drive（フル）に変更したため、旧 drive.file トークンを無効化する目的で v2 に更新
+const LS_DRIVE_TOKEN = 'bs-drive-token-v2'
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+// 過去（bat/サーバ版＝別OAuth）が作成した既存ファイルも読み書きできるようフルDriveスコープを使用
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive'
 const APP_FOLDER_NAME = '事務所アプリ共有データ'
 
 // ---- 設定 ----
@@ -117,7 +119,7 @@ function esc(name: string): string { return sanitize(name).replace(/'/g, "\\'") 
 async function listFiles(q: string, fields = 'files(id,name)'): Promise<Array<{ id: string; name: string; modifiedTime?: string }>> {
   const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) +
     '&fields=' + encodeURIComponent(fields) +
-    '&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true'
+    '&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives'
   const r = await driveFetch(url)
   if (!r.ok) throw new Error('Drive list HTTP ' + r.status)
   return (await r.json()).files || []
