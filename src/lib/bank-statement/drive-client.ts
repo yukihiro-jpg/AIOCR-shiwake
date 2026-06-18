@@ -6,7 +6,19 @@
 
 import { getAccessToken } from './google-auth'
 
-const ROOT_FOLDER_ID = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID || ''
+// 設定値はフォルダIDが理想だが、Drive の URL を丸ごと貼られても動くように
+// URL からフォルダIDを抽出する（https://drive.google.com/drive/u/0/folders/<ID> 等）。
+function extractFolderId(raw: string): string {
+  const v = (raw || '').trim()
+  if (!v) return ''
+  const byPath = v.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  if (byPath) return byPath[1]
+  const byQuery = v.match(/[?&]id=([a-zA-Z0-9_-]+)/)
+  if (byQuery) return byQuery[1]
+  return v
+}
+
+const ROOT_FOLDER_ID = extractFolderId(process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID || '')
 const APP_FOLDER_NAME = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_DATA_FOLDER_NAME || '事務所アプリ共有データ'
 
 const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files'
