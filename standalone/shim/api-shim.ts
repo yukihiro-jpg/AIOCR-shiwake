@@ -2,6 +2,13 @@
 // 元アプリのコンポーネント/ライブラリは一切変更しない。
 // 未実装のエンドポイント（Drive 等）は素通しせず、分かりやすいエラーを返す。
 import { handleGeminiUpload, handleOcrPdf } from './gemini-bank-statement'
+import {
+  handleOcr,
+  handleCreditCard,
+  handleReceipt,
+  handleInvoice,
+  handleExpandDescriptions,
+} from './gemini-images'
 import { jsonResponse, LS_API_KEY, LS_MODEL, getApiKey, getModel } from './gemini-common'
 
 function urlOf(input: RequestInfo | URL): string {
@@ -24,6 +31,11 @@ export function installApiShim() {
     // Gemini 系（実装済み）
     if (path === '/api/bank-statement/gemini-upload') return handleGeminiUpload(init)
     if (path === '/api/bank-statement/ocr-pdf') return handleOcrPdf(init)
+    if (path === '/api/bank-statement/ocr') return handleOcr(init)
+    if (path === '/api/bank-statement/credit-card') return handleCreditCard(init)
+    if (path === '/api/bank-statement/receipt') return handleReceipt(init)
+    if (path === '/api/bank-statement/invoice') return handleInvoice(init)
+    if (path === '/api/bank-statement/expand-descriptions') return handleExpandDescriptions(init)
 
     // それ以外の /api/... は単一HTML版では未対応 → 分かりやすいエラー
     if (path.startsWith('/api/')) {
