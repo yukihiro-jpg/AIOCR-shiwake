@@ -39,7 +39,7 @@ export function ensureApiKey(): string {
     }
   }
   if (!key) {
-    throw new Error('Gemini API キーが未設定です（右下の「⚙ Gemini設定」から設定できます）')
+    throw new Error('Gemini API キーが未設定です（右下の「⚙ 設定」から設定できます）')
   }
   return key
 }
