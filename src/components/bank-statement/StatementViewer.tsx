@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import type { StatementPage, JournalEntry } from '@/lib/bank-statement/types'
 import BalanceInfo from './BalanceInfo'
 
@@ -9,6 +9,7 @@ interface Props {
   currentPageIndex: number
   onPageChange: (index: number) => void
   entries?: JournalEntry[]
+  selectedTransactionId?: string | null
   bankAccountCode?: string
   hideBalance?: boolean
   onBalanceOverride?: (pageIndex: number, field: 'openingBalance' | 'closingBalance', value: number) => void
@@ -25,13 +26,22 @@ export default function StatementViewer({
   currentPageIndex,
   onPageChange,
   entries,
+  selectedTransactionId,
   bankAccountCode,
   hideBalance,
   onBalanceOverride,
   onFileDelete,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const selectedRowRef = useRef<HTMLTableRowElement>(null)
   const [zoom, setZoom] = useState(100)
+
+  // 右ペインで仕訳行を選択したら、左の該当行へスクロール
+  useEffect(() => {
+    if (selectedTransactionId && selectedRowRef.current) {
+      selectedRowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedTransactionId, currentPageIndex])
 
   // ドラッグによるパン移動
   const [isDragging, setIsDragging] = useState(false)
@@ -167,10 +177,13 @@ export default function StatementViewer({
           <div className="bg-white border border-gray-200 rounded overflow-auto">
             <table className="w-full text-xs border-collapse">
               <tbody>
-                {currentPage.transactions.map((tx) => (
+                {currentPage.transactions.map((tx) => {
+                  const isSelected = tx.id === selectedTransactionId
+                  return (
                   <tr
                     key={tx.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
+                    ref={isSelected ? selectedRowRef : undefined}
+                    className={`border-b border-gray-100 ${isSelected ? 'bg-yellow-100' : 'hover:bg-gray-50'}`}
                   >
                     <td className="px-2 py-1.5 whitespace-nowrap">{tx.date}</td>
                     <td className="px-2 py-1.5">{tx.description}</td>
@@ -184,7 +197,8 @@ export default function StatementViewer({
                       {tx.balance.toLocaleString()}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

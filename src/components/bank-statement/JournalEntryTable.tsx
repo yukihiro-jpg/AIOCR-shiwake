@@ -487,6 +487,57 @@ export default function JournalEntryTable({
     return () => window.removeEventListener('keydown', onKey)
   }, [handleDeleteSelected, selectedRange.size, selectedEntryId])
 
+  // ↑/↓ キーで選択行を上下に移動（左ペインのハイライトも連動）。入力フィールド内では無効。
+  useEffect(() => {
+    const onArrow = (ev: KeyboardEvent) => {
+      if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return
+      const el = document.activeElement as HTMLElement | null
+      if (el) {
+        const tag = el.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return
+      }
+      const list = entriesRef.current
+      if (list.length === 0) return
+      // 現在のフィルタで表示されている行のみを、表示順で対象にする
+      const visibleIds = getVisibleEntryIds()
+      const ordered = list.filter((e) => visibleIds.has(e.id))
+      if (ordered.length === 0) return
+      ev.preventDefault()
+      const curId = selectedEntryIdRef.current
+      let idx = curId ? ordered.findIndex((e) => e.id === curId) : -1
+      if (idx < 0) {
+        idx = ev.key === 'ArrowDown' ? 0 : ordered.length - 1
+      } else {
+        idx = ev.key === 'ArrowDown' ? Math.min(ordered.length - 1, idx + 1) : Math.max(0, idx - 1)
+      }
+      const nextId = ordered[idx].id
+      onSelect(nextId)
+      // 右ペインの選択行も画面内に収める
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-entry-id="${nextId}"]`)?.scrollIntoView({ block: 'nearest' })
+      })
+    }
+    window.addEventListener('keydown', onArrow)
+    return () => window.removeEventListener('keydown', onArrow)
+  }, [getVisibleEntryIds, onSelect])
+
+  // 行内の入力欄（日付・借方/貸方科目・金額等）にフォーカスが入ったら、その行を選択状態にする。
+  // これにより、セル編集中に ↑/↓ で navCell が隣行の入力へフォーカス移動した際も、
+  // 行選択（＝左プレビューのハイライト）が追随する。
+  useEffect(() => {
+    const onFocusIn = (ev: FocusEvent) => {
+      const target = ev.target as HTMLElement | null
+      if (!target) return
+      const rowEl = target.closest('[data-entry-id]') as HTMLElement | null
+      if (!rowEl) return
+      const id = rowEl.getAttribute('data-entry-id')
+      if (!id || id === selectedEntryIdRef.current) return
+      onSelect(id)
+    }
+    window.addEventListener('focusin', onFocusIn)
+    return () => window.removeEventListener('focusin', onFocusIn)
+  }, [onSelect])
+
   const applyBulkEdit = useCallback(() => {
     if (!bulkField || selectedRange.size === 0) return
     const acc = accountMaster.find((a) => a.code === bulkValue)
@@ -935,10 +986,33 @@ export default function JournalEntryTable({
             }).length}件表示中
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {/* 一括編集UI（チェック選択時のみ表示。行を増やさず摘要検索行の右側に表示） */}
+          {showBulkEdit && selectedRange.size > 0 && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-100 border border-blue-300 rounded">
+              <span className="text-xs font-bold text-blue-800 shrink-0 whitespace-nowrap">{selectedRange.size}件選択中</span>
+              <select value={bulkField} onChange={(e) => setBulkField(e.target.value)}
+                className="px-1.5 py-0.5 text-xs border border-blue-300 rounded bg-white">
+                <option value="">変更項目</option>
+                <option value="debitCode">借方CD</option>
+                <option value="creditCode">貸方CD</option>
+                <option value="debitTaxCode">消費税CD</option>
+                <option value="debitTaxType">税区分</option>
+                <option value="description">摘要</option>
+              </select>
+              <input type="text" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                placeholder="値" className="px-1.5 py-0.5 text-xs border border-blue-300 rounded w-24" />
+              <button onClick={applyBulkEdit} disabled={!bulkField}
+                className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">適用</button>
+              <button onClick={handleDeleteSelected}
+                className="px-2 py-0.5 text-xs bg-rose-600 text-white rounded hover:bg-rose-700">削除</button>
+              <button onClick={() => { setShowBulkEdit(false); setSelectedRange(new Set()) }}
+                className="px-1.5 py-0.5 text-xs text-blue-600 hover:underline whitespace-nowrap">解除</button>
+            </div>
+          )}
           <button
             onClick={() => setShowAccountSummary((v) => !v)}
-            className={`px-2 py-1 text-xs rounded ${showAccountSummary ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
+            className={`px-2 py-1 text-xs rounded shrink-0 ${showAccountSummary ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
             科目別一覧
           </button>
         </div>
@@ -1066,29 +1140,6 @@ export default function JournalEntryTable({
               P{m.pageIndex + 1}: 計算残高 &yen;{m.calculated.toLocaleString()} / 通帳残高 &yen;{m.expected.toLocaleString()}（差額 &yen;{Math.abs(m.diff).toLocaleString()}）
             </div>
           ))}
-        </div>
-      )}
-
-      {showBulkEdit && selectedRange.size > 0 && (
-        <div className="px-3 py-2 bg-blue-100 border-b border-blue-300 flex items-center gap-2 shrink-0">
-          <span className="text-xs font-bold text-blue-800">{selectedRange.size}件選択中</span>
-          <select value={bulkField} onChange={(e) => setBulkField(e.target.value)}
-            className="px-2 py-1 text-xs border border-blue-300 rounded bg-white">
-            <option value="">変更項目</option>
-            <option value="debitCode">借方CD</option>
-            <option value="creditCode">貸方CD</option>
-            <option value="debitTaxCode">消費税CD</option>
-            <option value="debitTaxType">税区分</option>
-            <option value="description">摘要</option>
-          </select>
-          <input type="text" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
-            placeholder="値" className="px-2 py-1 text-xs border border-blue-300 rounded w-28" />
-          <button onClick={applyBulkEdit} disabled={!bulkField}
-            className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">適用</button>
-          <button onClick={handleDeleteSelected}
-            className="px-3 py-1 text-xs bg-rose-600 text-white rounded hover:bg-rose-700">削除</button>
-          <button onClick={() => { setShowBulkEdit(false); setSelectedRange(new Set()) }}
-            className="px-2 py-1 text-xs text-blue-600 hover:underline">解除</button>
         </div>
       )}
 

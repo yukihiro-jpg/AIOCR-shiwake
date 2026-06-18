@@ -9,6 +9,7 @@ import { parsePdfText, renderPdfPageToImage, getPdfPageCount } from './pdf-text-
 import { parseExcel } from './excel-parser'
 import { updatePageBalances } from './balance-validator'
 import { getTemplatePromptAddition, learnBankTemplate } from './bank-template'
+import { geminiUpload, ocrPdf, ocrImagesByFileUri } from './gemini-client'
 
 function getGeminiModel(): string {
   if (typeof window === 'undefined') return ''
@@ -38,17 +39,7 @@ interface GeminiFileRef {
  * 大きなPDFをリクエスト本体に含めずに済むため、ボディサイズ制限とチャンク分割の遅さを回避できる
  */
 async function uploadToGeminiFileApi(blob: Blob, displayName: string, mimeType?: string): Promise<GeminiFileRef> {
-  const form = new FormData()
-  form.append('file', blob, displayName)
-  form.append('displayName', displayName)
-  if (mimeType) form.append('mimeType', mimeType)
-
-  const r = await fetch('/api/bank-statement/gemini-upload', { method: 'POST', body: form })
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}))
-    throw new Error(err.error || `Gemini File API アップロード失敗 (HTTP ${r.status})`)
-  }
-  return (await r.json()) as GeminiFileRef
+  return await geminiUpload(blob, displayName, mimeType)
 }
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
@@ -117,15 +108,8 @@ async function processPdfInParallel(
   // 小さいPDFはそのまま1リクエスト
   if (totalPages <= chunkSize) {
     try {
-      const r = await fetch('/api/bank-statement/ocr-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileUri: fileRef.uri, mimeType: fileRef.mimeType, geminiModel: getGeminiModel() }),
-      })
-      if (r.ok) {
-        const data = await r.json()
-        return { totalCount: data.totalCount || 0, pages: data.pages || [] }
-      }
+      const data = await ocrPdf({ fileUri: fileRef.uri, mimeType: fileRef.mimeType, geminiModel: getGeminiModel() })
+      return { totalCount: data.totalCount || 0, pages: data.pages || [] }
     } catch (e) {
       console.error('[processPdfInParallel] 単一リクエスト失敗:', e)
     }
@@ -145,24 +129,16 @@ async function processPdfInParallel(
     const maxAttempts = 3
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const r = await fetch('/api/bank-statement/ocr-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileUri: fileRef.uri, mimeType: fileRef.mimeType, startPage: range.startPage, endPage: range.endPage, geminiModel: getGeminiModel() }),
+        const data = await ocrPdf({
+          fileUri: fileRef.uri, mimeType: fileRef.mimeType,
+          startPage: range.startPage, endPage: range.endPage, geminiModel: getGeminiModel(),
         })
-        if (r.ok) {
-          const data = await r.json()
-          if ((data.totalCount || 0) > 0 || attempt === maxAttempts) {
-            return data
-          }
-          console.warn(`Pages ${range.startPage}-${range.endPage - 1} returned 0 transactions, retrying (${attempt}/${maxAttempts})`)
-        } else if (r.status === 429 || r.status >= 500) {
-          console.warn(`Pages ${range.startPage}-${range.endPage - 1} HTTP ${r.status}, retrying (${attempt}/${maxAttempts})`)
-        } else {
-          return { totalCount: 0, pages: [] }
+        if ((data.totalCount || 0) > 0 || attempt === maxAttempts) {
+          return data
         }
+        console.warn(`Pages ${range.startPage}-${range.endPage - 1} returned 0 transactions, retrying (${attempt}/${maxAttempts})`)
       } catch (e) {
-        console.warn(`Pages ${range.startPage}-${range.endPage - 1} fetch error (${attempt}/${maxAttempts}):`, e)
+        console.warn(`Pages ${range.startPage}-${range.endPage - 1} error (${attempt}/${maxAttempts}):`, e)
       }
       if (attempt < maxAttempts) {
         await new Promise((res) => setTimeout(res, 2000 * Math.pow(2, attempt - 1)))
@@ -1133,18 +1109,11 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
       )
       console.log(`Image upload: ${imageRefs.length}枚を ${((Date.now() - uploadStart) / 1000).toFixed(1)}s でアップロード`)
 
-      const response = await fetch('/api/bank-statement/ocr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: imageRefs, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
-      })
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Gemini OCR APIエラー')
-      }
-
-      const data = await response.json()
+      const data = await ocrImagesByFileUri(
+        imageRefs,
+        accountCode ? getTemplatePromptAddition(accountCode) : '',
+        getGeminiModel(),
+      )
       const apiCorrections: string[] = data.corrections || []
       if (apiCorrections.length > 0) {
         console.log('入出金自動補正:', apiCorrections)
@@ -1319,18 +1288,11 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
       )
       console.log(`Image upload: ${imageRefs.length}枚を ${((Date.now() - uploadStart) / 1000).toFixed(1)}s でアップロード`)
 
-      const response = await fetch('/api/bank-statement/ocr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: imageRefs, templateHint: accountCode ? getTemplatePromptAddition(accountCode) : '', geminiModel: getGeminiModel() }),
-      })
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Gemini OCR APIエラー')
-      }
-
-      const data = await response.json()
+      const data = await ocrImagesByFileUri(
+        imageRefs,
+        accountCode ? getTemplatePromptAddition(accountCode) : '',
+        getGeminiModel(),
+      )
       const apiCorrections: string[] = data.corrections || []
       const geminiPages = data.pages as {
         pageIndex: number

@@ -81,7 +81,7 @@ function JournalEntryRowInner({
 
   let bgClass: string
   if (isSelected) bgClass = 'bg-sky-100'
-  else if (isCompoundGroup) bgClass = 'bg-rose-50'
+  else if (isCompoundGroup) bgClass = 'bg-violet-100'
   else bgClass = rowNumber % 2 === 0 ? 'bg-white' : 'bg-gray-50'
 
   return (

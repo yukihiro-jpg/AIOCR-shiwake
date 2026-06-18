@@ -36,6 +36,8 @@ import type {
   ColumnMapping,
 } from '@/lib/bank-statement/types'
 import { parseFile, applyColumnMapping } from '@/lib/bank-statement/transaction-extractor'
+import { creditCardOcr, receiptOcr, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
+import { driveRead } from '@/lib/bank-statement/drive-client'
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode } from '@/lib/bank-statement/account-master'
@@ -87,6 +89,10 @@ export default function BankStatementContent() {
       return 'gemini-3.5-flash'
     }
     return stored || 'gemini-2.5-flash'
+  })
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem('bs-gemini-api-key') || ''
   })
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
@@ -430,18 +436,7 @@ export default function BankStatementContent() {
             imageDataUrls.push(await renderPdfPageToImage(config.file, i + 1, 2))
           }
 
-          const response = await fetch('/api/bank-statement/credit-card', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls, geminiModel }),
-          })
-
-          if (!response.ok) {
-            const data = await response.json().catch(() => ({}))
-            throw new Error(data.error || 'クレジットカード明細の解析に失敗しました')
-          }
-
-          const ccData = await response.json()
+          const ccData = await creditCardOcr(imageDataUrls, geminiModel)
           const { creditCardToEntries } = await import('@/lib/bank-statement/credit-card-mapper')
           const entries = creditCardToEntries(ccData, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
 
@@ -532,20 +527,10 @@ export default function BankStatementContent() {
             imageDataUrls.push(await renderPdfPageToImage(config.file, i + 1, 2))
           }
 
-          const response = await fetch('/api/bank-statement/receipt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls, geminiModel }),
-          })
+          const data = await receiptOcr(imageDataUrls, geminiModel)
           clearInterval(progressTimer)
           setLoadingProgress(100)
 
-          if (!response.ok) {
-            const data = await response.json().catch(() => ({}))
-            throw new Error(data.error || 'レシート解析に失敗しました')
-          }
-
-          const data = await response.json()
           const receipts = data.receipts || []
           if (receipts.length === 0) throw new Error('レシートデータを抽出できませんでした')
 
@@ -640,20 +625,10 @@ export default function BankStatementContent() {
           }
 
           const invoiceType = config.documentType === 'purchase-invoice' ? 'purchase' : 'sales'
-          const response = await fetch('/api/bank-statement/invoice', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: imageDataUrls, type: invoiceType, geminiModel }),
-          })
+          const data = await invoiceOcr(imageDataUrls, invoiceType, geminiModel)
           clearInterval(progressTimer)
           setLoadingProgress(100)
 
-          if (!response.ok) {
-            const data = await response.json().catch(() => ({}))
-            throw new Error(data.error || '請求書解析に失敗しました')
-          }
-
-          const data = await response.json()
           const invoices = data.invoices || []
           if (invoices.length === 0) throw new Error('請求書データを抽出できませんでした')
 
@@ -749,10 +724,7 @@ export default function BankStatementContent() {
         // 変更があったキーごとに該当データを Drive から取り直してローカルにマージ
         for (const key of changedKeys) {
           try {
-            const nameParam = selectedClient.name ? `&clientName=${encodeURIComponent(selectedClient.name)}` : ''
-            const res = await fetch(`/api/drive?clientId=${encodeURIComponent(selectedClient.id)}${nameParam}&key=${encodeURIComponent(key)}`, { cache: 'no-store' })
-            if (!res.ok) continue
-            const { data } = await res.json()
+            const data = await driveRead(selectedClient.id, selectedClient.name, key)
             if (data == null) continue
             if (key === 'patterns' && Array.isArray(data)) {
               const { mergePatternsFromDrive } = await import('@/lib/bank-statement/pattern-store')
@@ -818,13 +790,8 @@ export default function BankStatementContent() {
           if (descriptions.length > 0) {
             setInfo('摘要の略記を AI で補完中...')
             try {
-              const res = await fetch('/api/bank-statement/expand-descriptions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ descriptions, geminiModel }),
-              })
-              if (res.ok) {
-                const data = await res.json()
+              {
+                const data = await expandDescriptions(descriptions, geminiModel)
                 const expanded: string[] = data.descriptions || []
                 if (expanded.length === descriptions.length) {
                   flat.forEach((loc, i) => {
@@ -832,9 +799,6 @@ export default function BankStatementContent() {
                   })
                 }
                 if (data.warning) setError(`摘要補完の注意: ${data.warning}（元の摘要を使用しました）`)
-              } else {
-                const d = await res.json().catch(() => ({}))
-                setError(`摘要補完に失敗しました（元の摘要を使用）: ${d.error || res.status}`)
               }
             } catch (e) {
               setError(`摘要補完に失敗しました（元の摘要を使用）: ${e instanceof Error ? e.message : ''}`)
@@ -1355,6 +1319,29 @@ export default function BankStatementContent() {
                   </div>
                 ),
               },
+              {
+                label: 'Gemini APIキー設定',
+                render: (
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Gemini APIキー（この端末に保存）</label>
+                    <input
+                      type="password"
+                      value={geminiApiKey}
+                      placeholder="AIza... を貼り付け"
+                      onChange={(e) => {
+                        const v = e.target.value.trim()
+                        setGeminiApiKey(v)
+                        if (v) localStorage.setItem('bs-gemini-api-key', v)
+                        else localStorage.removeItem('bs-gemini-api-key')
+                      }}
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                      OCRに必要。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-500 underline">Google AI Studio</a> で取得し各自で入力してください。
+                    </p>
+                  </div>
+                ),
+              },
             ]}
           />
           {journalEntries.length > 0 && (
@@ -1487,6 +1474,7 @@ export default function BankStatementContent() {
               currentPageIndex={currentPageIndex}
               onPageChange={setCurrentPageIndex}
               entries={journalEntries}
+              selectedTransactionId={selectedTransactionId}
               bankAccountCode={uploadConfig?.accountCode || ''}
               hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onBalanceOverride={handleBalanceOverride}
