@@ -487,6 +487,40 @@ export default function JournalEntryTable({
     return () => window.removeEventListener('keydown', onKey)
   }, [handleDeleteSelected, selectedRange.size, selectedEntryId])
 
+  // ↑/↓ キーで選択行を上下に移動（左ペインのハイライトも連動）。入力フィールド内では無効。
+  useEffect(() => {
+    const onArrow = (ev: KeyboardEvent) => {
+      if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return
+      const el = document.activeElement as HTMLElement | null
+      if (el) {
+        const tag = el.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) return
+      }
+      const list = entriesRef.current
+      if (list.length === 0) return
+      // 現在のフィルタで表示されている行のみを、表示順で対象にする
+      const visibleIds = getVisibleEntryIds()
+      const ordered = list.filter((e) => visibleIds.has(e.id))
+      if (ordered.length === 0) return
+      ev.preventDefault()
+      const curId = selectedEntryIdRef.current
+      let idx = curId ? ordered.findIndex((e) => e.id === curId) : -1
+      if (idx < 0) {
+        idx = ev.key === 'ArrowDown' ? 0 : ordered.length - 1
+      } else {
+        idx = ev.key === 'ArrowDown' ? Math.min(ordered.length - 1, idx + 1) : Math.max(0, idx - 1)
+      }
+      const nextId = ordered[idx].id
+      onSelect(nextId)
+      // 右ペインの選択行も画面内に収める
+      requestAnimationFrame(() => {
+        document.querySelector(`[data-entry-id="${nextId}"]`)?.scrollIntoView({ block: 'nearest' })
+      })
+    }
+    window.addEventListener('keydown', onArrow)
+    return () => window.removeEventListener('keydown', onArrow)
+  }, [getVisibleEntryIds, onSelect])
+
   const applyBulkEdit = useCallback(() => {
     if (!bulkField || selectedRange.size === 0) return
     const acc = accountMaster.find((a) => a.code === bulkValue)
