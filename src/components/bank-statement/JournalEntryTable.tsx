@@ -521,6 +521,23 @@ export default function JournalEntryTable({
     return () => window.removeEventListener('keydown', onArrow)
   }, [getVisibleEntryIds, onSelect])
 
+  // 行内の入力欄（日付・借方/貸方科目・金額等）にフォーカスが入ったら、その行を選択状態にする。
+  // これにより、セル編集中に ↑/↓ で navCell が隣行の入力へフォーカス移動した際も、
+  // 行選択（＝左プレビューのハイライト）が追随する。
+  useEffect(() => {
+    const onFocusIn = (ev: FocusEvent) => {
+      const target = ev.target as HTMLElement | null
+      if (!target) return
+      const rowEl = target.closest('[data-entry-id]') as HTMLElement | null
+      if (!rowEl) return
+      const id = rowEl.getAttribute('data-entry-id')
+      if (!id || id === selectedEntryIdRef.current) return
+      onSelect(id)
+    }
+    window.addEventListener('focusin', onFocusIn)
+    return () => window.removeEventListener('focusin', onFocusIn)
+  }, [onSelect])
+
   const applyBulkEdit = useCallback(() => {
     if (!bulkField || selectedRange.size === 0) return
     const acc = accountMaster.find((a) => a.code === bulkValue)
