@@ -1,0 +1,58 @@
+name: Deploy to GitHub Pages
+
+# 静的書き出し（next build → out/）を GitHub Pages へデプロイする。
+# 事前準備（リポジトリ設定）:
+#   1. Settings → Pages → Source を「GitHub Actions」にする
+#   2. Settings → Secrets and variables → Actions → Variables に以下を登録
+#      - NEXT_PUBLIC_GOOGLE_CLIENT_ID            : OAuth クライアントID（公開情報）
+#      - NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID      : 保存先の親フォルダ/共有ドライブID
+#      - NEXT_PUBLIC_GOOGLE_DRIVE_DATA_FOLDER_NAME（任意。既定「事務所アプリ共有データ」）
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build (static export)
+        env:
+          # プロジェクトページ（/<repo>/）配下に置くため repo 名を basePath にする
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID }}
+          NEXT_PUBLIC_GOOGLE_DRIVE_DATA_FOLDER_NAME: ${{ vars.NEXT_PUBLIC_GOOGLE_DRIVE_DATA_FOLDER_NAME }}
+        run: npm run build
+      - name: Add .nojekyll (Next.js の _next フォルダを Pages が無視しないように)
+        run: touch out/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -90,6 +90,10 @@ export default function BankStatementContent() {
     }
     return stored || 'gemini-2.5-flash'
   })
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem('bs-gemini-api-key') || ''
+  })
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
   const [tempCount, setTempCount] = useState(() => getTempEntryCount())
@@ -1312,6 +1316,29 @@ export default function BankStatementContent() {
                       <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                       <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
                     </select>
+                  </div>
+                ),
+              },
+              {
+                label: 'Gemini APIキー設定',
+                render: (
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Gemini APIキー（この端末に保存）</label>
+                    <input
+                      type="password"
+                      value={geminiApiKey}
+                      placeholder="AIza... を貼り付け"
+                      onChange={(e) => {
+                        const v = e.target.value.trim()
+                        setGeminiApiKey(v)
+                        if (v) localStorage.setItem('bs-gemini-api-key', v)
+                        else localStorage.removeItem('bs-gemini-api-key')
+                      }}
+                      className="w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
+                      OCRに必要。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-500 underline">Google AI Studio</a> で取得し各自で入力してください。
+                    </p>
                   </div>
                 ),
               },
