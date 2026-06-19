@@ -585,7 +585,7 @@ export default function JournalEntryTable({
   }, [bulkField, bulkValue, selectedRange, entries, onEntriesChange, accountMaster])
 
   const handleEntryChange = useCallback(
-    (id: string, field: keyof JournalEntry, value: string | number) => {
+    (id: string, field: keyof JournalEntry, value: string | number | boolean) => {
       const currentEntries = entriesRef.current
       const currentAccountMaster = accountMasterRef.current
       onEntriesChange(currentEntries.map((e) => {

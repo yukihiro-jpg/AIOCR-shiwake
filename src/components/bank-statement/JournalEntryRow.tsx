@@ -23,7 +23,7 @@ interface Props {
   isChecked?: boolean
   onSelect: (id: string, e?: React.MouseEvent) => void
   onCheckToggle?: (id: string, e: React.MouseEvent) => void
-  onChange: (id: string, field: keyof JournalEntry, value: string | number) => void
+  onChange: (id: string, field: keyof JournalEntry, value: string | number | boolean) => void
   onAddCompound: (id: string) => void
   onDelete: (id: string) => void
   onLearn: (id: string) => void
@@ -75,6 +75,10 @@ function JournalEntryRowInner({
   // 消費税セル用: BS同士で税区不要 or 不課税が選択済みの場合は赤色にしない
   const debitAccForTax = accountMaster.find((a) => a.code === entry.debitCode)
   const creditAccForTax = accountMaster.find((a) => a.code === entry.creditCode)
+  // 仮払金の行か（借方/貸方どちらかが仮払金科目）
+  const isKariEntry = [debitAccForTax, creditAccForTax].some(
+    (a) => a && (a.name.includes('仮払') || a.shortName.includes('仮払')),
+  )
   const isBsBothForTax = !!(debitAccForTax && creditAccForTax && isBS(debitAccForTax.bsPl) && isBS(creditAccForTax.bsPl))
   const isNonTaxable = (entry.debitTaxType || '').includes('不課')
   const taxCellBg = (isBsBothForTax || isNonTaxable) ? '' : emptyBg('debitTaxCode')
@@ -253,6 +257,19 @@ function JournalEntryRowInner({
           <DescriptionInput
             value={entry.description}
             onCommit={(v) => onChange(entry.id, 'description', v)} />
+          {isKariEntry && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onChange(entry.id, 'needsQuestion' as keyof JournalEntry, entry.needsQuestion === false) }}
+              title={entry.needsQuestion === false ? 'クリックで質問リストに含める' : 'クリックで質問リストから除外（本物の仮払金）'}
+              className={`mt-0.5 px-1.5 py-0.5 text-[10px] rounded border font-medium ${
+                entry.needsQuestion === false
+                  ? 'bg-gray-100 text-gray-400 border-gray-200'
+                  : 'bg-amber-100 text-amber-700 border-amber-300'
+              }`}>
+              {entry.needsQuestion === false ? '質問しない' : '要質問'}
+            </button>
+          )}
         </td>
 
         {/* 操作 */}
