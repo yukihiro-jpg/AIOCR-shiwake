@@ -59,6 +59,7 @@ export interface JournalEntry {
   description: string
   originalDescription: string  // 通帳から読み取った元の摘要（パターン学習用）
   patternId?: string | null    // パターン学習から生成された場合のパターンID
+  needsQuestion?: boolean       // 仮払金の質問リスト対象か（false=本物の仮払金で質問しない。未設定=質問する）
   isCompound: boolean
   parentId: string | null
 }

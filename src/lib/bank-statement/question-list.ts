@@ -1,6 +1,7 @@
 import XLSX from 'xlsx-js-style'
 import type { JournalEntry, AccountItem } from './types'
 import { getTempEntries } from './temp-store'
+import { getQuestionItems } from './question-store'
 
 interface QuestionRow {
   no: number
@@ -17,12 +18,21 @@ export function generateQuestionList(
   accountMaster: AccountItem[],
   clientName: string,
 ): QuestionRow[] {
-  const entries = getTempEntries()
   const karibaraiAcc = accountMaster.find((a) =>
     a.name.includes('仮払') || a.shortName.includes('仮払')
   )
   if (!karibaraiAcc) return []
   const kariCode = karibaraiAcc.code
+
+  // 蓄積ストア（過去にCSV出力済み分）＋ 現在の一時保存（未出力分）を統合（id重複除去）
+  const byId = new Map<string, JournalEntry>()
+  for (const e of getQuestionItems()) byId.set(e.id, e)
+  for (const e of getTempEntries()) byId.set(e.id, e)
+  const entries = Array.from(byId.values())
+    .filter((e) => e.debitCode === kariCode || e.creditCode === kariCode)
+    // 「質問しない」(本物の仮払金) は除外。未設定は質問対象。
+    .filter((e) => e.needsQuestion !== false)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
 
   const rows: QuestionRow[] = []
   let no = 1

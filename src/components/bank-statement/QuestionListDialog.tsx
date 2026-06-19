@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { AccountItem } from '@/lib/bank-statement/types'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
+import { clearQuestionItems } from '@/lib/bank-statement/question-store'
 import type { Client } from '@/lib/bank-statement/client-store'
 
 interface Props {
@@ -14,12 +15,21 @@ interface Props {
 
 export default function QuestionListDialog({ open, onClose, accountMaster, client }: Props) {
   const [copied, setCopied] = useState(false)
+  const [refresh, setRefresh] = useState(0)
 
   if (!open) return null
 
   const clientName = client?.name || '顧問先'
+  // refresh をキーに含めることで、クリア後に再計算させる
+  void refresh
   const rows = generateQuestionList(accountMaster, clientName)
   const today = new Date().toLocaleDateString('ja-JP')
+
+  const handleClear = () => {
+    if (!window.confirm('質問リストを顧問先へ送付済みにして、蓄積をクリアします。よろしいですか？\n（CSV出力で溜めた仮払金の確認事項がリセットされます）')) return
+    clearQuestionItems()
+    setRefresh((v) => v + 1)
+  }
 
   // メール本文生成
   const mailBody = `${clientName} 様
@@ -52,7 +62,7 @@ ${today}現在のお取引につきまして、内容が確認できないもの
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
         <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">仮払金質問リスト</h2>
-          <p className="text-sm text-gray-600 mb-4">一時保存データに仮払金の仕訳がありません。</p>
+          <p className="text-sm text-gray-600 mb-4">質問対象の仮払金がありません。<br/>（仮払金にした行のうち「要質問」のものが、CSV出力や一時保存を通じてここに溜まります）</p>
           <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">閉じる</button>
         </div>
       </div>
@@ -138,7 +148,13 @@ ${today}現在のお取引につきまして、内容が確認できないもの
           <p className="text-xs text-gray-400">
             Excelをダウンロードしてメールに添付してください
           </p>
-          <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">閉じる</button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleClear}
+              className="px-4 py-2 text-sm bg-rose-50 text-rose-600 border border-rose-200 rounded hover:bg-rose-100">
+              送付済み（リストをクリア）
+            </button>
+            <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">閉じる</button>
+          </div>
         </div>
       </div>
     </div>

@@ -14,6 +14,7 @@ import InvoiceColumnMappingDialog, { type InvoiceColumnMapping } from '@/compone
 import ReceiptColumnMappingDialog, { type ReceiptColumnMapping } from '@/components/bank-statement/ReceiptColumnMappingDialog'
 import CsvExportButton from '@/components/bank-statement/CsvExportButton'
 import { appendTempEntries, getTempEntryCount, clearTempEntries, getTempEntries } from '@/lib/bank-statement/temp-store'
+import { addQuestionItems } from '@/lib/bank-statement/question-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
@@ -1193,6 +1194,14 @@ export default function BankStatementContent() {
       return u
     })
     downloadCsv(completed, undefined, selectedClient?.taxType)
+    // 仮払金の質問対象を蓄積ストアへ追記（CSV出力でtempはクリアされるため、ここで退避）
+    const kariAcc = accountMaster.find((a) => a.name.includes('仮払') || a.shortName.includes('仮払'))
+    if (kariAcc) {
+      const qItems = completed.filter(
+        (e) => (e.debitCode === kariAcc.code || e.creditCode === kariAcc.code) && e.needsQuestion !== false,
+      )
+      addQuestionItems(qItems)
+    }
     clearTempEntries()
     setTempCount(0)
     // 賃金台帳等: CSV出力後は画面クリア
