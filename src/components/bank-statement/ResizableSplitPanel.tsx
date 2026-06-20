@@ -55,22 +55,22 @@ export default function ResizableSplitPanel({
   return (
     <div ref={containerRef} className="flex flex-1 overflow-hidden">
       <div
-        className="flex flex-col overflow-hidden"
+        className="flex flex-col overflow-hidden rounded-2xl border border-[#e8eaed] bg-white"
         style={{ width: `${leftPercent}%` }}
       >
         {left}
       </div>
 
-      {/* ドラッグハンドル */}
+      {/* ドラッグハンドル（カード間の隙間）*/}
       <div
         onMouseDown={handleMouseDown}
-        className="w-1.5 bg-gray-200 hover:bg-blue-400 cursor-col-resize shrink-0 transition-colors flex items-center justify-center"
+        className="group w-3 shrink-0 cursor-col-resize flex items-center justify-center"
       >
-        <div className="w-0.5 h-8 bg-gray-400 rounded" />
+        <div className="w-1 h-10 bg-gray-300 rounded group-hover:bg-blue-400 transition-colors" />
       </div>
 
       <div
-        className="flex flex-col overflow-hidden"
+        className="flex flex-col overflow-hidden rounded-2xl border border-[#e8eaed] bg-white"
         style={{ width: `${100 - leftPercent}%` }}
       >
         {right}

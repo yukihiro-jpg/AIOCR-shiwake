@@ -1543,6 +1543,7 @@ export default function BankStatementContent() {
 
       {/* メインコンテンツ */}
       {pages.length > 0 ? (
+        <div className="flex-1 flex min-h-0 p-3">
         <ResizableSplitPanel
           defaultLeftPercent={35}
           minLeftPercent={20}
@@ -1578,8 +1579,11 @@ export default function BankStatementContent() {
             />
           }
         />
+        </div>
       ) : journalEntries.length > 0 ? (
         // ページ画像なし（CSV/Excel等）の場合は仕訳テーブルのみ全幅表示
+        <div className="flex-1 flex min-h-0 p-3">
+        <div className="flex-1 flex flex-col overflow-hidden rounded-2xl border border-[#e8eaed] bg-white">
         <JournalEntryTable
           entries={journalEntries}
           accountMaster={accountMaster}
@@ -1594,6 +1598,8 @@ export default function BankStatementContent() {
           hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
           onSelectionChange={setSelectedEntryIds}
         />
+        </div>
+        </div>
       ) : (
         <div className="flex-1 overflow-auto p-6">
           {/* インライン版アップロード UI（書類タイプを横一列に表示） */}
