@@ -43,7 +43,7 @@ export default function CsvExportButton({ entries, dateFrom, dateTo, onDateFromC
   return (
     <div className="relative">
       <button onClick={() => setShowPanel(!showPanel)}
-        className="px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded">
+        className="fbtn fbtn-blue">
         CSV出力
       </button>
 

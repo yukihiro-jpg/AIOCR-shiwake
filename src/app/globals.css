@@ -10,6 +10,61 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ===== Fusion テーマ（Google×Apple）===== */
+.bank-statement-app.fusion{
+  background:
+    radial-gradient(1200px 320px at 80% -10%, #e8f0fe 0%, rgba(232,240,254,0) 60%),
+    #f6f8fc;
+}
+.fusion-bar{
+  position:relative;
+  background:rgba(255,255,255,.80);
+  backdrop-filter:saturate(180%) blur(20px);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid #e8eaed;
+}
+.fusion-bar::before{
+  content:"";position:absolute;left:0;right:0;top:0;height:3px;
+  background:linear-gradient(90deg,#4285f4 0 25%,#ea4335 25% 50%,#fbbc04 50% 75%,#34a853 75% 100%);
+}
+.fusion-logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#4285f4,#34a853);
+  display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0}
+.fusion-chip{color:#1a73e8;font-weight:600;background:#e8f0fe;padding:3px 12px;border-radius:999px;white-space:nowrap;flex-shrink:0}
+.fusion-link{color:#1a73e8;font-weight:600}
+.fusion-link:hover{text-decoration:underline}
+.fusion-crumb{color:#9aa0a6;font-size:12px;padding:8px 22px 0}
+.fusion-crumb b{color:#188038}
+.fusion-crumb .s{color:#5f6368}
+
+.fbtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 14px;border-radius:999px;
+  font-size:12px;font-weight:600;white-space:nowrap;border:none;cursor:pointer;transition:.15s;flex-shrink:0}
+.fbtn:disabled{opacity:.45;cursor:default}
+.fbtn-soft{background:#fff;color:#5f6368;box-shadow:inset 0 0 0 1px #e8eaed}
+.fbtn-soft:hover{background:#f1f3f4;color:#202124}
+.fbtn-blue{background:#1a73e8;color:#fff;box-shadow:0 2px 8px rgba(26,115,232,.25)}
+.fbtn-blue:hover{background:#1666cf}
+.fbtn-amber{background:#fef7e0;color:#b06a00}
+.fbtn-amber:hover{background:#fdefc4}
+.fbtn-red{background:#d93025;color:#fff}
+.fbtn-red:hover{background:#b3271d}
+.fbtn-redsoft{background:#fce8e6;color:#d93025}
+.fbtn-redsoft:hover{background:#f9d2ce}
+.fbtn-green{background:#e6f4ea;color:#188038}
+.fbtn-green:hover{background:#d4ebda}
+.fbtn-indigo{background:#e8eaff;color:#3b46c4}
+.fbtn-indigo:hover{background:#dadcfb}
+.fbtn-purple{background:#f3e8fd;color:#8430c4}
+.fbtn-purple:hover{background:#ecdcfb}
+.fbtn-gray{background:#f1f3f4;color:#5f6368}
+.fbtn-gray:hover{background:#e6e9ec}
+
+/* インボイス(iv)バッジ */
+.iv-badge{display:inline-flex;align-items:center;border-radius:6px;padding:1px 7px;font-size:10px;font-weight:700;line-height:1.6;cursor:pointer;white-space:nowrap}
+.iv-ok{background:#e6f4ea;color:#188038}
+.iv-ok:hover{background:#d4ebda}
+.iv-ng{background:#fce8e6;color:#d93025}
+.iv-ng:hover{background:#f9d2ce}
+
 /* Shift範囲選択時にテーブル行のテキスト選択を防止（input内は通常通り選択可能） */
 .bank-statement-app tr::selection,
 .bank-statement-app td::selection,

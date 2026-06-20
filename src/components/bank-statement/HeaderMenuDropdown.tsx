@@ -42,7 +42,7 @@ export default function HeaderMenuDropdown({ items, buttonLabel = 'メニュー'
     <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20 flex items-center gap-1"
+        className="fbtn fbtn-soft"
       >
         {buttonLabel}
         <span className="text-[10px]">▼</span>

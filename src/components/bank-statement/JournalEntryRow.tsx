@@ -222,16 +222,16 @@ function JournalEntryRowInner({
           />
         </td>
 
-        {/* 事業者取引区分 */}
+        {/* 事業者取引区分（インボイス: 適格/非適格）*/}
         <td style={CB} className="text-center">
           {entry.debitBusinessType === '1' ? (
             <button onClick={(e) => { e.stopPropagation(); onChange(entry.id, 'debitBusinessType', '0') }}
-              title="インボイス未登録 → クリックで登録者に変更"
-              className="text-red-500 font-bold text-sm cursor-pointer hover:text-red-700">※</button>
+              title="インボイス非登録（経過措置）→ クリックで適格に変更"
+              className="iv-badge iv-ng">非適格</button>
           ) : (
             <button onClick={(e) => { e.stopPropagation(); onChange(entry.id, 'debitBusinessType', '1') }}
-              title="インボイス登録者 → クリックで未登録に変更"
-              className="text-gray-300 text-xs cursor-pointer hover:text-red-400">—</button>
+              title="インボイス適格（登録事業者）→ クリックで非適格に変更"
+              className="iv-badge iv-ok">適格</button>
           )}
         </td>
 

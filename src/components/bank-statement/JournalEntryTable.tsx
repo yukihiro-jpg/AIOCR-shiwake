@@ -870,16 +870,17 @@ export default function JournalEntryTable({
 
   return (
     <div className="flex flex-col h-full bg-white">
-      <div className="px-4 py-2 bg-gray-700 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-white">仕訳データ ({entries.length}件)</span>
+      <div className="px-4 py-2 bg-white border-b border-gray-200 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">仕訳データ</span>
+          <span className="px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-blue-50 text-blue-700">{entries.length}件</span>
           {!hideBalance && balanceMismatch.length > 0 && (
-            <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded animate-pulse">
+            <span className="px-2.5 py-0.5 bg-red-100 text-red-700 text-[11px] font-bold rounded-full animate-pulse">
               残高不一致 {balanceMismatch.length}ページ
             </span>
           )}
           {!hideBalance && balanceMismatch.length === 0 && pages.length > 0 && entries.length > 0 && (
-            <span className="px-2 py-0.5 bg-green-500 text-white text-xs font-bold rounded">
+            <span className="px-2.5 py-0.5 bg-green-100 text-green-700 text-[11px] font-bold rounded-full">
               残高一致
             </span>
           )}
@@ -889,24 +890,20 @@ export default function JournalEntryTable({
             onClick={() => setShowOnlyIncomplete((v) => !v)}
             disabled={entries.length === 0}
             title="借方/貸方/消費税のいずれかが未入力の行のみ表示"
-            className={`px-3 py-1 text-xs font-medium rounded disabled:opacity-40 ${
-              showOnlyIncomplete
-                ? 'bg-amber-500 text-white hover:bg-amber-600'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}>
+            className={`fbtn ${showOnlyIncomplete ? 'fbtn-amber' : 'fbtn-soft'}`}>
             {showOnlyIncomplete ? '未入力のみ表示中' : '未入力のみ表示'}
           </button>
           <button
             onClick={handleSelectAll}
             disabled={entries.length === 0}
-            className="px-3 py-1 text-xs bg-white text-gray-700 font-medium rounded hover:bg-gray-100 disabled:opacity-40">
+            className="fbtn fbtn-soft">
             {selectedRange.size === entries.length && entries.length > 0 ? '全解除' : '全選択'}
           </button>
           <button
             onClick={handleDeleteSelected}
             disabled={selectedRange.size === 0 && !selectedEntryId}
             title="選択した仕訳を削除 (Shift+クリック=範囲, Ctrl+クリック=個別追加)"
-            className="px-3 py-1 text-xs bg-rose-600 text-white font-medium rounded hover:bg-rose-700 disabled:opacity-40">
+            className="fbtn fbtn-redsoft">
             選択削除 {selectedRange.size > 0 ? `(${selectedRange.size})` : ''}
           </button>
           <button onClick={() => {
@@ -933,7 +930,7 @@ export default function JournalEntryTable({
             })
             onEntriesChange(updated)
           }}
-            className="px-3 py-1 text-xs bg-amber-500 text-white font-medium rounded hover:bg-amber-600">
+            className="fbtn fbtn-amber">
             仮払金一括登録
           </button>
           <button onClick={() => {
@@ -942,7 +939,7 @@ export default function JournalEntryTable({
             ne.splice(Math.max(idx, 0), 0, createBlankEntry())
             onEntriesChange(ne)
           }}
-            className="px-3 py-1 text-xs bg-white text-gray-700 font-medium rounded hover:bg-gray-100">+ 選択行の上に1行追加</button>
+            className="fbtn fbtn-soft">＋ 選択行の上に1行追加</button>
         </div>
       </div>
 
@@ -1188,7 +1185,7 @@ export default function JournalEntryTable({
                 <th className="px-2 py-2 text-center w-28 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>残高</th>
               )}
               <th className="px-1 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>消費税</th>
-              <th className="px-1 py-2 text-center w-8 font-medium" style={{ borderRight: '1px solid #94a3b8' }} title="インボイス">iv</th>
+              <th className="px-1 py-2 text-center w-16 font-medium" style={{ borderRight: '1px solid #94a3b8' }} title="インボイス">iv</th>
               {clientTaxType === 'simplified' && (
                 <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>業種</th>
               )}

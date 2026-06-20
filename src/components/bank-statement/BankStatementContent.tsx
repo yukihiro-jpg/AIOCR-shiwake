@@ -1286,16 +1286,17 @@ export default function BankStatementContent() {
     {showClientSelector ? (
       <ClientSelector onSelect={handleClientSelect} refreshSignal={clientsRefresh} />
     ) : (
-    <div className="h-screen flex flex-col bg-gray-100 bank-statement-app">
+    <div className="h-screen flex flex-col bank-statement-app fusion">
       {/* ヘッダー */}
-      <header className="bg-gray-800 px-4 py-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-bold text-white">会計大将インポートデータ変換</h1>
+      <header className="fusion-bar px-5 py-2 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="fusion-logo">会</div>
+          <h1 className="text-base font-semibold text-gray-800 whitespace-nowrap">会計大将インポートデータ変換</h1>
           {selectedClient && (
-            <span className="text-sm text-blue-300 font-medium">{selectedClient.name}</span>
+            <span className="fusion-chip text-xs">{selectedClient.name}</span>
           )}
           <button onClick={handleBackToClientList}
-            className="text-xs text-gray-400 hover:text-white hover:underline">
+            className="fusion-link text-xs whitespace-nowrap">
             顧問先一覧
           </button>
         </div>
@@ -1305,16 +1306,16 @@ export default function BankStatementContent() {
           {/* リアルタイム共有（Firebase 合言葉） */}
           <button onClick={() => setShowRoomDialog(true)}
             title={roomReady ? 'リアルタイム共有中（合言葉設定済み）' : '合言葉を設定して共有を有効化'}
-            className="px-2 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
+            className="fbtn fbtn-soft">
             {roomReady ? '🟢 共有中' : '⚪ 共有設定'}
           </button>
           {/* 常用ボタン */}
           <button onClick={() => setShowPatternList(true)}
-            className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
+            className="fbtn fbtn-soft">
             パターン一覧
           </button>
           <button onClick={() => setShowFixedJournal(true)}
-            className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
+            className="fbtn fbtn-soft">
             定型仕訳
           </button>
           {/* メニュー: 保存/全件/読込・科目マスタ・インボイス登録簿・Gemini モデル */}
@@ -1419,12 +1420,12 @@ export default function BankStatementContent() {
               {uploadConfig?.documentType === 'credit-card' && (
                 <button onClick={() => setShowBulkDateDialog(true)}
                   title="全仕訳の日付をまとめて変更"
-                  className="px-3 py-1.5 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded">
+                  className="fbtn fbtn-indigo">
                   日付一括変更
                 </button>
               )}
               <button onClick={handleTempSave}
-                className="px-3 py-1.5 text-xs font-medium bg-amber-500 hover:bg-amber-600 text-white rounded">
+                className="fbtn fbtn-amber">
                 {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '一時保存'}
               </button>
               <CsvExportButton entries={journalEntries}
@@ -1433,21 +1434,21 @@ export default function BankStatementContent() {
             </>
           )}
           {tempCount > 0 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button onClick={() => setShowTempData(true)}
-                className="px-3 py-1.5 text-xs font-medium bg-gray-500 hover:bg-gray-600 text-white rounded">
+                className="fbtn fbtn-gray">
                 一時保存確認 ({tempCount}件)
               </button>
               <button onClick={handleTempExport}
-                className="px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-700 text-white rounded">
+                className="fbtn fbtn-green">
                 一括CSV出力
               </button>
               <button onClick={handleQuestionList}
-                className="px-3 py-1.5 text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white rounded">
+                className="fbtn fbtn-purple">
                 仮払金質問リスト
               </button>
               <button onClick={handleTempClear}
-                className="px-2 py-1.5 text-xs text-gray-400 hover:text-red-400" title="一時保存をクリア">
+                className="px-1.5 text-sm text-gray-400 hover:text-red-500" title="一時保存をクリア">
                 &times;
               </button>
             </div>
@@ -1456,12 +1457,20 @@ export default function BankStatementContent() {
           {selectedClient && (
             <button onClick={handleExitApp} disabled={exitingApp}
               title="Drive保存してブラウザを閉じる"
-              className="ml-4 px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-50">
+              className="fbtn fbtn-red ml-3">
               {exitingApp ? '保存中...' : 'アプリ終了'}
             </button>
           )}
         </div>
       </header>
+
+      {/* 取込履歴（パンくず）*/}
+      {pages.length > 0 && (
+        <div className="fusion-crumb shrink-0">
+          <span className="s">取込</span> ＞ <span className="s">{docTypeLabel(uploadConfig?.documentType)}</span>
+          {parseElapsed && <> ＞ <b>解析完了 {parseElapsed}（{journalEntries.length}件）</b></>}
+        </div>
+      )}
 
       {/* 顧問先選択直後の Drive 取込確認バナー */}
       {showDriveImportBanner && selectedClient && (
@@ -1756,6 +1765,18 @@ export default function BankStatementContent() {
     )}
     </>
     )
+}
+
+// 取込パンくず用: 書類種別ラベル
+function docTypeLabel(t?: string): string {
+  const map: Record<string, string> = {
+    'bank-statement': '通帳', 'passbook': '通帳', 'bank': '通帳',
+    'cash': '現金出納帳', 'cashbook': '現金出納帳',
+    'credit-card': 'クレジットカード', 'creditcard': 'クレジットカード',
+    'invoice': '請求書', 'sales-invoice': '売上請求書', 'purchase-invoice': '仕入請求書',
+    'receipt': 'レシート・領収書', 'yucho': 'ゆうちょ受払通知', 'payroll': '賃金台帳',
+  }
+  return (t && map[t]) || '取込データ'
 }
 
 // 簡易 CSV 1行パーサ（ダブルクオート対応）
