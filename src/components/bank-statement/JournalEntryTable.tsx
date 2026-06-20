@@ -1144,7 +1144,7 @@ export default function JournalEntryTable({
         <table className="w-full text-sm border-collapse min-w-[950px]">
           <thead className="sticky top-0 bg-[#f3f6fb] text-gray-500 z-10 border-b border-gray-200">
             <tr>
-              <th className="px-1 py-2 text-center w-8 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>
+              <th className="px-1 py-2 text-center w-8 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>
                 <input
                   type="checkbox"
                   checked={entries.length > 0 && selectedRange.size === entries.length}
@@ -1156,9 +1156,9 @@ export default function JournalEntryTable({
                   title="全選択 / 全解除"
                 />
               </th>
-              <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>学習</th>
-              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>日付</th>
-              <th className="px-2 py-2 text-center w-44 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>
+              <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>学習</th>
+              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>日付</th>
+              <th className="px-2 py-2 text-center w-44 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>
                 <div className="flex items-center justify-center gap-1">
                   <span>借方科目</span>
                   <label className="flex items-center gap-0.5 cursor-pointer text-xs font-normal opacity-80 hover:opacity-100">
@@ -1169,7 +1169,7 @@ export default function JournalEntryTable({
                   </label>
                 </div>
               </th>
-              <th className="px-2 py-2 text-center w-44 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>
+              <th className="px-2 py-2 text-center w-44 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>
                 <div className="flex items-center justify-center gap-1">
                   <span>貸方科目</span>
                   <label className="flex items-center gap-0.5 cursor-pointer text-xs font-normal opacity-80 hover:opacity-100">
@@ -1180,16 +1180,16 @@ export default function JournalEntryTable({
                   </label>
                 </div>
               </th>
-              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>金額</th>
+              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>金額</th>
               {!hideBalance && (
-                <th className="px-2 py-2 text-center w-28 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>残高</th>
+                <th className="px-2 py-2 text-center w-28 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>残高</th>
               )}
-              <th className="px-1 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>消費税</th>
-              <th className="px-1 py-2 text-center w-16 font-medium" style={{ borderRight: '1px solid #94a3b8' }} title="インボイス">iv</th>
+              <th className="px-1 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>消費税</th>
+              <th className="px-1 py-2 text-center w-16 font-medium" style={{ borderRight: '1px solid #e5e7eb' }} title="インボイス">iv</th>
               {clientTaxType === 'simplified' && (
-                <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>業種</th>
+                <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>業種</th>
               )}
-              <th className="px-2 py-2 text-center font-medium" style={{ borderRight: '1px solid #94a3b8', minWidth: '180px' }}>摘要</th>
+              <th className="px-2 py-2 text-center font-medium" style={{ borderRight: '1px solid #e5e7eb', minWidth: '180px' }}>摘要</th>
               <th className="px-1 py-2 w-20 font-medium"></th>
             </tr>
           </thead>

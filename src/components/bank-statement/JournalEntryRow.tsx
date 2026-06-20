@@ -86,7 +86,7 @@ function JournalEntryRowInner({
   let bgClass: string
   if (isSelected) bgClass = 'bg-sky-100'
   else if (isCompoundGroup) bgClass = 'bg-violet-100'
-  else bgClass = rowNumber % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+  else bgClass = rowNumber % 2 === 0 ? 'bg-white' : 'bg-[#f6f9ff]'
 
   return (
     <>
@@ -99,10 +99,10 @@ function JournalEntryRowInner({
         data-entry-id={entry.id}
         className={`${bgClass} hover:bg-sky-50 cursor-pointer transition-colors`}
         style={{
-          borderBottom: '1px solid #cbd5e1',
+          borderBottom: '1px solid #eceff3',
           // 画面外行のレイアウト/ペイントをブラウザにスキップさせる（大量行での打鍵遅延を緩和）
           contentVisibility: 'auto',
-          containIntrinsicSize: '40px',
+          containIntrinsicSize: '34px',
         }}
         onClick={(e) => onSelect(entry.id, e)}
       >
@@ -290,7 +290,7 @@ function JournalEntryRowInner({
   )
 }
 
-const CB: React.CSSProperties = { borderRight: '1px solid #94a3b8', padding: '2px 4px' }
+const CB: React.CSSProperties = { borderRight: '1px solid #eceff3', padding: '2px 4px', height: 34, verticalAlign: 'middle' }
 
 // 摘要専用の uncontrolled input: 打鍵中は React の state/再レンダを一切発生させない
 // 親への反映は blur / Enter 時のみ (628件級でも打鍵が軽い)

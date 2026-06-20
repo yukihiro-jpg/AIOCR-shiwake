@@ -177,13 +177,13 @@ export default function StatementViewer({
           <div className="bg-white border border-gray-200 rounded overflow-auto">
             <table className="w-full text-xs border-collapse">
               <tbody>
-                {currentPage.transactions.map((tx) => {
+                {currentPage.transactions.map((tx, i) => {
                   const isSelected = tx.id === selectedTransactionId
                   return (
                   <tr
                     key={tx.id}
                     ref={isSelected ? selectedRowRef : undefined}
-                    className={`border-b border-gray-100 ${isSelected ? 'bg-yellow-100' : 'hover:bg-gray-50'}`}
+                    className={`h-[34px] border-b border-gray-100 ${isSelected ? 'bg-yellow-100' : `${i % 2 === 1 ? 'bg-[#f6f9ff]' : 'bg-white'} hover:bg-sky-50`}`}
                   >
                     <td className="px-2 py-1.5 whitespace-nowrap">{tx.date}</td>
                     <td className="px-2 py-1.5">{tx.description}</td>
