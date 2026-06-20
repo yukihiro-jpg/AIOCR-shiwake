@@ -152,7 +152,7 @@ export async function pushAllToFirebase(clientId: string): Promise<number> {
   }
   const clientsRaw = localStorage.getItem(CLIENTS_LIST_STORAGE_KEY)
   if (clientsRaw) {
-    try { await pushNow(GLOBAL_CLIENT_ID, 'clients', JSON.parse(clientsRaw)); n++ } catch { /* skip */ }
+    try { await pushClientsToFirebase(JSON.parse(clientsRaw)); n++ } catch { /* skip */ }
   }
   return n
 }
@@ -172,8 +172,8 @@ export async function pushEverythingToFirebase(
     onProgress?.(i + 1, clients.length, c.name || c.id)
     try { await pushAllToFirebase(c.id); uploaded++ } catch { /* skip */ }
   }
-  // 顧問先一覧そのものも反映
-  if (clientsRaw) { try { await pushNow(GLOBAL_CLIENT_ID, 'clients', clients) } catch { /* ignore */ } }
+  // 顧問先一覧そのものも反映（id マージ）
+  if (clients.length) { try { await pushClientsToFirebase(clients) } catch { /* ignore */ } }
   return { uploaded, total: clients.length }
 }
 
@@ -188,14 +188,6 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
   // 自分が直近 push した内容と同一ならスキップ（自己エコー）
   if (lastPushedJson.get(mapKey) === incoming) return false
 
-  if (clientId === GLOBAL_CLIENT_ID && key === 'clients') {
-    if (value == null) return false
-    const cur = localStorage.getItem(CLIENTS_LIST_STORAGE_KEY)
-    if (cur === incoming) return false
-    localStorage.setItem(CLIENTS_LIST_STORAGE_KEY, incoming)
-    return true
-  }
-
   const keyFn = STORAGE_KEY_MAP[key]
   if (!keyFn) return false
   const storageKey = keyFn(clientId)
@@ -206,9 +198,61 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
   return true
 }
 
+// 顧問先一覧は「id をキーにしたマップ」で持つ（重要・データ保全）。
+//   rooms/{rk}/aiocr-shiwake/_global/clients_v2/{clientId} = { id, name, ... }
+// 配列を丸ごと set すると「少ない一覧が多い一覧を上書きして消す」事故が起きるため、
+// 各端末は自分の顧問先だけを update() で書き、受信時は id で union マージする。
+// → どの端末で開いても他端末の顧問先が消えることはない。
+const CLIENTS_MAP_NODE = 'clients_v2'
+
+type ClientLike = { id: string; name?: string }
+
+function readLocalClients(): ClientLike[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(CLIENTS_LIST_STORAGE_KEY) || '[]')
+    return Array.isArray(v) ? v : []
+  } catch { return [] }
+}
+
+async function clientsMapPath(): Promise<string> {
+  const rk = await roomKey()
+  return `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}/${CLIENTS_MAP_NODE}`
+}
+
+// 手元の顧問先を Firebase へ寄与（update なので他端末の顧問先は消えない）
+export async function pushClientsToFirebase(clients: ClientLike[]): Promise<void> {
+  if (!hasRoom()) return
+  const valid = clients.filter((c) => c && c.id)
+  if (valid.length === 0) return
+  const { ref, update } = await import('firebase/database')
+  const db = await getDb()
+  const map: Record<string, unknown> = {}
+  for (const c of valid) map[c.id] = c
+  await update(ref(db, await clientsMapPath()), map)
+}
+
+let clientsPushTimer: ReturnType<typeof setTimeout> | null = null
+export function scheduleClientsPush(clients: ClientLike[]): void {
+  if (!hasRoom()) return
+  if (clientsPushTimer) clearTimeout(clientsPushTimer)
+  clientsPushTimer = setTimeout(() => {
+    clientsPushTimer = null
+    pushClientsToFirebase(clients).catch((err) => console.warn('[firebase-sync] clients push failed', err))
+  }, DEBOUNCE_MS)
+}
+
+// 顧問先削除を明示的に Firebase へ反映（該当 id の子のみ削除）
+export async function removeClientFromFirebase(id: string): Promise<void> {
+  if (!hasRoom() || !id) return
+  const { ref, set } = await import('firebase/database')
+  const db = await getDb()
+  await set(ref(db, `${await clientsMapPath()}/${id}`), null)
+}
+
 /**
  * 顧問先一覧（グローバル）をリアルタイム購読する。
  * 顧問先未選択（顧問先選択画面）でも動くよう、データ購読とは独立。
+ * 受信時は id で union マージし、手元にしか無い顧問先は Firebase へ寄与する。
  */
 export async function startClientsSync(onChange: () => void): Promise<void> {
   stopClientsSync()
@@ -217,12 +261,33 @@ export async function startClientsSync(onChange: () => void): Promise<void> {
     const { ref, onValue } = await import('firebase/database')
     const db = await getDb()
     emit({ connected: true, error: null })
-    const rk = await roomKey()
-    const clientsRef = ref(db, `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}/clients`)
+    const node = ref(db, await clientsMapPath())
+
+    // 接続時: 手元の顧問先を寄与（他端末の分は消えない）
+    const localInit = readLocalClients()
+    if (localInit.length) pushClientsToFirebase(localInit).catch(() => { /* ignore */ })
+
     clientsUnsub = onValue(
-      clientsRef,
+      node,
       (snap) => {
-        if (applyRemoteToLocal(GLOBAL_CLIENT_ID, 'clients', snap.val())) {
+        const val = (snap.val() as Record<string, ClientLike> | null) || {}
+        const incoming = Object.values(val).filter((c) => c && c.id)
+        const local = readLocalClients()
+
+        // id で union マージ（リモートの項目を優先して上書き、手元の項目は残す）
+        const byId = new Map<string, ClientLike>()
+        for (const c of local) if (c && c.id) byId.set(c.id, c)
+        for (const c of incoming) if (c && c.id) byId.set(c.id, { ...byId.get(c.id), ...c })
+        const merged = Array.from(byId.values())
+
+        // Firebase にまだ無い手元の顧問先があれば寄与（union 収束）
+        const incomingIds = new Set(incoming.map((c) => c.id))
+        const localOnly = local.filter((c) => c && c.id && !incomingIds.has(c.id))
+        if (localOnly.length) pushClientsToFirebase(localOnly).catch(() => { /* ignore */ })
+
+        const mergedJson = JSON.stringify(merged)
+        if (mergedJson !== JSON.stringify(local)) {
+          localStorage.setItem(CLIENTS_LIST_STORAGE_KEY, mergedJson)
           emit({ lastSyncAt: new Date() })
           onChange()
         }

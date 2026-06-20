@@ -23,9 +23,9 @@ export function getClients(): Client[] {
 export function saveClients(clients: Client[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients))
-  // 顧問先一覧を Firebase（合言葉設定時）へも自動反映 → 他端末に即共有
+  // 顧問先一覧を Firebase（合言葉設定時）へ id マージで反映 → 他端末の顧問先は消えない
   import('./firebase-sync')
-    .then(({ schedulePushToFirebase }) => schedulePushToFirebase('_global', 'clients', clients))
+    .then(({ scheduleClientsPush }) => scheduleClientsPush(clients))
     .catch(() => { /* firebase 未設定なら無視 */ })
 }
 
@@ -50,6 +50,10 @@ export function deleteClient(id: string): void {
     localStorage.removeItem(`bs-sub-accounts-${id}`)
     localStorage.removeItem(`bs-patterns-${id}`)
   }
+  // Firebase 側の該当顧問先も明示的に削除（マージ方式では消去は明示が必要）
+  import('./firebase-sync')
+    .then(({ removeClientFromFirebase }) => removeClientFromFirebase(id))
+    .catch(() => { /* firebase 未設定なら無視 */ })
 }
 
 export function updateClient(id: string, updates: Partial<Client>): void {
