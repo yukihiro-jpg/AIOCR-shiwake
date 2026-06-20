@@ -1,6 +1,15 @@
 import type { AccountItem, SubAccountItem, AccountTaxItem } from './types'
 import { clientStorageKey, getSelectedClientId } from './client-store'
 
+// 保存時に Firebase（合言葉設定時）へも自動反映する小ヘルパー
+function pushFb(key: string, data: unknown): void {
+  const cid = getSelectedClientId()
+  if (!cid) return
+  import('./firebase-sync')
+    .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, key, data))
+    .catch(() => { /* firebase 未設定なら無視 */ })
+}
+
 function getAccountKey(): string {
   const cid = getSelectedClientId()
   return cid ? clientStorageKey(cid, 'accounts') : 'bank-statement-account-master'
@@ -25,6 +34,7 @@ export function loadAccountMaster(): AccountItem[] {
 export function saveAccountMaster(items: AccountItem[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getAccountKey(), JSON.stringify(items))
+  pushFb('account-master', items)
 }
 
 /**
@@ -71,6 +81,7 @@ export function loadSubAccountMaster(): SubAccountItem[] {
 export function saveSubAccountMaster(items: SubAccountItem[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getSubAccountKey(), JSON.stringify(items))
+  pushFb('sub-account-master', items)
 }
 
 /**
@@ -180,6 +191,7 @@ export function loadAccountTaxMaster(): AccountTaxItem[] {
 export function saveAccountTaxMaster(items: AccountTaxItem[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getAccountTaxKey(), JSON.stringify(items))
+  pushFb('account-tax-master', items)
 }
 
 /**

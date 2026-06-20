@@ -23,6 +23,10 @@ export function getClients(): Client[] {
 export function saveClients(clients: Client[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients))
+  // 顧問先一覧を Firebase（合言葉設定時）へも自動反映 → 他端末に即共有
+  import('./firebase-sync')
+    .then(({ schedulePushToFirebase }) => schedulePushToFirebase('_global', 'clients', clients))
+    .catch(() => { /* firebase 未設定なら無視 */ })
 }
 
 export function addClient(name: string): Client {

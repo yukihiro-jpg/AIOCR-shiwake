@@ -22,7 +22,7 @@ import DriveSyncButton from '@/components/bank-statement/DriveSyncButton'
 import FirebaseRoomDialog from '@/components/bank-statement/FirebaseRoomDialog'
 import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
 import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected } from '@/lib/bank-statement/drive-sync'
-import { hasRoom, testFirebaseConnection, startFirebaseSync, stopFirebaseSync } from '@/lib/bank-statement/firebase-sync'
+import { hasRoom, testFirebaseConnection, startFirebaseSync, stopFirebaseSync, startClientsSync, stopClientsSync } from '@/lib/bank-statement/firebase-sync'
 import ProcessingStatusTable from '@/components/bank-statement/ProcessingStatusTable'
 import { updateProcessingStatus } from '@/lib/bank-statement/processing-status-store'
 import { applyCompoundAutoAmounts, downloadCsv } from '@/lib/bank-statement/csv-generator'
@@ -105,6 +105,7 @@ export default function BankStatementContent() {
   // Firebase 合言葉（ルーム）
   const [showRoomDialog, setShowRoomDialog] = useState(false)
   const [roomReady, setRoomReady] = useState(false)
+  const [clientsRefresh, setClientsRefresh] = useState(0)
 
   // 起動時: 合言葉が未設定なら入力ダイアログ、設定済みなら接続して同期準備
   useEffect(() => {
@@ -114,6 +115,13 @@ export default function BankStatementContent() {
       setShowRoomDialog(true)
     }
   }, [])
+
+  // 顧問先一覧のリアルタイム同期（顧問先選択画面でも動くよう独立）
+  useEffect(() => {
+    if (!roomReady) return
+    startClientsSync(() => setClientsRefresh((v) => v + 1))
+    return () => { stopClientsSync() }
+  }, [roomReady])
 
   // 顧問先選択ハンドラ
   const handleClientSelect = useCallback(async (client: Client) => {
@@ -1276,7 +1284,7 @@ export default function BankStatementContent() {
       onConfirmed={() => setRoomReady(true)}
     />
     {showClientSelector ? (
-      <ClientSelector onSelect={handleClientSelect} />
+      <ClientSelector onSelect={handleClientSelect} refreshSignal={clientsRefresh} />
     ) : (
     <div className="h-screen flex flex-col bg-gray-100 bank-statement-app">
       {/* ヘッダー */}

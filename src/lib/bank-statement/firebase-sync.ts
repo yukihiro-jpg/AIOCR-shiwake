@@ -179,7 +179,8 @@ export async function pushEverythingToFirebase(
 
 // ---- 受信（リアルタイム購読） ----
 
-let activeUnsubs: Array<() => void> = []
+let dataUnsubs: Array<() => void> = []
+let clientsUnsub: (() => void) | null = null
 
 function applyRemoteToLocal(clientId: string, key: string, value: unknown): boolean {
   const mapKey = `${clientId}:${key}`
@@ -206,7 +207,39 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
 }
 
 /**
- * 選択中顧問先のデータ + 顧問先一覧をリアルタイム購読する。
+ * 顧問先一覧（グローバル）をリアルタイム購読する。
+ * 顧問先未選択（顧問先選択画面）でも動くよう、データ購読とは独立。
+ */
+export async function startClientsSync(onChange: () => void): Promise<void> {
+  stopClientsSync()
+  if (!hasRoom()) return
+  try {
+    const { ref, onValue } = await import('firebase/database')
+    const db = await getDb()
+    emit({ connected: true, error: null })
+    const rk = await roomKey()
+    const clientsRef = ref(db, `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}/clients`)
+    clientsUnsub = onValue(
+      clientsRef,
+      (snap) => {
+        if (applyRemoteToLocal(GLOBAL_CLIENT_ID, 'clients', snap.val())) {
+          emit({ lastSyncAt: new Date() })
+          onChange()
+        }
+      },
+      (err: Error) => { emit({ connected: false, error: err.message }) },
+    )
+  } catch (err) {
+    emit({ connected: false, error: err instanceof Error ? err.message : 'sync error' })
+  }
+}
+
+export function stopClientsSync(): void {
+  if (clientsUnsub) { try { clientsUnsub() } catch { /* ignore */ } clientsUnsub = null }
+}
+
+/**
+ * 選択中顧問先のデータ（{clientId} 配下）をリアルタイム購読する。
  * リモート変更を localStorage に反映し、変更があったキー配列で callback を呼ぶ。
  */
 export async function startFirebaseSync(
@@ -221,11 +254,8 @@ export async function startFirebaseSync(
     emit({ connected: true, error: null })
 
     const rk = await roomKey()
-    const base = `rooms/${rk}/${APP_SUBTREE}`
-
-    // 顧問先固有データ（{clientId} 配下を丸ごと購読）
-    const clientRef = ref(db, `${base}/${clientId}`)
-    const unsub1 = onValue(
+    const clientRef = ref(db, `rooms/${rk}/${APP_SUBTREE}/${clientId}`)
+    const unsub = onValue(
       clientRef,
       (snap) => {
         const val = snap.val() as Record<string, unknown> | null
@@ -241,25 +271,15 @@ export async function startFirebaseSync(
       },
       (err: Error) => { emit({ connected: false, error: err.message }) },
     )
-
-    // 顧問先一覧（グローバル）
-    const clientsRef = ref(db, `${base}/${GLOBAL_CLIENT_ID}/clients`)
-    const unsub2 = onValue(clientsRef, (snap) => {
-      if (applyRemoteToLocal(GLOBAL_CLIENT_ID, 'clients', snap.val())) {
-        emit({ lastSyncAt: new Date() })
-        onChange(['clients'])
-      }
-    })
-
-    activeUnsubs = [unsub1, unsub2]
+    dataUnsubs = [unsub]
   } catch (err) {
     emit({ connected: false, error: err instanceof Error ? err.message : 'sync error' })
   }
 }
 
 export function stopFirebaseSync(): void {
-  activeUnsubs.forEach((u) => { try { u() } catch { /* ignore */ } })
-  activeUnsubs = []
+  dataUnsubs.forEach((u) => { try { u() } catch { /* ignore */ } })
+  dataUnsubs = []
 }
 
 /** 接続テスト（合言葉入力直後の検証用）。匿名サインインが通れば true。 */

@@ -6,9 +6,11 @@ import { getClients, addClient, deleteClient, setSelectedClientId, updateClient,
 
 interface Props {
   onSelect: (client: Client) => void
+  // 値が変わると顧問先一覧を再読込（Firebase からの遠隔追加を反映）
+  refreshSignal?: number
 }
 
-export default function ClientSelector({ onSelect }: Props) {
+export default function ClientSelector({ onSelect, refreshSignal }: Props) {
   const [clients, setClients] = useState<Client[]>([])
   const [search, setSearch] = useState('')
   const [newName, setNewName] = useState('')
@@ -17,7 +19,7 @@ export default function ClientSelector({ onSelect }: Props) {
 
   useEffect(() => {
     setClients(getClients())
-  }, [])
+  }, [refreshSignal])
 
   const filtered = useMemo(() => {
     if (!search) return clients
