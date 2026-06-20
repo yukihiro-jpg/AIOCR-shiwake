@@ -1142,7 +1142,7 @@ export default function JournalEntryTable({
 
       <div className="flex-1 overflow-auto">
         <table className="w-full text-sm border-collapse min-w-[950px]">
-          <thead className="sticky top-0 bg-gray-600 text-white z-10">
+          <thead className="sticky top-0 bg-[#f3f6fb] text-gray-500 z-10 border-b border-gray-200">
             <tr>
               <th className="px-1 py-2 text-center w-8 font-medium" style={{ borderRight: '1px solid #94a3b8' }}>
                 <input
@@ -1165,7 +1165,7 @@ export default function JournalEntryTable({
                     <input type="checkbox" checked={filterEmptyDebit}
                       onChange={toggleFilterEmptyDebit}
                       className="w-3 h-3 accent-amber-400 cursor-pointer" />
-                    <span className={filterEmptyDebit ? 'text-amber-300' : ''}>未処理</span>
+                    <span className={filterEmptyDebit ? 'text-amber-600 font-semibold' : ''}>未処理</span>
                   </label>
                 </div>
               </th>
@@ -1176,7 +1176,7 @@ export default function JournalEntryTable({
                     <input type="checkbox" checked={filterEmptyCredit}
                       onChange={toggleFilterEmptyCredit}
                       className="w-3 h-3 accent-amber-400 cursor-pointer" />
-                    <span className={filterEmptyCredit ? 'text-amber-300' : ''}>未処理</span>
+                    <span className={filterEmptyCredit ? 'text-amber-600 font-semibold' : ''}>未処理</span>
                   </label>
                 </div>
               </th>
