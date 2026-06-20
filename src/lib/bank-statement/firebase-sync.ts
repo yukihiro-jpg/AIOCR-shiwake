@@ -204,6 +204,8 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
 // 各端末は自分の顧問先だけを update() で書き、受信時は id で union マージする。
 // → どの端末で開いても他端末の顧問先が消えることはない。
 const CLIENTS_MAP_NODE = 'clients_v2'
+// 削除した顧問先の「墓標」。{ id: 削除時刻 }。全端末がこれを尊重し復活させない。
+const CLIENTS_DELETED_NODE = 'clients_deleted'
 
 type ClientLike = { id: string; name?: string }
 
@@ -214,9 +216,13 @@ function readLocalClients(): ClientLike[] {
   } catch { return [] }
 }
 
-async function clientsMapPath(): Promise<string> {
+async function globalPath(): Promise<string> {
   const rk = await roomKey()
-  return `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}/${CLIENTS_MAP_NODE}`
+  return `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}`
+}
+
+async function clientsMapPath(): Promise<string> {
+  return `${await globalPath()}/${CLIENTS_MAP_NODE}`
 }
 
 // 手元の顧問先を Firebase へ寄与（update なので他端末の顧問先は消えない）
@@ -241,12 +247,15 @@ export function scheduleClientsPush(clients: ClientLike[]): void {
   }, DEBOUNCE_MS)
 }
 
-// 顧問先削除を明示的に Firebase へ反映（該当 id の子のみ削除）
+// 顧問先削除を Firebase へ反映: 該当 id を消し、「墓標」を立てて復活を防ぐ
 export async function removeClientFromFirebase(id: string): Promise<void> {
   if (!hasRoom() || !id) return
-  const { ref, set } = await import('firebase/database')
+  const { ref, update } = await import('firebase/database')
   const db = await getDb()
-  await set(ref(db, `${await clientsMapPath()}/${id}`), null)
+  // 墓標を立てる（他端末がローカルに残していても、これを見て削除・再寄与しない）
+  await update(ref(db, `${await globalPath()}/${CLIENTS_DELETED_NODE}`), { [id]: Date.now() })
+  // 実体も削除
+  await update(ref(db, `${await clientsMapPath()}`), { [id]: null })
 }
 
 /**
@@ -261,32 +270,35 @@ export async function startClientsSync(onChange: () => void): Promise<void> {
     const { ref, onValue } = await import('firebase/database')
     const db = await getDb()
     emit({ connected: true, error: null })
-    const node = ref(db, await clientsMapPath())
-
-    // 接続時: 手元の顧問先を寄与（他端末の分は消えない）
-    const localInit = readLocalClients()
-    if (localInit.length) pushClientsToFirebase(localInit).catch(() => { /* ignore */ })
+    // _global 配下（顧問先マップ + 墓標）を購読
+    const node = ref(db, await globalPath())
 
     clientsUnsub = onValue(
       node,
       (snap) => {
-        const val = (snap.val() as Record<string, ClientLike> | null) || {}
-        const incoming = Object.values(val).filter((c) => c && c.id)
-        const local = readLocalClients()
+        const root = (snap.val() as Record<string, unknown> | null) || {}
+        const mapObj = (root[CLIENTS_MAP_NODE] as Record<string, ClientLike> | undefined) || {}
+        const tombstones = (root[CLIENTS_DELETED_NODE] as Record<string, number> | undefined) || {}
+        const isDeleted = (id: string) => Object.prototype.hasOwnProperty.call(tombstones, id)
 
-        // id で union マージ（リモートの項目を優先して上書き、手元の項目は残す）
+        // 墓標に載っている顧問先は除外（リモート・手元の両方から）
+        const incoming = Object.values(mapObj).filter((c) => c && c.id && !isDeleted(c.id))
+        const local = readLocalClients().filter((c) => c && c.id && !isDeleted(c.id))
+
+        // id で union マージ（リモート優先で上書き、手元の項目は残す）
         const byId = new Map<string, ClientLike>()
         for (const c of local) if (c && c.id) byId.set(c.id, c)
         for (const c of incoming) if (c && c.id) byId.set(c.id, { ...byId.get(c.id), ...c })
         const merged = Array.from(byId.values())
 
-        // Firebase にまだ無い手元の顧問先があれば寄与（union 収束）
+        // Firebase にまだ無い手元の顧問先を寄与（墓標分は除外済み・union 収束）
         const incomingIds = new Set(incoming.map((c) => c.id))
         const localOnly = local.filter((c) => c && c.id && !incomingIds.has(c.id))
         if (localOnly.length) pushClientsToFirebase(localOnly).catch(() => { /* ignore */ })
 
+        // 墓標により手元から消える分も含め、localStorage を merged に更新
         const mergedJson = JSON.stringify(merged)
-        if (mergedJson !== JSON.stringify(local)) {
+        if (mergedJson !== JSON.stringify(readLocalClients())) {
           localStorage.setItem(CLIENTS_LIST_STORAGE_KEY, mergedJson)
           emit({ lastSyncAt: new Date() })
           onChange()
