@@ -44,6 +44,12 @@ export async function uploadClientToDrive(clientId: string, clientName: string |
     items.push({ clientId, clientName, key: '_marker', data: { updated: new Date().toISOString() } })
   }
 
+  // 主同期: Firebase へも全データを反映（合言葉未設定なら no-op）
+  try {
+    const { pushAllToFirebase } = await import('./firebase-sync')
+    await pushAllToFirebase(clientId)
+  } catch { /* firebase 失敗は Drive 保存を妨げない */ }
+
   return await driveBulkWrite(items)
 }
 
@@ -238,6 +244,11 @@ function getSyncMeta(clientId: string, key: string): string | null {
  * 同じ (clientId, key) に対する Push は最新で上書きされる。
  */
 export function schedulePushToDrive(clientId: string, key: string, data: unknown): void {
+  // 主同期は Firebase（リアルタイム）。Drive は下記でアーカイブとして並行 push。
+  import('./firebase-sync').then(({ schedulePushToFirebase }) => {
+    schedulePushToFirebase(clientId, key, data)
+  }).catch(() => { /* firebase 未設定なら無視 */ })
+
   const mapKey = `${clientId}:${key}`
   const prev = debounceTimers.get(mapKey)
   if (prev) clearTimeout(prev)

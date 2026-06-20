@@ -14,6 +14,7 @@
     "archiver": "^7.0.1",
     "dotenv": "^17.3.1",
     "encoding-japanese": "^2.2.0",
+    "firebase": "^12.15.0",
     "googleapis": "^144.0.0",
     "idb": "^8.0.3",
     "next": "^14.2.0",

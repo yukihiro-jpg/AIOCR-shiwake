@@ -19,8 +19,10 @@ import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statemen
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
 import DriveSyncButton from '@/components/bank-statement/DriveSyncButton'
+import FirebaseRoomDialog from '@/components/bank-statement/FirebaseRoomDialog'
 import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
 import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected } from '@/lib/bank-statement/drive-sync'
+import { hasRoom, testFirebaseConnection, startFirebaseSync, stopFirebaseSync } from '@/lib/bank-statement/firebase-sync'
 import ProcessingStatusTable from '@/components/bank-statement/ProcessingStatusTable'
 import { updateProcessingStatus } from '@/lib/bank-statement/processing-status-store'
 import { applyCompoundAutoAmounts, downloadCsv } from '@/lib/bank-statement/csv-generator'
@@ -100,6 +102,18 @@ export default function BankStatementContent() {
   const [tempCount, setTempCount] = useState(() => getTempEntryCount())
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set())
   const [processingStatusVersion, setProcessingStatusVersion] = useState(0)
+  // Firebase 合言葉（ルーム）
+  const [showRoomDialog, setShowRoomDialog] = useState(false)
+  const [roomReady, setRoomReady] = useState(false)
+
+  // 起動時: 合言葉が未設定なら入力ダイアログ、設定済みなら接続して同期準備
+  useEffect(() => {
+    if (hasRoom()) {
+      testFirebaseConnection().then((ok) => setRoomReady(ok))
+    } else {
+      setShowRoomDialog(true)
+    }
+  }, [])
 
   // 顧問先選択ハンドラ
   const handleClientSelect = useCallback(async (client: Client) => {
@@ -743,6 +757,32 @@ export default function BankStatementContent() {
     }
   }, [selectedClient])
 
+  // Firebase リアルタイム同期: 顧問先選択中、合言葉設定済みなら購読開始。
+  // リモート変更を localStorage へ反映済みなので、表示中の state を再ロードする。
+  useEffect(() => {
+    if (!selectedClient || !roomReady) return
+    let cancelled = false
+    ;(async () => {
+      await startFirebaseSync(selectedClient.id, (changedKeys) => {
+        const masterKeys = ['account-master', 'sub-account-master', 'account-tax-master']
+        if (changedKeys.some((k) => masterKeys.includes(k))) {
+          setAccountMaster(loadAccountMaster())
+          setSubAccountMaster(loadSubAccountMaster())
+          setAccountTaxMaster(loadAccountTaxMaster())
+        }
+        if (changedKeys.includes('processing-status')) {
+          setProcessingStatusVersion((v) => v + 1)
+        }
+        setInfo('他の端末の変更を取り込みました')
+      })
+      if (cancelled) stopFirebaseSync()
+    })()
+    return () => {
+      cancelled = true
+      stopFirebaseSync()
+    }
+  }, [selectedClient, roomReady])
+
   // ページ遷移時にオンデマンドで画像を生成（テキストPDF用）
   useEffect(() => {
     if (!pdfFileRef.current || pages.length === 0) return
@@ -1228,7 +1268,14 @@ export default function BankStatementContent() {
   })()
 
   return (
-    showClientSelector ? (
+    <>
+    <FirebaseRoomDialog
+      open={showRoomDialog}
+      firstTime={!roomReady}
+      onClose={() => setShowRoomDialog(false)}
+      onConfirmed={() => setRoomReady(true)}
+    />
+    {showClientSelector ? (
       <ClientSelector onSelect={handleClientSelect} />
     ) : (
     <div className="h-screen flex flex-col bg-gray-100 bank-statement-app">
@@ -1247,6 +1294,12 @@ export default function BankStatementContent() {
         <div className="flex items-center gap-2">
           {/* Drive 同期ステータス（バッジのみ） */}
           <DriveSyncButton clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} />
+          {/* リアルタイム共有（Firebase 合言葉） */}
+          <button onClick={() => setShowRoomDialog(true)}
+            title={roomReady ? 'リアルタイム共有中（合言葉設定済み）' : '合言葉を設定して共有を有効化'}
+            className="px-2 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
+            {roomReady ? '🟢 共有中' : '⚪ 共有設定'}
+          </button>
           {/* 常用ボタン */}
           <button onClick={() => setShowPatternList(true)}
             className="px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20">
@@ -1692,8 +1745,9 @@ export default function BankStatementContent() {
         client={selectedClient}
       />
     </div>
+    )}
+    </>
     )
-  )
 }
 
 // 簡易 CSV 1行パーサ（ダブルクオート対応）
