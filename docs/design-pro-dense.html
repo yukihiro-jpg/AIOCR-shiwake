@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会計大将インポートデータ変換 — Pro Dense デザイン案</title>
+<style>
+  /* 角度①: 高密度プロツール（Linear / Stripe 系）。
+     大量処理を速く・正確に。情報密度高め、等幅数字、細い罫線、キーボード前提、落ち着いた配色。 */
+  :root{
+    --bg:#0f1115; --panel:#161922; --panel2:#1b1f2a; --line:#262b38; --line-s:#1f2430;
+    --txt:#e6e9f0; --txt2:#9aa3b2; --txt3:#646d7e;
+    --accent:#7c8cff; --accent-d:#6675ff; --green:#3fb98a; --red:#f06d6d; --amber:#e8b14c;
+    --radius:12px; --radius-sm:8px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;
+    background:var(--bg);color:var(--txt);font-size:12.5px;line-height:1.4;-webkit-font-smoothing:antialiased}
+  .num{font-variant-numeric:tabular-nums;text-align:right;font-family:"SF Mono","JetBrains Mono",ui-monospace,monospace;font-size:12px}
+  kbd{font-family:ui-monospace,monospace;font-size:10px;background:#23283400;border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--txt3)}
+
+  .bar{position:sticky;top:0;z-index:20;height:52px;display:flex;align-items:center;gap:11px;padding:0 16px;
+    background:rgba(15,17,21,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--accent),#a86bff);display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
+  .title{font-size:13.5px;font-weight:600;letter-spacing:.01em}
+  .client{font-size:12px;color:var(--accent);font-weight:600;background:rgba(124,140,255,.12);padding:3px 10px;border-radius:6px}
+  .link{color:var(--txt2);text-decoration:none;font-weight:500}
+  .link:hover{color:var(--txt)}
+  .sp{flex:1}
+  .cmd{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 10px;color:var(--txt3);font-size:12px;width:200px}
+  .drive{display:inline-flex;align-items:center;gap:6px;color:var(--green);font-weight:600;font-size:11.5px}
+  .drive .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+  .drive .ago{color:var(--txt3);font-weight:400}
+  .btn{border:none;cursor:pointer;font:inherit;font-weight:600;font-size:12px;height:30px;padding:0 12px;border-radius:7px;display:inline-flex;align-items:center;gap:6px;transition:.12s;white-space:nowrap}
+  .b-soft{background:var(--panel);color:var(--txt2);border:1px solid var(--line)}
+  .b-soft:hover{background:var(--panel2);color:var(--txt)}
+  .b-amber{background:rgba(232,177,76,.14);color:var(--amber);border:1px solid rgba(232,177,76,.25)}
+  .b-blue{background:var(--accent);color:#0b0d12;box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(124,140,255,.3)}
+  .b-blue:hover{background:var(--accent-d)}
+  .b-red{background:rgba(240,109,109,.14);color:var(--red);border:1px solid rgba(240,109,109,.25)}
+  .sm{height:27px;padding:0 10px;font-size:11.5px}
+
+  .strip{display:flex;align-items:center;gap:18px;padding:8px 16px;border-bottom:1px solid var(--line-s);color:var(--txt2);font-size:12px}
+  .strip b{color:var(--green)}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11.5px}
+  .pill .v{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+
+  .work{display:grid;grid-template-columns:minmax(380px,32%) 1fr;gap:1px;background:var(--line-s);height:calc(100vh - 52px - 37px)}
+  .card{background:var(--panel);overflow:hidden;display:flex;flex-direction:column}
+  .chead{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .chead h2{margin:0;font-size:12px;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.06em}
+  .badge{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:5px}
+  .badge-n{background:rgba(124,140,255,.14);color:var(--accent)}
+  .badge-ok{background:rgba(63,185,138,.14);color:var(--green)}
+  .tools{display:flex;flex-wrap:wrap;gap:7px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line-s)}
+  .search{flex:0 1 220px;display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 10px;color:var(--txt3)}
+  .search input{border:none;background:none;outline:none;font:inherit;font-size:12px;width:100%;color:var(--txt)}
+
+  .scroll{overflow:auto;flex:1}
+  table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+  thead th{position:sticky;top:0;background:var(--panel2);color:var(--txt3);font-weight:600;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:2}
+  tbody td{padding:7px 11px;border-bottom:1px solid var(--line-s);white-space:nowrap;vertical-align:middle}
+  tbody tr:nth-child(even){background:rgba(255,255,255,.012)}
+  tbody tr:hover{background:rgba(124,140,255,.06);box-shadow:inset 2px 0 0 var(--accent)}
+  .muted{color:var(--txt3)}
+  .date{color:var(--txt2);font-family:ui-monospace,monospace;font-size:11.5px}
+  .desc{max-width:240px;overflow:hidden;text-overflow:ellipsis;color:var(--txt2)}
+  .amt-out{color:var(--red)} .amt-in{color:var(--green)}
+  .carry{color:var(--txt3)}
+  .acc{display:flex;align-items:baseline;gap:7px}
+  .acc .code{color:var(--txt3);font-family:ui-monospace,monospace;font-size:11px}
+  .acc .nm{font-weight:600;color:var(--txt)}
+  .acc .nm.kari{color:var(--amber)}
+  .star{color:var(--amber)} .star.off{color:var(--line)}
+  .chk{width:14px;height:14px;border:1.5px solid var(--txt3);border-radius:4px;display:inline-block;vertical-align:middle}
+  .tax{display:inline-flex;align-items:center;gap:4px;background:rgba(124,140,255,.12);color:var(--accent);border-radius:5px;padding:1px 7px;font-size:10.5px;font-weight:600}
+  .tax .r{background:var(--accent);color:#0b0d12;border-radius:4px;padding:0 4px;font-size:9.5px}
+  .cd{background:rgba(240,109,109,.16);color:var(--red);border-radius:5px;padding:1px 7px;font-size:10.5px;font-weight:600}
+  .unproc{background:rgba(240,109,109,.05)}
+  .ico{width:25px;height:25px;border-radius:6px;border:none;background:none;color:var(--txt3);cursor:pointer;font-size:13px}
+  .ico:hover{background:var(--panel2);color:var(--accent)}
+  .acts{display:flex;gap:2px}
+  .summary{padding:11px 14px;border-top:1px solid var(--line);background:var(--panel2)}
+  .summary .g{display:grid;grid-template-columns:auto auto;gap:5px 16px;font-size:11.5px}
+  .summary .l{color:var(--txt3)} .summary .v{text-align:right;font-family:ui-monospace,monospace;font-weight:600}
+  .summary .pos{color:var(--green)} .summary .neg{color:var(--red)}
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="logo">会</div>
+    <div class="title">会計大将変換</div>
+    <span class="client">サンハート株式会社</span>
+    <a class="link" href="#">顧問先一覧</a>
+    <div class="sp"></div>
+    <div class="cmd">🔍 検索・コマンド <span style="margin-left:auto"><kbd>⌘</kbd><kbd>K</kbd></span></div>
+    <span class="drive"><span class="dot"></span>同期 <span class="ago">7分前</span></span>
+    <button class="btn b-soft sm">パターン</button>
+    <button class="btn b-soft sm">定型仕訳</button>
+    <button class="btn b-amber sm">一時保存</button>
+    <button class="btn b-blue sm">CSV出力</button>
+    <button class="btn b-red sm">終了</button>
+  </header>
+
+  <div class="strip">
+    <span><b>解析完了 0.0s</b> · 55件抽出</span>
+    <span class="pill">取引 <span class="v">55</span></span>
+    <span class="pill">仕訳 <span class="v">62</span></span>
+    <span class="pill">未入力 <span class="v" style="color:var(--red)">1</span></span>
+    <span class="pill badge-ok">残高一致 ✓</span>
+    <span style="margin-left:auto;color:var(--txt3)">行移動 <kbd>↑</kbd><kbd>↓</kbd> ・ 学習 <kbd>L</kbd> ・ 追加 <kbd>N</kbd></span>
+  </div>
+
+  <div class="work">
+    <section class="card">
+      <div class="chead"><h2>解析元データ</h2><span class="badge badge-n">通帳 1/1</span><button class="btn b-soft sm" style="margin-left:auto">削除</button></div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>日付</th><th>摘要</th><th style="text-align:right">出金</th><th style="text-align:right">入金</th><th style="text-align:right">残高</th></tr></thead>
+          <tbody>
+            <tr class="carry"><td class="date">03-31</td><td>繰越</td><td></td><td></td><td class="num">2,114,630</td></tr>
+            <tr><td class="date">03-13</td><td>振込手数料</td><td class="num amt-out">495</td><td></td><td class="num">2,114,135</td></tr>
+            <tr><td class="date">03-16</td><td>みとしんリース</td><td class="num amt-out">40,370</td><td></td><td class="num">2,073,765</td></tr>
+            <tr><td class="date">03-16</td><td>IB振込 クルマコウホウカサマ</td><td class="num amt-out">95,610</td><td></td><td class="num">1,978,155</td></tr>
+            <tr><td class="date">03-23</td><td>IB月間手数料</td><td class="num amt-out">1,100</td><td></td><td class="num">1,976,560</td></tr>
+            <tr><td class="date">03-24</td><td>IB振込 カ)マルミ</td><td class="num amt-out">207,900</td><td></td><td class="num">1,768,660</td></tr>
+            <tr><td class="date">03-24</td><td>IB振込 カ)ダイエイケンセツ</td><td class="num amt-out">110,000</td><td></td><td class="num">1,658,385</td></tr>
+            <tr><td class="date">03-26</td><td>MHF) FEED</td><td class="num amt-out">33,071</td><td></td><td class="num">1,624,819</td></tr>
+            <tr><td class="date">03-26</td><td>振込 イバコクホレンカイゴ</td><td></td><td class="num amt-in">358,941</td><td class="num">1,983,760</td></tr>
+            <tr><td class="date">03-31</td><td>ダイマルエナウイン</td><td class="num amt-out">81,267</td><td></td><td class="num">1,900,733</td></tr>
+            <tr><td class="date">03-31</td><td>自動機通帳 鈴子様</td><td></td><td class="num amt-in">173,923</td><td class="num">2,071,408</td></tr>
+            <tr><td class="date">03-31</td><td>振込 I-NETシキンセンター</td><td></td><td class="num amt-in">2,058,530</td><td class="num">3,929,938</td></tr>
+            <tr><td class="date">04-01</td><td>IB振込 ウルノショウジ(カ</td><td class="num amt-out">104,463</td><td></td><td class="num">3,795,500</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="summary"><div class="g">
+        <span class="l">開始残高</span><span class="v">2,114,630</span>
+        <span class="l">入金合計</span><span class="v pos">+3,914,060</span>
+        <span class="l">出金合計</span><span class="v neg">-5,782,891</span>
+        <span class="l">計算残高</span><span class="v">245,799</span>
+        <span class="l">通帳残高</span><span class="v">245,799</span>
+        <span class="l">検証</span><span class="v"><span class="badge badge-ok">一致</span></span>
+      </div></div>
+    </section>
+
+    <section class="card">
+      <div class="chead"><h2>仕訳データ</h2><span class="badge badge-n">62件</span><span class="badge badge-ok">残高一致</span>
+        <div style="margin-left:auto;display:flex;gap:7px">
+          <button class="btn b-soft sm">未入力のみ</button>
+          <button class="btn b-soft sm">全選択</button>
+          <button class="btn b-red sm">選択削除</button>
+          <button class="btn b-amber sm">仮払金一括</button>
+          <button class="btn b-soft sm">＋ 行追加 <kbd>N</kbd></button>
+        </div>
+      </div>
+      <div class="tools"><div class="search">🔍<input placeholder="摘要・科目で絞り込み… (/)"></div><button class="btn b-soft sm" style="margin-left:auto">科目別一覧</button></div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th><span class="chk"></span></th><th>学</th><th>日付</th><th>借方科目</th><th>貸方科目</th><th style="text-align:right">金額</th><th style="text-align:right">残高</th><th>消費税</th><th>摘要</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0313</td><td><div class="acc"><span class="code">637</span><span class="nm">手数料</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">495</td><td class="num muted">2,114,135</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">振込手数料</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0316</td><td><div class="acc"><span class="code">341</span><span class="nm">リース負債</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">40,370</td><td class="num muted">2,073,765</td><td class="muted">—</td><td class="desc">みとしんリース リハビリ</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0316</td><td><div class="acc"><span class="code">174</span><span class="nm kari">仮払金</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">95,610</td><td class="num muted">1,978,155</td><td class="muted">—</td><td class="desc">くるま工房笠間</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0323</td><td><div class="acc"><span class="code">637</span><span class="nm">手数料</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">1,100</td><td class="num muted">1,976,560</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">インターネットバンキング</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr class="unproc"><td><span class="chk"></span></td><td><span class="star off">★</span></td><td class="date">0324</td><td><div class="acc"><span class="muted">（未入力）</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">207,900</td><td class="num muted">1,768,660</td><td><span class="cd">CD</span></td><td class="desc">IB振込 カ)マルミ</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0324</td><td><div class="acc"><span class="code">632</span><span class="nm">修繕費</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">110,000</td><td class="num muted">1,658,385</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">IB振込 カ)ダイエイケンセツ</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0326</td><td><div class="acc"><span class="code">634</span><span class="nm">消耗品費</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">33,071</td><td class="num muted">1,624,819</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">FEED</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0326</td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td><div class="acc"><span class="code">162</span><span class="nm">売掛金1</span></div></td><td class="num">358,941</td><td class="num muted">1,983,760</td><td class="muted">—</td><td class="desc">茨城国保連 ヘルパー</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0331</td><td><div class="acc"><span class="code">635</span><span class="nm">水道光熱費</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">81,267</td><td class="num muted">1,900,733</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">大丸エナウィン</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0331</td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td><div class="acc"><span class="code">162</span><span class="nm">売掛金1</span></div></td><td class="num">2,058,530</td><td class="num muted">3,929,938</td><td class="muted">—</td><td class="desc">I-NET資金センター</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+            <tr><td><span class="chk"></span></td><td><span class="star">★</span></td><td class="date">0401</td><td><div class="acc"><span class="code">634</span><span class="nm">消耗品費</span></div></td><td><div class="acc"><span class="code">132</span><span class="nm">水戸信 一期</span></div></td><td class="num">104,463</td><td class="num muted">3,795,500</td><td><span class="tax">課仕<span class="r">10</span></span></td><td class="desc">宇都野商事㈱</td><td class="acts"><button class="ico">＋</button><button class="ico">⋯</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
