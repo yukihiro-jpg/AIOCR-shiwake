@@ -6,6 +6,7 @@ export interface Client {
   createdAt: string
   taxType?: TaxType
   fiscalYearEndMonth?: number  // 決算月（1-12、例: 3月決算=3）
+  lastCsvExportAt?: string      // 最も直近に仕訳CSVを出力した日時(ISO)。全ユーザー横断で共有。
 }
 
 const CLIENTS_KEY = 'bank-statement-clients'
@@ -63,6 +64,21 @@ export function updateClient(id: string, updates: Partial<Client>): void {
     clients[idx] = { ...clients[idx], ...updates }
     saveClients(clients)
   }
+}
+
+/**
+ * 仕訳CSV出力日を記録（既存よりも新しい場合のみ更新）。
+ * saveClients 経由で Firebase(clients_v2) にも反映され、全ユーザー横断で最新化される。
+ */
+export function recordCsvExport(clientId: string, when: Date = new Date()): void {
+  const clients = getClients()
+  const idx = clients.findIndex((c) => c.id === clientId)
+  if (idx < 0) return
+  const iso = when.toISOString()
+  const prev = clients[idx].lastCsvExportAt
+  if (prev && prev >= iso) return
+  clients[idx] = { ...clients[idx], lastCsvExportAt: iso }
+  saveClients(clients)
 }
 
 export function getSelectedClientId(): string | null {

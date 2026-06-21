@@ -46,7 +46,7 @@ import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
 import type { Client } from '@/lib/bank-statement/client-store'
-import { getSelectedClientId, setSelectedClientId } from '@/lib/bank-statement/client-store'
+import { getSelectedClientId, setSelectedClientId, recordCsvExport } from '@/lib/bank-statement/client-store'
 
 export default function BankStatementContent() {
   // 顧問先選択
@@ -1177,6 +1177,7 @@ export default function BankStatementContent() {
       return u
     })
     downloadCsv(completed, undefined, selectedClient?.taxType)
+    if (selectedClient) recordCsvExport(selectedClient.id)
     // 仮払金の質問対象を蓄積ストアへ追記（CSV出力でtempはクリアされるため、ここで退避）
     const kariAcc = accountMaster.find((a) => a.name.includes('仮払') || a.shortName.includes('仮払'))
     if (kariAcc) {
@@ -1356,7 +1357,8 @@ export default function BankStatementContent() {
               </button>
               <CsvExportButton entries={journalEntries}
                 dateFrom={dateFrom} dateTo={dateTo}
-                onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+                onDateFromChange={setDateFrom} onDateToChange={setDateTo}
+                onExported={() => { if (selectedClient) recordCsvExport(selectedClient.id) }} />
             </>
           )}
           {tempCount > 0 && (

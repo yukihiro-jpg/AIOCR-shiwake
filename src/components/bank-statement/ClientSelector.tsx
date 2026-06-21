@@ -48,45 +48,61 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
     onSelect(client)
   }
 
+  const taxLabel = (t?: TaxType) => t === 'exempt' ? '免税' : t === 'simplified' ? '簡易課税' : '原則課税'
+  const taxBadgeClass = (t?: TaxType) =>
+    t === 'exempt' ? 'bg-gray-100 text-gray-600'
+    : t === 'simplified' ? 'bg-amber-50 text-amber-700'
+    : 'bg-blue-50 text-blue-700'
+  const fmtDate = (iso?: string) => {
+    if (!iso) return null
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return null
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-gray-100 bank-statement-app">
-      <header className="bg-gray-800 px-6 py-3 shrink-0">
-        <h1 className="text-lg font-bold text-white">会計大将インポートデータ変換</h1>
-        <p className="text-sm text-gray-400">顧問先を選択してください</p>
+    <div className="h-screen flex flex-col bank-statement-app fusion">
+      <header className="fusion-bar px-6 py-3 shrink-0 flex items-center gap-3">
+        <div className="fusion-logo">会</div>
+        <div>
+          <h1 className="text-base font-semibold text-gray-800 leading-tight">会計大将インポートデータ変換</h1>
+          <p className="text-xs text-gray-500">顧問先を選択してください</p>
+        </div>
       </header>
 
-      <div className="flex-1 flex justify-center overflow-auto py-8">
-        <div className="w-full max-w-lg">
+      <div className="flex-1 overflow-auto px-6 py-6">
+        <div className="w-full max-w-6xl mx-auto">
           {/* 検索 + 追加 */}
-          <div className="mb-4 flex gap-2">
-            <div className="flex-1 relative">
+          <div className="mb-5 flex gap-2">
+            <div className="flex-1 relative max-w-md">
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="顧問先名で検索..."
-                className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
               />
               {search && (
                 <button onClick={() => setSearch('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   &times;
                 </button>
               )}
             </div>
             <button
               onClick={() => setShowAdd(!showAdd)}
-              className="px-4 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shrink-0"
+              className="fbtn fbtn-blue shrink-0"
             >
-              + 新規登録
+              ＋ 新規登録
             </button>
           </div>
 
           {/* 新規登録フォーム */}
           {showAdd && (
-            <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <div className="mb-5 p-4 bg-white rounded-2xl border border-gray-200 shadow-sm max-w-2xl">
               <div className="text-sm font-medium text-gray-700 mb-2">新しい顧問先を登録</div>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center flex-wrap">
                 <input
                   type="text"
                   value={newName}
@@ -94,74 +110,77 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
                   placeholder="顧問先名を入力"
                   autoFocus
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="flex-1 min-w-[200px] px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
                 <select value={newFiscalMonth} onChange={(e) => setNewFiscalMonth(parseInt(e.target.value))}
-                  className="px-2 py-2 text-sm border border-gray-300 rounded">
+                  className="px-2 py-2 text-sm border border-gray-300 rounded-lg">
                   {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => <option key={m} value={m}>{m}月決算</option>)}
                 </select>
-                <button onClick={handleAdd}
-                  className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">
-                  登録
-                </button>
-                <button onClick={() => { setShowAdd(false); setNewName('') }}
-                  className="px-3 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">
-                  取消
-                </button>
+                <button onClick={handleAdd} className="fbtn fbtn-blue">登録</button>
+                <button onClick={() => { setShowAdd(false); setNewName('') }} className="fbtn fbtn-soft">取消</button>
               </div>
             </div>
           )}
 
-          {/* 顧問先一覧 */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            {filtered.length === 0 ? (
-              <div className="p-8 text-center text-gray-400">
-                {clients.length === 0
-                  ? '顧問先が登録されていません。「+ 新規登録」から追加してください。'
-                  : '検索結果がありません'}
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {filtered.map((client) => (
-                  <li key={client.id}
-                    className="flex items-center justify-between px-5 py-3 hover:bg-blue-50 cursor-pointer transition-colors group"
+          {/* 顧問先カードグリッド（4列）*/}
+          {filtered.length === 0 ? (
+            <div className="p-10 text-center text-gray-400 bg-white rounded-2xl border border-gray-200">
+              {clients.length === 0
+                ? '顧問先が登録されていません。「＋ 新規登録」から追加してください。'
+                : '検索結果がありません'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filtered.map((client) => {
+                const last = fmtDate(client.lastCsvExportAt)
+                return (
+                  <div key={client.id}
                     onClick={() => handleSelect(client)}
+                    className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all p-4 flex flex-col gap-3"
                   >
-                    <div className="flex-1">
-                      <span className="text-sm font-medium text-gray-800 group-hover:text-blue-700">
-                        {client.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-400">
-                        {client.taxType === 'exempt' ? '免税' : client.taxType === 'simplified' ? '簡易課税' : '原則課税'}
-                      </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(client.id, client.name) }}
+                      title="この顧問先を削除"
+                      className="absolute top-2 right-2 w-6 h-6 rounded-full text-gray-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity text-sm"
+                    >
+                      ✕
+                    </button>
+
+                    {/* 顧問先名 */}
+                    <div className="font-semibold text-gray-800 group-hover:text-blue-700 pr-6 leading-snug min-h-[2.6em]">
+                      {client.name}
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    {/* 消費税方式 */}
+                    <div>
                       <select value={client.taxType || 'standard'}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           updateClient(client.id, { taxType: e.target.value as TaxType })
                           setClients(getClients())
                         }}
-                        className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-white">
+                        className={`text-xs font-semibold rounded-full px-2.5 py-1 border-0 cursor-pointer ${taxBadgeClass(client.taxType)}`}>
                         <option value="standard">原則課税</option>
                         <option value="simplified">簡易課税</option>
                         <option value="exempt">免税</option>
                       </select>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(client.id, client.name) }}
-                        className="text-xs text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        削除
-                      </button>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
 
-          <p className="mt-3 text-xs text-gray-400 text-center">
-            {clients.length}件の顧問先が登録されています
+                    {/* 直前のCSV出力日 */}
+                    <div className="mt-auto pt-2 border-t border-gray-100 text-xs">
+                      <span className="text-gray-400">直前の処理</span>
+                      <span className={`ml-2 font-medium ${last ? 'text-gray-700' : 'text-gray-300'}`}>
+                        {last || '未処理'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <p className="mt-4 text-xs text-gray-400">
+            {clients.length}件の顧問先が登録されています（直前の処理＝最も直近に仕訳CSVを出力した日）
           </p>
         </div>
       </div>
