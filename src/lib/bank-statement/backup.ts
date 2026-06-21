@@ -21,6 +21,8 @@ export function getLastBackupAt(): Date | null {
 export function setLastBackupAt(d: Date = new Date()): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(LAST_BACKUP_KEY, d.toISOString())
+  // ヘッダーの「前回バックアップ」表示を更新させる
+  window.dispatchEvent(new Event('bs-backup-updated'))
 }
 
 /** 前回バックアップからの経過日数（未実施なら null）*/

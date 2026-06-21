@@ -1259,6 +1259,11 @@ export default function BankStatementContent() {
             buttonLabel="メニュー"
             items={[
               {
+                label: 'バックアップ',
+                render: (<BackupButton inMenu />),
+              },
+              { divider: true },
+              {
                 label: '科目マスタ',
                 render: (
                   <div className="-mx-1">
