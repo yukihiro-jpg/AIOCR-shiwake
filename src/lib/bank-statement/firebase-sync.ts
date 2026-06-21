@@ -10,76 +10,20 @@
 // data path: rooms/{roomKey}/aiocr-shiwake/{clientId}/{key}
 //   - 顧問先一覧（グローバル）は clientId='_global', key='clients'
 
-import { firebaseConfig, APP_SUBTREE } from './firebase-config'
+import { APP_SUBTREE } from './firebase-config'
 import { STORAGE_KEY_MAP } from './storage-keys'
+import { getDb } from '@/core/firebase'
+import { getRoomPassphrase, setRoomPassphrase, clearRoomPassphrase, hasRoom, modulePath } from '@/core/room'
 
-const ROOM_STORAGE_KEY = 'bs-fb-room' // 合言葉（生）。この端末のみ保存。
+// 合言葉(ルーム)管理は core/room に集約。既存の import 互換のため再エクスポートする。
+export { getRoomPassphrase, setRoomPassphrase, clearRoomPassphrase, hasRoom }
+
 const GLOBAL_CLIENT_ID = '_global'
 const CLIENTS_LIST_STORAGE_KEY = 'bank-statement-clients'
 
-// ---- ルーム（合言葉）管理 ----
-
-export function getRoomPassphrase(): string | null {
-  if (typeof window === 'undefined') return null
-  const v = localStorage.getItem(ROOM_STORAGE_KEY)
-  return v && v.trim() ? v : null
-}
-
-export function setRoomPassphrase(passphrase: string): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(ROOM_STORAGE_KEY, passphrase.trim())
-  cachedRoomKey = null // 再計算させる
-}
-
-export function clearRoomPassphrase(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(ROOM_STORAGE_KEY)
-  cachedRoomKey = null
-}
-
-export function hasRoom(): boolean {
-  return getRoomPassphrase() != null
-}
-
-let cachedRoomKey: string | null = null
-
-// 合言葉 → SHA-256 16進。RTDB のパスに使える安全な文字列（推測不可）。
-async function roomKey(): Promise<string> {
-  if (cachedRoomKey) return cachedRoomKey
-  const pass = getRoomPassphrase()
-  if (!pass) throw new Error('NO_ROOM')
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pass))
-  cachedRoomKey = Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-  return cachedRoomKey
-}
-
-// ---- Firebase 初期化（クライアントのみ・遅延ロード） ----
-
-type DbType = import('firebase/database').Database
-let appPromise: Promise<DbType> | null = null
-
-async function getDb(): Promise<DbType> {
-  if (typeof window === 'undefined') throw new Error('NO_WINDOW')
-  if (appPromise) return appPromise
-  appPromise = (async () => {
-    const { initializeApp, getApps } = await import('firebase/app')
-    const { getAuth, signInAnonymously } = await import('firebase/auth')
-    const { getDatabase } = await import('firebase/database')
-    const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig)
-    const auth = getAuth(app)
-    if (!auth.currentUser) {
-      await signInAnonymously(auth)
-    }
-    return getDatabase(app)
-  })()
-  return appPromise
-}
-
+// データパス（rooms/{roomKey}/aiocr-shiwake/...）。core の modulePath 経由。
 async function dataPath(clientId: string, key: string): Promise<string> {
-  const rk = await roomKey()
-  return `rooms/${rk}/${APP_SUBTREE}/${clientId}/${key}`
+  return modulePath(APP_SUBTREE, clientId, key)
 }
 
 // ---- ステータス ----
@@ -217,12 +161,11 @@ function readLocalClients(): ClientLike[] {
 }
 
 async function globalPath(): Promise<string> {
-  const rk = await roomKey()
-  return `rooms/${rk}/${APP_SUBTREE}/${GLOBAL_CLIENT_ID}`
+  return modulePath(APP_SUBTREE, GLOBAL_CLIENT_ID)
 }
 
 async function clientsMapPath(): Promise<string> {
-  return `${await globalPath()}/${CLIENTS_MAP_NODE}`
+  return modulePath(APP_SUBTREE, GLOBAL_CLIENT_ID, CLIENTS_MAP_NODE)
 }
 
 // 手元の顧問先を Firebase へ寄与（update なので他端末の顧問先は消えない）
@@ -330,8 +273,7 @@ export async function startFirebaseSync(
     const db = await getDb()
     emit({ connected: true, error: null })
 
-    const rk = await roomKey()
-    const clientRef = ref(db, `rooms/${rk}/${APP_SUBTREE}/${clientId}`)
+    const clientRef = ref(db, await modulePath(APP_SUBTREE, clientId))
     const unsub = onValue(
       clientRef,
       (snap) => {
