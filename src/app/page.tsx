@@ -1,14 +1,17 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 
-// 静的書き出しではサーバー側 redirect() が使えないため、クライアント側で遷移する。
-// useRouter は basePath を自動で付与する。
+// ルート(/) は総合アプリのランチャー（ホーム）。クライアント専用で描画する。
+const Launcher = dynamic(() => import('@/components/Launcher'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-screen flex items-center justify-center bg-gray-50">
+      <p className="text-gray-500">読み込み中...</p>
+    </div>
+  ),
+})
+
 export default function Home() {
-  const router = useRouter()
-  useEffect(() => {
-    router.replace('/bank-statement')
-  }, [router])
-  return null
+  return <Launcher />
 }
