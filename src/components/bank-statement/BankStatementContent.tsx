@@ -18,6 +18,7 @@ import { addQuestionItems } from '@/lib/bank-statement/question-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
+import ModuleSwitcher from '@/core/ui/ModuleSwitcher'
 import BackupButton from '@/components/bank-statement/BackupButton'
 import FirebaseRoomDialog from '@/components/bank-statement/FirebaseRoomDialog'
 import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
@@ -1246,6 +1247,7 @@ export default function BankStatementContent() {
       {/* ヘッダー */}
       <header className="fusion-bar px-5 py-2 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3 min-w-0">
+          <ModuleSwitcher currentKey="aiocr-shiwake" />
           <div className="fusion-logo">会</div>
           <h1 className="text-base font-semibold text-gray-800 whitespace-nowrap">会計大将インポートデータ変換</h1>
           {selectedClient && (
