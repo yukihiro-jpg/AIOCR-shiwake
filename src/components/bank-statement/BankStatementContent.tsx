@@ -148,6 +148,26 @@ export default function BankStatementContent() {
     setJournalEntries([])
   }, [])
 
+  // この端末の全データ（顧問先・科目マスタ・パターン等）を Firebase へ一括アップロード。
+  // 主に「全データを持つ事務所PC」から1回実行し、他PCへ反映させる初期移行用。
+  const [fbUploading, setFbUploading] = useState(false)
+  const handleFirebaseFullUpload = useCallback(async () => {
+    if (!hasRoom()) { alert('先にヘッダー右上の「共有設定」で合言葉を設定してください。'); return }
+    if (!window.confirm(
+      'この端末の すべての顧問先データ（科目マスタ・補助科目・パターン学習・処理状況など）を Firebase へアップロードし、他のPCと共有します。\n\n' +
+      'この端末が最も完全なデータを持っている場合に実行してください。\n実行しますか？',
+    )) return
+    setFbUploading(true)
+    try {
+      const { pushEverythingToFirebase } = await import('@/lib/bank-statement/firebase-sync')
+      const r = await pushEverythingToFirebase()
+      alert(`Firebaseへアップロードしました：顧問先 ${r.uploaded}/${r.total}件。\n\n他のPCで同じ合言葉を開き、各顧問先を選択すると反映されます。`)
+    } catch (e) {
+      alert('アップロードに失敗しました: ' + (e instanceof Error ? e.message : 'unknown'))
+    }
+    setFbUploading(false)
+  }, [])
+
   // 列マッピング用state（hooksは条件分岐の前に定義する必要がある）
   const [showColumnMapping, setShowColumnMapping] = useState(false)
   const [rawPages, setRawPages] = useState<RawTableRow[][] | null>(null)
@@ -1261,6 +1281,14 @@ export default function BankStatementContent() {
               {
                 label: 'バックアップ',
                 render: (<BackupButton inMenu />),
+              },
+              { divider: true },
+              {
+                label: fbUploading ? 'アップロード中…' : '全データをFirebaseへアップロード（この端末→共有）',
+                icon: '☁️',
+                title: '全データを持つPC（事務所PC）から1回実行すると、他のPCにも科目マスタ・パターン等が反映されます',
+                disabled: fbUploading,
+                onClick: handleFirebaseFullUpload,
               },
               { divider: true },
               {
