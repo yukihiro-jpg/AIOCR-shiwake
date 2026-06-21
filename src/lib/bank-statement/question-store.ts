@@ -25,9 +25,9 @@ export function saveQuestionItems(items: JournalEntry[]): void {
   localStorage.setItem(getKey(), JSON.stringify(items))
   const cid = getSelectedClientId()
   if (cid) {
-    import('./drive-sync').then(({ schedulePushToDrive }) => {
-      schedulePushToDrive(cid, 'questions', items)
-    })
+    import('./firebase-sync').then(({ schedulePushToFirebase }) => {
+      schedulePushToFirebase(cid, 'questions', items)
+    }).catch(() => { /* 合言葉未設定でもローカル保存は成功 */ })
   }
 }
 

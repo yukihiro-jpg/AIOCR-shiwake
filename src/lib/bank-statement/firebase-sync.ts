@@ -11,7 +11,7 @@
 //   - 顧問先一覧（グローバル）は clientId='_global', key='clients'
 
 import { firebaseConfig, APP_SUBTREE } from './firebase-config'
-import { STORAGE_KEY_MAP } from './drive-sync'
+import { STORAGE_KEY_MAP } from './storage-keys'
 
 const ROOM_STORAGE_KEY = 'bs-fb-room' // 合言葉（生）。この端末のみ保存。
 const GLOBAL_CLIENT_ID = '_global'

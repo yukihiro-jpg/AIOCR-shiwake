@@ -47,12 +47,12 @@ export function getPatterns(): PatternEntry[] {
 export function savePatterns(patterns: PatternEntry[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getPatternKey(), JSON.stringify(patterns))
-  // Drive 自動同期: クライアントが選択されている場合のみ debounce 付きで Push
+  // Firebase 自動同期: クライアント選択中のみ debounce 付きで Push
   const cid = getSelectedClientId()
   if (cid) {
-    import('./drive-sync').then(({ schedulePushToDrive }) => {
-      schedulePushToDrive(cid, 'patterns', patterns)
-    }).catch(() => { /* Drive 未設定でもローカル保存は成功 */ })
+    import('./firebase-sync').then(({ schedulePushToFirebase }) => {
+      schedulePushToFirebase(cid, 'patterns', patterns)
+    }).catch(() => { /* 合言葉未設定でもローカル保存は成功 */ })
   }
 }
 

@@ -18,10 +18,9 @@ import { addQuestionItems } from '@/lib/bank-statement/question-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
-import DriveSyncButton from '@/components/bank-statement/DriveSyncButton'
+import BackupButton from '@/components/bank-statement/BackupButton'
 import FirebaseRoomDialog from '@/components/bank-statement/FirebaseRoomDialog'
 import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
-import { uploadClientToDrive, downloadClientFromDrive, getDriveConnected } from '@/lib/bank-statement/drive-sync'
 import { hasRoom, testFirebaseConnection, startFirebaseSync, stopFirebaseSync, startClientsSync, stopClientsSync } from '@/lib/bank-statement/firebase-sync'
 import ProcessingStatusTable from '@/components/bank-statement/ProcessingStatusTable'
 import { updateProcessingStatus } from '@/lib/bank-statement/processing-status-store'
@@ -40,7 +39,6 @@ import type {
 } from '@/lib/bank-statement/types'
 import { parseFile, applyColumnMapping } from '@/lib/bank-statement/transaction-extractor'
 import { creditCardOcr, receiptOcr, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
-import { driveRead } from '@/lib/bank-statement/drive-client'
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode } from '@/lib/bank-statement/account-master'
@@ -54,9 +52,6 @@ export default function BankStatementContent() {
   // 顧問先選択
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [showClientSelector, setShowClientSelector] = useState(true)
-  // 顧問先選択直後のDrive取込確認バナー
-  const [showDriveImportBanner, setShowDriveImportBanner] = useState(false)
-  const [driveImporting, setDriveImporting] = useState(false)
   // アプリ終了処理
   const [exitingApp, setExitingApp] = useState(false)
 
@@ -132,48 +127,18 @@ export default function BankStatementContent() {
     setAccountTaxMaster(loadAccountTaxMaster())
     setPages([])
     setJournalEntries([])
-    // Drive連携中なら取込確認バナーを表示
-    const driveOn = await getDriveConnected()
-    if (driveOn) setShowDriveImportBanner(true)
   }, [])
 
-  const handleDriveImport = useCallback(async () => {
-    if (!selectedClient) return
-    setDriveImporting(true)
-    try {
-      await downloadClientFromDrive(selectedClient.id, selectedClient.name)
-      // 読込後にマスタを再ロード
-      setAccountMaster(loadAccountMaster())
-      setSubAccountMaster(loadSubAccountMaster())
-      setAccountTaxMaster(loadAccountTaxMaster())
-      setInfo('Driveから最新データを取り込みました')
-    } catch (e) {
-      setError(`Drive読込エラー: ${e instanceof Error ? e.message : 'unknown'}`)
-    }
-    setDriveImporting(false)
-    setShowDriveImportBanner(false)
-  }, [selectedClient])
-
   const handleExitApp = useCallback(async () => {
-    if (!selectedClient) {
-      window.close()
-      return
-    }
-    if (!window.confirm('アプリを終了します。現在の顧問先データを Drive に保存してからブラウザを閉じます。よろしいですか？')) return
+    if (!window.confirm('アプリを終了してブラウザのタブを閉じます。よろしいですか？\n（データはFirebaseとこのPCに保存済みです）')) return
     setExitingApp(true)
-    try {
-      await uploadClientToDrive(selectedClient.id, selectedClient.name)
-    } catch (e) {
-      const ok = window.confirm(`Drive 保存でエラーが発生しました: ${e instanceof Error ? e.message : 'unknown'}\n\nこのまま終了しますか？`)
-      if (!ok) { setExitingApp(false); return }
-    }
     window.close()
     // window.close() が効かない環境用の代替メッセージ
     setTimeout(() => {
       setExitingApp(false)
-      alert('保存が完了しました。このブラウザタブを閉じてください。')
+      alert('このブラウザタブを閉じてください。')
     }, 500)
-  }, [selectedClient])
+  }, [])
 
   const handleBackToClientList = useCallback(() => {
     setSelectedClientId(null)
@@ -735,36 +700,6 @@ export default function BankStatementContent() {
     [applyParseResultFn],
   )
 
-  // Drive 自動同期: 顧問先選択中にポーリングを開始し、リモート変更があれば該当データを取り込む
-  useEffect(() => {
-    if (!selectedClient) return
-    let cancelled = false
-    let stopFn: (() => void) | null = null
-    ;(async () => {
-      const { startAutoSyncPolling, stopAutoSyncPolling } = await import('@/lib/bank-statement/drive-sync')
-      if (cancelled) return
-      startAutoSyncPolling(selectedClient.id, selectedClient.name, async (changedKeys) => {
-        // 変更があったキーごとに該当データを Drive から取り直してローカルにマージ
-        for (const key of changedKeys) {
-          try {
-            const data = await driveRead(selectedClient.id, selectedClient.name, key)
-            if (data == null) continue
-            if (key === 'patterns' && Array.isArray(data)) {
-              const { mergePatternsFromDrive } = await import('@/lib/bank-statement/pattern-store')
-              mergePatternsFromDrive(data)
-            }
-            // 他カテゴリは別コミットで追加予定
-          } catch { /* ignore individual failures */ }
-        }
-      })
-      stopFn = stopAutoSyncPolling
-    })()
-    return () => {
-      cancelled = true
-      stopFn?.()
-    }
-  }, [selectedClient])
-
   // Firebase リアルタイム同期: 顧問先選択中、合言葉設定済みなら購読開始。
   // リモート変更を localStorage へ反映済みなので、表示中の state を再ロードする。
   useEffect(() => {
@@ -1301,8 +1236,8 @@ export default function BankStatementContent() {
           </button>
         </div>
         <div className="flex items-center gap-2">
-          {/* Drive 同期ステータス（バッジのみ） */}
-          <DriveSyncButton clientId={selectedClient?.id || null} clientName={selectedClient?.name || null} />
+          {/* バックアップ（全データZIP出力・復元）＋前回バックアップ日 */}
+          <BackupButton />
           {/* リアルタイム共有（Firebase 合言葉） */}
           <button onClick={() => setShowRoomDialog(true)}
             title={roomReady ? 'リアルタイム共有中（合言葉設定済み）' : '合言葉を設定して共有を有効化'}
@@ -1322,15 +1257,6 @@ export default function BankStatementContent() {
           <HeaderMenuDropdown
             buttonLabel="メニュー"
             items={[
-              {
-                label: 'Drive 同期操作',
-                render: (
-                  <DriveSyncButton inMenu
-                    clientId={selectedClient?.id || null}
-                    clientName={selectedClient?.name || null} />
-                ),
-              },
-              { divider: true },
               {
                 label: '科目マスタ',
                 render: (
@@ -1456,9 +1382,9 @@ export default function BankStatementContent() {
           {/* スペースを空けてアプリ終了ボタン */}
           {selectedClient && (
             <button onClick={handleExitApp} disabled={exitingApp}
-              title="Drive保存してブラウザを閉じる"
+              title="ブラウザのタブを閉じます（データは保存済み）"
               className="fbtn fbtn-red ml-3">
-              {exitingApp ? '保存中...' : 'アプリ終了'}
+              {exitingApp ? '終了中...' : 'アプリ終了'}
             </button>
           )}
         </div>
@@ -1469,26 +1395,6 @@ export default function BankStatementContent() {
         <div className="fusion-crumb shrink-0">
           <span className="s">取込</span> ＞ <span className="s">{docTypeLabel(uploadConfig?.documentType)}</span>
           {parseElapsed && <> ＞ <b>解析完了 {parseElapsed}（{journalEntries.length}件）</b></>}
-        </div>
-      )}
-
-      {/* 顧問先選択直後の Drive 取込確認バナー */}
-      {showDriveImportBanner && selectedClient && (
-        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
-          <span className="text-sm text-blue-800">
-            顧問先「{selectedClient.name}」のDrive保存データを取り込みますか？
-            <span className="text-xs text-gray-500 ml-2">（科目マスタ・パターン学習等が最新になります）</span>
-          </span>
-          <div className="flex items-center gap-2">
-            <button onClick={handleDriveImport} disabled={driveImporting}
-              className="px-3 py-1 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50">
-              {driveImporting ? '取込中...' : '取り込む'}
-            </button>
-            <button onClick={() => setShowDriveImportBanner(false)} disabled={driveImporting}
-              className="px-3 py-1 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-100">
-              スキップ
-            </button>
-          </div>
         </div>
       )}
 
