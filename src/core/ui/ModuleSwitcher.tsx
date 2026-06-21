@@ -30,10 +30,10 @@ export default function ModuleSwitcher({ currentKey }: { currentKey?: string }) 
         ⊞ アプリ切替 <span className="text-[10px]">▼</span>
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white text-gray-800 rounded-lg shadow-xl border border-gray-200 min-w-[230px] py-1">
+        <div className="absolute left-0 top-full mt-1 z-[100] bg-white text-gray-800 rounded-lg shadow-xl border border-gray-200 w-max min-w-[240px] py-1 whitespace-nowrap">
           <Link href="/" onClick={() => setOpen(false)}
-            className="w-full px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2">
-            <span className="w-5 text-center">🏠</span><span>ホーム（ランチャー）</span>
+            className="w-full px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 whitespace-nowrap">
+            <span className="w-5 text-center shrink-0">🏠</span><span>ホーム（ランチャー）</span>
           </Link>
           <div className="my-1 border-t border-gray-100" />
           {MODULES.map((m) => {
@@ -42,18 +42,18 @@ export default function ModuleSwitcher({ currentKey }: { currentKey?: string }) 
             if (ready) {
               return (
                 <Link key={m.key} href={m.path} onClick={() => setOpen(false)}
-                  className={`w-full px-3 py-2 text-sm flex items-center gap-2 ${isCurrent ? 'bg-blue-50/60' : 'hover:bg-blue-50'}`}>
-                  <span className="w-5 text-center">{m.icon}</span>
-                  <span className="flex-1">{m.label}</span>
-                  {isCurrent && <span className="text-[10px] text-blue-600 font-semibold">現在</span>}
+                  className={`w-full px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap ${isCurrent ? 'bg-blue-50/60' : 'hover:bg-blue-50'}`}>
+                  <span className="w-5 text-center shrink-0">{m.icon}</span>
+                  <span className="flex-1 whitespace-nowrap">{m.label}</span>
+                  {isCurrent && <span className="ml-2 text-[10px] text-blue-600 font-semibold shrink-0">現在</span>}
                 </Link>
               )
             }
             return (
-              <div key={m.key} className="w-full px-3 py-2 text-sm flex items-center gap-2 text-gray-400" title="準備中">
-                <span className="w-5 text-center">{m.icon}</span>
-                <span className="flex-1">{m.label}</span>
-                <span className="text-[10px] bg-gray-100 rounded-full px-2 py-0.5">準備中</span>
+              <div key={m.key} className="w-full px-3 py-2 text-sm flex items-center gap-2 whitespace-nowrap text-gray-400" title="準備中">
+                <span className="w-5 text-center shrink-0">{m.icon}</span>
+                <span className="flex-1 whitespace-nowrap">{m.label}</span>
+                <span className="ml-2 text-[10px] bg-gray-100 rounded-full px-2 py-0.5 shrink-0">準備中</span>
               </div>
             )
           })}
