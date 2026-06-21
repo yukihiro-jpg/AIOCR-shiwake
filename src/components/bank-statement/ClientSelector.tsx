@@ -38,7 +38,13 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
   }
 
   const handleDelete = (id: string, name: string) => {
-    if (!confirm(`「${name}」を削除しますか？\n科目マスタ・パターン学習データも削除されます。`)) return
+    const msg =
+      `⚠️ 本当に「${name}」を削除しますか？\n\n` +
+      `この操作は取り消せません。\n` +
+      `・この顧問先の 科目マスタ／補助科目／パターン学習／処理状況／一時保存データ がすべて削除されます。\n` +
+      `・共有中のすべての端末（他のユーザーの画面）からも完全に削除され、元に戻せません。\n\n` +
+      `削除してよろしければ「OK」を押してください。`
+    if (!confirm(msg)) return
     deleteClient(id)
     setClients(getClients())
   }
@@ -136,18 +142,10 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                 return (
                   <div key={client.id}
                     onClick={() => handleSelect(client)}
-                    className="group relative bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all p-4 flex flex-col gap-3"
+                    className="group bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all p-4 flex flex-col gap-3"
                   >
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(client.id, client.name) }}
-                      title="この顧問先を削除"
-                      className="absolute top-2 right-2 w-6 h-6 rounded-full text-gray-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity text-sm"
-                    >
-                      ✕
-                    </button>
-
                     {/* 顧問先名 */}
-                    <div className="font-semibold text-gray-800 group-hover:text-blue-700 pr-6 leading-snug min-h-[2.6em]">
+                    <div className="font-semibold text-gray-800 group-hover:text-blue-700 leading-snug min-h-[2.6em]">
                       {client.name}
                     </div>
 
@@ -166,12 +164,21 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                       </select>
                     </div>
 
-                    {/* 直前のCSV出力日 */}
-                    <div className="mt-auto pt-2 border-t border-gray-100 text-xs">
-                      <span className="text-gray-400">直前の処理</span>
-                      <span className={`ml-2 font-medium ${last ? 'text-gray-700' : 'text-gray-300'}`}>
-                        {last || '未処理'}
-                      </span>
+                    {/* 直前のCSV出力日 + 削除ボタン */}
+                    <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
+                      <div className="text-xs min-w-0">
+                        <span className="text-gray-400">直前の処理</span>
+                        <span className={`ml-1.5 font-medium ${last ? 'text-gray-700' : 'text-gray-300'}`}>
+                          {last || '未処理'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(client.id, client.name) }}
+                        title="この顧問先を削除（取り消せません）"
+                        className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-red-600 border border-red-300 rounded-md px-2 py-1 hover:bg-red-600 hover:text-white transition-colors"
+                      >
+                        <span aria-hidden>🗑</span>削除
+                      </button>
                     </div>
                   </div>
                 )
