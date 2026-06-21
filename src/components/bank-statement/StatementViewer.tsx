@@ -88,8 +88,9 @@ export default function StatementViewer({
   return (
     <div className="flex flex-col h-full">
       {/* ページ送り + ズーム */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-800 mr-1">解析元データ</span>
           <button
             onClick={() => onPageChange(currentPageIndex - 1)}
             disabled={currentPageIndex === 0}
@@ -208,7 +209,7 @@ export default function StatementViewer({
       {/* 残高情報 */}
       {hideBalance ? (
         // クレジットカード等: 金額合計のみ表示
-        <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 shrink-0 text-sm">
+        <div className="px-4 py-2 bg-[#fafbfd] border-t border-gray-200 shrink-0 text-sm">
           <span className="text-gray-600">金額合計: </span>
           <span className="font-bold text-gray-800">
             ¥{currentPage.transactions.reduce((s, t) => s + (t.deposit || 0) + (t.withdrawal || 0), 0).toLocaleString()}

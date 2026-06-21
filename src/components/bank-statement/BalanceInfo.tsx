@@ -48,7 +48,7 @@ export default function BalanceInfo({ page, entries, bankAccountCode, onBalanceO
   }
 
   return (
-    <div className="px-4 py-3 bg-gray-50 border-t border-gray-300 shrink-0">
+    <div className="px-4 py-3 bg-[#fafbfd] border-t border-gray-200 shrink-0">
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
         <div className="space-y-0.5">
           <div className="flex justify-between items-center">
@@ -101,9 +101,9 @@ export default function BalanceInfo({ page, entries, bankAccountCode, onBalanceO
           <div className="flex justify-between items-center">
             <span className="text-gray-500">検証:</span>
             {isValid ? (
-              <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold">OK 一致</span>
+              <span className="px-2.5 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">OK 一致</span>
             ) : (
-              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-bold">
+              <span className="px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">
                 不一致 &yen;{Math.abs(difference).toLocaleString()}
               </span>
             )}
