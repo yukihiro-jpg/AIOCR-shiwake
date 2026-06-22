@@ -456,6 +456,15 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 
 .muted{color:var(--ink-2);}
 .center-msg{text-align:center;padding:50px 20px;color:var(--ink-2);}
+/* 議事録一覧 */
+.min-row{display:flex;align-items:flex-start;gap:14px;padding:13px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:background .12s,box-shadow .12s;}
+.min-row:hover{background:#f8faff;box-shadow:0 2px 10px rgba(0,0,0,.05);}
+.min-row .min-date{flex:0 0 96px;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink);font-size:13.5px;padding-top:1px;}
+.min-row .min-body{flex:1;min-width:0;}
+.min-row .min-title{font-weight:600;color:var(--ink);}
+.min-row .min-snip{color:var(--ink-2);font-size:12.5px;margin-top:3px;white-space:normal;line-height:1.5;}
+.min-row .min-del{flex:0 0 auto;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;}
+.min-row .min-del:hover{background:var(--red);color:#fff;border-color:var(--red);}
 </style>
 </head>
 <body>
@@ -476,6 +485,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       <div class="nav-section">案件の作業</div>
       <button class="nav-item needs-case" data-view="progress"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M6 20v-7M12 20V5M18 20v-10"/></svg></span>進捗管理・確認リスト</button>
       <button class="nav-item needs-case" data-view="basic"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l5 5v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M13 4v5h5M9 13h6M9 16h6"/></svg></span>基本情報<span class="step-no">1</span></button>
+      <button class="nav-item needs-case" data-view="minutes"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 9h6M8 13h8M8 17h5"/></svg></span>議事録</button>
       <button class="nav-item needs-case" data-view="checklist"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8.5 12l2.2 2.2L16 9"/></svg></span>必要資料<span class="step-no">2</span></button>
       <button class="nav-item needs-case" data-view="assets" id="navAssets"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 9l3 4 3-4M12 13v4M9.5 14.5h5"/></svg></span>財産一覧<span class="step-no">3</span></button>
       <div class="nav-sub" id="assetSubNav"></div>
@@ -565,6 +575,18 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       <div class="btn-row">
         <button class="btn contract" onclick="downloadContract()" style="background:#3a2a52;color:#fff;border-color:#3a2a52;">委任契約書を作成</button>
       </div>
+    </section>
+
+    <!-- ===== Minutes（議事録：顧問先の議事録と同期） ===== -->
+    <section class="view" id="view-minutes">
+      <div class="view-head"><h1>議事録</h1><p>打合せ内容を記録します。顧問先管理（進捗）の議事録と同期され、入力した順に一覧表示されます。</p></div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="card-head-row" style="max-width:none;justify-content:space-between;">
+          <div class="card-sub" style="margin:0;">日付と大まかな議事内容で一覧表示。行をクリックすると編集できます。</div>
+          <button class="btn primary sm" onclick="szOpenMinuteModal()">＋ 議事録を作成</button>
+        </div>
+      </div>
+      <div id="szMinList"></div>
     </section>
 
     <!-- ===== Checklist ===== -->
@@ -897,6 +919,30 @@ function getStock_(symbol){
     <div class="btn-row" style="margin-top:20px;justify-content:flex-end;">
       <button class="btn" onclick="closeModal('newCaseModal')">キャンセル</button>
       <button class="btn primary" onclick="createCase()">作成する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 議事録モーダル -->
+<div class="modal-ov" id="szMinModal">
+  <div class="modal" style="max-width:720px;">
+    <h2 id="szMinModalTitle">議事録の作成</h2>
+    <input type="hidden" id="szmn_id">
+    <div class="grid grid-2" style="gap:12px;">
+      <div class="field"><label>日付</label><input type="date" id="szmn_date"></div>
+      <div class="field"><label>件名</label><input type="text" id="szmn_title" placeholder="例：初回打合せ"></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>出席者</label><input type="text" id="szmn_attendees" placeholder="例：ご長男様、ご次男様、当方○○"></div>
+    <div class="field" style="margin-top:10px;"><label>税務論点</label><textarea id="szmn_tax" rows="3" placeholder="税務・評価・分割に関する論点や判断"></textarea></div>
+    <div class="field" style="margin-top:10px;"><label>世間話・近況</label><textarea id="szmn_chat" rows="2" placeholder="関係構築に役立つ雑談・近況"></textarea></div>
+    <div class="field" style="margin-top:10px;"><label>TODO</label><textarea id="szmn_todo" rows="2" placeholder="宿題・依頼事項・期限・担当"></textarea></div>
+    <div class="field" style="margin-top:10px;"><label>決定事項・next action</label><textarea id="szmn_actions" rows="2"></textarea></div>
+    <div class="btn-row" style="margin-top:18px;justify-content:space-between;">
+      <button class="btn" id="szmnAiBtn" onclick="szAiPolish()">🪄 AI校正</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeModal('szMinModal')">キャンセル</button>
+        <button class="btn primary" onclick="szSaveMinute()">保存</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1693,6 +1739,7 @@ function switchView(view){
   if(view==='docs'){ renderDocs(); }
   if(view==='checklist'){ renderChecklist(); }
   if(view==='progress'){ renderProgress(); renderCheckList(); }
+  if(view==='minutes'){ szRenderMinutes(); }
   if(view==='cases'){ renderCasesList(); }
   if(view==='basic'){ /* already rendered */ }
 }
@@ -4093,6 +4140,72 @@ function handleJsonFile(input){
 // ============================================================
 function openModal(id){ $(id).classList.add('active'); }
 function closeModal(id){ $(id).classList.remove('active'); }
+
+/* ===== 議事録（顧問先管理の議事録 rooms/{rk}/shinchoku/minutes と共有・同期） ===== */
+function _szCore(){ return window.__souzokuCore||null; }
+const _SZ_BAD=/[.#$\/\[\]~]/g;
+function _szEnc(k){ return '_'+String(k).replace(_SZ_BAD,c=>'~'+c.charCodeAt(0).toString(16)); }
+function _szDec(k){ return String(k).replace(/^_/,'').replace(/~([0-9a-f]{2})/g,(m,h)=>String.fromCharCode(parseInt(h,16))); }
+function _szDecTree(o){ if(Array.isArray(o))return o.map(_szDecTree); if(o&&typeof o==='object'){const r={};for(const k in o)r[_szDec(k)]=_szDecTree(o[k]);return r;} return o; }
+function _szEncTree(o){ if(Array.isArray(o))return o.map(_szEncTree); if(o&&typeof o==='object'){const r={};for(const k in o)r[_szEnc(k)]=_szEncTree(o[k]);return r;} return o; }
+function _komonSettings(){ try{ const raw=localStorage.getItem('komonManagerData_v3'); if(raw){ const d=JSON.parse(raw); return (d&&d.settings)||{}; } }catch(e){} return {}; }
+// 現在の案件に紐づく顧問先ID（顧問先連携で作成された案件は clientId を持つ。'komon-xxx' からも復元）
+function szMinClientId(){ if(!currentCase)return null; if(currentCase.clientId)return currentCase.clientId; if(currentId&&/^komon-/.test(currentId))return currentId.slice(6); return currentId; }
+let _szMinutes=[];
+async function _szFetchAllMinutes(){ const core=_szCore(); if(!core||!core.hasRoom())throw new Error('同期が未設定です'); const db=await core.getDb(); const F=core.dbfns; const snap=await F.get(F.ref(db, await core.modulePath('shinchoku','minutes'))); const v=(snap&&snap.exists())?snap.val():[]; const arr=_szDecTree(v); return Array.isArray(arr)?arr.filter(Boolean):[]; }
+async function _szWriteAllMinutes(arr){ const core=_szCore(); if(!core||!core.hasRoom())throw new Error('同期が未設定です'); const db=await core.getDb(); const F=core.dbfns; await F.set(F.ref(db, await core.modulePath('shinchoku','minutes')), _szEncTree(arr)); }
+function szMinuteText(m){ return [m.tax?'【税務論点】'+m.tax:'',m.chat?'【世間話】'+m.chat:'',m.todo?'【TODO】'+m.todo:'',m.actions?'【決定事項】'+m.actions:'',(!m.tax&&!m.chat&&!m.todo&&m.content)?m.content:''].filter(Boolean).join('　'); }
+function szMinuteSnippet(m){ const t=szMinuteText(m).replace(/\s+/g,' ').trim(); return t.length>80?t.slice(0,80)+'…':(t||'（内容未入力）'); }
+async function szRenderMinutes(){
+  const el=$('szMinList'); if(!el)return;
+  const cid=szMinClientId();
+  if(!cid){ el.innerHTML='<div class="center-msg">案件を選択してください。</div>'; return; }
+  el.innerHTML='<div class="center-msg">読み込み中…</div>';
+  let all; try{ all=await _szFetchAllMinutes(); }catch(e){ el.innerHTML='<div class="center-msg">読み込みできませんでした。ホーム画面で合言葉（同期）を設定してください。</div>'; return; }
+  _szMinutes=all.filter(m=>m&&m.clientId===cid); // 配列順＝入力順
+  if(!_szMinutes.length){ el.innerHTML='<div class="empty-state" style="padding:40px 20px;text-align:center;color:var(--ink-2);"><div style="font-size:16px;font-weight:600;color:var(--ink);">議事録がありません</div><p style="margin-top:6px;">「＋ 議事録を作成」から追加してください。顧問先管理の議事録と同期されます。</p></div>'; return; }
+  el.innerHTML=_szMinutes.map(m=>'<div class="min-row" onclick="szOpenMinuteModal(\''+esc(m.id)+'\')">'
+    +'<div class="min-date">'+esc(m.date||'(日付なし)')+'</div>'
+    +'<div class="min-body"><div class="min-title">'+esc(m.title||'(無題)')+'</div><div class="min-snip">'+esc(szMinuteSnippet(m))+'</div></div>'
+    +'<button class="min-del" onclick="event.stopPropagation();szDeleteMinute(\''+esc(m.id)+'\')">削除</button></div>').join('');
+}
+function szOpenMinuteModal(id){
+  const cid=szMinClientId(); if(!cid){ toast('案件を選択してください', true); return; }
+  const m=id?_szMinutes.find(x=>x.id===id):null;
+  $('szmn_id').value=m?m.id:''; $('szmn_date').value=(m&&m.date)||new Date().toISOString().slice(0,10);
+  $('szmn_title').value=(m&&m.title)||''; $('szmn_attendees').value=(m&&m.attendees)||'';
+  $('szmn_tax').value=(m&&(m.tax||m.content))||''; $('szmn_chat').value=(m&&m.chat)||''; $('szmn_todo').value=(m&&m.todo)||''; $('szmn_actions').value=(m&&m.actions)||'';
+  $('szMinModalTitle').textContent=id?'議事録の編集':'議事録の作成'; openModal('szMinModal');
+}
+async function szSaveMinute(){
+  const cid=szMinClientId(); if(!cid){ toast('案件を選択してください', true); return; }
+  const id=$('szmn_id').value;
+  const o={ id:id||uid(), clientId:cid, date:$('szmn_date').value, title:$('szmn_title').value, attendees:$('szmn_attendees').value, tax:$('szmn_tax').value, chat:$('szmn_chat').value, todo:$('szmn_todo').value, actions:$('szmn_actions').value };
+  if(!o.date){ toast('日付を入力してください', true); return; }
+  try{ const all=await _szFetchAllMinutes(); const i=all.findIndex(x=>x&&x.id===o.id); if(i>=0)all[i]=Object.assign({},all[i],o); else all.push(o); await _szWriteAllMinutes(all); }
+  catch(e){ toast('保存に失敗しました：'+e.message, true); return; }
+  closeModal('szMinModal'); toast('保存しました（顧問先の議事録と同期）'); szRenderMinutes();
+}
+async function szDeleteMinute(id){ if(!confirm('この議事録を削除しますか？'))return; try{ const all=await _szFetchAllMinutes(); await _szWriteAllMinutes(all.filter(x=>x&&x.id!==id)); }catch(e){ toast('削除に失敗：'+e.message, true); return; } toast('削除しました'); szRenderMinutes(); }
+const _SZ_POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、事実を変えずに要点が明確で読みやすい議事録に整えます。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで簡潔に出力します。表は使わず箇条書きにします。';
+const _SZ_SEC={ szmn_tax:'これは「税務論点」の議事メモです。税務・評価・分割上の論点、判断、根拠、検討事項が明確になるように整理してください。', szmn_chat:'これは「世間話・近況」の議事メモです。関係構築に役立つ雑談・近況・人柄に関する情報を、要点が分かるよう簡潔に整理してください。', szmn_todo:'これは「TODO」の議事メモです。やるべきこと・宿題・期限・担当を、実行しやすいタスクの箇条書きに整理してください。' };
+async function szCallAI(system,user,maxTokens){
+  const s=_komonSettings(); const provider=s.aiProvider||'gemini';
+  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{maxOutputTokens:maxTokens||1500}})});
+    if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); const c=j.candidates&&j.candidates[0]; return(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim(); }
+  const key=(s.claudeApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.claudeModel||'claude-opus-4-8';
+  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:maxTokens||1500,system,messages:[{role:'user',content:user}]})});
+  if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); return(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+}
+async function szAiPolish(){
+  const ids=['szmn_tax','szmn_chat','szmn_todo'].filter(k=>($(k).value||'').trim());
+  if(!ids.length){ toast('議事内容（税務論点・世間話・TODO）を入力してください', true); return; }
+  const btn=$('szmnAiBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='AI校正中…'; }
+  try{ for(const k of ids){ const out=await szCallAI(_SZ_POLISH_SYS, _SZ_SEC[k]+'\n\n――以下のメモを、事実を変えずに整えてください――\n'+$(k).value, 1200); if(out)$(k).value=out; } toast('AI校正が完了しました'); }
+  catch(e){ toast('AI校正に失敗：'+e.message, true); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
+}
 
 // ============================================================
 //  Init

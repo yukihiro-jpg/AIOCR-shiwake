@@ -10,7 +10,8 @@
 */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { hasRoom, setRoomPassphrase } from '@/core/room';
+import { hasRoom, setRoomPassphrase, modulePath } from '@/core/room';
+import { getDb } from '@/core/firebase';
 import GlobalNav from '@/core/ui/GlobalNav';
 import { startSouzokuBridge, type SouzokuBridgeHandle } from './bridge';
 import { SOUZOKU_HTML } from './embedded';
@@ -37,6 +38,23 @@ export default function SouzokuApp() {
         const h = await startSouzokuBridge(el);
         if (alive) handle = h;
         else h.dispose();
+        // 議事録など、souzoku 内から共有ストア(shinchoku/minutes 等)へ直接アクセスするためのコアを注入
+        const dbfns = await import('firebase/database');
+        const w = el.contentWindow as unknown as { __souzokuCore?: unknown } | null;
+        if (w && alive) {
+          w.__souzokuCore = {
+            getDb,
+            hasRoom,
+            modulePath,
+            dbfns: {
+              ref: dbfns.ref,
+              get: dbfns.get,
+              set: dbfns.set,
+              update: dbfns.update,
+              onValue: dbfns.onValue,
+            },
+          };
+        }
       } catch (e) {
         console.error('[souzoku] bridge start failed', e);
       }
