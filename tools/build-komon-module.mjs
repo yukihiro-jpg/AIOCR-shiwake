@@ -29,7 +29,7 @@ function must(s, anchor) { if (s.indexOf(anchor) < 0) throw new Error('置換対
 const KOMON_STORE_CODE = String.raw`/* ===== ホスト共通コア経由の同期（Firebase Realtime Database / iframe隔離） ===== */
 /* 顧問先情報は rooms/{roomKey}/komon/ 、進捗管理＋議事録は rooms/{roomKey}/shinchoku/ に保存。 */
 const KOMON_KEYS=['clients','clientTombstones'];
-const SHINCHOKU_KEYS=['filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes'];
+const SHINCHOKU_KEYS=['filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes','cellMemos'];
 const KomonStore=(function(){
   const ALL=[...KOMON_KEYS,...SHINCHOKU_KEYS];
   const moduleOf=k=>KOMON_KEYS.indexOf(k)>=0?'komon':'shinchoku';

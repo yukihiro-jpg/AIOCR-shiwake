@@ -45,7 +45,7 @@
   .sub-tabs button{border-radius:20px;}
   .sub-tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue);}
   .gm-months{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;}
-  .gm-months button{flex:1 1 0;min-width:60px;text-align:center;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;padding:9px 6px;cursor:pointer;white-space:nowrap;transition:.12s;}
+  .gm-months button{flex:1 1 0;min-width:60px;text-align:center;justify-content:center;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;padding:9px 6px;cursor:pointer;white-space:nowrap;transition:.12s;}
   .gm-months button:hover{background:var(--blue-soft);border-color:#bcd3fb;}
   .gm-months button.on{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 2px 6px rgba(26,115,232,.28);}
   .ai-btn{font-size:12px;padding:5px 10px;border-radius:14px;border:1px solid #d6c5f0;color:#7b2ff7;background:#faf5ff;}
@@ -161,6 +161,11 @@
   .cell{cursor:pointer;border-radius:4px;padding:3px 4px;min-width:60px;display:inline-block;}
   .cell.done{color:var(--green);font-weight:600;} .cell.todo{color:var(--muted);} .cell.over{color:var(--danger);font-weight:600;} .cell.na{color:#9aa0a6;font-style:italic;}
   .cell:hover{background:#e8f0fe;}
+  .memomark{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);margin-left:5px;vertical-align:middle;}
+  .cellmemo{margin-top:4px;font-size:11.5px;line-height:1.45;color:#5f4300;background:#fff8e1;border:1px solid #ffe6a0;border-radius:6px;padding:3px 6px;white-space:normal;text-align:left;max-width:200px;}
+  #cellPop .memo-wrap{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;}
+  #cellPop .memo-wrap textarea{width:100%;font-size:13px;resize:vertical;}
+  #cellPop .memo-wrap .mrow{display:flex;justify-content:flex-end;margin-top:6px;}
   #cellPop{position:absolute;display:none;z-index:320;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);padding:12px;min-width:180px;}
   #cellPop .row{display:flex;gap:8px;margin-bottom:10px;}
   #cellPop .row button{flex:1;justify-content:center;}
@@ -558,7 +563,7 @@
   <div class="modal-foot"><button class="text" onclick="closeModal('summaryModal')">閉じる</button></div>
 </div></div>
 
-<div id="cellPop"><div class="row"><button class="sm" onclick="cellPopSet('対象外')">対象外</button><button class="sm" onclick="cellPopSet(todayISO())">今日</button><button class="sm" onclick="cellPopSet('')">クリア</button></div><input type="date" id="cellPopDate"></div>
+<div id="cellPop"><div class="row"><button class="sm" onclick="cellPopSet('対象外')">対象外</button><button class="sm" onclick="cellPopSet(todayISO())">今日</button><button class="sm" onclick="cellPopSet('')">クリア</button></div><input type="date" id="cellPopDate"><div class="memo-wrap" id="cellPopMemoWrap" style="display:none"><textarea id="cellPopMemo" rows="2" placeholder="メモ（任意）"></textarea><div class="mrow"><button class="sm primary" onclick="cellPopSaveMemo()">メモを保存</button></div></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -596,10 +601,10 @@ function migrateFilingSteps(){
     data.filingSteps[mk]=arr.filter(s=>s.name!=='申告書チェック_2回目').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s); });
   Object.values(data.filings||{}).forEach(f=>{ if(f&&f.cells){ if(f.cells['申告書チェック_1回目']!=null&&f.cells['申告書チェック']==null)f.cells['申告書チェック']=f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_2回目']; } });
 }
-function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
+function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones','cellMemos','memoShow'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
 /* ===== リアルタイム共同編集（Firebase Realtime Database） ===== */
 const Realtime=(function(){
-  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes'];
+  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes','cellMemos'];
   const BAD=/[.#$\/\[\]~]/g;
   let ref=null, ready=false, lastSnap={}, pushTimer=null, fbPending=false;
   function enc(k){ return '_'+String(k).replace(BAD,c=>'~'+c.charCodeAt(0).toString(16)); }
@@ -772,7 +777,7 @@ function openFilterMenu(ev,table,key,i){ const st=gridStates[key]; let menu=docu
 
 /* ===== 値フィルタ（顧問先一覧など：列の登録値で絞り込み＋並び替え） ===== */
 const valueFilterStates={};
-function cellText(td){ return td?(td.textContent||'').trim():''; }
+function cellText(td){ if(!td)return ''; const sp=td.querySelector('.cell'); return ((sp?sp.textContent:td.textContent)||'').trim(); }
 function applyValueFilter(table,key){ const st=valueFilterStates[key]; const tb=table.tBodies[0]; if(!tb)return;
   [...tb.rows].forEach(r=>{ let show=true; Object.keys(st.sel).forEach(i=>{ const allowed=st.sel[i]; if(allowed&&!allowed.has(cellText(r.cells[i])))show=false; }); r.style.display=show?'':'none'; }); }
 function enhanceValueFilter(table,key,skip){ if(!table||!table.tHead)return; const st=valueFilterStates[key]||(valueFilterStates[key]={sel:{},sortI:null,sortDir:1}); st.sel=st.sel||{}; skip=skip||[];
@@ -1056,7 +1061,7 @@ function renderFilingDetail(){
   const M=filingMonth; const cs=clientsByFiscal(M); const steps=getSteps(M); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><button class="text" onclick="backFiling()">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${filingYear}年 ${M}月決算 申告業務</h2><span class="chip blue">${wareki(filingYear)}</span>
-    <div class="toolbar"><button onclick="openSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportFilingMonth()">📤 Excel出力</button></div></div>`;
+    <div class="toolbar">${memoToggleBtn('filing','renderFilingDetail()')}<button onclick="openSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportFilingMonth()">📤 Excel出力</button></div></div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>${M}月決算の契約中顧問先がありません。顧問先の決算月・ステータスをご確認ください。</div></div>`; document.getElementById('filingView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th><th>主担当者</th><th>備考</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>確定法人税等</th><th>確定消費税</th><th>中間申告</th></tr>`;
   let body=cs.map(c=>{ const f=getFiling(filingYear,c.id); const tx=f.tax||{}; const res=calcInterim(tx);
@@ -1065,7 +1070,7 @@ function renderFilingDetail(){
       <td><input style="min-width:90px;padding:5px 7px" value="${esc(f.note||'')}" onchange="setFilingNote('${c.id}',this.value)"></td>`;
     row+=steps.map(s=>{ const v=f.cells&&f.cells[s.name]; let cls='todo',txt='－';
       if(v==='対象外'){ cls='na'; txt='対象外'; } else if(v){ cls='done'; txt=fmtMD(v); } else if(s.due){ cls=(new Date(s.due)<today)?'over':'todo'; txt='未('+fmtMD(s.due)+')'; }
-      return `<td><span class="cell ${cls}" onclick="editCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span></td>`; }).join('');
+      return pcTd('filing|'+filingYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); }).join('');
     const flag=res.subject?'<span class="chip amber">対象</span>':((corpTot||consTot)?'<span class="chip gray">対象外</span>':'<span class="chip gray">未入力</span>');
     row+=`<td class="yen tax-mini">${corpTot?yen(corpTot):'－'}</td><td class="yen tax-mini">${consTot?yen(consTot):'－'}</td>
       <td>${flag} <button class="text sm" onclick="openTax('${c.id}')">計算/入力</button></td>`;
@@ -1078,12 +1083,23 @@ function renderFilingDetail(){
 }
 function setFilingNote(cid,v){ ensureFiling(filingYear,cid).note=v; persist(); }
 /* セル編集 */
-let cellCommit=null;
-function openCellEditor(e,cur,commit){ cellCommit=commit; const pop=document.getElementById('cellPop'); const di=document.getElementById('cellPopDate');
+let cellCommit=null, cellMemoKey=null, cellCur='';
+function openCellEditor(e,cur,commit){ cellCommit=commit; cellCur=cur; const pop=document.getElementById('cellPop'); const di=document.getElementById('cellPopDate');
   di.value=(cur&&cur!=='対象外')?cur:''; const rect=e.target.getBoundingClientRect();
+  // クリックしたセル(td[data-mk])からメモのキーを取得
+  const td=e.target.closest&&e.target.closest('td[data-mk]'); cellMemoKey=td?td.getAttribute('data-mk'):null;
+  const mw=document.getElementById('cellPopMemoWrap'), mt=document.getElementById('cellPopMemo');
+  if(cellMemoKey){ mw.style.display=''; mt.value=(data.cellMemos&&data.cellMemos[cellMemoKey])||''; } else { mw.style.display='none'; }
   pop.style.left=(window.scrollX+rect.left)+'px'; pop.style.top=(window.scrollY+rect.bottom+4)+'px'; pop.style.display='block';
   di.onchange=()=>cellPopSet(di.value); }
-function cellPopSet(v){ document.getElementById('cellPop').style.display='none'; const fn=cellCommit; cellCommit=null; if(fn)fn(v); }
+function saveCellMemo(){ if(!cellMemoKey)return; if(!data.cellMemos)data.cellMemos={}; const v=(document.getElementById('cellPopMemo').value||'').trim(); if(v)data.cellMemos[cellMemoKey]=v; else delete data.cellMemos[cellMemoKey]; }
+function cellPopSet(v){ saveCellMemo(); document.getElementById('cellPop').style.display='none'; const fn=cellCommit; cellCommit=null; cellMemoKey=null; if(fn)fn(v); }
+function cellPopSaveMemo(){ saveCellMemo(); const v=cellCur, fn=cellCommit; document.getElementById('cellPop').style.display='none'; cellCommit=null; cellMemoKey=null; if(fn)fn(v); } // メモのみ保存（値は据え置き）
+// 進捗セルのHTML（メモのマーカー＋表示を付与）
+function pcTd(mk,spanHtml,tdcls){ const memo=(data.cellMemos&&data.cellMemos[mk])||''; const grp=String(mk).split('|')[0]; const show=memo&&data.memoShow&&data.memoShow[grp];
+  return `<td class="${tdcls||''}" data-mk="${esc(mk)}">${spanHtml}${memo?'<span class="memomark" title="メモあり"></span>':''}${show?`<div class="cellmemo">${esc(memo)}</div>`:''}</td>`; }
+// 各進捗ページの「メモ表示/非表示」トグルボタン
+function memoToggleBtn(grp,call){ const on=data.memoShow&&data.memoShow[grp]; return `<button class="text" title="セルのメモを常に表示/非表示" onclick="if(!data.memoShow)data.memoShow={};data.memoShow['${grp}']=!data.memoShow['${grp}'];persist();${call}">🗒 ${on?'メモを隠す':'メモを表示'}</button>`; }
 function editCell(e,cid,encName){ const step=decodeURIComponent(encName); const f=getFiling(filingYear,cid); const cur=(f.cells&&f.cells[step])||'';
   openCellEditor(e,cur,v=>{ const ff=ensureFiling(filingYear,cid); if(!ff.cells)ff.cells={}; if(v)ff.cells[step]=v; else delete ff.cells[step]; persist(); renderFiling(); renderDashboard(); }); }
 function gotoFiling(M){ filingMonth=M; showPage('filing'); renderFiling(); }
@@ -1192,14 +1208,14 @@ function interimFixedCell(col,c,ev){ switch(col.k){
 function renderInterimDetail(){ const CY=interimYear, CM=interimMonth; const rows=interimRows(CY,CM); const steps=getInterimSteps(); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><button class="text" onclick="backInterim()">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${CY}年${CM}月中間申告</h2><span class="chip blue">${wareki(CY)}</span>
-    <div class="toolbar"><button onclick="openInterimSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportInterimMonth()">📤 Excel出力</button></div></div>
+    <div class="toolbar">${memoToggleBtn('interim','renderInterimDetail()')}<button onclick="openInterimSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportInterimMonth()">📤 Excel出力</button></div></div>
     <div class="hint" style="margin-bottom:14px">この月（${CY}年${CM}月）に中間申告・納付期限が到来する顧問先です（決算月に関係なく集計）。納付方法と完了の間の工程は「工程を編集」で追加・修正・削除できます。</div>`;
   if(!rows.length){ html+=`<div class="card"><div class="empty"><div class="big">🗓</div>${CY}年${CM}月に納付期限が到来する中間申告はありません。</div></div>`; document.getElementById('interimView').innerHTML=html; return; }
   let head=`<tr>`+INTERIM_FIXED.map(col=>`<th class="${col.k==='name'?'name':''}" style="${col.num?'text-align:right':''}">${col.label}</th>`).join('')+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>完了</th></tr>`;
   let body=rows.map(({client:c,ev})=>{ const done=!!data.interimDone[interimKey(CY,CM,c.id)]; const cells=data.interimCells[interimKey(CY,CM,c.id)]||{};
     let row=INTERIM_FIXED.map(col=>interimFixedCell(col,c,ev)).join('');
     row+=steps.map(s=>{ const v=cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';}
-      return `<td><span class="cell ${cls}" onclick="editInterimCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span></td>`; }).join('');
+      return pcTd('interim|'+interimKey(CY,CM,c.id)+'|'+s.name,`<span class="cell ${cls}" onclick="editInterimCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); }).join('');
     row+=`<td style="text-align:center"><input type="checkbox" style="width:auto" ${done?'checked':''} onchange="toggleInterimDone('${c.id}',this.checked)"></td>`;
     return `<tr style="${done?'opacity:.6':''}">${row}</tr>`; }).join('');
   const sum=k=>rows.reduce((s,r)=>s+r.ev[k],0);
@@ -1239,14 +1255,14 @@ function renderModule(key){
   const def=getModuleDef(key); const year=getModuleYear(key); const store=getModuleStore(key); const steps=store.steps; const cs=moduleClients(key); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><h2>${def.label}</h2>
     <div class="year-nav"><button class="icon" onclick="changeModuleYear('${key}',-1)">◀</button><b>${year}年（${wareki(year)}）</b><button class="icon" onclick="changeModuleYear('${key}',1)">▶</button></div>
-    <div class="toolbar"><button onclick="openModuleSteps('${key}')">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportModule('${key}')">📤 Excel出力</button></div></div>
+    <div class="toolbar">${memoToggleBtn('mod_'+key,"renderModule('"+key+"')")}<button onclick="openModuleSteps('${key}')">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportModule('${key}')">📤 Excel出力</button></div></div>
     <div class="hint" style="margin-bottom:14px">${esc(def.note)}</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。</div></div>`; document.getElementById(key+'View').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th><th>主担当者</th><th>備考</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`</tr>`;
   let body=cs.map(c=>{ const r=moduleRow(key,year,c.id);
     let row=`<td class="name">${clientLink(c)}</td><td>${esc(c.staff||'')}</td><td><input style="min-width:90px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setModuleNote('${key}','${c.id}',this.value)"></td>`;
     row+=steps.map(s=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){ cls='na'; txt='対象外'; } else if(v){ cls='done'; txt=fmtMD(v); } else if(s.due){ cls=(new Date(s.due)<today)?'over':'todo'; txt='未('+fmtMD(s.due)+')'; }
-      return `<td><span class="cell ${cls}" onclick="editModuleCell(event,'${key}','${c.id}','${encodeURIComponent(s.name)}')">${txt}</span></td>`; }).join('');
+      return pcTd('mod_'+key+'|'+year+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editModuleCell(event,'${key}','${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); }).join('');
     return `<tr>${row}</tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="hint" style="margin-top:12px">※ セルをクリックで完了日を入力できます。ヘッダをクリックで並び替え、各列の🔍で絞り込みできます。</div>`;
@@ -1304,13 +1320,13 @@ function renderGensen(){ if(gensenTab==='special') return renderGensenSpecial();
 function renderGensenMonthly(){ const cs=gensenMonthlyClients(); const steps=getGensenSteps(); const today=new Date(); today.setHours(0,0,0,0);
   if(gensenMonth==null||gensenMonth<1||gensenMonth>11){ gensenMonth=Math.min(11,Math.max(1,new Date().getMonth()+1)); }
   const m=gensenMonth;
-  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar"><button onclick="openGensenSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
+  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar">${memoToggleBtn('gensen','renderGensen()')}<button onclick="openGensenSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
     `<div class="gm-months">`+Array.from({length:11},(_,i)=>{ const mm=i+1; return `<button class="${mm===m?'on':''}" onclick="openGensenMonth(${mm})">${mm}月</button>`; }).join('')+`</div>`+
     `<div class="hint" style="margin:0 0 14px"><b>${gensenDueLabel(m)}</b>・${cs.length}社（12月分（翌1/10納付）は年末調整で対応します）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>毎月納付の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>連絡方法</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">翌月繰越未済額</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id); const fwd=carry+num(r.current);
-    const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return `<td><span class="cell ${cls}" onclick="editGmCell(event,${m},'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span></td>`; };
+    const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|m'+m+'|'+gensenYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editGmCell(event,${m},'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); };
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${esc(c.taxOffice||'')}</td><td>${payChip(c)}</td><td>${esc(c.noticeMethod||'')}</td><td>${esc(c.payrollSoftware||'')}</td>
       <td class="yen" style="text-align:right" title="${m===1?'前年の年末調整 控除未済額より自動':'前月の翌月繰越未済額より自動'}">${carry?fmtAmtSigned(carry):'－'}</td>
@@ -1331,15 +1347,15 @@ function setGsCurrent(cid,raw){ const r=gsEnsure(gensenYear,cid); const v=String
 function setGsNote(cid,v){ const r=gsEnsure(gensenYear,cid); v=(v==null?'':String(v).trim()); if(v)r.note=v; else delete r.note; persist(); }
 function editGsCell(e,cid,encStep){ const step=decodeURIComponent(encStep); const r=gsPeek(gensenYear,cid); openCellEditor(e,(r.cells&&r.cells[step])||'',v=>{ const rr=gsEnsure(gensenYear,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells[step]=v; else delete rr.cells[step]; persist(); renderGensen(); }); }
 function renderGensenSpecial(){ const cs=gensenSpecialClients(); const steps=getGensenSteps(); const today=new Date(); today.setHours(0,0,0,0);
-  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar"><button onclick="openGensenSteps()">⚙ 工程を編集</button><button onclick="openGensenMethods()">⚙ 方法の選択肢</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
+  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar">${memoToggleBtn('gensen','renderGensen()')}<button onclick="openGensenSteps()">⚙ 工程を編集</button><button onclick="openGensenMethods()">⚙ 方法の選択肢</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
     `<div class="hint" style="margin-bottom:14px">納期特例：1〜6月分（納付期限 7/10）の進捗管理です。7〜12月分は年末調整で対応します。前年完了日・前年方法は前年の「今回分」から自動連動します。未済繰越額は前年の年末調整「控除未済額」から自動セットされます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>納期特例の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>連絡方法</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">源泉税額(1〜6月)</th><th style="text-align:right">翌期繰越未済額</th>`+
     steps.map(s=>{ const due=s.due?`<span class="due">${fmtMD(s.due)}</span>`:''; if(s.name==='今回分'){ return `<th>前年完了日</th><th>前年方法</th><th class="step">今回分${due}</th><th>今回方法</th>`; } return `<th class="step">${esc(s.name)}${due}</th>`; }).join('')+`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=gsPeek(gensenYear,c.id); const carry=nenchoDeduction(gensenYear,c.id); const fwd=carry+num(r.current);
     const prev=gsPeek(gensenYear-1,c.id); const prevDate=gsKongaiVal(prev); const prevMethod=prev.method||'';
-    const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return `<td><span class="cell ${cls}" onclick="editGsCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span></td>`; };
-    const kongaiCell=()=>{ const v=gsKongaiVal(r); const due=(steps.find(s=>s.name==='今回分')||{}).due; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(due){cls=(new Date(due)<today)?'over':'todo';txt='未('+fmtMD(due)+')';} else {cls='todo';txt='未';} return `<td><span class="cell ${cls}" onclick="editGsKongai(event,'${c.id}')">${txt}</span></td>`; };
+    const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|s|'+gensenYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editGsCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); };
+    const kongaiCell=()=>{ const v=gsKongaiVal(r); const due=(steps.find(s=>s.name==='今回分')||{}).due; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(due){cls=(new Date(due)<today)?'over':'todo';txt='未('+fmtMD(due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|s|'+gensenYear+'|'+c.id+'|今回分',`<span class="cell ${cls}" onclick="editGsKongai(event,'${c.id}')">${txt}</span>`); };
     const stepCells=steps.map(s=>{ if(s.name==='今回分'){ return `<td class="yen" title="前年の今回分 完了日（自動連動）">${prevDate&&prevDate!=='対象外'?fmtMD(prevDate):(prevDate==='対象外'?'対象外':'－')}</td><td>${prevMethod?esc(prevMethod):'－'}</td>`+kongaiCell()+`<td>${gsMethodSelect(c.id,r.method)}</td>`; } return dcell(s); }).join('');
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${esc(c.taxOffice||'')}</td><td>${payChip(c)}</td><td>${esc(c.noticeMethod||'')}</td><td>${esc(c.payrollSoftware||'')}</td>
@@ -1378,12 +1394,12 @@ function renderNencho(){
   const cs=activeClients();
   let html=`<div class="page-head"><h2>年末調整</h2>
     <div class="year-nav"><button class="icon" onclick="changeNenchoYear(-1)">◀</button><b>${nenchoYear}年（${wareki(nenchoYear)}）</b><button class="icon" onclick="changeNenchoYear(1)">▶</button></div>
-    <div class="toolbar">${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
+    <div class="toolbar">${memoToggleBtn('nencho','renderNencho()')}${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
     <div class="hint" style="margin-bottom:14px">契約中の顧問先を対象に年末調整を管理します。申告書登録・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>契約中の顧問先がありません。</div></div>`; document.getElementById('nenchoView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th><th>申告書登録</th><th>給与登録</th><th>年調確定</th><th>源泉徴収票等送付</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
   let body=cs.map(c=>{ const r=nPeek(nenchoYear,c.id);
-    const dcell=(f)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else {cls='todo';txt='未';} return `<td><span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span></td>`; };
+    const dcell=(f)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else {cls='todo';txt='未';} return pcTd('nencho|'+nenchoYear+'|'+c.id+'|'+f,`<span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span>`); };
     const ded=nenchoDeductionOf(nenchoYear,c.id);
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${c.gensenStatus?`<span class="chip ${c.gensenStatus==='納期特例'?'amber':'pink'}">${esc(c.gensenStatus)}</span>`:''}</td><td>${payChip(c)}</td>
@@ -1418,7 +1434,7 @@ function setMonthlyNote(cid,v){ const r=mEnsure(monthlyYear,cid); v=(v==null?'':
 function renderMonthly(){ const cs=monthlyClients(); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><h2>月次</h2>
     <div class="year-nav"><button class="icon" onclick="changeMonthlyYear(-1)">◀</button><b>${monthlyYear}年（${wareki(monthlyYear)}）</b><button class="icon" onclick="changeMonthlyYear(1)">▶</button></div>
-    <div class="toolbar"><button onclick="openMonthlyTargets()">🏢 対象顧問先（${cs.length}社）</button>${bulkBtn()}<button onclick="exportMonthly()">📤 Excel出力</button></div></div>
+    <div class="toolbar">${memoToggleBtn('monthly','renderMonthly()')}<button onclick="openMonthlyTargets()">🏢 対象顧問先（${cs.length}社）</button>${bulkBtn()}<button onclick="exportMonthly()">📤 Excel出力</button></div></div>
     <div class="hint" style="margin:0 0 14px">対象顧問先について、1〜12月の月次処理（資料回収→入力→報告）を一覧で管理します。各セルをクリックで日付（または対象外）を入力。ヘッダの▾で絞り込み、🗂一括入力でまとめて登録できます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象顧問先が未設定です。「🏢 対象顧問先」から選択してください。</div></div>`; document.getElementById('monthlyView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th><th>主担当者</th>`;
@@ -1426,7 +1442,7 @@ function renderMonthly(){ const cs=monthlyClients(); const today=new Date(); tod
   head+=`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=mPeek(monthlyYear,c.id); let row=`<td class="name">${clientLink(c)}</td><td>${esc(c.staff||'')}</td>`;
     for(let m=1;m<=12;m++)MONTHLY_STEPS.forEach((s,si)=>{ const g=((m%2===0)?'mgA ':'')+(si===0?'medge':''); const v=r.cells&&r.cells[mKey(m,s.key)]; let cls='todo',txt='未'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);}
-      row+=`<td class="${g.trim()}"><span class="cell ${cls}" onclick="editMonthlyCell(event,${m},'${c.id}','${s.key}')">${txt}</span></td>`; });
+      row+=pcTd('monthly|'+monthlyYear+'|'+c.id+'|'+mKey(m,s.key),`<span class="cell ${cls}" onclick="editMonthlyCell(event,${m},'${c.id}','${s.key}')">${txt}</span>`,g.trim()); });
     row+=`<td><input style="min-width:120px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setMonthlyNote('${c.id}',this.value)"></td>`;
     return `<tr>${row}</tr>`; }).join('');
   // 一括入力用：列＝12か月×3工程
@@ -1649,13 +1665,13 @@ function setCustomNote(kind,id,cid,v){ cRow(cTable(kind,id),cid).note=v; persist
 function renderCustomDetail(kind){ const def=CUSTOM_DEFS[kind]; const t=cTable(kind,customCurrent[kind]); const cs=resolveSel(t.sel); const cols=t.cols||[]; const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('${kind}')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="openCustomCreate('${kind}','${t.id}')">⚙ 編集</button>${bulkBtn()}<button onclick="exportCustom('${kind}')">📤 Excel出力</button></div></div>`;
+    <div class="toolbar">${memoToggleBtn(kind+'_'+t.id,"renderCustomDetail('"+kind+"')")}<button onclick="openCustomCreate('${kind}','${t.id}')">⚙ 編集</button>${bulkBtn()}<button onclick="exportCustom('${kind}')">📤 Excel出力</button></div></div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; document.getElementById(def.view).innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th>`+cols.map(col=>`<th class="step">${esc(col.name)}${col.due?`<span class="due">${fmtMD(col.due)}</span>`:''}</th>`).join('')+`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=cRow(t,c.id);
     let row=`<td class="name">${clientLink(c)}</td>`;
     row+=cols.map(col=>{ const v=r.cells&&r.cells[col.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(col.due){cls=(new Date(col.due)<today)?'over':'todo';txt='未('+fmtMD(col.due)+')';}
-      return `<td><span class="cell ${cls}" onclick="editCustomCell(event,'${kind}','${t.id}','${c.id}','${encodeURIComponent(col.name)}')">${txt}</span></td>`; }).join('');
+      return pcTd(kind+'_'+t.id+'|'+c.id+'|'+col.name,`<span class="cell ${cls}" onclick="editCustomCell(event,'${kind}','${t.id}','${c.id}','${encodeURIComponent(col.name)}')">${txt}</span>`); }).join('');
     row+=`<td><input style="min-width:120px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setCustomNote('${kind}','${t.id}','${c.id}',this.value)"></td>`;
     return `<tr>${row}</tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
@@ -1893,7 +1909,7 @@ function saveSettings(){ data.settings.folderUrl=val('setFolderUrl'); data.setti
 function openDriveFolder(){ const url=val('setFolderUrl')||data.settings.folderUrl; if(!url){ toast('フォルダURLを入力してください','err'); return; } window.open(url,'_blank'); }
 function exportBackup(){ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='komon-manager-data.json'; a.click(); URL.revokeObjectURL(a.href); toast('データを書き出しました','ok'); }
 function importBackup(ev){ const f=ev.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{ try{ applyImportedData(JSON.parse(e.target.result)); toast('データを取り込みました','ok'); }catch(err){ toast('読み込み失敗: '+err.message,'err'); } ev.target.value=''; }; r.readAsText(f); }
-function applyImportedData(d){ data.clients=d.clients||[]; data.filings=d.filings||{}; data.filingSteps=d.filingSteps||{}; data.interimDone=d.interimDone||{}; data.modules=d.modules||{}; data.gensen=d.gensen||{monthly:{},special:{}}; data.gensenMonthly=d.gensenMonthly||{}; data.gensenSpecial=d.gensenSpecial||{}; data.nencho=d.nencho||{}; data.interimCells=d.interimCells||{}; data.interimSteps=d.interimSteps||null; data.gensenSteps=d.gensenSteps||null; data.monthly=d.monthly||{}; data.monthlyTargets=d.monthlyTargets||null; data.sonotaTables=d.sonotaTables||[]; data.docTables=d.docTables||[]; data.docTemplate=d.docTemplate||data.docTemplate||{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}; data.clientSummaries=d.clientSummaries||{}; data.minutes=d.minutes||[];
+function applyImportedData(d){ data.clients=d.clients||[]; data.filings=d.filings||{}; data.filingSteps=d.filingSteps||{}; data.interimDone=d.interimDone||{}; data.modules=d.modules||{}; data.gensen=d.gensen||{monthly:{},special:{}}; data.gensenMonthly=d.gensenMonthly||{}; data.gensenSpecial=d.gensenSpecial||{}; data.nencho=d.nencho||{}; data.interimCells=d.interimCells||{}; data.interimSteps=d.interimSteps||null; data.gensenSteps=d.gensenSteps||null; data.monthly=d.monthly||{}; data.monthlyTargets=d.monthlyTargets||null; data.sonotaTables=d.sonotaTables||[]; data.docTables=d.docTables||[]; data.docTemplate=d.docTemplate||data.docTemplate||{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}; data.clientSummaries=d.clientSummaries||{}; data.minutes=d.minutes||[]; data.cellMemos=d.cellMemos||{}; if(!data.memoShow)data.memoShow={};
   if(d.settings){ data.settings.folderUrl=d.settings.folderUrl||data.settings.folderUrl; data.settings.clientId=d.settings.clientId||data.settings.clientId; data.settings.claudeApiKey=d.settings.claudeApiKey||data.settings.claudeApiKey; data.settings.claudeModel=d.settings.claudeModel||data.settings.claudeModel; }
   filingMonth=null; interimMonth=null; gensenMonth=null; monthlyMonth=null; customCurrent={sonota:null,docs:null}; persist(false); restoreSettingsUI(); refreshAll(); }
 function restoreSettingsUI(){ setVal('setFolderUrl',data.settings.folderUrl); setVal('setClientId',data.settings.clientId); setVal('setAiProvider',data.settings.aiProvider||'gemini'); onProviderChange(); setVal('setFbConfig',data.settings.fbConfig||''); setVal('setFbRoom',data.settings.fbRoom||''); }
