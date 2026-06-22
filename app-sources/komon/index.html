@@ -336,6 +336,7 @@
       <div class="field"><label>契約区分</label><input id="cl_contract" placeholder="月次顧問 / スポット など"></div>
       <div class="field"><label>納付方法</label><select id="cl_payMethod"><option>ダイレクト納付</option><option>紙納付書</option></select></div>
       <div class="field"><label>源泉税納付ステータス</label><select id="cl_gensenStatus"><option>毎月納付</option><option>納期特例</option></select></div>
+      <div class="field"><label>給与支払日</label><select id="cl_payDay"></select></div>
       <div class="field"><label>所轄税務署</label><input id="cl_taxOffice" placeholder="例: ○○税務署"></div>
       <div class="field"><label>給与ソフト</label><input id="cl_payrollSoftware" placeholder="例: ○○給与"></div>
       <div class="field"><label>お知らせ方法</label><select id="cl_noticeMethod"><option value=""></option><option>メール</option><option>郵送</option><option>FAX</option><option>電話</option><option>チャット</option><option>その他</option></select></div>
@@ -471,7 +472,13 @@
   <div class="modal-head"><h3 id="minuteModalTitle">議事録</h3><button class="icon x" onclick="closeModal('minuteModal')">✕</button></div>
   <div class="modal-body"><input type="hidden" id="mn_id">
     <div class="form-grid">
-      <div class="field full"><label class="req">顧問先</label><select id="mn_client"></select></div>
+      <div class="field full"><label class="req">顧問先</label>
+        <div style="position:relative">
+          <input type="hidden" id="mn_client">
+          <input id="mn_clientInput" autocomplete="off" placeholder="顧問先名を入力して絞り込み・選択" oninput="filterMnClients()" onfocus="filterMnClients()" onblur="setTimeout(function(){var l=document.getElementById('mn_clientList');if(l)l.style.display='none';},150)" style="width:100%;box-sizing:border-box">
+          <div id="mn_clientList" style="display:none;position:absolute;z-index:50;left:0;right:0;max-height:220px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12)"></div>
+        </div>
+      </div>
       <div class="field"><label class="req">日付</label><input id="mn_date" type="date"></div>
       <div class="field"><label>件名（任意）</label><input id="mn_title"></div>
       <div class="field full"><label>出席者</label><input id="mn_attendees"></div>
@@ -615,13 +622,22 @@ function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 let toastTimer=null;
 function toast(m,t=''){ const e=document.getElementById('toast'); e.textContent=m; e.className='toast show '+t; clearTimeout(toastTimer); toastTimer=setTimeout(()=>e.className='toast '+t,2600); }
+function filterMnClients(){
+  const inp=document.getElementById('mn_clientInput'); const list=document.getElementById('mn_clientList'); if(!inp||!list)return;
+  const q=(inp.value||'').trim().toLowerCase();
+  const items=data.clients.filter(c=>!q||(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q));
+  list.innerHTML=items.slice(0,50).map(c=>`<div onmousedown="pickMnClient('${c.id}')" style="padding:6px 10px;cursor:pointer" onmouseover="this.style.background='#eef5ff'" onmouseout="this.style.background=''">${esc(c.name)}</div>`).join('')||'<div style="padding:6px 10px;color:#999">該当なし</div>';
+  list.style.display='block';
+}
+function pickMnClient(id){ const c=clientById(id); setVal('mn_client',id); const inp=document.getElementById('mn_clientInput'); if(inp)inp.value=c?c.name:''; const l=document.getElementById('mn_clientList'); if(l)l.style.display='none'; }
 function populateClientSelects(){
   const opt='<option value="">顧問先を選択</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const el=document.getElementById('mn_client'); if(el){ const c=el.value; el.innerHTML=opt; el.value=c; }
   const all='<option value="">全顧問先</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const fe=document.getElementById('minFilterClient'); if(fe){ const c=fe.value; fe.innerHTML=all; fe.value=c; }
 }
-function initMonthSelects(){ document.getElementById('cl_fiscal').innerHTML='<option value=""></option>'+MONTHS.map(m=>`<option>${m}</option>`).join(''); }
+function initMonthSelects(){ document.getElementById('cl_fiscal').innerHTML='<option value=""></option>'+MONTHS.map(m=>`<option>${m}</option>`).join('');
+  const pd=document.getElementById('cl_payDay'); if(pd)pd.innerHTML='<option value=""></option>'+Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('')+'<option value="末日">末日</option>'; }
 
 /* ===== 共通: 決算月・申告期日ロジック ===== */
 function fiscalMonthNum(fm){ const m=String(fm||'').match(/(\d+)/); return m?+m[1]:0; }
@@ -811,7 +827,7 @@ function renderClients(){
       <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`;
   enhanceValueFilter(el.querySelector('table'),'clients',[8]);
 }
-const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','taxOffice','payrollSoftware','noticeMethod','staff','fee','status','notes'];
+const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','payDay','taxOffice','payrollSoftware','noticeMethod','staff','fee','status','notes'];
 function openClientModal(id){ document.getElementById('clientModalTitle').textContent=id?'顧問先編集':'顧問先登録'; const c=id?clientById(id):{};
   CL_FIELDS.forEach(k=>setVal('cl_'+k,c[k])); setVal('cl_id',c.id||''); if(!c.type)setVal('cl_type','法人'); if(!c.status)setVal('cl_status','契約中'); if(!c.payMethod)setVal('cl_payMethod','紙納付書'); if(!c.gensenStatus)setVal('cl_gensenStatus','毎月納付'); openModal('clientModal'); }
 function saveClient(){ if(!val('cl_name')){ toast('顧問先名を入力してください','err'); return; } const id=val('cl_id'); const o={}; CL_FIELDS.forEach(k=>o[k]=val('cl_'+k));
@@ -1605,7 +1621,7 @@ function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn
   document.querySelectorAll('#minuteModal .seg-btn').forEach(b=>b.classList.toggle('on',b.dataset.sec===sec));
   document.getElementById('mn_sectionInput').value=mnSections[sec]||''; document.getElementById('mn_sectionInput').focus(); }
 function openMinuteModal(id){ if(!data.clients.length){ toast('先に顧問先を登録してください','err'); return; } document.getElementById('minuteModalTitle').textContent=id?'議事録編集':'議事録作成'; const m=id?data.minutes.find(x=>x.id===id):{};
-  setVal('mn_id',m.id||''); setVal('mn_client',m.clientId||''); setVal('mn_date',m.date||todayISO()); setVal('mn_title',m.title); setVal('mn_attendees',m.attendees); setVal('mn_actions',m.actions);
+  setVal('mn_id',m.id||''); setVal('mn_client',m.clientId||''); { const ci=document.getElementById('mn_clientInput'); if(ci)ci.value=m.clientId?clientName(m.clientId):''; } setVal('mn_date',m.date||todayISO()); setVal('mn_title',m.title); setVal('mn_attendees',m.attendees); setVal('mn_actions',m.actions);
   mnSections={tax:m.tax||(m.content&&!m.chat&&!m.todo?m.content:'')||'',chat:m.chat||'',todo:m.todo||''}; mnSection='tax'; switchMnSection('tax');
   document.getElementById('mn_aiHint').textContent='分類ボタンで「税務論点／世間話／TODO」を切替えて記入します。AI校正は選択中の分類を整えます。'; openModal('minuteModal'); }
 function saveMinute(){ if(!val('mn_client')){ toast('顧問先を選択してください','err'); return; } if(!val('mn_date')){ toast('日付を入力してください','err'); return; }
