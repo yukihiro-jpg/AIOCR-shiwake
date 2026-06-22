@@ -331,12 +331,11 @@
   <div class="modal-head"><h3 id="clientModalTitle">顧問先登録</h3><button class="icon x" onclick="closeModal('clientModal')">✕</button></div>
   <div class="modal-body"><input type="hidden" id="cl_id">
     <div class="form-grid g3">
+      <div class="field"><label>顧問先コード</label><input id="cl_code"></div>
       <div class="field"><label class="req">顧問先名</label><input id="cl_name"></div>
       <div class="field"><label>フリガナ</label><input id="cl_kana"></div>
-      <div class="field"><label>顧問先コード</label><input id="cl_code"></div>
       <div class="field"><label>区分</label><select id="cl_type"><option>法人</option><option>個人</option></select></div>
       <div class="field"><label>代表者名</label><input id="cl_rep"></div>
-      <div class="field"><label>法人番号</label><input id="cl_corpno"></div>
       <div class="field"><label>郵便番号</label><input id="cl_zip"></div>
       <div class="field"><label>決算月</label><select id="cl_fiscal"></select></div>
       <div class="field full"><label>住所</label><input id="cl_addr"></div>
@@ -359,9 +358,15 @@
     <div class="reward-box" style="margin-top:14px;border-top:1px solid var(--line,#e5e7eb);padding-top:14px">
       <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px">
         <label style="font-weight:600;font-size:15px">報酬</label>
-        <span class="muted" style="font-size:12px">月額報酬と、月ごとの報酬（決算料・年末調整料など）を登録できます。「分析」の売上分析に反映されます。</span>
+        <span class="muted" style="font-size:12px">年度ごとに、月額報酬と月別の報酬（決算料・年末調整料など）を登録できます。「分析」の売上分析に反映されます。</span>
       </div>
-      <div class="field" style="max-width:240px"><label>月額報酬（円）</label><input id="cl_rewardMonthly" type="number" placeholder="例: 50000"></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <button type="button" class="icon" title="前年度" onclick="changeRewardYear(-1)">◀</button>
+        <b id="cl_rewardYearLabel" style="font-size:14px;min-width:84px;text-align:center">―</b>
+        <button type="button" class="icon" title="翌年度" onclick="changeRewardYear(1)">▶</button>
+        <button type="button" class="sm" onclick="copyPrevYearReward()">📋 前年の報酬をコピー</button>
+      </div>
+      <div class="field" style="max-width:240px"><label>月額報酬（円）</label><input id="cl_rewardMonthly" type="number" placeholder="例: 50000" oninput="saveRewardYearFromForm()"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px"><b style="font-size:13px">月別の報酬（決算料・年末調整料など）</b><button type="button" class="sm" onclick="addRewardRow()">＋ 追加</button></div>
       <div id="cl_rewardRows"></div>
     </div></div>
@@ -860,18 +865,32 @@ function renderClients(){
       <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`;
   enhanceValueFilter(el.querySelector('table'),'clients',[0,9]);
 }
-const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','gensenProcessor','payDay','taxOffice','payrollSoftware','noticeMethod','staff','status','useShiwake','useSouzoku','notes'];
+const CL_FIELDS=['name','kana','code','type','rep','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','gensenProcessor','payDay','taxOffice','payrollSoftware','noticeMethod','staff','status','useShiwake','useSouzoku','notes'];
 function openClientModal(id){ document.getElementById('clientModalTitle').textContent=id?'顧問先編集':'顧問先登録'; const c=id?clientById(id):{};
   CL_FIELDS.forEach(k=>setVal('cl_'+k,c[k])); setVal('cl_id',c.id||''); if(!c.type)setVal('cl_type','法人'); if(!c.status)setVal('cl_status','契約中'); if(!c.payMethod)setVal('cl_payMethod','紙納付書'); if(!c.gensenStatus)setVal('cl_gensenStatus','毎月納付'); if(!c.gensenProcessor)setVal('cl_gensenProcessor','税理士'); if(!c.useShiwake)setVal('cl_useShiwake','未利用'); if(!c.useSouzoku)setVal('cl_useSouzoku','未利用');
-  const rw=(c&&c.reward)||{}; setVal('cl_rewardMonthly', (rw.monthly!=null&&rw.monthly!=='')?rw.monthly:(c.fee||'')); _rewardEdit=Array.isArray(rw.spots)?JSON.parse(JSON.stringify(rw.spots)):[]; renderRewardRows(); openModal('clientModal'); }
+  _rewardByYear=migrateRewardMap(c); _rewardYear=rewardYearDefault(); loadRewardYearIntoForm(); openModal('clientModal'); }
 function saveClient(){ if(!val('cl_name')){ toast('顧問先名を入力してください','err'); return; } const id=val('cl_id'); const o={}; CL_FIELDS.forEach(k=>o[k]=val('cl_'+k)); o.zip=formatZip(o.zip);
-  o.reward={ monthly:val('cl_rewardMonthly')||'', spots:_rewardEdit.filter(r=>(r.name&&r.name.trim())||num(r.amount)).map(r=>({month:parseInt(r.month,10)||1,name:(r.name||'').trim(),amount:String(r.amount==null?'':r.amount).trim()})) };
-  let target; if(id){ target=clientById(id); Object.assign(target,o); } else { o.id=uid(); data.clients.push(o); target=o; } persist(); refreshAll(); closeModal('clientModal'); toast('保存しました','ok');
+  saveRewardYearFromForm(); o.rewardByYear=cleanRewardMap(_rewardByYear);
+  let target; if(id){ target=clientById(id); Object.assign(target,o); delete target.reward; delete target.fee; } else { o.id=uid(); data.clients.push(o); target=o; } persist(); refreshAll(); closeModal('clientModal'); toast('保存しました','ok');
   syncClientExternal(target); }
-/* 報酬（月別）編集 */
-let _rewardEdit=[];
+/* 報酬（年度ごと：rewardByYear={ '2026':{monthly,spots:[{month,name,amount}]} }） */
+let _rewardEdit=[];        // 編集中の年度の月別報酬
+let _rewardByYear={};      // 編集中の全年度マップ
+let _rewardYear=0;         // 編集中の年度
+function rewardYearDefault(){ return new Date().getFullYear(); }
+// 旧データ(c.reward 単一 / c.fee)を年度マップへ移行してディープコピーを返す
+function migrateRewardMap(c){ const src=(c&&c.rewardByYear&&typeof c.rewardByYear==='object')?c.rewardByYear:null;
+  if(src) return JSON.parse(JSON.stringify(src));
+  const y=String(rewardYearDefault()); const m={}; const old=(c&&c.reward)||{};
+  m[y]={ monthly:(old.monthly!=null&&old.monthly!=='')?old.monthly:((c&&c.fee)||''), spots:Array.isArray(old.spots)?JSON.parse(JSON.stringify(old.spots)):[] };
+  return m; }
+function cleanRewardMap(map){ const out={}; Object.keys(map||{}).forEach(y=>{ const r=map[y]||{}; const spots=(r.spots||[]).filter(s=>(s.name&&String(s.name).trim())||num(s.amount)).map(s=>({month:parseInt(s.month,10)||1,name:String(s.name||'').trim(),amount:String(s.amount==null?'':s.amount).trim()})); const monthly=String(r.monthly==null?'':r.monthly).trim(); if(monthly||spots.length)out[y]={monthly,spots}; }); return out; }
+function loadRewardYearIntoForm(){ const lab=document.getElementById('cl_rewardYearLabel'); if(lab)lab.textContent=_rewardYear+'年度'; const r=_rewardByYear[String(_rewardYear)]||{monthly:'',spots:[]}; setVal('cl_rewardMonthly', r.monthly||''); _rewardEdit=Array.isArray(r.spots)?JSON.parse(JSON.stringify(r.spots)):[]; renderRewardRows(); }
+function saveRewardYearFromForm(){ _rewardByYear[String(_rewardYear)]={ monthly:val('cl_rewardMonthly')||'', spots:_rewardEdit.map(r=>({month:parseInt(r.month,10)||1,name:(r.name||'').trim(),amount:String(r.amount==null?'':r.amount).trim()})) }; }
+function changeRewardYear(d){ saveRewardYearFromForm(); _rewardYear+=d; loadRewardYearIntoForm(); }
+function copyPrevYearReward(){ saveRewardYearFromForm(); const prev=_rewardByYear[String(_rewardYear-1)]; if(!prev||((!prev.monthly||!String(prev.monthly).trim())&&!(prev.spots&&prev.spots.length))){ toast((_rewardYear-1)+'年度の報酬が登録されていません','err'); return; } _rewardByYear[String(_rewardYear)]=JSON.parse(JSON.stringify(prev)); loadRewardYearIntoForm(); toast((_rewardYear-1)+'年度の報酬をコピーしました','ok'); }
 function renderRewardRows(){ const el=document.getElementById('cl_rewardRows'); if(!el)return;
-  if(!_rewardEdit.length){ el.innerHTML='<div class="muted" style="font-size:12px;padding:4px 0">月別の報酬はありません。「＋ 追加」で決算料・年末調整料などを登録できます。</div>'; return; }
+  if(!_rewardEdit.length){ el.innerHTML='<div class="muted" style="font-size:12px;padding:4px 0">この年度の月別報酬はありません。「＋ 追加」で決算料・年末調整料などを登録できます。</div>'; return; }
   el.innerHTML='<table style="width:100%;border-collapse:collapse"><thead><tr><th style="width:96px;text-align:left;font-size:12px;color:var(--muted,#6b7280)">月</th><th style="text-align:left;font-size:12px;color:var(--muted,#6b7280)">報酬名</th><th style="width:140px;text-align:left;font-size:12px;color:var(--muted,#6b7280)">金額(円)</th><th style="width:40px"></th></tr></thead><tbody>'+
     _rewardEdit.map((r,i)=>'<tr><td style="padding:3px 6px 3px 0"><select onchange="updateRewardRow('+i+',\'month\',this.value)">'+Array.from({length:12},(_,m)=>`<option value="${m+1}"${String(r.month)===String(m+1)?' selected':''}>${m+1}月</option>`).join('')+'</select></td>'+
       '<td style="padding:3px 6px 3px 0"><input style="width:100%" value="'+esc(r.name||'')+'" placeholder="例: 決算料" oninput="updateRewardRow('+i+',\'name\',this.value)"></td>'+
@@ -879,8 +898,8 @@ function renderRewardRows(){ const el=document.getElementById('cl_rewardRows'); 
       '<td style="padding:3px 0"><button type="button" class="icon" title="削除" onclick="removeRewardRow('+i+')">✕</button></td></tr>').join('')+'</tbody></table>';
 }
 function addRewardRow(){ _rewardEdit.push({month:1,name:'',amount:''}); renderRewardRows(); }
-function removeRewardRow(i){ _rewardEdit.splice(i,1); renderRewardRows(); }
-function updateRewardRow(i,f,v){ if(_rewardEdit[i])_rewardEdit[i][f]=v; }
+function removeRewardRow(i){ _rewardEdit.splice(i,1); saveRewardYearFromForm(); renderRewardRows(); }
+function updateRewardRow(i,f,v){ if(_rewardEdit[i]){ _rewardEdit[i][f]=v; saveRewardYearFromForm(); } }
 function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
   if(!data.clientTombstones)data.clientTombstones={}; data.clientTombstones[id]=Date.now(); // 全端末へ削除を伝播する墓標
   data.clients=data.clients.filter(x=>x.id!==id);
@@ -897,17 +916,17 @@ function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」�
   [...(data.sonotaTables||[]),...(data.docTables||[])].forEach(t=>{ if(t.rows)delete t.rows[id]; if(t.sel&&t.sel.type==='manual'&&Array.isArray(t.sel.ids))t.sel.ids=t.sel.ids.filter(x=>x!==id); });
   data.minutes=data.minutes.filter(x=>x.clientId!==id);
   persist(); refreshAll(); toast('削除しました','ok'); }
-const CLIENT_COLS=[['顧問先コード','code'],['顧問先名','name'],['フリガナ','kana'],['区分','type'],['代表者名','rep'],['法人番号','corpno'],['郵便番号','zip'],['住所','addr'],['電話番号','tel'],['メールアドレス','email'],['決算月','fiscal'],['契約区分','contract'],['納付方法','payMethod'],['源泉税納付ステータス','gensenStatus'],['源泉処理者区分','gensenProcessor'],['給与支払日','payDay'],['所轄税務署','taxOffice'],['給与ソフト','payrollSoftware'],['お知らせ方法','noticeMethod'],['主担当者','staff'],['月額報酬','_rewardMonthly'],['ステータス','status'],['仕訳作成','useShiwake'],['相続管理','useSouzoku'],['備考','notes']];
+const CLIENT_COLS=[['顧問先コード','code'],['顧問先名','name'],['フリガナ','kana'],['区分','type'],['代表者名','rep'],['郵便番号','zip'],['住所','addr'],['電話番号','tel'],['メールアドレス','email'],['決算月','fiscal'],['契約区分','contract'],['納付方法','payMethod'],['源泉税納付ステータス','gensenStatus'],['源泉処理者区分','gensenProcessor'],['給与支払日','payDay'],['所轄税務署','taxOffice'],['給与ソフト','payrollSoftware'],['お知らせ方法','noticeMethod'],['主担当者','staff'],['月額報酬','_rewardMonthly'],['ステータス','status'],['仕訳作成','useShiwake'],['相続管理','useSouzoku'],['備考','notes']];
 // 郵便番号を「3桁-4桁」表示に正規化（7桁の数字 → 100-0001／6桁は先頭0欠落とみなし補完）
 function formatZip(v){ let d=String(v==null?'':v).replace(/[^0-9]/g,''); if(d.length===6)d='0'+d; if(d.length===7)return d.slice(0,3)+'-'+d.slice(3); return String(v==null?'':v).trim(); }
 function exportClients(){ if(!data.clients.length){toast('出力する顧問先がありません','err');return;}
-  const rows=data.clients.map(c=>{const o={};CLIENT_COLS.forEach(([h,k])=>{ o[h]= k==='_rewardMonthly' ? ((c.reward&&c.reward.monthly)||c.fee||'') : (c[k]||''); });return o;});
+  const rows=data.clients.map(c=>{const o={};CLIENT_COLS.forEach(([h,k])=>{ o[h]= k==='_rewardMonthly' ? (clientRewardOf(c,rewardYearDefault()).monthly||'') : (c[k]||''); });return o;});
   const ws=XLSX.utils.json_to_sheet(rows,{header:CLIENT_COLS.map(c=>c[0])}); const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'顧問先一覧'); XLSX.writeFile(wb,`顧問先一覧_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
 /* ===== AIで顧問先情報を一括編集 ===== */
 const CL_FIELD_META=[
   {k:'name',label:'顧問先名'},{k:'kana',label:'フリガナ'},{k:'code',label:'顧問先コード'},
-  {k:'type',label:'区分',vals:['法人','個人']},{k:'rep',label:'代表者名'},{k:'corpno',label:'法人番号'},
+  {k:'type',label:'区分',vals:['法人','個人']},{k:'rep',label:'代表者名'},
   {k:'zip',label:'郵便番号'},{k:'fiscal',label:'決算月',note:'「3月」のように○月の形式'},{k:'addr',label:'住所'},
   {k:'tel',label:'電話番号'},{k:'email',label:'メールアドレス'},{k:'contract',label:'契約区分'},
   {k:'payMethod',label:'納付方法',vals:['ダイレクト納付','紙納付書']},
@@ -961,12 +980,38 @@ async function runAiEdit(){
 function applyAiEdit(){ if(!pendingAiEdits||!pendingAiEdits.length){ toast('反映する変更がありません','err'); return; }
   let n=0; pendingAiEdits.forEach(e=>{ const c=clientById(e.id); if(c){ c[e.field]=e.newVal; n++; } });
   persist(); refreshAll(); closeModal('aiEditModal'); toast(`${n}件の顧問先情報を変更しました`,'ok'); }
-function downloadClientTemplate(){ const ws=XLSX.utils.aoa_to_sheet([CLIENT_COLS.map(c=>c[0]),['001','株式会社サンプル','カブシキガイシャサンプル','法人','山田太郎','1234567890123','1000001','東京都千代田区...','03-0000-0000','sample@example.com','3月','月次顧問','ダイレクト納付','納期特例','税理士','25','麹町税務署','○○給与','メール','佐藤','50000','契約中','利用','未利用','']]);
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'顧問先インポート'); XLSX.writeFile(wb,'顧問先インポート用テンプレート.xlsx'); toast('テンプレートを出力しました','ok'); }
+function downloadClientTemplate(){
+  const header=CLIENT_COLS.map(c=>c[0]); let aoa=[header];
+  if(data.clients.length){
+    // 既存の顧問先を行として出力 → これに追記して再アップロードすると、コード/氏名で突き合わせて
+    // 既存は更新・不足分のみ新規追加され、二重登録になりません。
+    data.clients.forEach(c=>aoa.push(CLIENT_COLS.map(([h,k])=> k==='_rewardMonthly' ? clientRewardOf(c,rewardYearDefault()).monthly||'' : (c[k]||''))));
+  } else {
+    aoa.push(['001','株式会社サンプル','カブシキガイシャサンプル','法人','山田太郎','1000001','東京都千代田区...','03-0000-0000','sample@example.com','3月','月次顧問','ダイレクト納付','納期特例','税理士','25','麹町税務署','○○給与','メール','佐藤','50000','契約中','利用','未利用','']);
+  }
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'顧問先インポート'); XLSX.writeFile(wb,'顧問先インポート用テンプレート.xlsx'); toast(data.clients.length?'登録済みの顧問先を含むテンプレートを出力しました':'テンプレートを出力しました','ok'); }
+// インポートはコード優先（無ければ氏名）で既存と突き合わせ、既存は更新・新規のみ追加（二重登録しない）
 function importClients(ev){ const f=ev.target.files[0]; if(!f)return; const r=new FileReader();
-  r.onload=e=>{ try{ const wb=XLSX.read(e.target.result,{type:'array'}); const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); let n=0;
-    rows.forEach(row=>{ const o={id:uid()}; CLIENT_COLS.forEach(([h,k])=>o[k]=String(row[h]==null?'':row[h]).trim()); o.zip=formatZip(o.zip); o.reward={monthly:String(o._rewardMonthly||'').trim(),spots:[]}; delete o._rewardMonthly; if(o.name){ if(!o.status)o.status='契約中'; if(!o.type)o.type='法人'; if(!o.payMethod)o.payMethod='紙納付書'; if(!o.gensenStatus)o.gensenStatus='毎月納付'; if(o.gensenProcessor!=='顧問先')o.gensenProcessor='税理士'; if(o.useShiwake!=='利用')o.useShiwake='未利用'; if(o.useSouzoku!=='利用')o.useSouzoku='未利用'; data.clients.push(o); n++; } });
-    persist(); refreshAll(); toast(`${n}件を取り込みました`,'ok'); try{ reconcileExternalModules(); }catch(e){} }catch(err){ toast('読み込み失敗: '+err.message,'err'); } ev.target.value=''; };
+  r.onload=e=>{ try{ const wb=XLSX.read(e.target.result,{type:'array'}); const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); let added=0,updated=0;
+    const norm=s=>String(s==null?'':s).trim();
+    rows.forEach(row=>{ const inc={}; CLIENT_COLS.forEach(([h,k])=>inc[k]=norm(row[h])); const code=inc.code, name=inc.name; if(!name&&!code)return;
+      const rm=norm(inc._rewardMonthly); const y=String(rewardYearDefault());
+      let ex=null;
+      if(code) ex=data.clients.find(c=>norm(c.code)&&norm(c.code)===code);
+      if(!ex&&name) ex=data.clients.find(c=>norm(c.name)===name);
+      if(ex){ // 既存を更新（空欄のセルは既存値を保持＝消さない）
+        CLIENT_COLS.forEach(([h,k])=>{ if(k==='_rewardMonthly')return; const v=inc[k]; if(v!=='')ex[k]=v; });
+        if(norm(ex.zip))ex.zip=formatZip(ex.zip);
+        if(rm){ const m=migrateRewardMap(ex); m[y]=m[y]||{monthly:'',spots:[]}; m[y].monthly=rm; ex.rewardByYear=cleanRewardMap(m); }
+        updated++;
+      } else { // 新規
+        const o={id:uid()}; CLIENT_COLS.forEach(([h,k])=>o[k]=inc[k]); o.zip=formatZip(o.zip); delete o._rewardMonthly;
+        o.rewardByYear=rm?{[y]:{monthly:rm,spots:[]}}:{};
+        if(!o.status)o.status='契約中'; if(!o.type)o.type='法人'; if(!o.payMethod)o.payMethod='紙納付書'; if(!o.gensenStatus)o.gensenStatus='毎月納付'; if(o.gensenProcessor!=='顧問先')o.gensenProcessor='税理士'; if(o.useShiwake!=='利用')o.useShiwake='未利用'; if(o.useSouzoku!=='利用')o.useSouzoku='未利用';
+        data.clients.push(o); added++;
+      } });
+    persist(); refreshAll(); toast(`取り込み完了：新規${added}件 / 更新${updated}件`,'ok'); try{ reconcileExternalModules(); }catch(e){} }catch(err){ toast('読み込み失敗: '+err.message,'err'); } ev.target.value=''; };
   r.readAsArrayBuffer(f); }
 
 /* ===== 確定申告 ===== */
@@ -1393,6 +1438,8 @@ function updateMtCount(){ document.getElementById('mt_count').textContent='選�
 function saveMonthlyTargets(){ data.monthlyTargets=[...document.querySelectorAll('#mt_clients .mt_cli:checked')].map(i=>i.value); persist(); closeModal('monthlyTargetModal'); renderMonthly(); renderDashboard(); toast('対象顧問先を保存しました','ok'); }
 
 /* ===== 分析 ===== */
+let analysisRewardYear=0;
+function changeAnalysisYear(d){ if(!analysisRewardYear)analysisRewardYear=rewardYearDefault(); analysisRewardYear+=d; renderAnalysis(); }
 function setAnalysisMetric(m){ analysisMetric=m; renderAnalysis(); }
 function barChart(rows,fmt){ const max=Math.max(1,...rows.map(r=>r.v));
   return rows.map(r=>`<div class="bar-row"><span class="lbl">${esc(r.l)}</span><span class="bar" style="width:${Math.round(r.v/max*240)}px"></span><span class="val">${fmt?fmt(r.v):r.v}</span></div>`).join('')||'<div class="muted">データなし</div>'; }
@@ -1407,17 +1454,25 @@ function renderAnalysis(){
   // 担当者別
   const staffMap={}; active.forEach(c=>{ const s=c.staff||'(未設定)'; staffMap[s]=(staffMap[s]||0)+1; });
   const byStaff=Object.entries(staffMap).map(([l,v])=>({l,v})).sort((a,b)=>b.v-a.v);
-  // 報酬（月額＋月別の報酬）→ 売上分析
-  const monthly=active.map(c=>clientMonthly(c)); const totalMonthly=monthly.reduce((a,b)=>a+b,0); const avgMonthly=monthly.length?Math.round(totalMonthly/monthly.length):0;
-  const totalAnnual=active.reduce((a,c)=>a+clientAnnual(c),0);
+  // 報酬（年度別：月額＋月別の報酬）→ 売上分析
+  if(!analysisRewardYear)analysisRewardYear=rewardYearDefault();
+  const yr=analysisRewardYear;
+  const monthly=active.map(c=>clientMonthly(c,yr)); const totalMonthly=monthly.reduce((a,b)=>a+b,0); const avgMonthly=monthly.length?Math.round(totalMonthly/monthly.length):0;
+  const totalAnnual=active.reduce((a,c)=>a+clientAnnual(c,yr),0);
   // 月別売上（毎月の月額報酬＋その月の月別報酬）
-  const byMonthSales=MONTHS.map((label,idx)=>{ const m=idx+1; let v=totalMonthly; active.forEach(c=>clientSpots(c).forEach(s=>{ if((parseInt(s.month,10)||0)===m)v+=num(s.amount); })); return {l:label,v}; });
+  const byMonthSales=MONTHS.map((label,idx)=>{ const m=idx+1; let v=totalMonthly; active.forEach(c=>clientSpots(c,yr).forEach(s=>{ if((parseInt(s.month,10)||0)===m)v+=num(s.amount); })); return {l:label,v}; });
   // 担当者別の年間売上
-  const annualByStaff={}; active.forEach(c=>{ const s=c.staff||'(未設定)'; annualByStaff[s]=(annualByStaff[s]||0)+clientAnnual(c); });
+  const annualByStaff={}; active.forEach(c=>{ const s=c.staff||'(未設定)'; annualByStaff[s]=(annualByStaff[s]||0)+clientAnnual(c,yr); });
   const byStaffAnnual=Object.entries(annualByStaff).map(([l,v])=>({l,v})).sort((a,b)=>b.v-a.v);
   // 納付方法別
   const byPay=['ダイレクト納付','紙納付書'].map(p=>({l:p,v:active.filter(c=>c.payMethod===p).length}));
   let html=`<div class="page-head"><h2>分析</h2></div>
+    <div class="row-flex" style="align-items:center;gap:10px;margin-bottom:12px">
+      <span class="muted" style="font-size:13px">売上の対象年度</span>
+      <button class="icon" onclick="changeAnalysisYear(-1)">◀</button>
+      <b style="min-width:84px;text-align:center">${yr}年度</b>
+      <button class="icon" onclick="changeAnalysisYear(1)">▶</button>
+    </div>
     <div class="stat-row">
       <div class="stat"><div class="n">${active.length}</div><div class="l">契約中の顧問先</div></div>
       <div class="stat"><div class="n">${totalMonthly.toLocaleString('ja-JP')}</div><div class="l">月額報酬 合計(円)</div></div>
@@ -1435,11 +1490,15 @@ function renderAnalysis(){
     </div>`;
   document.getElementById('analysisView').innerHTML=html;
 }
-/* 報酬の集計ヘルパー（旧 fee からの移行も考慮） */
-function clientMonthly(c){ return num(c.reward&&c.reward.monthly)||num(c.fee); }
-function clientSpots(c){ return (c.reward&&Array.isArray(c.reward.spots))?c.reward.spots:[]; }
-function clientAnnual(c){ return clientMonthly(c)*12 + clientSpots(c).reduce((a,s)=>a+num(s.amount),0);
-}
+/* 報酬の集計ヘルパー（年度別。旧 reward 単一 / fee からの移行も考慮） */
+function clientRewardOf(c,year){ const y=String(year);
+  if(c.rewardByYear&&typeof c.rewardByYear==='object'){ return c.rewardByYear[y]||{monthly:'',spots:[]}; }
+  // 旧単一データ(c.reward)・旧fee は当年度として扱う
+  if(String(year)===String(rewardYearDefault())){ const r=(c.reward)||{}; return {monthly:(r.monthly!=null&&r.monthly!=='')?r.monthly:(c.fee||''), spots:Array.isArray(r.spots)?r.spots:[]}; }
+  return {monthly:'',spots:[]}; }
+function clientMonthly(c,year){ return num(clientRewardOf(c,year).monthly); }
+function clientSpots(c,year){ const s=clientRewardOf(c,year).spots; return Array.isArray(s)?s:[]; }
+function clientAnnual(c,year){ return clientMonthly(c,year)*12 + clientSpots(c,year).reduce((a,s)=>a+num(s.amount),0); }
 
 /* ===== AI（Claude API ブラウザ直接呼び出し） ===== */
 async function callAI(system,user,maxTokens){
