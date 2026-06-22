@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 
-// 顧問先情報登録（komonビュー）。クライアント専用・静的書き出し対応
+// 進捗管理（議事録含む）。komon モジュールを shinchoku ビューで表示。
 const KomonApp = dynamic(() => import('@/modules/komon/KomonApp'), {
   ssr: false,
   loading: () => (
@@ -12,6 +12,6 @@ const KomonApp = dynamic(() => import('@/modules/komon/KomonApp'), {
   ),
 })
 
-export default function KomonPage() {
-  return <KomonApp view="komon" />
+export default function ShinchokuPage() {
+  return <KomonApp view="shinchoku" />
 }

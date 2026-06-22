@@ -1665,6 +1665,24 @@ const DriveSync=(function(){
   return { connect, saveToDrive, loadFromDrive, manualSync, setStatus };
 })();
 
+/* ===== ステージB: 表示モード（顧問先情報 / 進捗管理）出し分け ===== */
+function applyKomonView(){
+  try{
+    var v=(window.__komonView||'').toString();
+    if(v!=='komon'&&v!=='shinchoku')return; // 未指定=全部表示（後方互換）
+    var KOMON_ONLY=['clients']; // 顧問先情報登録ビューで表示するタブ
+    var nav=document.querySelector('nav.tabs'); if(!nav)return;
+    var first=null;
+    nav.querySelectorAll('[data-page]').forEach(function(a){
+      var p=a.dataset.page;
+      var show=(v==='komon')?(KOMON_ONLY.indexOf(p)>=0):(KOMON_ONLY.indexOf(p)<0);
+      a.style.display=show?'':'none';
+      if(show&&!first)first=p;
+    });
+    if(first)showPage(first);
+  }catch(e){ console.error(e); }
+}
+
 /* ===== 起動 ===== */
 window.addEventListener('DOMContentLoaded',()=>{
   initMonthSelects(); loadLocal(); restoreSettingsUI(); refreshAll();
@@ -1676,6 +1694,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   // セル編集ポップ／フィルタメニューを外側クリックで閉じる
   document.addEventListener('mousedown',e=>{ const pop=document.getElementById('cellPop'); if(pop&&pop.style.display==='block'&&!pop.contains(e.target)){ pop.style.display='none'; cellCommit=null; }
     const fm=document.getElementById('fltMenu'); if(fm&&fm.style.display==='block'&&!fm.contains(e.target)&&!(e.target.classList&&e.target.classList.contains('flt')))fm.style.display='none'; });
+  applyKomonView();
 });
 </script>
 </body>

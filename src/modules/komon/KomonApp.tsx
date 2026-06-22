@@ -18,10 +18,13 @@ import {
 import ModuleSwitcher from '@/core/ui/ModuleSwitcher';
 import { KOMON_HTML } from './embedded';
 
-export default function KomonApp() {
+type KomonView = 'komon' | 'shinchoku';
+
+export default function KomonApp({ view }: { view?: KomonView } = {}) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [roomReady, setRoomReady] = useState(false);
   const [pass, setPass] = useState('');
+  const switcherKey = view === 'shinchoku' ? 'shinchoku' : 'komon';
 
   useEffect(() => {
     setRoomReady(hasRoom());
@@ -54,8 +57,12 @@ export default function KomonApp() {
       };
       const inject = () => {
         if (disposed) return;
-        const w = iframe.contentWindow as unknown as { __komonCore?: unknown } | null;
-        if (w) w.__komonCore = bridge; // iframe 内の待機スクリプトが検知して __komonBoot() を実行
+        const w = iframe.contentWindow as unknown as { __komonCore?: unknown; __komonView?: string } | null;
+        if (w) {
+          // 表示モードを先にセットしてから core を渡す（待機スクリプトが core 検知で起動するため）
+          w.__komonView = view;
+          w.__komonCore = bridge; // iframe 内の待機スクリプトが検知して __komonBoot() を実行
+        }
       };
       // 既に読み込み済みなら即注入、そうでなければ load を待つ
       if (iframe.contentWindow && iframe.contentDocument?.readyState === 'complete') inject();
@@ -77,7 +84,7 @@ export default function KomonApp() {
   if (!roomReady) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <ModuleSwitcher currentKey="komon" />
+        <ModuleSwitcher currentKey={switcherKey} />
         <div style={{ padding: 24, maxWidth: 520 }}>
           <h2 style={{ fontWeight: 500 }}>合言葉を設定してください</h2>
           <p style={{ color: '#5f6368' }}>
@@ -107,7 +114,7 @@ export default function KomonApp() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <ModuleSwitcher currentKey="komon" />
+      <ModuleSwitcher currentKey={switcherKey} />
       <iframe
         ref={iframeRef}
         title="顧問先管理"

@@ -30,7 +30,7 @@ export const MODULES: ModuleDef[] = [
     desc: '進捗状況と議事録を管理',
     path: '/shinchoku',
     icon: '📊',
-    status: 'soon',
+    status: 'ready',
   },
   {
     key: 'aiocr-shiwake',
