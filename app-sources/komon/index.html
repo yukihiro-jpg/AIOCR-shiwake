@@ -351,6 +351,8 @@
       <div class="field"><label>主担当者</label><input id="cl_staff"></div>
       <div class="field"><label>顧問料(月額)</label><input id="cl_fee" type="number"></div>
       <div class="field"><label>ステータス</label><select id="cl_status"><option>契約中</option><option>休止</option><option>解約</option></select></div>
+      <div class="field"><label>仕訳作成</label><select id="cl_useShiwake"><option>未利用</option><option>利用</option></select></div>
+      <div class="field"><label>相続管理</label><select id="cl_useSouzoku"><option>未利用</option><option>利用</option></select></div>
       <div class="field full"><label>備考</label><textarea id="cl_notes" rows="2"></textarea></div>
     </div></div>
   <div class="modal-foot"><button class="text" onclick="closeModal('clientModal')">キャンセル</button><button class="primary" onclick="saveClient()">保存</button></div>
@@ -836,21 +838,24 @@ function renderClients(){
   let list=data.clients; if(q)list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q)||(c.staff||'').toLowerCase().includes(q));
   const el=document.getElementById('clientTable');
   if(!list.length){ el.innerHTML='<div class="empty"><div class="big">🏢</div>顧問先が登録されていません。「＋ 新規登録」から追加してください。</div>'; return; }
-  el.innerHTML=`<table class="has-lead-action"><thead><tr><th class="lead-action"></th><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>契約区分</th><th>納付方法</th><th>主担当者</th><th>状態</th><th></th></tr></thead><tbody>`+
+  const useChip=(c,f)=>{ const on=c[f]==='利用'; return `<span class="chip ${on?'green':'gray'}" style="cursor:pointer" title="クリックで利用/未利用を切替" onclick="toggleClientUse('${c.id}','${f}')">${on?'利用':'未利用'}</span>`; };
+  el.innerHTML=`<table class="has-lead-action"><thead><tr><th class="lead-action"></th><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>納付方法</th><th>主担当者</th><th>仕訳作成</th><th>相続管理</th><th></th></tr></thead><tbody>`+
     list.map(c=>`<tr><td class="lead-action"><button class="text sm" onclick="openClientMinutes('${c.id}')">📝 議事録</button></td><td>${esc(c.code||'')}</td>
       <td><a class="link" onclick="openClientModal('${c.id}')">${esc(c.name)}</a><div class="muted" style="font-size:12px">${esc(c.kana||'')}</div></td>
-      <td>${esc(c.type||'')}</td><td>${esc(c.fiscal||'')}</td><td>${esc(c.contract||'')}</td>
+      <td>${esc(c.type||'')}</td><td>${esc(c.fiscal||'')}</td>
       <td>${c.payMethod?`<span class="chip ${c.payMethod==='ダイレクト納付'?'blue':'gray'}">${esc(c.payMethod)}</span>`:''}</td>
       <td>${esc(c.staff||'')}</td>
-      <td><span class="chip ${c.status==='解約'?'red':c.status==='休止'?'amber':'green'}">${esc(c.status||'契約中')}</span></td>
+      <td>${useChip(c,'useShiwake')}</td>
+      <td>${useChip(c,'useSouzoku')}</td>
       <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`;
-  enhanceValueFilter(el.querySelector('table'),'clients',[9]);
+  enhanceValueFilter(el.querySelector('table'),'clients',[0,9]);
 }
-const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','payDay','taxOffice','payrollSoftware','noticeMethod','staff','fee','status','notes'];
+const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','payDay','taxOffice','payrollSoftware','noticeMethod','staff','fee','status','useShiwake','useSouzoku','notes'];
 function openClientModal(id){ document.getElementById('clientModalTitle').textContent=id?'顧問先編集':'顧問先登録'; const c=id?clientById(id):{};
-  CL_FIELDS.forEach(k=>setVal('cl_'+k,c[k])); setVal('cl_id',c.id||''); if(!c.type)setVal('cl_type','法人'); if(!c.status)setVal('cl_status','契約中'); if(!c.payMethod)setVal('cl_payMethod','紙納付書'); if(!c.gensenStatus)setVal('cl_gensenStatus','毎月納付'); openModal('clientModal'); }
+  CL_FIELDS.forEach(k=>setVal('cl_'+k,c[k])); setVal('cl_id',c.id||''); if(!c.type)setVal('cl_type','法人'); if(!c.status)setVal('cl_status','契約中'); if(!c.payMethod)setVal('cl_payMethod','紙納付書'); if(!c.gensenStatus)setVal('cl_gensenStatus','毎月納付'); if(!c.useShiwake)setVal('cl_useShiwake','未利用'); if(!c.useSouzoku)setVal('cl_useSouzoku','未利用'); openModal('clientModal'); }
 function saveClient(){ if(!val('cl_name')){ toast('顧問先名を入力してください','err'); return; } const id=val('cl_id'); const o={}; CL_FIELDS.forEach(k=>o[k]=val('cl_'+k));
-  if(id)Object.assign(clientById(id),o); else { o.id=uid(); data.clients.push(o); } persist(); refreshAll(); closeModal('clientModal'); toast('保存しました','ok'); }
+  let target; if(id){ target=clientById(id); Object.assign(target,o); } else { o.id=uid(); data.clients.push(o); target=o; } persist(); refreshAll(); closeModal('clientModal'); toast('保存しました','ok');
+  syncClientExternal(target); }
 function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
   if(!data.clientTombstones)data.clientTombstones={}; data.clientTombstones[id]=Date.now(); // 全端末へ削除を伝播する墓標
   data.clients=data.clients.filter(x=>x.id!==id);
@@ -1651,6 +1656,50 @@ function renderMinutes(){ const fc=document.getElementById('minFilterClient').va
       <td class="actions"><button class="text sm" onclick="openMinuteModal('${m.id}')">編集</button><button class="text sm danger" onclick="deleteMinute('${m.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`; }
 // 顧問先一覧の各行から、その顧問先で絞り込んだ議事録ページを開く
 function openClientMinutes(cid){ showPage('minutes'); const sel=document.getElementById('minFilterClient'); if(sel){ if(!Array.from(sel.options).some(o=>o.value===cid)) populateClientSelects(); sel.value=cid; } const sq=document.getElementById('minSearch'); if(sq) sq.value=''; renderMinutes(); }
+
+/* ===== 仕訳作成・相続管理 への自動連携（利用/未利用） =====
+   顧問先で「利用」にすると、その顧問先を各モジュールへ自動登録する。
+   ・仕訳作成(aiocr-shiwake): rooms/{rk}/aiocr-shiwake/_global/clients_v2/{id} に {id,name,...} を書く（未エンコード・本体形式）。未利用で削除＋墓標。
+   ・相続管理(souzoku): rooms/{rk}/souzoku/_cases/_{caseId} に最小構成の案件を書く（souzoku と同じエンコード）。
+     既存案件があれば（編集済みかもしれないので）上書きしない。未利用で墓標＋削除。
+   ホスト共通コア(__komonCore)の getDb / modulePath / dbfns を直接使う（KomonStore とは別経路）。 */
+function _core(){ return window.__komonCore||null; }
+function _szEnc(k){ return '_'+String(k).replace(/[.#$\/\[\]~]/g,c=>'~'+c.charCodeAt(0).toString(16)); }
+function _szEncTree(o){ if(Array.isArray(o))return o.map(_szEncTree); if(o&&typeof o==='object'){ const r={}; for(const k in o)r[_szEnc(k)]=_szEncTree(o[k]); return r; } return o; }
+function _szCaseId(clientId){ return 'komon-'+clientId; }
+function _newSouzokuCase(name,caseId){ const now=new Date().toISOString(); return {
+  version:2, caseId:caseId, createdAt:now, savedAt:now,
+  deceased:{ code:'', name:name||'', kana:'', birth:'', deathDate:'', address:'', honseki:'' },
+  collectionDeadline:'', meetingMemo:'',
+  heirs:[{ id:'h'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name:'', kana:'', relationLabel:'長男', relationType:'child', isAdopted:false, adoptedAsReal:false, grandAdopted:false, isDaishu:false, daishuGroup:'', isRenounced:false, address:'', tel:'', job:'', birth:'', age:'', disabled:false, disabilityType:'general', isRepresentative:false, hideFromContract:false }],
+  checklist:{}, assets:[], successive:{enabled:false,A:'',B:'',years:'',prevDate:''}, compensations:[],
+  agreement:{date:'',notes:'',extraHeirId:''}, progress:{}, secondary:{spouseOwn:'',consume:'',years:'',nChildren:''},
+  movement:{rows:[],usage:{}}, savings:[] }; }
+async function syncClientToShiwake(c){
+  const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns;
+  const mapRef=F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_v2'));
+  const tombRef=F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_deleted'));
+  if(c.useShiwake==='利用'){
+    const fy=parseInt(String(c.fiscal||'').replace(/[^0-9]/g,''),10);
+    const obj={ id:c.id, name:c.name||'', createdAt:c.createdAt||new Date().toISOString() };
+    if(fy>=1&&fy<=12)obj.fiscalYearEndMonth=fy;
+    await F.update(mapRef,{[c.id]:obj}); await F.update(tombRef,{[c.id]:null});
+  } else { await F.update(mapRef,{[c.id]:null}); await F.update(tombRef,{[c.id]:Date.now()}); }
+}
+async function syncClientToSouzoku(c){
+  const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns;
+  const base=await core.modulePath('souzoku'); const baseRef=F.ref(db, base);
+  const caseId=_szCaseId(c.id); const ePath='_cases/'+_szEnc(caseId); const tPath='_tomb/'+_szEnc(caseId);
+  if(c.useSouzoku==='利用'){
+    const snap=await F.get(F.ref(db, base+'/'+ePath));
+    if(!snap||!snap.exists()){ await F.update(baseRef,{[ePath]:_szEncTree(_newSouzokuCase(c.name,caseId)),[tPath]:null}); }
+    else { await F.update(baseRef,{[tPath]:null}); }
+  } else { await F.update(baseRef,{[ePath]:null,[tPath]:true}); }
+}
+function syncClientExternal(c){ if(!c)return; Promise.resolve().then(()=>syncClientToShiwake(c)).catch(e=>console.warn('[komon] shiwake連携',e)); Promise.resolve().then(()=>syncClientToSouzoku(c)).catch(e=>console.warn('[komon] souzoku連携',e)); }
+function toggleClientUse(id,field){ const c=clientById(id); if(!c)return; c[field]=(c[field]==='利用')?'未利用':'利用'; persist(); renderClients(); syncClientExternal(c); toast((field==='useShiwake'?'仕訳作成':'相続管理')+'：'+c[field]+'に設定しました','ok'); }
+// 接続後に、利用設定済みの顧問先を各モジュールへ反映（端末間の整合）
+async function reconcileExternalModules(){ const core=_core(); if(!core||!core.hasRoom())return; for(const c of (data.clients||[])){ if(c.useShiwake==='利用'){ try{ await syncClientToShiwake(c); }catch(e){} } if(c.useSouzoku==='利用'){ try{ await syncClientToSouzoku(c); }catch(e){} } } }
 const MN_SECTIONS={tax:'税務論点',chat:'世間話',todo:'TODO'};
 let mnSection='tax', mnSections={tax:'',chat:'',todo:''};
 function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn_sectionInput').value; mnSection=sec;
@@ -1747,6 +1796,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('mousedown',e=>{ const pop=document.getElementById('cellPop'); if(pop&&pop.style.display==='block'&&!pop.contains(e.target)){ pop.style.display='none'; cellCommit=null; }
     const fm=document.getElementById('fltMenu'); if(fm&&fm.style.display==='block'&&!fm.contains(e.target)&&!(e.target.classList&&e.target.classList.contains('flt')))fm.style.display='none'; });
   applyKomonView();
+  // 接続が落ち着いた頃に、利用設定済みの顧問先を各モジュールへ反映
+  setTimeout(()=>{ try{ reconcileExternalModules(); }catch(e){} }, 2500);
 });
 </script>
 </body>
