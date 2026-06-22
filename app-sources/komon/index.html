@@ -44,6 +44,11 @@
   .sub-tabs{display:flex;gap:8px;margin-bottom:16px;}
   .sub-tabs button{border-radius:20px;}
   .sub-tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue);}
+  .gm-months{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:0 0 6px;}
+  .gm-months button{flex:1;border:none;border-right:1px solid var(--border);background:var(--blue-soft);color:var(--text);font-size:13px;font-weight:500;padding:9px 4px;cursor:pointer;white-space:nowrap;}
+  .gm-months button:last-child{border-right:none;}
+  .gm-months button:hover{background:#d8e6fd;}
+  .gm-months button.on{background:var(--blue);color:#fff;}
   .ai-btn{font-size:12px;padding:5px 10px;border-radius:14px;border:1px solid #d6c5f0;color:#7b2ff7;background:#faf5ff;}
   .seg{display:inline-flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;vertical-align:middle;}
   .seg-btn{font-size:12px;padding:5px 12px;border:none;border-right:1px solid var(--border);border-radius:0;background:#fff;color:var(--muted);}
@@ -363,6 +368,17 @@
     <button class="primary" id="aiEditApplyBtn" onclick="applyAiEdit()" style="display:none">この内容で変更を反映</button></div>
 </div></div>
 
+<!-- 源泉税 方法の選択肢 編集モーダル -->
+<div class="modal-bg" id="gensenMethodModal"><div class="modal">
+  <div class="modal-head"><h3>源泉税「方法」の選択肢</h3><button class="icon x" onclick="closeModal('gensenMethodModal')">✕</button></div>
+  <div class="modal-body">
+    <div id="gensenMethodList"></div>
+    <div class="row-flex" style="gap:8px;margin-top:10px"><input id="gensenMethodInput" placeholder="新しい方法を入力" style="flex:1;padding:6px 8px" onkeydown="if(event.key==='Enter')addGensenMethod()"><button class="sm" onclick="addGensenMethod()">＋ 追加</button></div>
+    <div class="hint" style="margin-top:10px">ここで設定した選択肢は前年方法・今回方法の候補になり、全端末で共有されます。</div>
+  </div>
+  <div class="modal-foot"><button class="primary" onclick="closeModal('gensenMethodModal')">閉じる</button></div>
+</div></div>
+
 <!-- 工程編集モーダル -->
 <div class="modal-bg" id="stepsModal"><div class="modal">
   <div class="modal-head"><h3 id="stepsModalTitle">工程（列）の編集</h3><button class="icon x" onclick="closeModal('stepsModal')">✕</button></div>
@@ -509,7 +525,7 @@
 /* ===== データ ===== */
 const LS_KEY='komonManagerData_v3';
 const AI_DEFAULTS={folderUrl:'',clientId:'',aiProvider:'gemini',claudeApiKey:'',claudeModel:'claude-opus-4-8',geminiApiKey:'',geminiModel:'gemini-2.5-flash',fbConfig:'',fbRoom:''};
-let data={ clients:[], filings:{}, filingSteps:{}, interimDone:{}, interimCells:{}, interimSteps:null, gensenSteps:null, monthly:{}, monthlyTargets:null, modules:{}, gensen:{monthly:{},special:{}}, gensenMonthly:{}, gensenSpecial:{}, nencho:{}, sonotaTables:[], docTables:[], docTemplate:{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}, clientSummaries:{}, minutes:[], clientTombstones:{}, settings:Object.assign({},AI_DEFAULTS) };
+let data={ clients:[], filings:{}, filingSteps:{}, interimDone:{}, interimCells:{}, interimSteps:null, gensenSteps:null, monthly:{}, monthlyTargets:null, modules:{}, gensen:{monthly:{},special:{}}, gensenMonthly:{}, gensenSpecial:{}, nencho:{}, sonotaTables:[], docTables:[], docTemplate:{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}, clientSummaries:{}, minutes:[], clientTombstones:{}, gensenMethods:['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問'], settings:Object.assign({},AI_DEFAULTS) };
 let filingYear=new Date().getFullYear(), filingMonth=null;     // 確定申告：決算年・選択中の決算月
 let interimYear=new Date().getFullYear(), interimMonth=null;   // 中間申告：暦年・選択中の月
 let moduleYear={};                                              // 各管理モジュールの対象年
@@ -540,10 +556,10 @@ function migrateFilingSteps(){
     data.filingSteps[mk]=arr.filter(s=>s.name!=='申告書チェック_2回目').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s); });
   Object.values(data.filings||{}).forEach(f=>{ if(f&&f.cells){ if(f.cells['申告書チェック_1回目']!=null&&f.cells['申告書チェック']==null)f.cells['申告書チェック']=f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_2回目']; } });
 }
-function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; migrateFilingSteps(); } }catch(e){console.warn(e);} }
+function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
 /* ===== リアルタイム共同編集（Firebase Realtime Database） ===== */
 const Realtime=(function(){
-  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes'];
+  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes'];
   const BAD=/[.#$\/\[\]~]/g;
   let ref=null, ready=false, lastSnap={}, pushTimer=null, fbPending=false;
   function enc(k){ return '_'+String(k).replace(BAD,c=>'~'+c.charCodeAt(0).toString(16)); }
@@ -1157,10 +1173,15 @@ function nenchoDeduction(year,cid){ return nenchoDeductionOf(year-1,cid); }  // 
 function gensenYearNav(){ return `<div class="year-nav"><button class="icon" onclick="changeGensenYear(-1)">◀</button><b>${gensenYear}年（${wareki(gensenYear)}）</b><button class="icon" onclick="changeGensenYear(1)">▶</button></div>`; }
 function gensenTabs(){ return `<div class="sub-tabs"><button class="${gensenTab==='monthly'?'on':''}" onclick="setGensenTab('monthly')">毎月納付</button><button class="${gensenTab==='special'?'on':''}" onclick="setGensenTab('special')">納期特例</button></div>`; }
 /* 毎月納付 */
-/* 源泉税の「方法」選択肢（共有の固定リスト。追加/削除UIは今後対応） */
-const GENSEN_METHODS=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問'];
-function gsMethodSelect(cid,val){ const v=val||''; return `<select onchange="setGsMethod('${cid}',this.value)" style="padding:4px 6px;min-width:96px"><option value=""></option>`+GENSEN_METHODS.map(mn=>`<option ${mn===v?'selected':''}>${esc(mn)}</option>`).join('')+`</select>`; }
+/* 源泉税の「方法」選択肢（共有データ data.gensenMethods・全端末同期・追加/削除可） */
+function gensenMethods(){ if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; return data.gensenMethods; }
+function gsMethodSelect(cid,val){ const v=val||''; const has=!v||gensenMethods().indexOf(v)>=0; return `<select onchange="setGsMethod('${cid}',this.value)" style="padding:4px 6px;min-width:96px"><option value=""></option>`+gensenMethods().map(mn=>`<option ${mn===v?'selected':''}>${esc(mn)}</option>`).join('')+(has?'':`<option selected>${esc(v)}</option>`)+`</select>`; }
 function setGsMethod(cid,v){ const r=gsEnsure(gensenYear,cid); v=(v==null?'':String(v).trim()); if(v)r.method=v; else delete r.method; persist(); }
+/* 方法の選択肢編集 */
+function openGensenMethods(){ renderGensenMethodsList(); openModal('gensenMethodModal'); }
+function renderGensenMethodsList(){ const el=document.getElementById('gensenMethodList'); if(!el)return; el.innerHTML=gensenMethods().map((mn,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0"><span style="flex:1">${esc(mn)}</span><button class="text" style="color:var(--danger)" onclick="delGensenMethod(${i})">削除</button></div>`).join('')||'<div class="hint">選択肢がありません</div>'; }
+function addGensenMethod(){ const inp=document.getElementById('gensenMethodInput'); const v=(inp.value||'').trim(); if(!v)return; if(gensenMethods().indexOf(v)>=0){ toast('既に存在します','err'); return; } data.gensenMethods.push(v); inp.value=''; persist(); renderGensenMethodsList(); renderGensen(); }
+function delGensenMethod(i){ if(i<0||i>=gensenMethods().length)return; data.gensenMethods.splice(i,1); persist(); renderGensenMethodsList(); renderGensen(); }
 /* 「今回分」セルは旧キー(抽出＆送信)の値もフォールバック表示し、保存は今回分へ */
 function gsKongaiVal(r){ return (r.cells&&(r.cells['今回分']||r.cells['抽出＆送信']))||''; }
 function editGsKongai(e,cid){ const r=gsPeek(gensenYear,cid); openCellEditor(e,gsKongaiVal(r),v=>{ const rr=gsEnsure(gensenYear,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells['今回分']=v; else delete rr.cells['今回分']; delete rr.cells['抽出＆送信']; persist(); renderGensen(); }); }
@@ -1181,10 +1202,8 @@ function renderGensenMonthly(){ const cs=gensenMonthlyClients(); const steps=get
   if(gensenMonth==null||gensenMonth<1||gensenMonth>11){ gensenMonth=Math.min(11,Math.max(1,new Date().getMonth()+1)); }
   const m=gensenMonth;
   let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar"><button onclick="openGensenSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
-    `<div class="card pad" style="margin:0 0 14px"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <b id="gmMonthLabel" style="min-width:210px">${gensenDueLabel(m)}</b><span class="s">${cs.length}社</span>
-      <input type="range" min="1" max="11" step="1" value="${m}" style="flex:1;min-width:240px" oninput="document.getElementById('gmMonthLabel').textContent=gensenDueLabel(+this.value)" onchange="openGensenMonth(+this.value)">
-    </div><div class="hint" style="margin-top:6px">スライダーで月分を選択（1〜11月分）。12月分（翌1/10納付）は年末調整で対応します。</div></div>`;
+    `<div class="gm-months">`+Array.from({length:11},(_,i)=>{ const mm=i+1; return `<button class="${mm===m?'on':''}" onclick="openGensenMonth(${mm})">${mm}月</button>`; }).join('')+`</div>`+
+    `<div class="hint" style="margin:0 0 14px"><b>${gensenDueLabel(m)}</b>・${cs.length}社（12月分（翌1/10納付）は年末調整で対応します）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>毎月納付の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>連絡方法</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">翌月繰越未済額</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id); const fwd=carry+num(r.current);
@@ -1209,8 +1228,8 @@ function setGsCurrent(cid,raw){ const r=gsEnsure(gensenYear,cid); const v=String
 function setGsNote(cid,v){ const r=gsEnsure(gensenYear,cid); v=(v==null?'':String(v).trim()); if(v)r.note=v; else delete r.note; persist(); }
 function editGsCell(e,cid,encStep){ const step=decodeURIComponent(encStep); const r=gsPeek(gensenYear,cid); openCellEditor(e,(r.cells&&r.cells[step])||'',v=>{ const rr=gsEnsure(gensenYear,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells[step]=v; else delete rr.cells[step]; persist(); renderGensen(); }); }
 function renderGensenSpecial(){ const cs=gensenSpecialClients(); const steps=getGensenSteps(); const today=new Date(); today.setHours(0,0,0,0);
-  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar"><button onclick="openGensenSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
-    `<div class="hint" style="margin-bottom:14px">納期特例：1〜6月分（納付期限 7/10）の進捗管理です。7〜12月分は年末調整で対応します。未済繰越額は前年の年末調整「控除未済額」から自動セットされます。</div>`;
+  let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar"><button onclick="openGensenSteps()">⚙ 工程を編集</button><button onclick="openGensenMethods()">⚙ 方法の選択肢</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
+    `<div class="hint" style="margin-bottom:14px">納期特例：1〜6月分（納付期限 7/10）の進捗管理です。7〜12月分は年末調整で対応します。前年完了日・前年方法は前年の「今回分」から自動連動します。未済繰越額は前年の年末調整「控除未済額」から自動セットされます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>納期特例の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>連絡方法</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">源泉税額(1〜6月)</th><th style="text-align:right">翌期繰越未済額</th>`+
     steps.map(s=>{ const due=s.due?`<span class="due">${fmtMD(s.due)}</span>`:''; if(s.name==='今回分'){ return `<th>前年完了日</th><th>前年方法</th><th class="step">今回分${due}</th><th>今回方法</th>`; } return `<th class="step">${esc(s.name)}${due}</th>`; }).join('')+`<th>備考</th></tr>`;
