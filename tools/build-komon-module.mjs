@@ -5,7 +5,8 @@ import fs from 'fs';
 import path from 'path';
 
 const ROOT = process.cwd();
-let html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+// 総合アプリ(ホスト)内で編集できるよう、ソースはリポジトリ内 app-sources/komon/index.html を読む
+let html = fs.readFileSync(path.join(ROOT, 'app-sources', 'komon', 'index.html'), 'utf8');
 
 function rangeReplace(s, startAnchor, endAnchor, replacement) {
   const i = s.indexOf(startAnchor);

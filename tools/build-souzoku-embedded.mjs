@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv[2];
-const SRC = arg ? resolve(process.cwd(), arg) : resolve(__dirname, '../../souzoku-kanri/index.html');
+// 既定はリポジトリ内 app-sources/souzoku/index.html（総合アプリ内で編集できるように）
+const SRC = arg ? resolve(process.cwd(), arg) : resolve(__dirname, '../app-sources/souzoku/index.html');
 const OUT = resolve(__dirname, '../src/modules/souzoku/embedded.ts');
 
 let html = readFileSync(SRC, 'utf8');
