@@ -1291,12 +1291,17 @@ const Realtime=(function(){
   }
   // リモートスナップショット(エンコード済みrawツリー)を取り込む
   function applyRemoteSnapshot(remoteRaw){
+    // 自分の書き込みの反射（echo）では実質変化が無い。変化が無いのに再描画すると、
+    // 編集中の項目（相続人・財産など動的描画の入力欄）が作り直されてフォーカスを奪われ、
+    // 「修正・入力できない」状態になる。komon と同様に、実際に変化した時だけ再描画する。
+    const before=JSON.stringify(syncedView());
     const d=remoteRaw?decodeTree(remoteRaw):{cases:{},tomb:{}};
     cloud.tomb=Object.assign({}, cloud.tomb||{}, d.tomb||{});
     const rc=d.cases||{};
     Object.keys(rc).forEach(id=>{ if(cloud.tomb[id]) return; if(id===currentId && isObj(cloud.cases[id])) mutateInto(cloud.cases[id], rc[id]); else cloud.cases[id]=rc[id]; });
     Object.keys(cloud.tomb).forEach(id=>{ if(cloud.tomb[id]) delete cloud.cases[id]; });
-    saveCloudLocal(); lastSnap=clone(syncedView()); rerender();
+    lastSnap=clone(syncedView());
+    if(JSON.stringify(syncedView())!==before){ saveCloudLocal(); rerender(); }
   }
   function parseConfig(txt){ const s=String(txt||''); const a=s.indexOf('{'),b=s.lastIndexOf('}'); if(a<0||b<0)throw new Error('firebaseConfigが不正です'); return new Function('return ('+s.slice(a,b+1)+')')(); }
   // ===== ホストcore経由（iframe埋め込み時）：同期はpostMessageでホストへ委譲 =====
