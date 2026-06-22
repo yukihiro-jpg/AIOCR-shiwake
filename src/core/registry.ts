@@ -47,6 +47,6 @@ export const MODULES: ModuleDef[] = [
     desc: '相続案件を管理',
     path: '/souzoku',
     icon: '🏛️',
-    status: 'soon',
+    status: 'ready',
   },
 ]
