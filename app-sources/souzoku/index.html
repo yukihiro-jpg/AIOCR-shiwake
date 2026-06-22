@@ -475,7 +475,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       <button class="nav-item active" data-view="cases"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h3l2 2h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>案件一覧</button>
       <div class="nav-section">案件の作業</div>
       <button class="nav-item needs-case" data-view="progress"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18M6 20v-7M12 20V5M18 20v-10"/></svg></span>進捗管理・確認リスト</button>
-      <button class="nav-item needs-case" data-view="basic"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l5 5v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M13 4v5h5M9 13h6M9 16h6"/></svg></span>基本情報・打合せ<span class="step-no">1</span></button>
+      <button class="nav-item needs-case" data-view="basic"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l5 5v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M13 4v5h5M9 13h6M9 16h6"/></svg></span>基本情報<span class="step-no">1</span></button>
       <button class="nav-item needs-case" data-view="checklist"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8.5 12l2.2 2.2L16 9"/></svg></span>必要資料<span class="step-no">2</span></button>
       <button class="nav-item needs-case" data-view="assets" id="navAssets"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 9l3 4 3-4M12 13v4M9.5 14.5h5"/></svg></span>財産一覧<span class="step-no">3</span></button>
       <div class="nav-sub" id="assetSubNav"></div>
@@ -533,7 +533,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 
     <!-- ===== Basic ===== -->
     <section class="view" id="view-basic">
-      <div class="view-head"><h1>基本情報・打合せ</h1><p>相続開始時の打合せ情報を入力します。被相続人と相続人の情報、各期限を管理します。</p></div>
+      <div class="view-head"><h1>基本情報</h1><p>被相続人と相続人の情報、各期限を管理します。打合せ内容は左メニューの「議事録」に記録します。</p></div>
 
       <div class="card">
         <h2>被相続人情報</h2>
@@ -560,12 +560,6 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <button class="btn primary sm" onclick="addHeir()">＋ 相続人を追加</button>
         </div>
         <div id="heirsContainer"></div>
-      </div>
-
-      <div class="card">
-        <h2>打合せメモ</h2>
-        <div class="card-sub">初回打合せの内容や留意事項を記録します。</div>
-        <textarea id="d_meetingMemo" rows="5" placeholder="例：相続人間の関係、遺言の有無、不動産の概況、二次相続の懸念、依頼者の希望スケジュール 等" oninput="onBasicInput()"></textarea>
       </div>
 
       <div class="btn-row">
@@ -1840,7 +1834,7 @@ function syncUIToCase(){
   currentCase.deceased.address=$('d_address').value;
   currentCase.deceased.honseki=$('d_honseki').value;
   currentCase.collectionDeadline=$('d_collect').value;
-  currentCase.meetingMemo=$('d_meetingMemo').value;
+  if($('d_meetingMemo')) currentCase.meetingMemo=$('d_meetingMemo').value;
   // agreement
   currentCase.agreement.date=$('ag_date').value;
   currentCase.agreement.notes=$('ag_notes').value;
@@ -1879,7 +1873,7 @@ function loadCaseIntoUI(){
   renderDeceasedDates();
   $('d_address').value=d.address||''; $('d_honseki').value=d.honseki||'';
   $('d_collect').value=currentCase.collectionDeadline||'';
-  $('d_meetingMemo').value=currentCase.meetingMemo||'';
+  if($('d_meetingMemo')) $('d_meetingMemo').value=currentCase.meetingMemo||'';
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
   calcDeadlines();

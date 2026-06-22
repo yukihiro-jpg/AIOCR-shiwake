@@ -1670,9 +1670,9 @@ function _core(){ return window.__komonCore||null; }
 function _szEnc(k){ return '_'+String(k).replace(/[.#$\/\[\]~]/g,c=>'~'+c.charCodeAt(0).toString(16)); }
 function _szEncTree(o){ if(Array.isArray(o))return o.map(_szEncTree); if(o&&typeof o==='object'){ const r={}; for(const k in o)r[_szEnc(k)]=_szEncTree(o[k]); return r; } return o; }
 function _szCaseId(clientId){ return 'komon-'+clientId; }
-function _newSouzokuCase(name,caseId){ const now=new Date().toISOString(); return {
-  version:2, caseId:caseId, createdAt:now, savedAt:now,
-  deceased:{ code:'', name:name||'', kana:'', birth:'', deathDate:'', address:'', honseki:'' },
+function _newSouzokuCase(name,caseId,code,clientId){ const now=new Date().toISOString(); return {
+  version:2, caseId:caseId, createdAt:now, savedAt:now, clientId:clientId||'',
+  deceased:{ code:code||'', name:name||'', kana:'', birth:'', deathDate:'', address:'', honseki:'' },
   collectionDeadline:'', meetingMemo:'',
   heirs:[{ id:'h'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name:'', kana:'', relationLabel:'長男', relationType:'child', isAdopted:false, adoptedAsReal:false, grandAdopted:false, isDaishu:false, daishuGroup:'', isRenounced:false, address:'', tel:'', job:'', birth:'', age:'', disabled:false, disabilityType:'general', isRepresentative:false, hideFromContract:false }],
   checklist:{}, assets:[], successive:{enabled:false,A:'',B:'',years:'',prevDate:''}, compensations:[],
@@ -1703,7 +1703,7 @@ async function syncClientToSouzoku(c){
   const caseId=_szCaseId(c.id); const ePath='_cases/'+_szEnc(caseId); const tPath='_tomb/'+_szEnc(caseId);
   if(c.useSouzoku==='利用'){
     const snap=await F.get(F.ref(db, base+'/'+ePath));
-    if(!snap||!snap.exists()){ await F.update(baseRef,{[ePath]:_szEncTree(_newSouzokuCase(c.name,caseId)),[tPath]:null}); }
+    if(!snap||!snap.exists()){ await F.update(baseRef,{[ePath]:_szEncTree(_newSouzokuCase(c.name,caseId,c.code,c.id)),[tPath]:null}); }
     else { await F.update(baseRef,{[tPath]:null}); }
   } else { await F.update(baseRef,{[ePath]:null,[tPath]:true}); }
 }
