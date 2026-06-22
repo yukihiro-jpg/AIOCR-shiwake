@@ -22,10 +22,25 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
     setClients(getClients())
   }, [refreshSignal])
 
+  // 顧問先コード順に並べる（コードあり→数値/文字で昇順、コード無しは末尾を名前順）
+  const sortByCode = (a: Client, b: Client) => {
+    const ca = (a.code || '').trim(), cb = (b.code || '').trim()
+    if (ca && cb) {
+      const na = Number(ca), nb = Number(cb)
+      if (ca !== '' && cb !== '' && !isNaN(na) && !isNaN(nb)) return na - nb
+      return ca.localeCompare(cb, 'ja')
+    }
+    if (ca && !cb) return -1
+    if (!ca && cb) return 1
+    return (a.name || '').localeCompare(b.name || '', 'ja')
+  }
+
   const filtered = useMemo(() => {
-    if (!search) return clients
-    const q = search.toLowerCase()
-    return clients.filter((c) => c.name.toLowerCase().includes(q))
+    const q = search.trim().toLowerCase()
+    const list = q
+      ? clients.filter((c) => c.name.toLowerCase().includes(q) || (c.code || '').toLowerCase().includes(q))
+      : clients
+    return [...list].sort(sortByCode)
   }, [clients, search])
 
   const handleAdd = () => {
@@ -88,7 +103,7 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="顧問先名で検索..."
+                placeholder="顧問先コード・名前で検索..."
                 className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
               />
               {search && (
@@ -146,8 +161,11 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                     onClick={() => handleSelect(client)}
                     className="group bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all p-4 flex flex-col gap-3"
                   >
-                    {/* 顧問先名 */}
+                    {/* 顧問先コード＋顧問先名 */}
                     <div className="font-semibold text-gray-800 group-hover:text-blue-700 leading-snug min-h-[2.6em]">
+                      {client.code ? (
+                        <span className="text-gray-400 font-normal mr-2 tabular-nums">{client.code}</span>
+                      ) : null}
                       {client.name}
                     </div>
 

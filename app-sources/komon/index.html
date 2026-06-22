@@ -1691,6 +1691,7 @@ async function syncClientToShiwake(c){
   if(c.useShiwake==='利用'){
     const fy=parseInt(String(c.fiscal||'').replace(/[^0-9]/g,''),10);
     const obj={ id:targetId, name:c.name||'', createdAt:c.createdAt||new Date().toISOString() };
+    if(c.code)obj.code=String(c.code).trim();
     if(fy>=1&&fy<=12)obj.fiscalYearEndMonth=fy;
     await F.update(mapRef,{[targetId]:obj}); await F.update(tombRef,{[targetId]:null});
     if(c.shiwakeClientId!==targetId){ c.shiwakeClientId=targetId; try{ saveLocal(); }catch(e){} }
@@ -1724,6 +1725,7 @@ async function importClientsFromShiwake(){
     list.forEach(sc=>{ const nm=(sc.name||'').trim();
       if(haveId.has(sc.id)||haveLink.has(sc.id)||haveName.has(nm))return; // 既に顧問先情報にある
       const o={ id:sc.id, shiwakeClientId:sc.id, name:sc.name, type:'法人', status:'契約中', payMethod:'紙納付書', gensenStatus:'毎月納付', useShiwake:'利用', useSouzoku:'未利用', createdAt:sc.createdAt||new Date().toISOString() };
+      if(sc.code)o.code=String(sc.code).trim();
       if(sc.fiscalYearEndMonth>=1&&sc.fiscalYearEndMonth<=12)o.fiscal=sc.fiscalYearEndMonth+'月';
       data.clients.push(o); n++; });
     persist(); refreshAll();

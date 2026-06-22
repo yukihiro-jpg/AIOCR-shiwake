@@ -4,6 +4,7 @@ export interface Client {
   id: string
   name: string
   createdAt: string
+  code?: string                 // 顧問先コード（顧問先情報から連携）
   taxType?: TaxType
   fiscalYearEndMonth?: number  // 決算月（1-12、例: 3月決算=3）
   lastCsvExportAt?: string      // 最も直近に仕訳CSVを出力した日時(ISO)。全ユーザー横断で共有。
