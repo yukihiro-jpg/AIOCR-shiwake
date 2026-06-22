@@ -22,7 +22,7 @@ export const MODULES: ModuleDef[] = [
     desc: '顧問先の基本情報を登録・管理',
     path: '/komon',
     icon: '👥',
-    status: 'soon',
+    status: 'ready',
   },
   {
     key: 'shinchoku',
