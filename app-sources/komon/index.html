@@ -528,6 +528,16 @@
   <div class="modal-foot"><button class="text" onclick="closeModal('minuteModal')">キャンセル</button><button class="primary" onclick="saveMinute()">保存</button></div>
 </div></div>
 
+<!-- AI校正の確認モーダル（採用前に確認・修正できる） -->
+<div class="modal-bg" id="mnAiModal"><div class="modal" style="max-width:min(900px,96vw)">
+  <div class="modal-head"><h3>AI校正の確認</h3><button class="icon x" onclick="closeModal('mnAiModal')">✕</button></div>
+  <div class="modal-body">
+    <div class="hint" style="margin-bottom:12px">元の入力内容はそのまま残っています。下のAI校正案を確認し、必要なら修正してから「この内容で反映」を押してください。反映しない場合は「キャンセル」を押してください。</div>
+    <div id="mnAiBody"></div>
+  </div>
+  <div class="modal-foot"><button class="text" onclick="closeModal('mnAiModal')">キャンセル</button><button class="primary" onclick="applyMnAi()">この内容で反映</button></div>
+</div></div>
+
 <!-- 議事録まとめモーダル -->
 <div class="modal-bg" id="summaryModal"><div class="modal wide">
   <div class="modal-head"><h3 id="summaryModalTitle">議事録まとめ</h3><button class="icon x" onclick="closeModal('summaryModal')">✕</button></div>
@@ -1528,18 +1538,21 @@ async function callAI(system,user,maxTokens){
 const MN_SEC_GUIDE={ tax:'これは「税務論点」の議事メモです。税務・会計上の論点、判断、根拠、検討事項が明確になるように整理してください。',
   chat:'これは「世間話」の議事メモです。顧問先との関係構築に役立つ雑談・近況・人柄に関する情報を、要点が分かるよう簡潔に整理してください。',
   todo:'これは「TODO」の議事メモです。やるべきこと・宿題・期限・担当を、実行しやすいタスクの箇条書きに整理してください。' };
-const POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、事実を変えずに要点が明確で読みやすい議事録に整えます。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで簡潔に出力します。表は使わず箇条書きにします。';
+const POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、内容を一切省略・要約・削除せずに、誤字脱字の修正と読みやすい体裁への整形のみ行います。入力に含まれる事実・固有名詞・数値・日付・依頼者の発言ニュアンスはすべて漏らさず保持してください。情報を勝手に削る・まとめて短くする・推測で足すことは禁止です。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで出力します。表は使わず箇条書きにします。';
+let _mnAiProposal={};
 async function aiPolishMinute(){ const hint=document.getElementById('mn_aiHint');
   mnSections[mnSection]=document.getElementById('mn_sectionInput').value;
   const targets=Object.keys(MN_SECTIONS).filter(s=>(mnSections[s]||'').trim());
   if(!targets.length){ toast('内容を入力してください','err'); return; }
   hint.textContent='AIが校正しています…（税務論点・世間話・TODO）';
   try{
-    for(const s of targets){ const out=await callAI(POLISH_SYS+MN_SEC_GUIDE[s], `次の「${MN_SECTIONS[s]}」の議事メモを校正してください。\n\n`+mnSections[s], 1500); mnSections[s]=out; }
-    document.getElementById('mn_sectionInput').value=mnSections[mnSection]||'';
-    hint.textContent='税務論点・世間話・TODOをまとめてAI校正しました。各分類ボタンで結果を確認できます。'; toast('AI校正が完了しました','ok');
+    _mnAiProposal={};
+    for(const s of targets){ const out=await callAI(POLISH_SYS+MN_SEC_GUIDE[s], `次の「${MN_SECTIONS[s]}」の議事メモを、内容を一切省略せずに整えてください。\n\n`+mnSections[s], 2000); _mnAiProposal[s]=out||mnSections[s]; }
+    document.getElementById('mnAiBody').innerHTML=targets.map(s=>`<div class="field full" style="margin-bottom:14px"><label>${MN_SECTIONS[s]}</label><textarea id="mnai_${s}" rows="6">${esc(_mnAiProposal[s])}</textarea></div>`).join('');
+    hint.textContent='AI校正案を確認してください。'; openModal('mnAiModal');
   }catch(e){ hint.textContent=''; toast(e.message,'err'); }
 }
+function applyMnAi(){ Object.keys(MN_SECTIONS).forEach(s=>{ const el=document.getElementById('mnai_'+s); if(el)mnSections[s]=el.value; }); document.getElementById('mn_sectionInput').value=mnSections[mnSection]||''; closeModal('mnAiModal'); toast('AI校正を反映しました','ok'); }
 
 /* ===== 議事録まとめ（顧問先・事業年度別） ===== */
 function fiscalYearLabel(c,dateStr){ const M=fiscalMonthNum(c.fiscal); const d=new Date(dateStr); if(isNaN(d))return '日付不明';

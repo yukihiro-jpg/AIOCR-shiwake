@@ -947,6 +947,19 @@ function getStock_(symbol){
   </div>
 </div>
 
+<!-- AI校正の確認モーダル（採用前に確認・修正できる） -->
+<div class="modal-ov" id="szAiModal">
+  <div class="modal" style="max-width:760px;">
+    <h2>AI校正の確認</h2>
+    <div class="m-sub">元の入力内容はそのまま残っています。下のAI校正案を確認し、必要なら修正してから「この内容で反映」を押してください。</div>
+    <div id="szAiBody" style="margin-top:8px;max-height:60vh;overflow:auto"></div>
+    <div class="btn-row" style="margin-top:18px;justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('szAiModal')">キャンセル</button>
+      <button class="btn primary" onclick="szApplyAi()">この内容で反映</button>
+    </div>
+  </div>
+</div>
+
 <!-- Load modal -->
 <div class="modal-ov" id="loadModal">
   <div class="modal">
@@ -4187,7 +4200,7 @@ async function szSaveMinute(){
   closeModal('szMinModal'); toast('保存しました（顧問先の議事録と同期）'); szRenderMinutes();
 }
 async function szDeleteMinute(id){ if(!confirm('この議事録を削除しますか？'))return; try{ const all=await _szFetchAllMinutes(); await _szWriteAllMinutes(all.filter(x=>x&&x.id!==id)); }catch(e){ toast('削除に失敗：'+e.message, true); return; } toast('削除しました'); szRenderMinutes(); }
-const _SZ_POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、事実を変えずに要点が明確で読みやすい議事録に整えます。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで簡潔に出力します。表は使わず箇条書きにします。';
+const _SZ_POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、内容を一切省略・要約・削除せずに、誤字脱字の修正と読みやすい体裁への整形のみ行います。入力に含まれる事実・固有名詞・数値・日付・発言のニュアンスはすべて漏らさず保持してください。情報を勝手に削る・まとめて短くする・推測で足すことは禁止です。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで出力します。表は使わず箇条書きにします。';
 const _SZ_SEC={ szmn_tax:'これは「税務論点」の議事メモです。税務・評価・分割上の論点、判断、根拠、検討事項が明確になるように整理してください。', szmn_chat:'これは「世間話・近況」の議事メモです。関係構築に役立つ雑談・近況・人柄に関する情報を、要点が分かるよう簡潔に整理してください。', szmn_todo:'これは「TODO」の議事メモです。やるべきこと・宿題・期限・担当を、実行しやすいタスクの箇条書きに整理してください。' };
 async function szCallAI(system,user,maxTokens){
   const s=_komonSettings(); const provider=s.aiProvider||'gemini';
@@ -4198,14 +4211,21 @@ async function szCallAI(system,user,maxTokens){
   const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:maxTokens||1500,system,messages:[{role:'user',content:user}]})});
   if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); return(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
 }
+const _SZ_SEC_LABEL={ szmn_tax:'税務論点', szmn_chat:'世間話・近況', szmn_todo:'TODO' };
 async function szAiPolish(){
   const ids=['szmn_tax','szmn_chat','szmn_todo'].filter(k=>($(k).value||'').trim());
   if(!ids.length){ toast('議事内容（税務論点・世間話・TODO）を入力してください', true); return; }
   const btn=$('szmnAiBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='AI校正中…'; }
-  try{ for(const k of ids){ const out=await szCallAI(_SZ_POLISH_SYS, _SZ_SEC[k]+'\n\n――以下のメモを、事実を変えずに整えてください――\n'+$(k).value, 1200); if(out)$(k).value=out; } toast('AI校正が完了しました'); }
+  try{
+    const results=[];
+    for(const k of ids){ const out=await szCallAI(_SZ_POLISH_SYS, _SZ_SEC[k]+'\n\n――以下のメモを、内容を一切省略せずに整えてください――\n'+$(k).value, 1800); results.push([k,out||$(k).value]); }
+    $('szAiBody').innerHTML=results.map(([k,out])=>'<div class="field" style="margin-bottom:12px"><label>'+_SZ_SEC_LABEL[k]+'</label><textarea id="szai_'+k+'" rows="6">'+esc(out)+'</textarea></div>').join('');
+    openModal('szAiModal');
+  }
   catch(e){ toast('AI校正に失敗：'+e.message, true); }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
 }
+function szApplyAi(){ ['szmn_tax','szmn_chat','szmn_todo'].forEach(k=>{ const el=$('szai_'+k); if(el)$(k).value=el.value; }); closeModal('szAiModal'); toast('AI校正を反映しました'); }
 
 // ============================================================
 //  Init
