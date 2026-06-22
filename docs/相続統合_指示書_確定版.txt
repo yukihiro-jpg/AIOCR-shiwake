@@ -1,0 +1,132 @@
+================================================================
+相続管理アプリ 統合指示書（確定版）
+ホスト = AI-OCR(仕訳作成)アプリ ／ 実コード基準
+================================================================
+
+このアプリ(AI-OCR)はすでに「総合アプリの土台(core)」が実装済みで、
+顧問先管理アプリ(komon)も同方式で統合済みです。
+本書の通りに、相続管理アプリ(souzoku)を「1モジュール」としてホストへ
+取り込める状態にしてください。
+※顧問先管理が iframe隔離方式で問題なく統合できているので、同じ作り方を踏襲すると確実です。
+
+
+----------------------------------------------------------------
+0. 前提（重要）
+----------------------------------------------------------------
+- ホストは Next.js 14 の【静的書き出し】アプリ（output:'export', trailingSlash:true,
+  basePath対応）。GitHub Pages（https://yukihiro-jpg.github.io/AIOCR-shiwake/）で配信。
+  → 相続モジュールは【完全にクライアント専用】で動くこと。
+    ・APIルート / SSR / server actions / next/headers 等のサーバー機能は使用不可。
+    ・'use client'。画面は dynamic(import, { ssr:false }) で描画される。
+- Firebaseプロジェクトは komon-manager-d7ff7（共通）。匿名認証のみ。Google連携なし。
+- 相続管理は1つの機能なので、分割は不要。モジュール名（サブツリー名/ルート）は souzoku。
+  ランチャーのカードは「相続管理」1枚（ルート /souzoku）。
+
+
+----------------------------------------------------------------
+1. ホストが提供済みの共通コア（そのまま import して使う）
+----------------------------------------------------------------
+相続モジュールは、Firebase初期化・匿名認証・合言葉処理を【自前で持たない】。
+次の core をそのまま使う（@ は src のエイリアス）。
+
+  import { getDb } from '@/core/firebase'
+  import {
+    getRoomPassphrase, setRoomPassphrase, clearRoomPassphrase,
+    hasRoom, roomKey, modulePath,
+  } from '@/core/room'
+  import ModuleSwitcher from '@/core/ui/ModuleSwitcher'   // ヘッダーの「ホーム/アプリ切替」
+
+API仕様:
+  getDb(): Promise<Database>          匿名サインイン済みの Realtime Database
+  hasRoom(): boolean                 合言葉が設定済みか
+  roomKey(): Promise<string>         合言葉の SHA-256 16進(小文字)
+  setRoomPassphrase(p: string): void 同期（Promiseではない）。共通キーに保存
+  modulePath(moduleKey, ...segs): Promise<string>
+      => `rooms/${roomKey}/${moduleKey}/${segs.join('/')}`
+      例) await modulePath('souzoku', 'cases')   // rooms/{roomKey}/souzoku/cases
+  合言葉は端末の localStorage 共通キー "suite-room-passphrase" に保存（core側で旧キー自動移行）。
+
+
+----------------------------------------------------------------
+2. データの読み書き方法（必ず core 経由）
+----------------------------------------------------------------
+firebase/database の ref/onValue/get/set/update/remove を modulePath() と併用する。
+
+  const db = await getDb()
+  const { ref, onValue, set } = await import('firebase/database')
+  const path = await modulePath('souzoku', '...')   // rooms/{roomKey}/souzoku/...
+  onValue(ref(db, path), (snap) => { ... })
+  await set(ref(db, await modulePath('souzoku', '...')), data)
+
+  ※RTDB禁止文字（. # $ / [ ]）を含む子キーは、komon と同様にエンコード/デコードする
+    （例: 先頭 _ ＋ 禁止文字を ~<hex> に置換）。突合時も同じ規則でデコードすること。
+  ※合言葉ダイアログ表示・匿名サインインはホスト側の責務。モジュールは
+    hasRoom()/getDb()/modulePath() を呼ぶだけ。未設定時は hasRoom() を見て
+    合言葉入力UI（setRoomPassphrase）かホーム(/)誘導を出す（komon の KomonApp 参照）。
+
+
+----------------------------------------------------------------
+3. データ階層と移行（★現状からの移動が必要）
+----------------------------------------------------------------
+- 現状: souzoku は rooms の外の【別トップ階層 souzoku/{room}/…】に保存している。
+- 統合後（最終形）: rooms/{roomKey}/souzoku/… に置く（rooms 配下へ移動）。
+  ・roomKey は core の SHA-256(合言葉) に統一（literal なルーム名をやめる）。
+  ・合言葉は共通キー "suite-room-passphrase"（旧キーがあれば移行）。
+- 移行のやり方（komon と同方式を推奨・確実）:
+  ・各端末の localStorage に旧データの正本があるはず。モジュール起動時にそれを読み、
+    新パス rooms/{roomKey}/souzoku/… が空なら seed する（初回のみ。直前に
+    JSONバックアップを自動ダウンロード）。
+  ・重要: localStorage は「パス」ではなく「ホスト名」単位で共有される。
+    旧アプリも総合アプリも同じ yukihiro-jpg.github.io 配下なら localStorage は共有され、
+    事務所PC等で /souzoku を一度開けば自動seedで移行が完了する（komon で実証済み）。
+- Firebaseルール: rooms 配下へ移すので、既存の rooms/$room 1ブロックで保護される
+  （ルール変更不要）。旧トップ階層 souzoku のルールブロックは、移行完了後に削除予定。
+
+★必ず回答してください:
+  ・現状の保存先（localStorageのキー名／旧Firebaseパス souzoku/{...} の正確な形）。
+  ・souzoku のデータ構造（主要キーと中身の概要）。
+  ・旧アプリのURL（ドメイン）は yukihiro-jpg.github.io 配下ですか？（localStorage共有=自動seed可否の判定に必要）
+    別ドメインだった場合は自動seedが効かないため、別の移行手段（エクスポート取込等）を提示してください。
+
+
+----------------------------------------------------------------
+4. 納品フォーマット（komon と同じ・ホストへ載せやすく）
+----------------------------------------------------------------
+- 自己完結フォルダ src/modules/souzoku/ として用意:
+    src/modules/souzoku/SouzokuApp.tsx … 画面トップ（default export, 'use client'）
+    （iframe隔離方式なら embedded.ts や生成スクリプトも同梱。komon に倣う）
+- import は @/core/... とモジュール内相対のみ（ホストの他モジュールに依存しない）。
+- クライアント専用で動くこと（静的書き出し対応）。
+- ヘッダーに <ModuleSwitcher currentKey="souzoku" /> を表示（komon と同様）。
+- ルート(/souzoku)の結線はホスト側が行う（モジュールはトップを default export するだけ）。
+
+■ 受け渡し方法（重要）:
+  あなた（相続セッション）は、このホストの aiocr-shiwake リポジトリへ直接プッシュできません。
+  そこで、納品物 src/modules/souzoku/ 一式（および必要なら tools/）を
+  【ZIPファイルにまとめて】依頼者へ渡してください。依頼者がホスト担当へアップロードします。
+  ・ZIP内のディレクトリ構成は src/modules/souzoku/... の形を保つこと（komon の納品と同じ）。
+  ・embedded.ts 等が大きくなるため zip 推奨。
+
+
+----------------------------------------------------------------
+5. ホスト側の結線（参考・ホスト担当が行う）
+----------------------------------------------------------------
+- src/app/souzoku/page.tsx を追加し、dynamic(()=>import('@/modules/souzoku/SouzokuApp'),
+  { ssr:false }) で描画。
+- src/core/registry.ts の souzoku を status:'ready'（path:'/souzoku'）に切替。
+→ ランチャー・アプリ切替に「相続管理」が自動で有効化される。
+
+
+----------------------------------------------------------------
+6. 注意
+----------------------------------------------------------------
+- 合言葉→roomKey(SHA-256) と 共通キー "suite-room-passphrase" を必ず一致させる
+  （ズレると同じ合言葉でも別ワークスペース扱いになり過去データが見えない）。
+- 多重 initializeApp を避けるため Firebaseは必ず getDb() 経由（core が getApps で1回に統一済み）。
+- 静的書き出しのためサーバー機能は不使用（クライアント専用）。
+- 移行は必ずバックアップ後。統合が済むまで現行URLは並行運用のままでよい。
+
+
+================================================================
+（このファイルと一緒に渡すプロンプトは、依頼者が別途貼り付けます）
+================================================================
