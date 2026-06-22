@@ -44,11 +44,10 @@
   .sub-tabs{display:flex;gap:8px;margin-bottom:16px;}
   .sub-tabs button{border-radius:20px;}
   .sub-tabs button.on{background:var(--blue);color:#fff;border-color:var(--blue);}
-  .gm-months{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:0 0 6px;}
-  .gm-months button{flex:1;border:none;border-right:1px solid var(--border);background:var(--blue-soft);color:var(--text);font-size:13px;font-weight:500;padding:9px 4px;cursor:pointer;white-space:nowrap;}
-  .gm-months button:last-child{border-right:none;}
-  .gm-months button:hover{background:#d8e6fd;}
-  .gm-months button.on{background:var(--blue);color:#fff;}
+  .gm-months{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;}
+  .gm-months button{flex:1 1 0;min-width:60px;text-align:center;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;padding:9px 6px;cursor:pointer;white-space:nowrap;transition:.12s;}
+  .gm-months button:hover{background:var(--blue-soft);border-color:#bcd3fb;}
+  .gm-months button.on{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 2px 6px rgba(26,115,232,.28);}
   .ai-btn{font-size:12px;padding:5px 10px;border-radius:14px;border:1px solid #d6c5f0;color:#7b2ff7;background:#faf5ff;}
   .seg{display:inline-flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;vertical-align:middle;}
   .seg-btn{font-size:12px;padding:5px 12px;border:none;border-right:1px solid var(--border);border-radius:0;background:#fff;color:var(--muted);}
@@ -101,6 +100,17 @@
   input,select,textarea{font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--border);
     border-radius:6px;background:var(--surface);color:var(--text);width:100%;}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-soft);}
+  /* 登録モーダルの視認性：白一色を避け、項目を見分けやすく */
+  .modal-body .field label{color:#3c4043;font-weight:600;}
+  .modal-body .field input,.modal-body .field select,.modal-body .field textarea{background:#f7f8fb;border-color:#c4c9d4;}
+  .modal-body .field input:hover,.modal-body .field select:hover,.modal-body .field textarea:hover{border-color:#9aa0a9;}
+  .modal-body .field input:focus,.modal-body .field select:focus,.modal-body .field textarea:focus{background:#fff;}
+  /* 月次グリッド：月ごとに背景を交互＋境界線で区別しやすく */
+  table.grid th.mgA,table.grid td.mgA{background:#f4f8ff;}
+  table.grid thead th.mgA{background:#eaf2fe;}
+  table.grid th.medge,table.grid td.medge{border-left:2px solid #9bb8e6;}
+  table.grid th.step .mlabel{display:block;font-size:11.5px;font-weight:700;color:#fff;background:var(--blue);border-radius:10px;padding:1px 0;margin:0 0 4px;}
+  table.grid th.step.mgA .mlabel{background:#5b8def;}
   .search{max-width:300px;}
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(32,33,36,.6);z-index:100;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}
   .modal-bg.open{display:flex;}
@@ -343,7 +353,7 @@
       <div class="field"><label>メールアドレス</label><input id="cl_email"></div>
       <div class="field"><label>契約区分</label><input id="cl_contract" placeholder="月次顧問 / スポット など"></div>
       <div class="field"><label>納付方法</label><select id="cl_payMethod"><option>ダイレクト納付</option><option>紙納付書</option></select></div>
-      <div class="field"><label>源泉税納付ステータス</label><select id="cl_gensenStatus"><option>毎月納付</option><option>納期特例</option></select></div>
+      <div class="field"><label>源泉税納付ステータス</label><select id="cl_gensenStatus"><option>毎月納付</option><option>納期特例</option><option>不要</option></select></div>
       <div class="field"><label>源泉処理者区分</label><select id="cl_gensenProcessor"><option>税理士</option><option>顧問先</option></select></div>
       <div class="field"><label>給与支払日</label><select id="cl_payDay"></select></div>
       <div class="field"><label>所轄税務署</label><input id="cl_taxOffice" placeholder="例: ○○税務署"></div>
@@ -940,7 +950,7 @@ const CL_FIELD_META=[
   {k:'zip',label:'郵便番号'},{k:'fiscal',label:'決算月',note:'「3月」のように○月の形式'},{k:'addr',label:'住所'},
   {k:'tel',label:'電話番号'},{k:'email',label:'メールアドレス'},{k:'contract',label:'契約区分'},
   {k:'payMethod',label:'納付方法',vals:['ダイレクト納付','紙納付書']},
-  {k:'gensenStatus',label:'源泉税納付ステータス',vals:['毎月納付','納期特例']},
+  {k:'gensenStatus',label:'源泉税納付ステータス',vals:['毎月納付','納期特例','不要']},
   {k:'gensenProcessor',label:'源泉処理者区分',vals:['税理士','顧問先']},
   {k:'taxOffice',label:'所轄税務署'},{k:'payrollSoftware',label:'給与ソフト'},
   {k:'noticeMethod',label:'お知らせ方法',vals:['メール','郵送','FAX','電話','チャット','その他']},
@@ -1257,7 +1267,7 @@ function backGensen(){ gensenMonth=null; renderGensen(); }
 function setGensenTab(t){ gensenTab=t; gensenMonth=null; renderGensen(); }
 // 源泉税の対象は「源泉処理者区分＝税理士」のみ（未設定は従来どおり税理士扱いで表示）
 function gensenHandledByOffice(c){ return (c.gensenProcessor||'税理士')==='税理士'; }
-function gensenMonthlyClients(){ return activeClients().filter(c=>c.gensenStatus!=='納期特例' && gensenHandledByOffice(c)); }
+function gensenMonthlyClients(){ return activeClients().filter(c=>c.gensenStatus!=='納期特例' && c.gensenStatus!=='不要' && gensenHandledByOffice(c)); }
 function gensenSpecialClients(){ return activeClients().filter(c=>c.gensenStatus==='納期特例' && gensenHandledByOffice(c)); }
 function gensenDueLabel(m){ return `${m}月分（${m+1}月10日納付分）`; }   // m=1..11
 function payChip(c){ return c.payMethod?`<span class="chip ${c.payMethod==='ダイレクト納付'?'blue':'gray'}">${esc(c.payMethod)}</span>`:'－'; }
@@ -1369,9 +1379,9 @@ function renderNencho(){
   let html=`<div class="page-head"><h2>年末調整</h2>
     <div class="year-nav"><button class="icon" onclick="changeNenchoYear(-1)">◀</button><b>${nenchoYear}年（${wareki(nenchoYear)}）</b><button class="icon" onclick="changeNenchoYear(1)">▶</button></div>
     <div class="toolbar">${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
-    <div class="hint" style="margin-bottom:14px">契約中の顧問先を対象に年末調整を管理します。各種申告書回収・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
+    <div class="hint" style="margin-bottom:14px">契約中の顧問先を対象に年末調整を管理します。申告書登録・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>契約中の顧問先がありません。</div></div>`; document.getElementById('nenchoView').innerHTML=html; return; }
-  let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th><th>各種申告書回収</th><th>給与登録</th><th>年調確定</th><th>源泉徴収票等送付</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
+  let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th><th>申告書登録</th><th>給与登録</th><th>年調確定</th><th>源泉徴収票等送付</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
   let body=cs.map(c=>{ const r=nPeek(nenchoYear,c.id);
     const dcell=(f)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else {cls='todo';txt='未';} return `<td><span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span></td>`; };
     const ded=nenchoDeductionOf(nenchoYear,c.id);
@@ -1386,11 +1396,11 @@ function renderNencho(){
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="hint" style="margin-top:12px">※ 当月源泉税額・年末調整不足額・年末調整還付額は正の金額で入力します（還付額は△表示で減算）。控除未済額＝当月源泉税額＋年末調整不足額−年末調整還付額で自動計算し、源泉税（毎月納付の翌年1月分／納期特例の1〜6月分）の未済繰越額に連携します。</div>`;
   document.getElementById('nenchoView').innerHTML=html;
-  setBulk('nencho',{colWord:'工程',valueType:'date',cols:[{name:'collect',label:'各種申告書回収'},{name:'payroll',label:'給与登録'},{name:'confirm',label:'年調確定'},{name:'send',label:'源泉徴収票等送付'}],cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
+  setBulk('nencho',{colWord:'工程',valueType:'date',cols:[{name:'collect',label:'申告書登録'},{name:'payroll',label:'給与登録'},{name:'confirm',label:'年調確定'},{name:'send',label:'源泉徴収票等送付'}],cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
   enhanceGrid(document.querySelector('#nenchoView table.grid'),'nencho');
 }
 function exportNencho(){ const cs=activeClients();
-  const head=['コード','顧問先','区分','納付方法','備考','各種申告書回収','給与登録','年調確定','源泉徴収票等送付','当月源泉税額','年末調整不足額','年末調整還付額','控除未済額'];
+  const head=['コード','顧問先','区分','納付方法','備考','申告書登録','給与登録','年調確定','源泉徴収票等送付','当月源泉税額','年末調整不足額','年末調整還付額','控除未済額'];
   const aoa=[head]; cs.forEach(c=>{ const r=nPeek(nenchoYear,c.id); const dv=f=>r[f]==='対象外'?'対象外':(r[f]?fmtMD(r[f]):'');
     aoa.push([c.code||'',c.name,c.gensenStatus||'',c.payMethod||'',r.note||'',dv('collect'),dv('payroll'),dv('confirm'),dv('send'),num(r.genzei)||'',num(r.shortfall)||'',num(r.refund)||'',nenchoDeductionOf(nenchoYear,c.id)||'']); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'年末調整'); XLSX.writeFile(wb,`年末調整_${nenchoYear}年_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
@@ -1412,11 +1422,11 @@ function renderMonthly(){ const cs=monthlyClients(); const today=new Date(); tod
     <div class="hint" style="margin:0 0 14px">対象顧問先について、1〜12月の月次処理（資料回収→入力→報告）を一覧で管理します。各セルをクリックで日付（または対象外）を入力。ヘッダの▾で絞り込み、🗂一括入力でまとめて登録できます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象顧問先が未設定です。「🏢 対象顧問先」から選択してください。</div></div>`; document.getElementById('monthlyView').innerHTML=html; return; }
   let head=`<tr><th class="name">顧問先</th><th>主担当者</th>`;
-  for(let m=1;m<=12;m++)MONTHLY_STEPS.forEach(s=>{ head+=`<th class="step">${s.label}<span class="due">${m}月</span></th>`; });
+  for(let m=1;m<=12;m++)MONTHLY_STEPS.forEach((s,si)=>{ const g=(m%2===0?' mgA':'')+(si===0?' medge':''); head+=`<th class="step${g}"><span class="mlabel">${m}月</span>${s.label}</th>`; });
   head+=`<th>備考</th></tr>`;
   let body=cs.map(c=>{ const r=mPeek(monthlyYear,c.id); let row=`<td class="name">${clientLink(c)}</td><td>${esc(c.staff||'')}</td>`;
-    for(let m=1;m<=12;m++)MONTHLY_STEPS.forEach(s=>{ const v=r.cells&&r.cells[mKey(m,s.key)]; let cls='todo',txt='未'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);}
-      row+=`<td><span class="cell ${cls}" onclick="editMonthlyCell(event,${m},'${c.id}','${s.key}')">${txt}</span></td>`; });
+    for(let m=1;m<=12;m++)MONTHLY_STEPS.forEach((s,si)=>{ const g=((m%2===0)?'mgA ':'')+(si===0?'medge':''); const v=r.cells&&r.cells[mKey(m,s.key)]; let cls='todo',txt='未'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);}
+      row+=`<td class="${g.trim()}"><span class="cell ${cls}" onclick="editMonthlyCell(event,${m},'${c.id}','${s.key}')">${txt}</span></td>`; });
     row+=`<td><input style="min-width:120px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setMonthlyNote('${c.id}',this.value)"></td>`;
     return `<tr>${row}</tr>`; }).join('');
   // 一括入力用：列＝12か月×3工程
@@ -1914,6 +1924,9 @@ function applyKomonView(){
   try{
     var v=(window.__komonView||'').toString();
     if(v!=='komon'&&v!=='shinchoku')return; // 未指定=全部表示（後方互換）
+    // ビューに応じてアプリのタイトルを変更
+    var title=(v==='komon')?'顧問先情報':'進捗管理';
+    var h=document.querySelector('.appbar-top h1'); if(h)h.textContent=title; try{ document.title=title; }catch(e){}
     var KOMON_ONLY=['clients','minutes']; // 顧問先情報登録ビューで表示するタブ（議事録を含む）
     var nav=document.querySelector('nav.tabs'); if(!nav)return;
     var first=null;
