@@ -225,6 +225,7 @@
         <button onclick="downloadClientTemplate()">⬇ テンプレート</button>
         <button onclick="document.getElementById('clientImportFile').click()">📥 インポート</button>
         <input type="file" id="clientImportFile" accept=".xlsx,.xls" style="display:none" onchange="importClients(event)">
+        <button onclick="importClientsFromShiwake()" title="仕訳作成に既に登録済みの顧問先を、同じ顧問先として取り込みます（二重登録になりません）">🔗 仕訳作成から取り込む</button>
         <button onclick="exportClients()">📤 Excel出力</button>
         <button onclick="openAiEditModal()">🤖 AIで一括編集</button>
         <button class="primary" onclick="openClientModal()">＋ 新規登録</button>
@@ -1681,12 +1682,19 @@ async function syncClientToShiwake(c){
   const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns;
   const mapRef=F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_v2'));
   const tombRef=F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_deleted'));
+  // 重複防止：既に紐付けたid → 仕訳作成側の同名顧問先id → どちらも無ければ自分のid。
+  // これにより、仕訳作成に既存の顧問先を顧問先情報側から「利用」にしても二重登録されない。
+  let targetId=c.shiwakeClientId||c.id;
+  try{ const snap=await F.get(mapRef); const map=(snap&&snap.exists()&&snap.val())||{};
+    if(!c.shiwakeClientId && !map[targetId]){ const nm=(c.name||'').trim(); for(const k in map){ if(map[k]&&String(map[k].name||'').trim()===nm){ targetId=k; break; } } }
+  }catch(e){}
   if(c.useShiwake==='利用'){
     const fy=parseInt(String(c.fiscal||'').replace(/[^0-9]/g,''),10);
-    const obj={ id:c.id, name:c.name||'', createdAt:c.createdAt||new Date().toISOString() };
+    const obj={ id:targetId, name:c.name||'', createdAt:c.createdAt||new Date().toISOString() };
     if(fy>=1&&fy<=12)obj.fiscalYearEndMonth=fy;
-    await F.update(mapRef,{[c.id]:obj}); await F.update(tombRef,{[c.id]:null});
-  } else { await F.update(mapRef,{[c.id]:null}); await F.update(tombRef,{[c.id]:Date.now()}); }
+    await F.update(mapRef,{[targetId]:obj}); await F.update(tombRef,{[targetId]:null});
+    if(c.shiwakeClientId!==targetId){ c.shiwakeClientId=targetId; try{ saveLocal(); }catch(e){} }
+  } else { await F.update(mapRef,{[targetId]:null}); await F.update(tombRef,{[targetId]:Date.now()}); }
 }
 async function syncClientToSouzoku(c){
   const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns;
@@ -1700,6 +1708,28 @@ async function syncClientToSouzoku(c){
 }
 function syncClientExternal(c){ if(!c)return; Promise.resolve().then(()=>syncClientToShiwake(c)).catch(e=>console.warn('[komon] shiwake連携',e)); Promise.resolve().then(()=>syncClientToSouzoku(c)).catch(e=>console.warn('[komon] souzoku連携',e)); }
 function toggleClientUse(id,field){ const c=clientById(id); if(!c)return; c[field]=(c[field]==='利用')?'未利用':'利用'; persist(); renderClients(); syncClientExternal(c); toast((field==='useShiwake'?'仕訳作成':'相続管理')+'：'+c[field]+'に設定しました','ok'); }
+// 仕訳作成に既に登録済みの顧問先を、顧問先情報へ取り込む（同じidで紐付け＝二重登録を防ぐ）
+async function importClientsFromShiwake(){
+  const core=_core(); if(!core||!core.hasRoom()){ toast('先にホーム画面で合言葉（同期）を設定してください','err'); return; }
+  try{
+    const db=await core.getDb(); const F=core.dbfns;
+    const snap=await F.get(F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_v2')));
+    const map=(snap&&snap.exists()&&snap.val())||{};
+    const list=Object.values(map).filter(x=>x&&x.id&&x.name);
+    if(!list.length){ toast('仕訳作成に顧問先が見つかりませんでした','err'); return; }
+    const haveId=new Set((data.clients||[]).map(c=>c.id));
+    const haveLink=new Set((data.clients||[]).map(c=>c.shiwakeClientId).filter(Boolean));
+    const haveName=new Set((data.clients||[]).map(c=>(c.name||'').trim()));
+    let n=0;
+    list.forEach(sc=>{ const nm=(sc.name||'').trim();
+      if(haveId.has(sc.id)||haveLink.has(sc.id)||haveName.has(nm))return; // 既に顧問先情報にある
+      const o={ id:sc.id, shiwakeClientId:sc.id, name:sc.name, type:'法人', status:'契約中', payMethod:'紙納付書', gensenStatus:'毎月納付', useShiwake:'利用', useSouzoku:'未利用', createdAt:sc.createdAt||new Date().toISOString() };
+      if(sc.fiscalYearEndMonth>=1&&sc.fiscalYearEndMonth<=12)o.fiscal=sc.fiscalYearEndMonth+'月';
+      data.clients.push(o); n++; });
+    persist(); refreshAll();
+    toast(n? n+'件を仕訳作成から取り込みました':'新たに取り込む顧問先はありませんでした（すべて登録済み）','ok');
+  }catch(e){ toast('取り込み失敗: '+e.message,'err'); }
+}
 // 接続後に、利用設定済みの顧問先を各モジュールへ反映（端末間の整合）
 async function reconcileExternalModules(){ const core=_core(); if(!core||!core.hasRoom())return; for(const c of (data.clients||[])){ if(c.useShiwake==='利用'){ try{ await syncClientToShiwake(c); }catch(e){} } if(c.useSouzoku==='利用'){ try{ await syncClientToSouzoku(c); }catch(e){} } } }
 const MN_SECTIONS={tax:'税務論点',chat:'世間話',todo:'TODO'};
