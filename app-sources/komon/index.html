@@ -83,6 +83,9 @@
   th{font-weight:500;color:var(--muted);font-size:13px;background:#fafbfc;}
   tbody tr:hover{background:#f8faff;}
   td.actions{text-align:right;}
+  /* 顧問先一覧の左端：データ表の外側に置く議事録ボタンの列（gutter） */
+  th.lead-action,td.lead-action{width:1%;text-align:center;background:#f6f8fc;border-right:2px solid var(--line);padding:8px 12px;}
+  td.lead-action .text.sm{white-space:nowrap;}
   .empty{padding:56px;text-align:center;color:var(--muted);}
   .empty .big{font-size:40px;opacity:.4;margin-bottom:8px;}
   .chip{padding:4px 11px;border-radius:999px;font-size:12px;font-weight:500;display:inline-block;}
@@ -833,15 +836,15 @@ function renderClients(){
   let list=data.clients; if(q)list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q)||(c.staff||'').toLowerCase().includes(q));
   const el=document.getElementById('clientTable');
   if(!list.length){ el.innerHTML='<div class="empty"><div class="big">🏢</div>顧問先が登録されていません。「＋ 新規登録」から追加してください。</div>'; return; }
-  el.innerHTML=`<table><thead><tr><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>契約区分</th><th>納付方法</th><th>主担当者</th><th>状態</th><th></th></tr></thead><tbody>`+
-    list.map(c=>`<tr><td>${esc(c.code||'')}</td>
+  el.innerHTML=`<table class="has-lead-action"><thead><tr><th class="lead-action"></th><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>契約区分</th><th>納付方法</th><th>主担当者</th><th>状態</th><th></th></tr></thead><tbody>`+
+    list.map(c=>`<tr><td class="lead-action"><button class="text sm" onclick="openClientMinutes('${c.id}')">📝 議事録</button></td><td>${esc(c.code||'')}</td>
       <td><a class="link" onclick="openClientModal('${c.id}')">${esc(c.name)}</a><div class="muted" style="font-size:12px">${esc(c.kana||'')}</div></td>
       <td>${esc(c.type||'')}</td><td>${esc(c.fiscal||'')}</td><td>${esc(c.contract||'')}</td>
       <td>${c.payMethod?`<span class="chip ${c.payMethod==='ダイレクト納付'?'blue':'gray'}">${esc(c.payMethod)}</span>`:''}</td>
       <td>${esc(c.staff||'')}</td>
       <td><span class="chip ${c.status==='解約'?'red':c.status==='休止'?'amber':'green'}">${esc(c.status||'契約中')}</span></td>
       <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`;
-  enhanceValueFilter(el.querySelector('table'),'clients',[8]);
+  enhanceValueFilter(el.querySelector('table'),'clients',[9]);
 }
 const CL_FIELDS=['name','kana','code','type','rep','corpno','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','payDay','taxOffice','payrollSoftware','noticeMethod','staff','fee','status','notes'];
 function openClientModal(id){ document.getElementById('clientModalTitle').textContent=id?'顧問先編集':'顧問先登録'; const c=id?clientById(id):{};
@@ -1646,6 +1649,8 @@ function renderMinutes(){ const fc=document.getElementById('minFilterClient').va
     list.map(m=>`<tr><td>${esc(m.date||'')}</td><td>${esc(clientName(m.clientId))}</td><td><a class="link" onclick="openMinuteModal('${m.id}')">${esc(m.title||'(無題)')}</a></td>
       <td class="muted" style="white-space:normal;max-width:420px">${esc(short(minuteText(m),70))}</td>
       <td class="actions"><button class="text sm" onclick="openMinuteModal('${m.id}')">編集</button><button class="text sm danger" onclick="deleteMinute('${m.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`; }
+// 顧問先一覧の各行から、その顧問先で絞り込んだ議事録ページを開く
+function openClientMinutes(cid){ showPage('minutes'); const sel=document.getElementById('minFilterClient'); if(sel){ if(!Array.from(sel.options).some(o=>o.value===cid)) populateClientSelects(); sel.value=cid; } const sq=document.getElementById('minSearch'); if(sq) sq.value=''; renderMinutes(); }
 const MN_SECTIONS={tax:'税務論点',chat:'世間話',todo:'TODO'};
 let mnSection='tax', mnSections={tax:'',chat:'',todo:''};
 function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn_sectionInput').value; mnSection=sec;
@@ -1717,7 +1722,7 @@ function applyKomonView(){
   try{
     var v=(window.__komonView||'').toString();
     if(v!=='komon'&&v!=='shinchoku')return; // 未指定=全部表示（後方互換）
-    var KOMON_ONLY=['clients']; // 顧問先情報登録ビューで表示するタブ
+    var KOMON_ONLY=['clients','minutes']; // 顧問先情報登録ビューで表示するタブ（議事録を含む）
     var nav=document.querySelector('nav.tabs'); if(!nav)return;
     var first=null;
     nav.querySelectorAll('[data-page]').forEach(function(a){

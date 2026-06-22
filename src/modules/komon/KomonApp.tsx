@@ -15,7 +15,7 @@ import {
   getRoomPassphrase,
   setRoomPassphrase,
 } from '@/core/room';
-import ModuleSwitcher from '@/core/ui/ModuleSwitcher';
+import GlobalNav from '@/core/ui/GlobalNav';
 import { KOMON_HTML } from './embedded';
 
 type KomonView = 'komon' | 'shinchoku';
@@ -24,7 +24,7 @@ export default function KomonApp({ view }: { view?: KomonView } = {}) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [roomReady, setRoomReady] = useState(false);
   const [pass, setPass] = useState('');
-  const switcherKey = view === 'shinchoku' ? 'shinchoku' : 'komon';
+  const navKey = view === 'shinchoku' ? 'shinchoku' : 'komon';
 
   useEffect(() => {
     setRoomReady(hasRoom());
@@ -84,7 +84,7 @@ export default function KomonApp({ view }: { view?: KomonView } = {}) {
   if (!roomReady) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <ModuleSwitcher currentKey={switcherKey} />
+        <GlobalNav currentKey={navKey} />
         <div style={{ padding: 24, maxWidth: 520 }}>
           <h2 style={{ fontWeight: 500 }}>合言葉を設定してください</h2>
           <p style={{ color: '#5f6368' }}>
@@ -114,7 +114,7 @@ export default function KomonApp({ view }: { view?: KomonView } = {}) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <ModuleSwitcher currentKey={switcherKey} />
+      <GlobalNav currentKey={navKey} />
       <iframe
         ref={iframeRef}
         title="顧問先管理"

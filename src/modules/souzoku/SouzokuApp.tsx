@@ -11,7 +11,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { hasRoom, setRoomPassphrase } from '@/core/room';
-import ModuleSwitcher from '@/core/ui/ModuleSwitcher';
+import GlobalNav from '@/core/ui/GlobalNav';
 import { startSouzokuBridge, type SouzokuBridgeHandle } from './bridge';
 import { SOUZOKU_HTML } from './embedded';
 
@@ -74,7 +74,7 @@ export default function SouzokuApp() {
   return (
     <div style={shell}>
       <div style={{ flex: '0 0 auto' }}>
-        <ModuleSwitcher currentKey="souzoku" />
+        <GlobalNav currentKey="souzoku" />
       </div>
       <iframe
         ref={iframeRef}

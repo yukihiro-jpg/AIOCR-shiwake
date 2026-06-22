@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import ModuleSwitcher from '@/core/ui/ModuleSwitcher'
+import GlobalNav from '@/core/ui/GlobalNav'
 import type { Client } from '@/lib/bank-statement/client-store'
 import { getClients, addClient, deleteClient, setSelectedClientId, updateClient, type TaxType } from '@/lib/bank-statement/client-store'
 
@@ -70,8 +70,8 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
 
   return (
     <div className="h-screen flex flex-col bank-statement-app fusion">
+      <GlobalNav currentKey="aiocr-shiwake" />
       <header className="fusion-bar px-6 py-3 shrink-0 flex items-center gap-3">
-        <ModuleSwitcher currentKey="aiocr-shiwake" />
         <div className="fusion-logo">会</div>
         <div>
           <h1 className="text-base font-semibold text-gray-800 leading-tight">会計大将インポートデータ変換</h1>

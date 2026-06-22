@@ -19,15 +19,15 @@ export const MODULES: ModuleDef[] = [
   {
     key: 'komon',
     label: '顧問先情報登録',
-    desc: '顧問先の基本情報を登録・管理',
+    desc: '顧問先の基本情報・議事録を登録・管理',
     path: '/komon',
     icon: '👥',
     status: 'ready',
   },
   {
     key: 'shinchoku',
-    label: '進捗管理（議事録含む）',
-    desc: '進捗状況と議事録を管理',
+    label: '進捗管理',
+    desc: '進捗状況を管理',
     path: '/shinchoku',
     icon: '📊',
     status: 'ready',
