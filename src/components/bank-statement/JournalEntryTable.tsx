@@ -13,7 +13,7 @@ import {
   createCompoundEntry,
 } from '@/lib/bank-statement/journal-mapper'
 import { learnFromEntriesWithRange, getPatterns, savePatterns } from '@/lib/bank-statement/pattern-store'
-import { getFrequentCodes } from '@/lib/bank-statement/account-usage'
+import { getAccountUsage } from '@/lib/bank-statement/account-usage'
 import type { PatternEntry } from '@/lib/bank-statement/types'
 import { saveSubAccountMaster } from '@/lib/bank-statement/account-master'
 import { isPL, isBS, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
@@ -44,8 +44,30 @@ export default function JournalEntryTable({
   onSelect, onEntriesChange, onSubAccountUpdate, pages, bankAccountCode, clientTaxType,
   hideBalance, onSelectionChange, onPageChange, clientId,
 }: Props) {
-  // よく使う科目（使用履歴の多い順）。編集のたびに再計算して最新を反映。
-  const frequentCodes = useMemo(() => getFrequentCodes(clientId || ''), [clientId, entries])
+  // よく使う科目（使用履歴＋現在の仕訳＋学習パターンから集計し、多い順）。
+  // 通帳口座・諸口は候補上位に出しても役に立たないため除外。
+  const frequentCodes = useMemo(() => {
+    const counts: Record<string, number> = {}
+    const add = (c: string | undefined, w: number) => { const k = (c || '').trim(); if (k) counts[k] = (counts[k] || 0) + w }
+    // 1) 手動で選んだ履歴（重み大）
+    const usage = getAccountUsage(clientId || '')
+    Object.keys(usage).forEach((c) => add(c, usage[c] * 3))
+    // 2) 現在の仕訳で使われている科目
+    entries.forEach((e) => { add(e.debitCode, 1); add(e.creditCode, 1) })
+    // 3) 学習パターンの科目（よく使う取引なので重み中）
+    try {
+      getPatterns().forEach((p) => {
+        (p.lines || []).forEach((l) => { add(l.debitCode, 2); add(l.creditCode, 2) })
+        add(p.debitCode, 2); add(p.creditCode, 2)
+      })
+    } catch { /* ignore */ }
+    const shoguchi = accountMaster.find((a) => a.name === '諸口' || a.shortName === '諸口' || a.code === '997')?.code || '997'
+    delete counts[bankAccountCode]; delete counts[shoguchi]
+    return Object.keys(counts)
+      .filter((c) => counts[c] > 0 && accountMaster.some((a) => a.code === c))
+      .sort((a, b) => counts[b] - counts[a])
+      .slice(0, 10)
+  }, [clientId, entries, accountMaster, bankAccountCode])
   const [selectedRange, setSelectedRange] = useState<Set<string>>(new Set())
   // 範囲選択のアンカー（最後にクリックされた行ID）。クロージャ古さの影響を受けないよう ref で管理。
   const lastClickedIdRef = useRef<string | null>(null)

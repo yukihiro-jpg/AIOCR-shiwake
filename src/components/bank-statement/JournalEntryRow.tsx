@@ -442,17 +442,31 @@ function AccountField({
 
       {show && filtered.length > 0 && (
         <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-300 rounded-lg shadow-xl z-30 max-h-56 overflow-auto">
-          {filtered.map((item) => (
-            <button key={item.code}
-              onMouseDown={(e) => { e.preventDefault(); setVal(item.code); confirm(item.code) }}
-              className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50 flex gap-2 items-center">
-              <span className="text-blue-700 font-bold w-10 shrink-0">{item.code}</span>
-              <span className="text-gray-800 font-medium flex-1 truncate">{item.shortName || item.name}</span>
-              {freqRank(item.code) < 9999 && (
-                <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 shrink-0">★よく使う</span>
-              )}
-            </button>
-          ))}
+          {(() => {
+            const freqItems = filtered.filter((i) => freqRank(i.code) < 9999)
+            const otherItems = filtered.filter((i) => freqRank(i.code) >= 9999)
+            const itemBtn = (item: AccountItem, star: boolean) => (
+              <button key={item.code}
+                onMouseDown={(e) => { e.preventDefault(); setVal(item.code); confirm(item.code) }}
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50 flex gap-2 items-center">
+                <span className="text-blue-700 font-bold w-10 shrink-0">{item.code}</span>
+                <span className="text-gray-800 font-medium flex-1 truncate">{item.shortName || item.name}</span>
+                {star && <span className="text-[10px] text-amber-600 shrink-0">★</span>}
+              </button>
+            )
+            return (
+              <>
+                {freqItems.length > 0 && (
+                  <div className="px-3 py-1 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100 font-semibold">★ よく使う科目</div>
+                )}
+                {freqItems.map((item) => itemBtn(item, true))}
+                {freqItems.length > 0 && otherItems.length > 0 && (
+                  <div className="px-3 py-1 text-[11px] text-gray-400 bg-gray-50 border-b border-gray-100 font-medium">その他の科目</div>
+                )}
+                {otherItems.map((item) => itemBtn(item, false))}
+              </>
+            )
+          })()}
           <button onMouseDown={(e) => { e.preventDefault(); setShow(false); setShowNew(true) }}
             className="w-full px-3 py-2 text-left text-xs text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-medium">+ 新しく補助科目を登録する</button>
         </div>
