@@ -1315,8 +1315,31 @@ async function testDriveConnection(){
 //  リアルタイム共同編集（Firebase Realtime Database）
 // ============================================================
 function saveCloudLocal(){ try{ localStorage.setItem(LS_CLOUD, JSON.stringify(cloud)); }catch(e){} }
-function loadCloudLocal(){ try{ const c=JSON.parse(localStorage.getItem(LS_CLOUD)); if(c&&c.cases){ cloud.cases=c.cases||{}; cloud.tomb=c.tomb||{}; } }catch(e){} }
-function cloudCaseList(){ return Object.keys(cloud.cases||{}).filter(id=>!(cloud.tomb&&cloud.tomb[id])).map(id=>cloud.cases[id]).filter(Boolean); }
+function loadCloudLocal(){ try{ const c=JSON.parse(localStorage.getItem(LS_CLOUD)); if(c&&c.cases){ cloud.cases=c.cases||{}; cloud.tomb=c.tomb||{}; ensureAllCaseShapes(); } }catch(e){} }
+function cloudCaseList(){ return Object.keys(cloud.cases||{}).filter(id=>!(cloud.tomb&&cloud.tomb[id])).map(id=>ensureCaseShape(cloud.cases[id])).filter(Boolean); }
+// 案件オブジェクトに必須フィールドを補完（欠落していても各画面が落ちないようにする）。
+// 旧データ・他経路で作られた案件・過去の不整合で項目が欠けた案件でも、財産一覧・必要資料等を使えるようにする。
+function ensureCaseShape(c){
+  if(!c||typeof c!=='object') return c;
+  if(!c.deceased||typeof c.deceased!=='object') c.deceased={code:'',name:'',kana:'',birth:'',deathDate:'',address:'',honseki:''};
+  if(typeof c.collectionDeadline!=='string') c.collectionDeadline=c.collectionDeadline||'';
+  if(typeof c.meetingMemo!=='string') c.meetingMemo=c.meetingMemo||'';
+  if(!Array.isArray(c.heirs)||!c.heirs.length) c.heirs=[newHeir()];
+  if(!c.checklist||typeof c.checklist!=='object'||Array.isArray(c.checklist)) c.checklist={};
+  if(!Array.isArray(c.assets)) c.assets=[];
+  c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[]; } });
+  if(!c.successive||typeof c.successive!=='object') c.successive={enabled:false,A:'',B:'',years:'',prevDate:''};
+  if(!Array.isArray(c.compensations)) c.compensations=[];
+  if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:''};
+  if(!c.progress||typeof c.progress!=='object') c.progress={};
+  if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:''};
+  if(!c.movement||typeof c.movement!=='object') c.movement={rows:[],usage:{}};
+  if(!Array.isArray(c.movement.rows)) c.movement.rows=[];
+  if(!c.movement.usage||typeof c.movement.usage!=='object') c.movement.usage={};
+  if(!Array.isArray(c.savings)) c.savings=[];
+  return c;
+}
+function ensureAllCaseShapes(){ Object.keys(cloud.cases||{}).forEach(id=>{ if(cloud.cases[id]) ensureCaseShape(cloud.cases[id]); }); }
 function setSyncStatus(state){
   const ds=$('driveStatus'); if(ds){ const on=(state==='on'||state==='saving'); ds.className='drive-status'+(on?' on':''); const sp=ds.querySelector('span:last-child');
     if(sp) sp.textContent = state==='on'?'同期中（接続済み）':state==='saving'?'同期中…':state==='connecting'?'接続中…':'未接続（ローカルのみ）'; }
@@ -1345,6 +1368,7 @@ const Realtime=(function(){
     cloud.tomb=Object.assign({}, cloud.tomb||{}, d.tomb||{});
     const rc=d.cases||{}; Object.keys(rc).forEach(id=>{ if(cloud.tomb[id]) return; cloud.cases[id]=rc[id]; });
     Object.keys(cloud.tomb).forEach(id=>{ if(cloud.tomb[id]) delete cloud.cases[id]; });
+    ensureAllCaseShapes();
   }
   // リモートスナップショット(エンコード済みrawツリー)を取り込む
   function applyRemoteSnapshot(remoteRaw){
@@ -1357,6 +1381,7 @@ const Realtime=(function(){
     const rc=d.cases||{};
     Object.keys(rc).forEach(id=>{ if(cloud.tomb[id]) return; if(id===currentId && isObj(cloud.cases[id])) mutateInto(cloud.cases[id], rc[id]); else cloud.cases[id]=rc[id]; });
     Object.keys(cloud.tomb).forEach(id=>{ if(cloud.tomb[id]) delete cloud.cases[id]; });
+    ensureAllCaseShapes();
     lastSnap=clone(syncedView());
     if(JSON.stringify(syncedView())!==before){ saveCloudLocal(); rerender(); }
   }
@@ -1839,6 +1864,7 @@ function createCase(){
 function openCase(caseId){
   if(!caseId){ switchView('basic'); return; }
   const c=cloud.cases[caseId]; if(!c){ toast('案件が見つかりません', true); return; }
+  ensureCaseShape(c);
   currentCase=c; currentId=caseId; currentFileId=null;
   loadCaseIntoUI(); saveCloudLocal();
   switchView('basic'); renderCasesList();
