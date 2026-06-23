@@ -715,6 +715,21 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div id="secReco"></div>
       </div>
 
+      <div class="card">
+        <h2>配偶者の取得割合による税額グラフ</h2>
+        <div class="card-sub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
+        <div id="secChart"></div>
+      </div>
+
+      <div class="card">
+        <h2>最小税額を前提とした財産分割（試算）</h2>
+        <div id="secAllocPremise"></div>
+        <div class="card-sub" style="margin-top:10px;">配偶者が必ず相続したい財産（種類・金額）を入力すると、その他の財産を二次相続の相続人が二次相続時の法定相続分で取得した場合の配分を試算します。</div>
+        <div id="secWantsRows" style="margin:10px 0;"></div>
+        <button class="btn sm" onclick="addSecWant()">＋ 配偶者が相続したい財産を追加</button>
+        <div style="overflow-x:auto;margin-top:14px;"><table class="sim-table" id="secAllocTable"></table></div>
+      </div>
+
       <div class="disclaimer" id="secDisclaimer"></div>
     </section>
 
@@ -1332,7 +1347,8 @@ function ensureCaseShape(c){
   if(!Array.isArray(c.compensations)) c.compensations=[];
   if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:''};
   if(!c.progress||typeof c.progress!=='object') c.progress={};
-  if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:''};
+  if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:'',spouseWants:[]};
+  if(!Array.isArray(c.secondary.spouseWants)) c.secondary.spouseWants=[];
   if(!c.movement||typeof c.movement!=='object') c.movement={rows:[],usage:{}};
   if(!Array.isArray(c.movement.rows)) c.movement.rows=[];
   if(!c.movement.usage||typeof c.movement.usage!=='object') c.movement.usage={};
@@ -1492,7 +1508,7 @@ function newCaseObject(name){
     compensations:[], // 代償金 {id,from,to,amount}
     agreement:{ date:'', notes:'', extraHeirId:'' },
     progress:{}, // stageKey -> {status,due,done,memo}
-    secondary:{ spouseOwn:'', consume:'', years:'', nChildren:'' }, // 二次相続シミュレーション
+    secondary:{ spouseOwn:'', consume:'', years:'', nChildren:'', spouseWants:[] }, // 二次相続シミュレーション
     movement:{ rows:[], usage:{} }, // 金融資産異動一覧表（税額計算には不使用）
     savings:[] // 節税対策 {id,key,params{}}
   };
@@ -3266,8 +3282,9 @@ function renderSecondary(){
   if(!s.nChildren) $('sec_nchildren').value=childCount||'';
   if(!spouse){ $('secTable').innerHTML=''; $('secReco').innerHTML='<div class="center-msg">配偶者がいないため二次相続シミュレーションの対象外です（基本情報で配偶者を登録すると計算されます）。</div>'; $('secDisclaimer').innerHTML=''; return; }
   const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years));
-  // 実際の配偶者取得割合
-  const actualR = E1>0? (r.ph[spouse.id].taxableR/E1) : 0;
+  // 実際の配偶者取得割合（未割当などで取得情報が無い場合は0として扱う）
+  let actualR = (E1>0 && r.ph && r.ph[spouse.id]) ? (num(r.ph[spouse.id].taxableR)/E1) : 0;
+  if(!isFinite(actualR)||actualR<0) actualR=0; if(actualR>1) actualR=1;
   const scenarios=[
     {label:'配偶者 0%（子が全取得）', r:0},
     {label:'配偶者 法定相続分（1/2）', r:0.5},
@@ -3289,12 +3306,87 @@ function renderSecondary(){
   });
   html+='</tbody>';
   $('secTable').innerHTML=html;
-  const bestRow=rows.find(x=>Math.abs(x.totalAll-minTotal)<1);
+  const bestRow=rows.find(x=>Math.abs(x.totalAll-minTotal)<1) || rows.reduce((a,b)=>(b.totalAll<a.totalAll?b:a), rows[0]);
   const cur=rows.find(x=>x.sc.cur);
   let reco='<div class="sum-box accent" style="margin-top:14px;"><div class="sl">合計税額が最小の分割案</div><div class="sv" style="font-size:18px;">'+esc(bestRow.sc.label)+' ／ 合計 '+yen(bestRow.totalAll)+'</div></div>';
   if(cur && bestRow!==cur){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（合計 '+yen(cur.totalAll)+'）と比べ、最小案は <b>'+yen(cur.totalAll-bestRow.totalAll)+'</b> 軽減できる可能性があります。</div>'; }
   $('secReco').innerHTML=reco;
+  // ===== 取得割合を細かくサンプリングしてグラフ＋最小点を描画 =====
+  const N=21; const samples=[];
+  for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume,nCh,years,f.spouseTax); samples.push({r:rr,first:f.first,second:sc2.second,total:f.first+sc2.second}); }
+  let minIdx=0; samples.forEach((sm,i)=>{ if(sm.total<samples[minIdx].total-0.5) minIdx=i; });
+  if($('secChart')) $('secChart').innerHTML=secChartSVG(samples,minIdx);
+  _secCtx={E1,minRatio:samples[minIdx].r,nCh,minTotal:samples[minIdx].total};
+  if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
+  renderSecWants(); renderSecAllocTable();
   $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価、二次相続時の生前贈与等は考慮していません。実際の有利判定は税理士にご確認ください。';
+}
+let _secCtx=null;
+function secYenShort(v){ v=Math.round(v); if(Math.abs(v)>=1e8) return (v/1e8).toFixed(2)+'億'; if(Math.abs(v)>=1e4) return Math.round(v/1e4).toLocaleString('ja-JP')+'万'; return v.toLocaleString('ja-JP'); }
+// 一次相続税(左軸の折れ線)・二次相続税(右軸の折れ線)・合計(棒)を1つのSVGに描画し、最小点を強調
+function secChartSVG(samples,minIdx){
+  const W=820,H=380,mL=72,mR=72,mT=34,mB=48; const pw=W-mL-mR, ph=H-mT-mB; const n=samples.length;
+  const maxL=Math.max(1,...samples.map(s=>Math.max(s.total,s.first)));
+  const maxR=Math.max(1,...samples.map(s=>s.second));
+  const x=i=> mL+(n<=1?pw/2:i/(n-1)*pw);
+  const yL=v=> mT+ph-(v/maxL)*ph;
+  const yR=v=> mT+ph-(v/maxR)*ph;
+  const barW=Math.max(6, pw/n*0.55);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:'+W+'px;font-family:inherit;display:block;">';
+  for(let t=0;t<=4;t++){ const v=maxL*t/4, yy=yL(v); s+='<line x1="'+mL+'" y1="'+yy+'" x2="'+(mL+pw)+'" y2="'+yy+'" stroke="#eee"/>'; s+='<text x="'+(mL-6)+'" y="'+(yy+4)+'" text-anchor="end" font-size="10" fill="#0071e3">'+secYenShort(v)+'</text>'; }
+  for(let t=0;t<=4;t++){ const v=maxR*t/4, yy=yR(v); s+='<text x="'+(mL+pw+6)+'" y="'+(yy+4)+'" text-anchor="start" font-size="10" fill="#d4820a">'+secYenShort(v)+'</text>'; }
+  samples.forEach((sm,i)=>{ const bx=x(i)-barW/2, by=yL(sm.total), bh=Math.max(0,mT+ph-by), isMin=i===minIdx; s+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="2" fill="'+(isMin?'#34c759':'#cfe3ff')+'"'+(isMin?' stroke="#1a7f37" stroke-width="1.5"':'')+'><title>配偶者'+Math.round(sm.r*100)+'%：合計 '+yen(sm.total)+'</title></rect>'; });
+  const mx=x(minIdx); s+='<line x1="'+mx.toFixed(1)+'" y1="'+mT+'" x2="'+mx.toFixed(1)+'" y2="'+(mT+ph)+'" stroke="#1a7f37" stroke-dasharray="4 3"/>'; s+='<text x="'+mx.toFixed(1)+'" y="'+(mT-10)+'" text-anchor="middle" font-size="11" font-weight="700" fill="#1a7f37">最小 '+Math.round(samples[minIdx].r*100)+'%</text>';
+  s+='<polyline points="'+samples.map((sm,i)=>x(i).toFixed(1)+','+yL(sm.first).toFixed(1)).join(' ')+'" fill="none" stroke="#0071e3" stroke-width="2"/>';
+  samples.forEach((sm,i)=>{ s+='<circle cx="'+x(i).toFixed(1)+'" cy="'+yL(sm.first).toFixed(1)+'" r="2.4" fill="#0071e3"/>'; });
+  s+='<polyline points="'+samples.map((sm,i)=>x(i).toFixed(1)+','+yR(sm.second).toFixed(1)).join(' ')+'" fill="none" stroke="#ff9500" stroke-width="2"/>';
+  samples.forEach((sm,i)=>{ s+='<circle cx="'+x(i).toFixed(1)+'" cy="'+yR(sm.second).toFixed(1)+'" r="2.4" fill="#ff9500"/>'; });
+  samples.forEach((sm,i)=>{ if(i%2===0) s+='<text x="'+x(i).toFixed(1)+'" y="'+(mT+ph+16)+'" text-anchor="middle" font-size="10" fill="#888">'+Math.round(sm.r*100)+'%</text>'; });
+  s+='<text x="'+(mL+pw/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="11" fill="#555">配偶者の取得割合</text>';
+  s+='<text x="14" y="'+(mT+ph/2)+'" text-anchor="middle" font-size="10" fill="#0071e3" transform="rotate(-90 14 '+(mT+ph/2)+')">一次相続税(左軸)・合計(棒)</text>';
+  s+='<text x="'+(W-12)+'" y="'+(mT+ph/2)+'" text-anchor="middle" font-size="10" fill="#d4820a" transform="rotate(90 '+(W-12)+' '+(mT+ph/2)+')">二次相続税(右軸)</text>';
+  s+='</svg>';
+  s+='<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:6px;"><span><span style="display:inline-block;width:12px;height:12px;background:#cfe3ff;border-radius:2px;vertical-align:middle;"></span> 一次＋二次 合計(棒)</span><span><span style="display:inline-block;width:12px;height:12px;background:#34c759;border-radius:2px;vertical-align:middle;"></span> 合計が最小</span><span style="color:#0071e3;">― 一次相続税(左軸)</span><span style="color:#ff9500;">― 二次相続税(右軸)</span></div>';
+  return s;
+}
+// ----- 配偶者が必須で相続したい財産の入力 -----
+function renderSecWants(){
+  const el=$('secWantsRows'); if(!el||!currentCase) return; const wants=(currentCase.secondary.spouseWants||[]);
+  const cats=ASSET_TYPES.filter(t=>t.sign>0);
+  el.innerHTML = wants.length ? wants.map((w,i)=>'<div style="display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;">'
+    +'<select onchange="updateSecWant('+i+',\'cat\',this.value)" style="flex:0 0 170px;">'+cats.map(t=>'<option value="'+t.key+'"'+(w.cat===t.key?' selected':'')+'>'+esc(t.name)+'</option>').join('')+'</select>'
+    +'<input type="text" class="num" value="'+esc(w.amount||'')+'" placeholder="金額(円)" oninput="updateSecWant('+i+',\'amount\',this.value)" style="flex:1;min-width:140px;">'
+    +'<button class="btn sm" onclick="removeSecWant('+i+')">削除</button></div>').join('')
+    : '<div class="muted" style="font-size:12px;">配偶者が必ず相続したい財産があれば「＋」で入力してください。未入力の場合、全財産を二次相続の相続人が法定相続分で分けたものとして試算します。</div>';
+}
+function addSecWant(){ if(!currentCase)return; const cats=ASSET_TYPES.filter(t=>t.sign>0); currentCase.secondary.spouseWants.push({cat:(cats[0]||{}).key||'cash',amount:''}); cacheCurrentCase(); renderSecWants(); renderSecAllocTable(); }
+function removeSecWant(i){ if(!currentCase)return; currentCase.secondary.spouseWants.splice(i,1); cacheCurrentCase(); renderSecWants(); renderSecAllocTable(); }
+function updateSecWant(i,f,v){ if(!currentCase)return; const w=currentCase.secondary.spouseWants[i]; if(!w)return; w[f]=v; cacheCurrentCase(); if(f==='cat'){ renderSecWants(); } renderSecAllocTable(); }
+// ----- 最小税額前提＋配偶者必須財産から、二次相続人への配分（二次相続時の法定相続分）を試算 -----
+function renderSecAllocTable(){
+  const el=$('secAllocTable'); if(!el||!currentCase||!_secCtx) return;
+  const children=currentCase.heirs.filter(h=>h.relationType!=='spouse');
+  if(!children.length){ el.innerHTML='<tbody><tr><td class="muted" style="text-align:center;padding:18px;">二次相続の相続人（子など）が基本情報に登録されていません。</td></tr></tbody>'; return; }
+  const sh=buildStatutory(children).shares; let shSum=children.reduce((a,h)=>a+(sh[h.id]||0),0);
+  if(shSum<=0){ children.forEach(h=>sh[h.id]=1/children.length); shSum=1; }
+  const cats=ASSET_TYPES.filter(t=>t.sign>0); const catTotal={}; cats.forEach(t=>catTotal[t.key]=0);
+  currentCase.assets.forEach(a=>{ const t=ASSET_BY_KEY[a.category]; if(t&&t.sign>0) catTotal[a.category]=(catTotal[a.category]||0)+assetVal(a); });
+  const wants=currentCase.secondary.spouseWants||[]; const spByCat={}; wants.forEach(w=>{ if(w&&w.cat) spByCat[w.cat]=(spByCat[w.cat]||0)+num(w.amount); });
+  const useCats=cats.filter(t=>(catTotal[t.key]>0)||(spByCat[t.key]>0));
+  const heirLabel=h=> esc(h.name|| h.relationLabel || '相続人');
+  let head='<thead><tr><th>財産種類</th><th>評価額</th><th>配偶者（必須）</th>'+children.map(h=>'<th>'+heirLabel(h)+'<br><span style="font-weight:400;font-size:10px;color:var(--ink-2);">法定 '+Math.round(sh[h.id]/shSum*100)+'％</span></th>').join('')+'</tr></thead>';
+  const colT={sp:0}; children.forEach(h=>colT[h.id]=0); let evalSum=0;
+  let body='<tbody>';
+  if(!useCats.length){ body+='<tr><td colspan="'+(3+children.length)+'" class="muted" style="text-align:center;padding:14px;">財産一覧に財産が登録されていません。</td></tr>'; }
+  useCats.forEach(t=>{ const total=catTotal[t.key]||0; evalSum+=total; const sp=Math.min(spByCat[t.key]||0,total); const remain=Math.max(0,total-sp); colT.sp+=sp;
+    body+='<tr><td>'+esc(t.name)+'</td><td>'+yen(total)+'</td><td>'+(sp?yen(sp):'—')+'</td>';
+    children.forEach(h=>{ const amt=Math.round(remain*(sh[h.id]/shSum)); colT[h.id]+=amt; body+='<td>'+(amt?yen(amt):'—')+'</td>'; }); body+='</tr>'; });
+  const overSpouse=colT.sp - Math.round(_secCtx.minRatio*_secCtx.E1);
+  body+='<tr style="font-weight:700;background:#f3f6fb;"><td>合計</td><td>'+yen(evalSum)+'</td><td>'+yen(colT.sp)+'</td>'+children.map(h=>'<td>'+yen(colT[h.id])+'</td>').join('')+'</tr>';
+  body+='</tbody>';
+  let note='';
+  if(colT.sp>0 && Math.abs(overSpouse)>=10000){ note='<div class="muted" style="font-size:11.5px;margin-top:8px;">配偶者の必須取得 '+yen(colT.sp)+' は、最小税額前提の取得目安 '+yen(Math.round(_secCtx.minRatio*_secCtx.E1))+' を'+(overSpouse>0?'上回って':'下回って')+'います（差 '+yen(Math.abs(overSpouse))+'）。必須額が目安を超えると合計税額が増える可能性があります。</div>'; }
+  el.innerHTML=head+body; const wrap=el.parentElement; if(wrap){ const old=wrap.querySelector('.sec-alloc-note'); if(old)old.remove(); if(note){ const d=document.createElement('div'); d.className='sec-alloc-note'; d.innerHTML=note; wrap.appendChild(d); } }
 }
 function renderDocs(){ /* 静的ボタンのみ */ }
 
