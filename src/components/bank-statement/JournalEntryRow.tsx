@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import type { JournalEntry, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
 import { getTaxCodesForEntry, isBS, isPL, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
+import { recordAccountUse } from '@/lib/bank-statement/account-usage'
 
 interface Props {
   entry: JournalEntry
@@ -30,6 +31,8 @@ interface Props {
   onAddBlank: (id: string) => void
   onSubAccountRegister: (parentCode: string, subCode: string, name: string) => void
   onPatternClick?: (patternId: string) => void
+  clientId?: string
+  frequentCodes?: string[]
 }
 
 const REQUIRED_FIELDS: (keyof JournalEntry)[] = ['debitCode', 'creditCode', 'debitTaxCode', 'debitTaxType']
@@ -45,6 +48,7 @@ function JournalEntryRowInner({
   isCompoundGroup, isCompoundFirst, isCompoundLast, compoundAutoAmount, clientTaxType,
   isBalanceMismatch, hideBalance, isChecked,
   onSelect, onCheckToggle, onChange, onAddCompound, onDelete, onLearn, onAddBlank, onSubAccountRegister, onPatternClick,
+  clientId, frequentCodes,
 }: Props) {
   const amount = entry.debitAmount || entry.creditAmount || 0
   const hasAutoCalc = compoundAutoAmount != null && compoundAutoAmount !== 0
@@ -153,7 +157,8 @@ function JournalEntryRowInner({
             accountMaster={accountMaster} subAccountMaster={subAccountMaster}
             onCodeChange={handleDebitCodeChange}
             onSubCodeChange={(sc, sn) => { onChange(entry.id, '_debitSubFull' as keyof JournalEntry, `${sc}|${sn}`) }}
-            onSubAccountRegister={onSubAccountRegister} />
+            onSubAccountRegister={onSubAccountRegister}
+            clientId={clientId} frequentCodes={frequentCodes} />
         </td>
 
         {/* 貸方科目 */}
@@ -163,7 +168,8 @@ function JournalEntryRowInner({
             accountMaster={accountMaster} subAccountMaster={subAccountMaster}
             onCodeChange={handleCreditCodeChange}
             onSubCodeChange={(sc, sn) => { onChange(entry.id, '_creditSubFull' as keyof JournalEntry, `${sc}|${sn}`) }}
-            onSubAccountRegister={onSubAccountRegister} />
+            onSubAccountRegister={onSubAccountRegister}
+            clientId={clientId} frequentCodes={frequentCodes} />
         </td>
 
         {/* 金額 */}
@@ -349,13 +355,14 @@ function CellInput({ value, onChange, placeholder, halfWidth, align }: {
 
 function AccountField({
   code, name, subCode, subName, accountMaster, subAccountMaster,
-  onCodeChange, onSubCodeChange, onSubAccountRegister,
+  onCodeChange, onSubCodeChange, onSubAccountRegister, clientId, frequentCodes,
 }: {
   code: string; name: string; subCode?: string; subName?: string
   accountMaster: AccountItem[]; subAccountMaster: SubAccountItem[]
   onCodeChange: (code: string) => void
   onSubCodeChange: (code: string, name: string) => void
   onSubAccountRegister: (parentCode: string, subCode: string, name: string) => void
+  clientId?: string; frequentCodes?: string[]
 }) {
   const [show, setShow] = useState(false)
   const [showSub, setShowSub] = useState(false)
@@ -377,13 +384,22 @@ function AccountField({
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
   }, [])
 
-  const filtered = accountMaster
+  // よく使う科目（過去の使用が多い順）を候補の上位に出す
+  const freq = frequentCodes || []
+  const freqRank = (c: string) => { const i = freq.indexOf(c); return i < 0 ? 9999 : i }
+  const matches = accountMaster
     .filter((a) => a.code.includes(val) || a.name.includes(val) || a.shortName.includes(val) || (a.association || '').includes(val))
-    .slice(0, 12)
+  const filtered = [...matches].sort((a, b) => freqRank(a.code) - freqRank(b.code)).slice(0, 12)
   const subs = subAccountMaster.filter((s) => s.parentCode === code)
 
-  const confirm = (c: string) => {
+  // コード確定時に使用履歴へ記録（実在する科目のみ）
+  const commitCode = (c: string) => {
     onCodeChange(c)
+    if (clientId && accountMaster.some((a) => a.code === c)) recordAccountUse(clientId, c)
+  }
+
+  const confirm = (c: string) => {
+    commitCode(c)
     setShow(false)
     // 補助科目がある場合は少し遅延してからサジェスト表示（外側クリックイベントとの競合回避）
     const hasSubs = subAccountMaster.filter((s) => s.parentCode === c).length > 0
@@ -413,9 +429,9 @@ function AccountField({
             // 既に親コードが入っていて補助科目が登録されていれば補助サジェストを表示
             if (code && subAccountMaster.some((s) => s.parentCode === code)) setShowSub(true)
           }}
-          onBlur={() => setTimeout(() => { if (val !== code) onCodeChange(val); setShow(false) }, 150)}
+          onBlur={() => setTimeout(() => { if (val !== code) commitCode(val); setShow(false) }, 150)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); if (val !== code) onCodeChange(val); setShow(false); navCell(e.currentTarget, 'down') }
+            if (e.key === 'Enter') { e.preventDefault(); if (val !== code) commitCode(val); setShow(false); navCell(e.currentTarget, 'down') }
             else handleNav(e)
           }}
           style={{ imeMode: 'disabled' } as React.CSSProperties}
@@ -429,9 +445,12 @@ function AccountField({
           {filtered.map((item) => (
             <button key={item.code}
               onMouseDown={(e) => { e.preventDefault(); setVal(item.code); confirm(item.code) }}
-              className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50 flex gap-2">
+              className="w-full px-3 py-1.5 text-left text-sm hover:bg-blue-50 flex gap-2 items-center">
               <span className="text-blue-700 font-bold w-10 shrink-0">{item.code}</span>
-              <span className="text-gray-800 font-medium">{item.shortName || item.name}</span>
+              <span className="text-gray-800 font-medium flex-1 truncate">{item.shortName || item.name}</span>
+              {freqRank(item.code) < 9999 && (
+                <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 shrink-0">★よく使う</span>
+              )}
             </button>
           ))}
           <button onMouseDown={(e) => { e.preventDefault(); setShow(false); setShowNew(true) }}

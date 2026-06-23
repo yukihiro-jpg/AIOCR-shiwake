@@ -35,6 +35,23 @@ export function mapTransactionsToJournalEntries(
   const shoguchiCode = shoguchi?.code || '997'
   const shoguchiName = shoguchi?.shortName || shoguchi?.name || '諸口'
 
+  // 内訳列の科目名（"コード:名前" 形式または名前）から科目マスタを検索
+  const matchExtraAccount = (extraName: string): AccountItem | undefined => {
+    const codeMatch = extraName.match(/^\s*(\d+)\s*[:：]\s*/)
+    const cleanName = codeMatch ? extraName.slice(codeMatch[0].length).trim() : extraName.trim()
+    let acc: AccountItem | undefined
+    if (codeMatch) acc = accountMaster.find((a) => a.code === codeMatch[1])
+    if (!acc && cleanName) {
+      acc = accountMaster.find((a) => {
+        const n = a.name || '', sn = a.shortName || ''
+        if (n && (n === cleanName || n.includes(cleanName) || cleanName.includes(n))) return true
+        if (sn && (sn === cleanName || sn.includes(cleanName) || cleanName.includes(sn))) return true
+        return false
+      })
+    }
+    return acc
+  }
+
   for (const page of pages) {
     for (const tx of page.transactions) {
       // 入出金がどちらもない行はスキップ（残高のみの行）
@@ -64,6 +81,15 @@ export function mapTransactionsToJournalEntries(
       const pBusinessType = pLine?.businessType || pattern?.businessType || ''
       const isCompoundPattern = pattern?.lines && pattern.lines.length > 1
 
+      // 内訳列の扱い: 2つ以上に数字があるときだけ「諸口経由の複合仕訳」にする。
+      // 1つしか数字が無いときは複合にせず、その内訳科目を相手科目とした通常の単一仕訳にする。
+      const breakdownCompound = !!(tx.extras && tx.extras.length > 1) && !isCompoundPattern
+      const singleExtra = (tx.extras && tx.extras.length === 1 && !isCompoundPattern) ? tx.extras[0] : null
+      const singleExtraAcc = singleExtra ? matchExtraAccount(singleExtra.name) : undefined
+      const singleExtraName = singleExtra
+        ? (singleExtraAcc?.shortName || singleExtraAcc?.name || (() => { const m = singleExtra.name.match(/^\s*(\d+)\s*[:：]\s*/); return m ? singleExtra.name.slice(m[0].length).trim() : singleExtra.name.trim() })())
+        : ''
+
       if (isCompoundPattern && pLine) {
         // 複合仕訳パターン: パターン全体の科目コードをそのまま使う
         entry = createEntry(tx, {
@@ -79,11 +105,13 @@ export function mapTransactionsToJournalEntries(
           businessType: pBusinessType,
         })
       } else if (isDeposit) {
-        // 内訳列がある場合: 親仕訳は「通帳 / 諸口」とし、通帳側の動きは取引金額ジャストにする
-        const useShoguchi = tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)
+        // 内訳列が2つ以上ある場合: 親仕訳は「通帳 / 諸口」とし、通帳側の動きは取引金額ジャストにする
+        const useShoguchi = breakdownCompound
         const counterCode = useShoguchi ? shoguchiCode
+          : singleExtra ? (singleExtraAcc?.code || '')
           : pattern ? (pCreditCode !== accountCode ? pCreditCode : pDebitCode !== accountCode ? pDebitCode : '') : ''
         const counterName = useShoguchi ? shoguchiName
+          : singleExtra ? singleExtraName
           : pattern ? (pCreditCode !== accountCode ? pCreditName : pDebitCode !== accountCode ? pDebitName : '') : ''
         entry = createEntry(tx, {
           debitCode: accountCode,
@@ -98,10 +126,12 @@ export function mapTransactionsToJournalEntries(
           businessType: useShoguchi ? '' : pBusinessType,
         })
       } else {
-        const useShoguchi = tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)
+        const useShoguchi = breakdownCompound
         const counterCode = useShoguchi ? shoguchiCode
+          : singleExtra ? (singleExtraAcc?.code || '')
           : pattern ? (pDebitCode !== accountCode ? pDebitCode : pCreditCode !== accountCode ? pCreditCode : '') : ''
         const counterName = useShoguchi ? shoguchiName
+          : singleExtra ? singleExtraName
           : pattern ? (pDebitCode !== accountCode ? pDebitName : pCreditCode !== accountCode ? pCreditName : '') : ''
         entry = createEntry(tx, {
           debitCode: counterCode,
@@ -182,7 +212,7 @@ export function mapTransactionsToJournalEntries(
       // パターンが複合仕訳（複数行）の場合はパターン側で処理済みなのでスキップ
       // 親仕訳は「通帳 ↔ 諸口」で全額1件、子仕訳は「諸口 ↔ 各科目」とすることで
       // 通帳の動きが内訳数だけ増えるのを防ぎ、実際の通帳推移と一致させる。
-      if (tx.extras && tx.extras.length > 0 && !(pattern?.lines && pattern.lines.length > 1)) {
+      if (breakdownCompound && tx.extras) {
         for (const extra of tx.extras) {
           const compEntry = createCompoundEntry(entry)
           compEntry.description = entry.description

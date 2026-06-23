@@ -13,6 +13,7 @@ import {
   createCompoundEntry,
 } from '@/lib/bank-statement/journal-mapper'
 import { learnFromEntriesWithRange, getPatterns, savePatterns } from '@/lib/bank-statement/pattern-store'
+import { getFrequentCodes } from '@/lib/bank-statement/account-usage'
 import type { PatternEntry } from '@/lib/bank-statement/types'
 import { saveSubAccountMaster } from '@/lib/bank-statement/account-master'
 import { isPL, isBS, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
@@ -35,13 +36,16 @@ interface Props {
   hideBalance?: boolean
   onSelectionChange?: (ids: Set<string>) => void
   onPageChange?: (pageIndex: number) => void
+  clientId?: string
 }
 
 export default function JournalEntryTable({
   entries, accountMaster, subAccountMaster, selectedEntryId,
   onSelect, onEntriesChange, onSubAccountUpdate, pages, bankAccountCode, clientTaxType,
-  hideBalance, onSelectionChange, onPageChange,
+  hideBalance, onSelectionChange, onPageChange, clientId,
 }: Props) {
+  // よく使う科目（使用履歴の多い順）。編集のたびに再計算して最新を反映。
+  const frequentCodes = useMemo(() => getFrequentCodes(clientId || ''), [clientId, entries])
   const [selectedRange, setSelectedRange] = useState<Set<string>>(new Set())
   // 範囲選択のアンカー（最後にクリックされた行ID）。クロージャ古さの影響を受けないよう ref で管理。
   const lastClickedIdRef = useRef<string | null>(null)
@@ -1247,6 +1251,8 @@ export default function JournalEntryTable({
                   onSubAccountRegister={handleSubAccountRegister}
                   clientTaxType={clientTaxType}
                   onPatternClick={(pid) => setPatternDetailId(pid)}
+                  clientId={clientId}
+                  frequentCodes={frequentCodes}
                 />
               )
             })}

@@ -1519,6 +1519,7 @@ export default function BankStatementContent() {
               hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onSelectionChange={setSelectedEntryIds}
               onPageChange={setCurrentPageIndex}
+              clientId={selectedClient?.id || ''}
             />
           }
         />
@@ -1540,6 +1541,7 @@ export default function BankStatementContent() {
           clientTaxType={selectedClient?.taxType || 'standard'}
           hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
           onSelectionChange={setSelectedEntryIds}
+          clientId={selectedClient?.id || ''}
         />
         </div>
         </div>
