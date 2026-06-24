@@ -88,10 +88,11 @@ export default function AccountMasterUploader({
       <button
         onClick={() => setShowPanel(!showPanel)}
         className={embedded
-          ? "w-full text-left px-3 py-2 text-sm font-medium text-gray-800 hover:bg-blue-50 rounded flex items-center gap-2"
+          ? "w-full px-3 py-2 text-left text-sm hover:bg-blue-50 flex items-center gap-2"
           : "px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/20 text-white rounded border border-white/20"}
       >
-        科目マスタ
+        {embedded && <span className="text-base w-5 text-center">📚</span>}
+        <span>科目マスタ</span>
         {accountMaster.length > 0 && (
           <span className={embedded ? "ml-1 text-gray-500" : "ml-1 text-white/70"}>({accountMaster.length})</span>
         )}
