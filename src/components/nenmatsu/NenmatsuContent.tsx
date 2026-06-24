@@ -4,28 +4,38 @@ import { useEffect, useState, useCallback } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import { FISCAL_YEARS, defaultFiscalYearId } from '@/lib/nenmatsu/fiscal-year'
+import { NENMATSU_DOC_TYPES, DOC_BY_KEY } from '@/lib/nenmatsu/document-types'
 import {
-  loadSharedClients,
+  loadNenmatsuClients,
   loadCompanies,
   registerCompany,
-  unregisterCompany,
   saveEmployees,
   loadEmployees,
+  loadSubmissions,
+  listEmployeeFiles,
   buildUploadUrl,
   type SharedClient,
   type NenmatsuCompany,
+  type NenmatsuEmployee,
+  type SubmissionRecord,
 } from '@/lib/nenmatsu/store'
 import { decodeShiftJis, parseJdlCsv } from '@/lib/nenmatsu/jdl-csv'
+
+interface Row {
+  client: SharedClient
+  company: NenmatsuCompany
+  submitted: number
+}
 
 export default function NenmatsuContent() {
   const [ready, setReady] = useState(false)
   const [pass, setPass] = useState('')
   const [yearId, setYearId] = useState('R8')
-  const [clients, setClients] = useState<SharedClient[]>([])
-  const [companies, setCompanies] = useState<Record<string, NenmatsuCompany>>({})
+  const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
+  const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
 
   useEffect(() => {
     setReady(hasRoom())
@@ -37,9 +47,18 @@ export default function NenmatsuContent() {
     setBusy(true)
     setMsg('')
     try {
-      const [cs, comp] = await Promise.all([loadSharedClients(), loadCompanies(yearId)])
-      setClients(cs)
-      setCompanies(comp)
+      const clients = await loadNenmatsuClients()
+      // 利用クライアントごとに会社（トークン）を自動用意
+      await Promise.all(clients.map((c) => registerCompany(yearId, c)))
+      const comps = await loadCompanies(yearId)
+      const next: Row[] = []
+      for (const c of clients) {
+        const company = comps[c.id]
+        if (!company) continue
+        const subs = await loadSubmissions(yearId, c.id)
+        next.push({ client: c, company, submitted: Object.keys(subs).length })
+      }
+      setRows(next)
     } catch (e) {
       setMsg('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     }
@@ -56,33 +75,12 @@ export default function NenmatsuContent() {
     setReady(true)
   }
 
-  async function onRegister(c: SharedClient) {
-    setBusy(true)
-    try {
-      await registerCompany(yearId, c)
-      await reload()
-    } finally {
-      setBusy(false)
-    }
-  }
-  async function onUnregister(clientId: string) {
-    if (!confirm('この会社を年末調整の対象から外しますか？（取込済み従業員リストは残ります）')) return
-    setBusy(true)
-    try {
-      await unregisterCompany(yearId, clientId)
-      await reload()
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function onCsv(clientId: string, file: File) {
     setBusy(true)
     setMsg('')
     try {
       const buf = await file.arrayBuffer()
-      const text = decodeShiftJis(buf)
-      const { employees, skipped } = parseJdlCsv(text)
+      const { employees, skipped } = parseJdlCsv(decodeShiftJis(buf))
       if (!employees.length) {
         setMsg('従業員データを読み取れませんでした。JDLの年末調整CSVか確認してください。')
         setBusy(false)
@@ -143,8 +141,6 @@ export default function NenmatsuContent() {
     )
   }
 
-  const registeredIds = new Set(Object.keys(companies))
-
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="nenmatsu" />
@@ -182,11 +178,11 @@ export default function NenmatsuContent() {
 
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
-            顧問先（仕訳作成・顧問先情報と共通）。年末調整の対象にする会社を登録し、JDLのCSVで従業員を取り込んでください。
+            「顧問先情報登録」で<strong>年末調整＝利用</strong>にした会社が表示されます。JDLのCSVで従業員を取り込み、URL/QRを配布してください。
           </div>
-          {clients.length === 0 ? (
+          {rows.length === 0 ? (
             <div className="p-6 text-center text-sm text-gray-500">
-              顧問先がありません。「顧問先情報登録」または「仕訳作成」で顧問先を登録してください。
+              対象会社がありません。「顧問先情報登録」で対象会社の<strong>年末調整</strong>を<strong>利用</strong>に設定してください。
             </div>
           ) : (
             <table className="w-full text-sm">
@@ -194,115 +190,239 @@ export default function NenmatsuContent() {
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="text-left px-4 py-2 font-semibold">コード</th>
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
-                  <th className="text-left px-4 py-2 font-semibold">状態 / 従業員</th>
+                  <th className="text-left px-4 py-2 font-semibold">従業員 / 提出</th>
                   <th className="text-right px-4 py-2 font-semibold">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {clients.map((c) => {
-                  const comp = companies[c.id]
-                  const registered = registeredIds.has(c.id)
-                  return (
-                    <tr key={c.id} className="border-t border-gray-100">
-                      <td className="px-4 py-3 text-gray-700">{c.code || '—'}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{c.name}</td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {registered ? (
-                          <span>
-                            <span className="inline-block text-[11px] bg-green-100 text-green-700 rounded-full px-2 py-0.5 mr-2">
-                              登録済み
-                            </span>
-                            従業員 {comp?.employeeCount ?? 0}名
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">未登録</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 justify-end flex-wrap">
-                          {!registered ? (
-                            <button
-                              onClick={() => onRegister(c)}
-                              disabled={busy}
-                              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                            >
-                              年末調整に登録
-                            </button>
-                          ) : (
-                            <>
-                              <label className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer">
-                                CSV取込
-                                <input
-                                  type="file"
-                                  accept=".csv,.txt"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const f = e.target.files?.[0]
-                                    if (f) onCsv(c.id, f)
-                                    e.target.value = ''
-                                  }}
-                                />
-                              </label>
-                              <button
-                                onClick={() => copyUrl(comp)}
-                                className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                              >
-                                URLコピー
-                              </button>
-                              <button
-                                onClick={() => showQr(comp)}
-                                className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                              >
-                                QR表示
-                              </button>
-                              <button
-                                onClick={() => onUnregister(c.id)}
-                                className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50"
-                              >
-                                対象外
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {rows.map(({ client, company, submitted }) => (
+                  <tr key={client.id} className="border-t border-gray-100">
+                    <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
+                      <span className="font-semibold text-blue-700">{submitted}</span>名
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 justify-end flex-wrap">
+                        <label className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer">
+                          CSV取込
+                          <input
+                            type="file"
+                            accept=".csv,.txt"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) onCsv(client.id, f)
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                        <button
+                          onClick={() => copyUrl(company)}
+                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                        >
+                          URLコピー
+                        </button>
+                        <button
+                          onClick={() => showQr(company)}
+                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                        >
+                          QR表示
+                        </button>
+                        <button
+                          onClick={() => setDetail({ company })}
+                          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                        >
+                          提出状況・閲覧
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}
         </div>
 
         <p className="text-xs text-gray-400 mt-4">
-          ※ 第一版です。従業員側の撮影・提出ページ、提出状況の集計、マイナンバーの暗号収集、前年情報の差分確認は順次追加します。
+          ※ 写真アップロードには Firebase Storage（Blazeプラン）の有効化とセキュリティルール設定が必要です。マイナンバーの暗号収集・前年差分は順次追加します。
         </p>
       </div>
 
       {qr && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-          onClick={() => setQr(null)}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 max-w-sm w-full text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="font-bold text-gray-800 mb-1">{qr.name}</h2>
-            <p className="text-xs text-gray-500 mb-3">従業員に配布するQRコード</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={qr.dataUrl} alt="QR" className="mx-auto mb-3" />
-            <div className="text-[11px] text-gray-500 break-all bg-gray-50 rounded p-2 mb-3">
-              {qr.url}
-            </div>
-            <button
-              onClick={() => setQr(null)}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm"
-            >
+        <Overlay onClose={() => setQr(null)}>
+          <h2 className="font-bold text-gray-800 mb-1">{qr.name}</h2>
+          <p className="text-xs text-gray-500 mb-3">従業員に配布するQRコード</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr.dataUrl} alt="QR" className="mx-auto mb-3" />
+          <div className="text-[11px] text-gray-500 break-all bg-gray-50 rounded p-2">{qr.url}</div>
+        </Overlay>
+      )}
+
+      {detail && (
+        <CompanyDetail
+          yearId={yearId}
+          company={detail.company}
+          onClose={() => setDetail(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[85vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+        <div className="text-right mt-4">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CompanyDetail({
+  yearId,
+  company,
+  onClose,
+}: {
+  yearId: string
+  company: NenmatsuCompany
+  onClose: () => void
+}) {
+  const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
+  const [subs, setSubs] = useState<Record<string, SubmissionRecord>>({})
+  const [loading, setLoading] = useState(true)
+  const [files, setFiles] = useState<{ emp: string; items: { name: string; url: string }[] } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    ;(async () => {
+      setLoading(true)
+      try {
+        const [emp, sub] = await Promise.all([
+          loadEmployees(yearId, company.clientId),
+          loadSubmissions(yearId, company.clientId),
+        ])
+        emp.sort((a, b) => (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja'))
+        setEmployees(emp)
+        setSubs(sub)
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [yearId, company.clientId])
+
+  async function viewFiles(emp: NenmatsuEmployee) {
+    const items = await listEmployeeFiles(yearId, company.clientId, emp.id)
+    setFiles({ emp: `${emp.lastName} ${emp.firstName}`, items })
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h2 className="font-bold text-gray-800 mb-1">{company.name} — 提出状況</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        提出済みの従業員はファイルをアプリ内で閲覧・ダウンロードできます。
+      </p>
+      {loading ? (
+        <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+      ) : employees.length === 0 ? (
+        <p className="text-sm text-gray-500 py-6 text-center">
+          従業員が未取込です。CSVを取り込んでください。
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500">
+              <th className="text-left px-3 py-2">氏名</th>
+              <th className="text-left px-3 py-2">提出書類</th>
+              <th className="text-right px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((e) => {
+              const rec = subs[e.id]
+              return (
+                <tr key={e.id} className="border-t border-gray-100">
+                  <td className="px-3 py-2 text-gray-800">
+                    {e.lastName} {e.firstName}
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">
+                    {rec ? (
+                      Object.keys(rec.docs).length ? (
+                        Object.entries(rec.docs)
+                          .map(([k, n]) => `${DOC_BY_KEY[k]?.name || k}(${n})`)
+                          .join('、')
+                      ) : (
+                        <span className="text-gray-400">該当書類なしで提出</span>
+                      )
+                    ) : (
+                      <span className="text-gray-300">未提出</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {rec && rec.paths.length > 0 && (
+                      <button
+                        onClick={() => viewFiles(e)}
+                        className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                      >
+                        ファイルを見る
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {files && (
+        <div className="mt-4 border-t border-gray-200 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold text-sm text-gray-800">{files.emp} 様 のファイル</h3>
+            <button onClick={() => setFiles(null)} className="text-xs text-gray-500">
               閉じる
             </button>
           </div>
+          {files.items.length === 0 ? (
+            <p className="text-sm text-gray-500">ファイルがありません。</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {files.items.map((f) => (
+                <div key={f.name} className="border border-gray-200 rounded-lg overflow-hidden">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={f.url} alt={f.name} className="w-full h-32 object-cover bg-gray-50" />
+                  <div className="flex items-center justify-between px-2 py-1.5 text-[11px]">
+                    <span className="truncate">{f.name}</span>
+                    <a
+                      href={f.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={f.name}
+                      className="text-blue-600 shrink-0 ml-1"
+                    >
+                      DL
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </Overlay>
   )
 }

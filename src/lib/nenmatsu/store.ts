@@ -148,3 +148,114 @@ export async function loadCompanyPublic(
     {}
   return { company: comp, employees: Object.values(empVal) as NenmatsuEmployee[] }
 }
+
+// ===== 顧問先情報（komon）で「年末調整＝利用」にした会社だけを読む =====
+export async function loadNenmatsuClients(): Promise<SharedClient[]> {
+  const { db, ref, get } = await dbfns()
+  const path = await modulePath(NENMATSU_KEY, '_clients')
+  const snap = await get(ref(db, path))
+  const val = snap.val() || {}
+  return Object.values(val)
+    .map((c: any) => ({ id: c.id, name: c.name, code: c.code }))
+    .filter((c: SharedClient) => c && c.id && c.name)
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'ja', { numeric: true }))
+}
+
+// ===== 提出（撮影アップロード）と閲覧 =====
+
+export interface SubmissionRecord {
+  empId: string
+  name: string
+  kana?: string
+  submittedAt: string
+  docs: Record<string, number> // docKey -> 枚数
+  paths: string[] // Storage 上のファイルパス
+}
+
+async function storageFns() {
+  await getDb() // app初期化＋匿名認証を保証
+  const { getApps } = await import('firebase/app')
+  const s = await import('firebase/storage')
+  const app = getApps()[0]
+  return { st: s.getStorage(app), ...s }
+}
+
+/** 従業員側：撮影済み画像（docKey -> Blob[]）をアップロードし、提出記録を書く */
+export async function submitDocsPublic(
+  rk: string,
+  yearId: string,
+  clientId: string,
+  emp: NenmatsuEmployee,
+  docs: Record<string, Blob[]>,
+): Promise<void> {
+  const { st, ref: sref, uploadBytes } = await storageFns()
+  const paths: string[] = []
+  const counts: Record<string, number> = {}
+  for (const docKey of Object.keys(docs)) {
+    const blobs = docs[docKey]
+    if (!blobs || !blobs.length) continue
+    counts[docKey] = blobs.length
+    for (let i = 0; i < blobs.length; i++) {
+      const path = `nenmatsu/${rk}/${yearId}/${clientId}/${emp.id}/${docKey}_${i + 1}.jpg`
+      await uploadBytes(sref(st, path), blobs[i], { contentType: 'image/jpeg' })
+      paths.push(path)
+    }
+  }
+  const { db, ref, set } = await dbfns()
+  const rec: SubmissionRecord = {
+    empId: emp.id,
+    name: `${emp.lastName} ${emp.firstName}`.trim(),
+    kana: `${emp.kanaLast} ${emp.kanaFirst}`.trim(),
+    submittedAt: new Date().toISOString(),
+    docs: counts,
+    paths,
+  }
+  await set(
+    ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/submissions/${clientId}/${emp.id}`),
+    rec,
+  )
+}
+
+/** 従業員側：既に提出済みか確認（二重提出チェック用） */
+export async function getSubmissionPublic(
+  rk: string,
+  yearId: string,
+  clientId: string,
+  empId: string,
+): Promise<SubmissionRecord | null> {
+  const { db, ref, get } = await dbfns()
+  const snap = await get(
+    ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/submissions/${clientId}/${empId}`),
+  )
+  return (snap.val() as SubmissionRecord) || null
+}
+
+/** 事務所側：会社の提出記録一覧 */
+export async function loadSubmissions(
+  yearId: string,
+  clientId: string,
+): Promise<Record<string, SubmissionRecord>> {
+  const { db, ref, get } = await dbfns()
+  const path = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
+  const snap = await get(ref(db, path))
+  return (snap.val() as Record<string, SubmissionRecord>) || {}
+}
+
+/** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用） */
+export async function listEmployeeFiles(
+  yearId: string,
+  clientId: string,
+  empId: string,
+): Promise<{ name: string; url: string }[]> {
+  const rk = await roomKey()
+  const { st, ref: sref, listAll, getDownloadURL } = await storageFns()
+  const dir = sref(st, `nenmatsu/${rk}/${yearId}/${clientId}/${empId}`)
+  const res = await listAll(dir)
+  const out: { name: string; url: string }[] = []
+  for (const item of res.items) {
+    out.push({ name: item.name, url: await getDownloadURL(item) })
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return out
+}
+
