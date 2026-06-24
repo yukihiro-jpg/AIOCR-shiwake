@@ -111,6 +111,7 @@ input,select,textarea{font-family:inherit;font-size:15px;color:var(--ink);}
 .case-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--line-2);flex-shrink:0;}
 .case-chip.has-case .dot{background:var(--green);}
 .case-chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.alloc-warn{color:#d70015;font-size:12.5px;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:4px;}
 .topbar-right{display:flex;align-items:center;gap:12px;}
 .drive-status{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px;}
 .drive-status .d{width:8px;height:8px;border-radius:50%;background:var(--line-2);}
@@ -507,6 +508,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
   <header class="topbar">
     <div class="topbar-left">
       <div class="case-chip" id="caseChip"><span class="dot"></span><span class="nm">案件が選択されていません</span></div>
+      <span class="alloc-warn" id="allocWarn" style="display:none;"></span>
     </div>
     <div class="topbar-right">
       <div class="drive-status" id="driveStatus"><span class="d"></span><span>未接続（ローカルのみ）</span></div>
@@ -2052,6 +2054,24 @@ function updateCaseChip(){
   if(currentCase && currentCase.deceased.name){ const code=currentCase.deceased.code?currentCase.deceased.code+'　':''; chip.className='case-chip has-case'; chip.querySelector('.nm').textContent=code+currentCase.deceased.name+' 様'; }
   else if(currentCase){ chip.className='case-chip has-case'; chip.querySelector('.nm').textContent='(無題の案件)'; }
   else { chip.className='case-chip'; chip.querySelector('.nm').textContent='案件が選択されていません'; }
+  updateAllocWarn();
+}
+// 遺産分割で、いずれかの相続人の取得がマイナスになる（評価額を超えて他の相続人に配分した等）不正な分割を検出
+function hasNegativeAllocation(){
+  if(!currentCase||!currentCase.heirs||!currentCase.heirs.length) return false;
+  const ids=currentCase.heirs.map(h=>h.id);
+  return (currentCase.assets||[]).some(a=>{ if(!a||a.category==='gift') return false;
+    const total=assetVal(a); let others=0, neg=false;
+    for(let i=1;i<ids.length;i++){ const v=amtOf(a,ids[i]); if(v<-0.5) neg=true; others+=v; }
+    if(total-others<-0.5) neg=true;
+    return neg;
+  });
+}
+// 被相続人氏名の右に赤字注記を表示／非表示
+function updateAllocWarn(){
+  const el=$('allocWarn'); if(!el) return;
+  if(currentCase && hasNegativeAllocation()){ el.style.display=''; el.innerHTML='⚠ 取得額がマイナスの相続人がいます（分割が正しくありません）'; }
+  else el.style.display='none';
 }
 function onBasicInput(){ if(!currentCase) return; syncUIToCase(); updateCaseChip(); cacheCurrentCase(); }
 
@@ -3253,6 +3273,7 @@ function renderHeirTotals(){
   let html='';
   currentCase.heirs.forEach(h=>{ html+='<span class="heir-total-chip">'+esc(h.name||'(無名)')+'：'+yen(totals[h.id])+'</span>'; });
   const el=$('heirTotals'); if(el) el.innerHTML=html;
+  updateAllocWarn();
 }
 
 // ============================================================
