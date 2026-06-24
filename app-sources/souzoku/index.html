@@ -4222,7 +4222,18 @@ function openPrintWindow(title, bodyHtml, styles){
     +'<div class="np-btns"><button id="bp" style="background:#0071e3">印刷 / PDF保存</button><button id="bc" style="background:#8e8e93">閉じる</button></div>'
     +bodyHtml+'</body></html>');
   doc.close();
-  setTimeout(()=>{ const d=iframe.contentDocument; d.getElementById('bp').onclick=()=>iframe.contentWindow.print(); d.getElementById('bc').onclick=()=>iframe.remove(); },200);
+  setTimeout(()=>{ const d=iframe.contentDocument;
+    d.getElementById('bp').onclick=()=>{
+      // PDF保存時のファイル名は最上位ドキュメントのタイトルが使われるため、印刷中だけ報告書名に差し替える
+      let topDoc; try{ topDoc=window.top.document; }catch(e){ topDoc=document; }
+      const prev=topDoc.title; topDoc.title=title;
+      const restore=()=>{ try{ topDoc.title=prev; }catch(e){} };
+      try{ iframe.contentWindow.addEventListener('afterprint', restore, {once:true}); }catch(e){}
+      iframe.contentWindow.print();
+      setTimeout(restore, 60000);
+    };
+    d.getElementById('bc').onclick=()=>iframe.remove();
+  },200);
 }
 const DOC_STYLE_BASE=`*{margin:0;padding:0;box-sizing:border-box;}body{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;color:#000;background:#fff;padding:20mm;font-size:11pt;line-height:1.9;}h1{font-size:15pt;text-align:center;margin-bottom:18px;letter-spacing:2px;}@media print{body{padding:0;}@page{margin:18mm;size:A4;}}`;
 
