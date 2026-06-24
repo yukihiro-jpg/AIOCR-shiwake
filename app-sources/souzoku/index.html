@@ -709,16 +709,12 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
 
       <div class="card">
-        <h2>配偶者の取得割合による比較</h2>
-        <div class="card-sub">一次相続で配偶者がどれだけ取得するかで、一次＋二次の合計税額が変わります。合計が最小の案を緑で表示します。</div>
-        <div style="overflow-x:auto;"><table class="sim-table" id="secTable"></table></div>
-        <div id="secReco"></div>
-      </div>
-
-      <div class="card">
         <h2>配偶者の取得割合による税額グラフ</h2>
         <div class="card-sub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
         <div id="secChart"></div>
+        <div id="secReco" style="margin-top:14px;"></div>
+        <div class="card-sub" style="margin-top:14px;">グラフと同じ刻み（5%ごと）で、各取得割合の税額を表にしました。合計が最小の行を緑、現在の分割案に最も近い行に ★現案 を表示します。</div>
+        <div style="overflow-x:auto;margin-top:8px;"><table class="sim-table" id="secScaleTable"></table></div>
       </div>
 
       <div class="card">
@@ -3306,42 +3302,24 @@ function renderSecondary(){
   const childCount=currentCase.heirs.filter(h=>h.relationType==='child'||h.relationType==='grandchild').length;
   const nCh=Number(s.nChildren)||childCount||1;
   if(!s.nChildren) $('sec_nchildren').value=childCount||'';
-  if(!spouse){ $('secTable').innerHTML=''; $('secReco').innerHTML='<div class="center-msg">配偶者がいないため二次相続シミュレーションの対象外です（基本情報で配偶者を登録すると計算されます）。</div>'; $('secDisclaimer').innerHTML=''; return; }
+  if(!spouse){ if($('secScaleTable'))$('secScaleTable').innerHTML=''; $('secReco').innerHTML='<div class="center-msg">配偶者がいないため二次相続シミュレーションの対象外です（基本情報で配偶者を登録すると計算されます）。</div>'; $('secDisclaimer').innerHTML=''; return; }
   const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years));
   // 実際の配偶者取得割合（未割当などで取得情報が無い場合は0として扱う）
   let actualR = (E1>0 && r.ph && r.ph[spouse.id]) ? (num(r.ph[spouse.id].taxableR)/E1) : 0;
   if(!isFinite(actualR)||actualR<0) actualR=0; if(actualR>1) actualR=1;
-  const scenarios=[
-    {label:'配偶者 0%（子が全取得）', r:0},
-    {label:'配偶者 法定相続分（1/2）', r:0.5},
-    {label:'配偶者 全部取得（100%）', r:1},
-    {label:'現在の分割案（'+Math.round(actualR*100)+'%）', r:actualR, cur:true}
-  ];
-  const rows=scenarios.map(sc=>{
-    const f=firstInheritance(E1,nCh,sc.r);
-    const sec=secondInheritance(f.spouseAcquired, own, consume, nCh, years, f.spouseTax);
-    return {sc, f, sec, totalAll:f.first+sec.second};
-  });
-  const minTotal=Math.min.apply(null,rows.map(x=>x.totalAll));
-  let html='<thead><tr><th>分割案</th><th>一次相続税</th><th>配偶者へ移る財産</th><th>二次相続税</th><th>一次＋二次 合計</th></tr></thead><tbody>';
-  rows.forEach(x=>{
-    const best=Math.abs(x.totalAll-minTotal)<1;
-    html+='<tr'+(best?' style="background:#e7f8ec"':'')+'><td>'+esc(x.sc.label)+(x.sc.cur?' <span style="color:var(--accent);font-size:11px">★現案</span>':'')+'</td>'
-      +'<td>'+yen(x.f.first)+'</td><td>'+yen(x.f.spouseAcquired)+'</td><td>'+yen(x.sec.second)+'</td>'
-      +'<td><b'+(best?' style="color:var(--green)"':'')+'>'+yen(x.totalAll)+'</b></td></tr>';
-  });
-  html+='</tbody>';
-  $('secTable').innerHTML=html;
-  const bestRow=rows.find(x=>Math.abs(x.totalAll-minTotal)<1) || rows.reduce((a,b)=>(b.totalAll<a.totalAll?b:a), rows[0]);
-  const cur=rows.find(x=>x.sc.cur);
-  let reco='<div class="sum-box accent" style="margin-top:14px;"><div class="sl">合計税額が最小の分割案</div><div class="sv" style="font-size:18px;">'+esc(bestRow.sc.label)+' ／ 合計 '+yen(bestRow.totalAll)+'</div></div>';
-  if(cur && bestRow!==cur){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（合計 '+yen(cur.totalAll)+'）と比べ、最小案は <b>'+yen(cur.totalAll-bestRow.totalAll)+'</b> 軽減できる可能性があります。</div>'; }
-  $('secReco').innerHTML=reco;
-  // ===== 取得割合を細かくサンプリングしてグラフ＋最小点を描画 =====
+  // ===== 取得割合を細かくサンプリング（グラフ・表共通：5%刻み21点） =====
   const N=21; const samples=[];
-  for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume,nCh,years,f.spouseTax); samples.push({r:rr,first:f.first,second:sc2.second,total:f.first+sc2.second}); }
+  for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume,nCh,years,f.spouseTax); samples.push({r:rr,first:f.first,acq:f.spouseAcquired,second:sc2.second,total:f.first+sc2.second}); }
   let minIdx=0; samples.forEach((sm,i)=>{ if(sm.total<samples[minIdx].total-0.5) minIdx=i; });
+  // 現在の分割案に最も近いサンプル行
+  let curIdx=0; samples.forEach((sm,i)=>{ if(Math.abs(sm.r-actualR)<Math.abs(samples[curIdx].r-actualR)) curIdx=i; });
   if($('secChart')) $('secChart').innerHTML=secChartSVG(samples,minIdx);
+  // 推奨ボックス
+  const best=samples[minIdx], curS=samples[curIdx];
+  let reco='<div class="sum-box accent"><div class="sl">合計税額が最小となる配偶者の取得割合</div><div class="sv" style="font-size:18px;">配偶者 '+Math.round(best.r*100)+'%（子が '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
+  if(Math.abs(curS.total-best.total)>1){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（配偶者 '+Math.round(actualR*100)+'%・合計 '+yen(curS.total)+'）と比べ、最小案は <b>'+yen(curS.total-best.total)+'</b> 軽減できる可能性があります。</div>'; }
+  $('secReco').innerHTML=reco;
+  if($('secScaleTable')) $('secScaleTable').innerHTML=secScaleTableHTML(samples,minIdx,curIdx);
   _secCtx={E1,minRatio:samples[minIdx].r,nCh,minTotal:samples[minIdx].total};
   if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
   renderSecWants(); renderSecAllocTable();
@@ -3349,6 +3327,20 @@ function renderSecondary(){
 }
 let _secCtx=null;
 function secYenShort(v){ v=Math.round(v); if(Math.abs(v)>=1e8) return (v/1e8).toFixed(2)+'億'; if(Math.abs(v)>=1e4) return Math.round(v/1e4).toLocaleString('ja-JP')+'万'; return v.toLocaleString('ja-JP'); }
+// グラフと同じ刻みの一覧表（最小行を緑・現案行に★現案）
+function secScaleTableHTML(samples,minIdx,curIdx){
+  let html='<thead><tr><th>配偶者の取得割合</th><th>一次相続税</th><th>配偶者へ移る財産</th><th>二次相続税</th><th>一次＋二次 合計</th></tr></thead><tbody>';
+  samples.forEach((sm,i)=>{
+    const best=(i===minIdx), cur=(i===curIdx);
+    html+='<tr'+(best?' style="background:#e7f8ec"':'')+'><td>配偶者 '+Math.round(sm.r*100)+'%（子 '+Math.round((1-sm.r)*100)+'%）'
+      +(best?' <span style="color:var(--green);font-size:11px">最小</span>':'')
+      +(cur?' <span style="color:var(--accent);font-size:11px">★現案</span>':'')+'</td>'
+      +'<td>'+yen(sm.first)+'</td><td>'+yen(sm.acq)+'</td><td>'+yen(sm.second)+'</td>'
+      +'<td><b'+(best?' style="color:var(--green)"':'')+'>'+yen(sm.total)+'</b></td></tr>';
+  });
+  html+='</tbody>';
+  return html;
+}
 // 一次相続税(左軸の折れ線)・二次相続税(右軸の折れ線)・合計(棒)を1つのSVGに描画し、最小点を強調
 function secChartSVG(samples,minIdx){
   const W=820,H=380,mL=72,mR=72,mT=34,mB=48; const pw=W-mL-mR, ph=H-mT-mB; const n=samples.length;
