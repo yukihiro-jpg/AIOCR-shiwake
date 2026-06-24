@@ -768,7 +768,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div style="overflow-x:auto;margin-top:14px;"><table class="sim-table" id="secAllocTable"></table></div>
       </div>
 
-      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF('normal')">📄 通常版 報告書PDF</button><button class="btn" onclick="downloadSecondaryPDF('savings')">📄 節税策込み版 報告書PDF</button></div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF('normal')">📄 通常版 報告書PDF</button><button class="btn primary" onclick="downloadSecondaryPDF('savings')">📄 節税策込み版 報告書PDF</button></div>
       <div class="disclaimer" id="secDisclaimer"></div>
     </section>
 
@@ -834,7 +834,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="card-sub">配偶者の取得割合による一次＋二次の税額比較・グラフをまとめた報告書です。通常版と、生命保険・暦年贈与の節税策を反映した節税策込み版を出力できます。</div>
         <div class="btn-row">
           <button class="btn primary" onclick="downloadSecondaryPDF('normal')">通常版 PDF</button>
-          <button class="btn" onclick="downloadSecondaryPDF('savings')">節税策込み版 PDF</button>
+          <button class="btn primary" onclick="downloadSecondaryPDF('savings')">節税策込み版 PDF</button>
         </div>
       </div>
       <div class="card">
@@ -3782,12 +3782,12 @@ function applyOfficeSettings(){
 // ===== 報告書PDF 共通テーマ（デザインA：ネイビー&ゴールド） =====
 const REPORT_CHART_THEME={grid:'#eef0f4',bar:'#cdd7e6',min:'#C8A24B',minStroke:'#a07d28',tickL:'#1F3A5F',tickR:'#9a7320',minLabel:'#a07d28',line1:'#1F3A5F',line2:'#b88a2e',titleL:'#1F3A5F',titleR:'#9a7320'};
 const REPORT_STYLE=`*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#243042;font-size:11px;line-height:1.6;background:#fff;}
+body{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#243042;font-size:11px;line-height:1.6;background:#fff;}
 .page{padding:18mm 16mm;page-break-after:always;position:relative;}
 .page:last-child{page-break-after:auto;}
 .eyebrow{font-size:10.5px;letter-spacing:4px;color:#C8A24B;font-weight:700;}
-.big{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:25px;font-weight:800;letter-spacing:2px;color:#1F3A5F;margin:4px 0 2px;}
-.big small{font-family:"Hiragino Sans","Yu Gothic UI",sans-serif;font-size:12px;font-weight:700;color:#fff;background:#C8A24B;border-radius:3px;padding:2px 9px;letter-spacing:1px;margin-left:10px;vertical-align:middle;}
+.big{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;font-size:25px;font-weight:800;letter-spacing:2px;color:#1F3A5F;margin:4px 0 2px;}
+.big small{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;font-size:12px;font-weight:700;color:#fff;background:#C8A24B;border-radius:3px;padding:2px 9px;letter-spacing:1px;margin-left:10px;vertical-align:middle;}
 .sub{font-size:12px;color:#6b7686;margin:4px 0 0;letter-spacing:.5px;}
 .hrule{height:3px;border:none;margin:12px 0 18px;background:linear-gradient(90deg,#1F3A5F 0%,#1F3A5F 72%,#C8A24B 72%,#C8A24B 100%);}
 .cover{display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:228mm;text-align:center;}
@@ -3796,15 +3796,15 @@ body{font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#24304
 .cover .sub{font-size:14px;letter-spacing:2px;margin-bottom:6px;}
 .cover .goldline{width:120px;height:2px;background:#C8A24B;margin:14px 0 46px;}
 .cover .nmlbl{font-size:12px;color:#8893a3;letter-spacing:2px;}
-.cover .nm{font-size:24px;font-weight:700;margin:6px 0;color:#1F3A5F;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;}
+.cover .nm{font-size:24px;font-weight:700;margin:6px 0;color:#1F3A5F;font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;}
 .cover .ofc{margin-top:56px;font-size:12px;color:#445;line-height:1.9;}
-.sec-title{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:16px;font-weight:700;color:#1F3A5F;border-bottom:2px solid #1F3A5F;border-left:4px solid #C8A24B;padding:0 0 6px 10px;margin:18px 0 14px;}
+.sec-title{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;font-size:16px;font-weight:700;color:#1F3A5F;border-bottom:2px solid #1F3A5F;border-left:4px solid #C8A24B;padding:0 0 6px 10px;margin:18px 0 14px;}
 .sec-title .pno{float:right;font-size:10px;color:#b6a06a;font-weight:400;letter-spacing:1px;}
 h3.blk{font-size:13px;font-weight:700;margin:16px 0 6px;padding-left:8px;border-left:4px solid #C8A24B;color:#1F3A5F;}
 .kpis{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
 .kpi{flex:1;min-width:150px;border:1px solid #dfe3ea;border-top:3px solid #1F3A5F;border-radius:4px;padding:11px 13px;background:#fff;}
 .kpi .l{font-size:10px;color:#8893a3;letter-spacing:.5px;}
-.kpi .v{font-size:18px;font-weight:800;color:#1F3A5F;margin-top:4px;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;}
+.kpi .v{font-size:18px;font-weight:800;color:#1F3A5F;margin-top:4px;font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;}
 .kpi.a,.kpi.hl{border-top-color:#C8A24B;background:#fbf7ee;}
 .chartbox{border:1px solid #e3e7ee;border-radius:8px;padding:12px;margin-bottom:12px;background:#fcfcfd;}
 table.t{width:100%;border-collapse:collapse;margin-bottom:8px;}
@@ -4197,7 +4197,7 @@ function openPrintWindow(title, bodyHtml, styles){
   // 画面と同じ背景色・罫線を印刷でも保持する
   const colorFix='html{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}@media print{*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}}';
   doc.open();
-  doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><style>'+colorFix+styles+btns+'</style></head><body>'
+  doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet"><style>'+colorFix+styles+btns+'</style></head><body>'
     +'<div class="np-btns"><button id="bp" style="background:#0071e3">印刷 / PDF保存</button><button id="bc" style="background:#8e8e93">閉じる</button></div>'
     +bodyHtml+'</body></html>');
   doc.close();
