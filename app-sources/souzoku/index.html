@@ -768,7 +768,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div style="overflow-x:auto;margin-top:14px;"><table class="sim-table" id="secAllocTable"></table></div>
       </div>
 
-      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF()">📄 この内容で報告書PDFを作成 / 印刷</button></div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF('normal')">📄 通常版 報告書PDF</button><button class="btn" onclick="downloadSecondaryPDF('savings')">📄 節税策込み版 報告書PDF</button></div>
       <div class="disclaimer" id="secDisclaimer"></div>
     </section>
 
@@ -831,9 +831,10 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
       <div class="card">
         <h2>二次相続シミュレーション報告書</h2>
-        <div class="card-sub">配偶者の取得割合による一次＋二次の税額比較、節税策込みの試算と配偶者の手元に残る現預金をまとめた報告書です。</div>
+        <div class="card-sub">配偶者の取得割合による一次＋二次の税額比較・グラフをまとめた報告書です。通常版と、生命保険・暦年贈与の節税策を反映した節税策込み版を出力できます。</div>
         <div class="btn-row">
-          <button class="btn primary" onclick="downloadSecondaryPDF()">二次相続シミュレーション PDF</button>
+          <button class="btn primary" onclick="downloadSecondaryPDF('normal')">通常版 PDF</button>
+          <button class="btn" onclick="downloadSecondaryPDF('savings')">節税策込み版 PDF</button>
         </div>
       </div>
       <div class="card">
@@ -4133,26 +4134,31 @@ function secSampleRows(samples,minIdx,curIdx){
   return samples.map((sm,i)=>{ const cls=(i===minIdx)?' class="best"':((i===curIdx)?' class="cur"':''); 
     return '<tr'+cls+'><td>配偶者 '+Math.round(sm.r*100)+'%（子 '+Math.round((1-sm.r)*100)+'%）'+(i===minIdx?' ★最小':'')+(i===curIdx?' ▲現案':'')+'</td><td class="r">'+yen(sm.first)+'</td><td class="r">'+yen(sm.acq)+'</td><td class="r">'+yen(sm.second)+'</td><td class="r">'+yen(sm.total)+'</td></tr>'; }).join('');
 }
-function downloadSecondaryPDF(){
+function downloadSecondaryPDF(mode){
+  mode=(mode==='savings')?'savings':'normal';
   if(!currentCase){ toast('案件がありません', true); return; }
   syncUIToCase();
   const D=secondaryReportData();
   if(!D){ toast('案件がありません', true); return; }
   if(D.noSpouse){ toast('配偶者が登録されていないため二次相続シミュレーションの対象外です。', true); switchView('secondary'); return; }
+  if(mode==='savings' && !D.hasSavings){ toast('節税策（生命保険・暦年贈与）が未入力です。二次相続シミュレーションの「節税策込み」タブで入力してください。', true); switchView('secondary'); return; }
   const d=currentCase.deceased;
-  const nb=D.normal.samples[D.normal.minIdx], nc=D.normal.samples[D.curIdx];
-  const sb=D.savings.samples[D.savings.minIdx];
   const st=D.strat;
+  const samp = (mode==='savings')? D.savings : D.normal;
+  const mb=samp.samples[samp.minIdx], mc=samp.samples[D.curIdx];
+  const nb=D.normal.samples[D.normal.minIdx];
   const styles=`*{margin:0;padding:0;box-sizing:border-box;}
   body{font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#1a1a1a;font-size:11px;line-height:1.6;}
   .page{padding:18mm 16mm;}
-  .big{font-size:26px;font-weight:800;letter-spacing:3px;color:#0a4d8c;}
+  .big{font-size:24px;font-weight:800;letter-spacing:2px;color:#0a4d8c;}
+  .big small{font-size:13px;font-weight:700;color:#3a7bbf;letter-spacing:1px;margin-left:8px;}
   .sub{font-size:12px;color:#666;margin:4px 0 18px;}
   .sec-title{font-size:15px;font-weight:700;color:#0a4d8c;border-bottom:2px solid #0a4d8c;padding-bottom:5px;margin:18px 0 12px;}
   .kpis{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
   .kpi{flex:1;min-width:150px;border:1px solid #cfe0f3;border-radius:8px;padding:10px 12px;}
   .kpi.a{background:#eaf2fb;border-color:#bcd6f0;}
   .kpi .l{font-size:10px;color:#567;}.kpi .v{font-size:18px;font-weight:800;color:#0a4d8c;}
+  .chartbox{border:1px solid #e3e7ee;border-radius:8px;padding:12px 12px 6px;margin-bottom:12px;}
   table.t{width:100%;border-collapse:collapse;margin-bottom:10px;}
   table.t th,table.t td{border:1px solid #ccc;padding:6px 9px;}
   table.t th{background:#0a4d8c;color:#fff;text-align:left;}
@@ -4164,7 +4170,7 @@ function downloadSecondaryPDF(){
   .note{font-size:10.5px;color:#444;line-height:1.9;margin-top:10px;}
   .pgfoot{margin-top:18px;border-top:1px solid #ddd;padding-top:6px;font-size:9px;color:#999;}
   @media print{@page{size:A4;margin:0;}}`;
-  let body='<div class="page"><div class="big">二次相続シミュレーション報告書</div>'
+  let body='<div class="page"><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div>'
     +'<div class="sec-title">前提条件</div>'
     +'<table class="t"><tr><th>項目</th><th class="r">金額・条件</th></tr>'
@@ -4174,16 +4180,16 @@ function downloadSecondaryPDF(){
     +'<tr><td>二次相続までに減少する額</td><td class="r">'+yen(D.consume)+'</td></tr>'
     +'<tr><td>二次相続までの想定年数</td><td class="r">'+D.years+' 年</td></tr>'
     +'<tr><td>二次相続の相続人（子の人数）</td><td class="r">'+D.nCh+' 人</td></tr></table>'
-    +'<div class="kpis"><div class="kpi a"><div class="l">合計税額が最小となる配偶者の取得割合</div><div class="v">'+Math.round(nb.r*100)+'%</div></div>'
-    +'<div class="kpi a"><div class="l">そのときの一次＋二次 合計税額</div><div class="v">'+yen(nb.total)+'</div></div>'
-    +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）の合計</div><div class="v">'+yen(nc.total)+'</div></div></div>'
-    +'<div class="sec-title">配偶者の取得割合による税額（通常）</div>'
-    +'<table class="t"><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">一次＋二次 合計</th></tr>'
-    +secSampleRows(D.normal.samples,D.normal.minIdx,D.curIdx)+'</table>';
-  if(D.hasSavings){
-    body+='<div class="sec-title">節税策込みの試算</div>'
-      +'<div class="kpis"><div class="kpi a"><div class="l">節税策込みの最小 合計（一次＋二次＋贈与税）</div><div class="v">'+yen(sb.total)+'</div></div>'
-      +'<div class="kpi a"><div class="l">通常の最小との差額</div><div class="v">'+(nb.total-sb.total>=0?'−'+yen(nb.total-sb.total):'＋'+yen(sb.total-nb.total))+'</div></div></div>'
+    +'<div class="kpis"><div class="kpi a"><div class="l">合計税額が最小となる配偶者の取得割合</div><div class="v">'+Math.round(mb.r*100)+'%</div></div>'
+    +'<div class="kpi a"><div class="l">そのときの'+(mode==='savings'?'一次＋二次＋贈与税':'一次＋二次')+' 合計</div><div class="v">'+yen(mb.total)+'</div></div>'
+    +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
+    +(mode==='savings'?'<div class="kpi a"><div class="l">通常の最小との差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
+    +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
+    +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx)+'</div>'
+    +'<table class="t"><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr>'
+    +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</table>';
+  if(mode==='savings'){
+    body+='<div class="sec-title">節税策の内訳</div>'
       +'<table class="t"><tr><th>節税策</th><th class="r">現預金の減少</th><th class="r">課税財産の圧縮</th><th class="r">贈与税の発生</th></tr>'
       +'<tr><td>生命保険の活用（保険料×契約数）</td><td class="r">'+(st.insP?'−'+yen(st.insP):'-')+'</td><td class="r">'+(st.insCompress?'−'+yen(st.insCompress):'-')+'</td><td class="r">-</td></tr>'
       +'<tr><td>暦年贈与（一般贈与）</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>'
@@ -4202,7 +4208,7 @@ function downloadSecondaryPDF(){
   body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。実際の有利判定は税理士にご確認ください。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
-  openPrintWindow('二次相続シミュレーション_'+d.name, body, styles);
+  openPrintWindow('二次相続シミュレーション_'+(mode==='savings'?'節税策込み':'通常')+'_'+d.name, body, styles);
 }
 
 // ============================================================
