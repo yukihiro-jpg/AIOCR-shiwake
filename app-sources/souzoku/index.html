@@ -2224,10 +2224,11 @@ function updateClProgress(total){
 //  Assets
 // ============================================================
 let currentAssetCat='land';
-function num(x){ return Number(String(x==null?'':x).replace(/[^0-9.\-]/g,''))||0; }
+function toHalfDigits(s){ return String(s==null?'':s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[．。]/g,'.').replace(/[－ー−]/g,'-').replace(/[，、　]/g,''); }
+function num(x){ return Number(toHalfDigits(x).replace(/[^0-9.\-]/g,''))||0; }
 // 金額・単価・面積などの入力を入力時も入力後も #,### 形式に整形（小数は保持）
 function fmtNumLive(el){
-  const s=String(el.value); const neg=s.trim().charAt(0)==='-';
+  const s=toHalfDigits(String(el.value)); const neg=s.trim().charAt(0)==='-';
   const raw=s.replace(/[^0-9.]/g,''); if(raw===''){ el.value=neg?'-':''; return; }
   const di=raw.indexOf('.'); let ip, dp=null;
   if(di>=0){ ip=raw.slice(0,di).replace(/\./g,''); dp=raw.slice(di+1).replace(/\./g,''); } else { ip=raw; }
@@ -3511,7 +3512,8 @@ function secChartSVG(samples,minIdx){
   return s;
 }
 // ----- 配偶者が相続する財産の選択（財産一覧から金額入力） -----
-function secPositiveAssets(){ const cats=new Set(ASSET_TYPES.filter(t=>t.sign>0).map(t=>t.key)); return (currentCase.assets||[]).filter(a=>a&&cats.has(a.category)); }
+function secPositiveAssets(){ const order={}; ASSET_TYPES.filter(t=>t.sign>0).forEach((t,i)=>order[t.key]=i);
+  return (currentCase.assets||[]).filter(a=>a&&order[a.category]!==undefined).map((a,i)=>[a,i]).sort((x,y)=>(order[x[0].category]-order[y[0].category])||(x[1]-y[1])).map(p=>p[0]); }
 // 税額最小の前提における配偶者の取得目安額
 function secSpouseTarget(){ return _secCtx?Math.max(0,Math.round(_secCtx.minRatio*_secCtx.E1)):0; }
 function openSecWantModal(){
@@ -3522,7 +3524,7 @@ function openSecWantModal(){
   else {
     body.innerHTML=
       '<div class="sum-box accent" style="margin-bottom:10px;"><div class="sl">配偶者の取得目安（税額が最小となる前提）</div><div class="sv" style="font-size:16px;">'+yen(target)+'</div></div>'
-      +'<div class="card-sub" style="margin-bottom:8px;">この取得目安の範囲内で、配偶者が相続する財産と金額を入力してください。合計が取得目安を超える入力は保存できません。</div>'
+      +'<div class="card-sub" style="margin-bottom:8px;">この取得目安の範囲内で、配偶者が相続する財産と金額を入力してください。合計が取得目安を超えても保存・計算できますが、超えると合計税額が増える可能性があるため警告を表示します。</div>'
       +'<div id="secWantSummary" style="font-weight:600;font-size:13px;margin-bottom:8px;"></div>'
       +'<table class="sim-table"><thead><tr><th>種類</th><th>詳細</th><th style="text-align:right;">評価額</th><th>配偶者の取得額</th></tr></thead><tbody>'+
       assets.map(a=>{ const v=Math.round(computeAssetValue(a)); const cur=num(sa[a.id]);
@@ -3538,12 +3540,12 @@ function secWantRecalc(){
   let total=0; secPositiveAssets().forEach(a=>{ const e=$('sw_'+a.id); if(e) total+=Math.min(num(e.value),Math.round(computeAssetValue(a))); });
   const remain=target-total;
   el.innerHTML='選択合計 <b>'+yen(total)+'</b> ／ 取得目安 '+yen(target)+' ／ 残り <b style="color:'+(remain<0?'#d70015':'#1a7f37')+'">'+yen(remain)+'</b>'
-    +(remain<0?' <span style="color:#d70015;">※ 取得目安を '+yen(-remain)+' 超過しています。このままでは保存できません。</span>':'');
+    +(remain<0?' <span style="color:#d70015;">※ 取得目安を '+yen(-remain)+' 超過しています（保存・計算は可能ですが合計税額が増える可能性があります）。</span>':'');
 }
 function saveSecWant(){
   if(!currentCase) return; const sa={}; let total=0; const target=secSpouseTarget();
   secPositiveAssets().forEach(a=>{ const el=$('sw_'+a.id); if(el){ const v=Math.min(num(el.value), Math.round(computeAssetValue(a))); if(v>0){ sa[a.id]=v; total+=v; } } });
-  if(target>0 && total>target){ alert('配偶者の取得合計 '+yen(total)+' が取得目安 '+yen(target)+' を超えています。\n税額が最小となる前提に合わせるため、合計が取得目安以内になるよう調整してください（超過 '+yen(total-target)+'）。'); secWantRecalc(); return; }
+  if(target>0 && total>target){ alert('配偶者の取得合計 '+yen(total)+' が取得目安 '+yen(target)+' を超えています（超過 '+yen(total-target)+'）。\n試算は保存・計算できますが、取得額が目安を超えると一次＋二次の合計税額が増える可能性があります。'); }
   currentCase.secondary.spouseAssets=sa; cacheCurrentCase(); closeModal('secWantModal'); renderSecWants(); renderSecAllocTable();
 }
 // 選択済み（配偶者が相続する財産）の一覧を画面に表示
@@ -3574,7 +3576,9 @@ function renderSecAllocTable(){
     body+='<tr><td>'+esc(ASSET_BY_KEY[a.category].name)+'</td><td>'+esc(assetDesc(a))+'</td><td>'+yen(v)+'</td><td>'+(sp?yen(sp):'—')+'</td>';
     children.forEach(h=>{ const amt=Math.round(remain*(sh[h.id]/shSum)); colT[h.id]+=amt; body+='<td>'+(amt?yen(amt):'—')+'</td>'; }); body+='</tr>'; });
   const overSpouse=colT.sp - Math.round(_secCtx.minRatio*_secCtx.E1);
-  body+='<tr style="font-weight:700;background:#f3f6fb;"><td colspan="2">合計</td><td>'+yen(evalSum)+'</td><td>'+yen(colT.sp)+'</td>'+children.map(h=>'<td>'+yen(colT[h.id])+'</td>').join('')+'</tr></tbody>';
+  body+='<tr style="font-weight:700;background:#f3f6fb;"><td colspan="2">合計</td><td>'+yen(evalSum)+'</td><td>'+yen(colT.sp)+'</td>'+children.map(h=>'<td>'+yen(colT[h.id])+'</td>').join('')+'</tr>';
+  const gtot=colT.sp+children.reduce((a,h)=>a+colT[h.id],0); const pctOf=v=> gtot>0?(Math.round(v/gtot*1000)/10)+'%':'—';
+  body+='<tr style="font-weight:600;background:#eef3f9;color:var(--ink-2);"><td colspan="2">取得割合</td><td>'+(gtot>0?'100%':'—')+'</td><td>'+pctOf(colT.sp)+'</td>'+children.map(h=>'<td>'+pctOf(colT[h.id])+'</td>').join('')+'</tr></tbody>';
   let note='';
   if(colT.sp>0 && Math.abs(overSpouse)>=10000){ note='<div class="muted" style="font-size:11.5px;margin-top:8px;">配偶者の取得 '+yen(colT.sp)+' は、最小税額前提の取得目安 '+yen(Math.round(_secCtx.minRatio*_secCtx.E1))+' を'+(overSpouse>0?'上回って':'下回って')+'います（差 '+yen(Math.abs(overSpouse))+'）。取得額が目安を超えると合計税額が増える可能性があります。</div>'; }
   el.innerHTML=head+body; const wrap=el.parentElement; if(wrap){ const old=wrap.querySelector('.sec-alloc-note'); if(old)old.remove(); if(note){ const d=document.createElement('div'); d.className='sec-alloc-note'; d.innerHTML=note; wrap.appendChild(d); } }
