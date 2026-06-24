@@ -875,7 +875,8 @@ function renderDashboard(){
 /* ===== 顧問先 ===== */
 function renderClients(){
   const q=(document.getElementById('clientSearch').value||'').toLowerCase();
-  let list=data.clients; if(q)list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q)||(c.staff||'').toLowerCase().includes(q));
+  let list=data.clients.slice().sort((a,b)=>{ const ca=(a.code||'').trim(), cb=(b.code||'').trim(); if(!ca&&!cb)return 0; if(!ca)return 1; if(!cb)return -1; return ca.localeCompare(cb,'ja',{numeric:true}); });
+  if(q)list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q)||(c.staff||'').toLowerCase().includes(q));
   const el=document.getElementById('clientTable');
   if(!list.length){ el.innerHTML='<div class="empty"><div class="big">🏢</div>顧問先が登録されていません。「＋ 新規登録」から追加してください。</div>'; return; }
   const useChip=(c,f)=>{ const on=c[f]==='利用'; return `<span class="chip ${on?'green':'gray'}" style="cursor:pointer" title="クリックで利用/未利用を切替" onclick="toggleClientUse('${c.id}','${f}')">${on?'利用':'未利用'}</span>`; };
