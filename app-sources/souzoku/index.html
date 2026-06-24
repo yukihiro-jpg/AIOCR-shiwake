@@ -128,6 +128,10 @@ input,select,textarea{font-family:inherit;font-size:15px;color:var(--ink);}
 .tab-btn{border:none;background:none;padding:10px 20px;font-size:14px;font-weight:600;color:var(--ink-2);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:8px 8px 0 0;}
 .tab-btn:hover{background:rgba(0,0,0,.03);}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+.sec-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;}
+.sec-tab{appearance:none;border:1px solid transparent;border-bottom:none;background:#eef1f5;color:var(--ink-2);font-size:13.5px;font-weight:600;padding:9px 20px;border-radius:11px 11px 0 0;cursor:pointer;margin-bottom:-1px;line-height:1.2;}
+.sec-tab:hover{background:#e5e9ef;}
+.sec-tab.active{background:#fff;color:var(--accent);border-color:var(--line);border-bottom-color:#fff;}
 .cases-toolbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
 /* データ量の多い画面は全幅で表示 */
 #view-assets,#view-plan,#view-agreement,#view-simulation,#view-secondary,#view-savings,#view-progress,#view-cases{max-width:none;}
@@ -702,19 +706,35 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="card-sub">配偶者固有の財産や二次相続までの想定年数を入力します。二次相続の相続人は子の人数で計算します。</div>
         <div class="grid grid-4">
           <div class="field"><label>配偶者固有の財産（円）</label><input type="text" class="num" id="sec_own" placeholder="配偶者がもともと持つ財産" oninput="onSecondaryInput()"></div>
+          <div class="field"><label>うち現金預金（円）<span class="muted" style="font-weight:400;font-size:11px;"> ※固有財産の内訳</span></label><input type="text" class="num" id="sec_ownCash" placeholder="固有財産のうち現預金" oninput="onSecondaryInput()"></div>
           <div class="field"><label>二次相続までに減少する額（円）</label><input type="text" class="num" id="sec_consume" placeholder="生活費等で取り崩す額" oninput="onSecondaryInput()"></div>
           <div class="field"><label>二次相続までの想定年数</label><input type="number" min="0" max="30" id="sec_years" placeholder="例：10" oninput="onSecondaryInput()"></div>
           <div class="field"><label>二次相続の相続人（子の人数）</label><input type="number" min="1" id="sec_nchildren" placeholder="自動：子の人数" oninput="onSecondaryInput()"></div>
         </div>
+        <div class="muted" style="font-size:11.5px;margin-top:6px;">「うち現金預金」は二次相続シミュレーションの税額計算には使いません（計算には「配偶者固有の財産」を使用）。節税策込みタブで「生活資金として残る現預金」を表示するための内訳です。</div>
       </div>
 
       <div class="card">
         <h2>配偶者の取得割合による税額グラフ</h2>
-        <div class="card-sub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
+        <div class="sec-tabs">
+          <button type="button" class="sec-tab active" id="secTab_normal" onclick="setSecMode('normal')">通常</button>
+          <button type="button" class="sec-tab" id="secTab_savings" onclick="setSecMode('savings')">節税策込み</button>
+        </div>
+        <div id="secSavingsPanel" style="display:none;margin-bottom:14px;">
+          <div class="grid grid-4">
+            <div class="field"><label>節税策で支出する現預金（円）</label><input type="text" class="num" id="sec_savingsSpend" placeholder="生前贈与・保険・購入等" oninput="onSecondaryInput()"></div>
+          </div>
+          <div class="muted" style="font-size:11.5px;margin-top:6px;">配偶者が一次相続後に節税策（生前贈与・生命保険の活用・不動産購入等）へ支出する現預金額です。支出額は二次相続の課税財産から控除して試算します。</div>
+          <div id="secCashBox" style="margin-top:12px;"></div>
+        </div>
+        <div class="card-sub" id="secChartSub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
         <div id="secChart"></div>
         <div id="secReco" style="margin-top:14px;"></div>
-        <div class="card-sub" style="margin-top:14px;">グラフと同じ刻み（5%ごと）で、各取得割合の税額を表にしました。合計が最小の行を緑、現在の分割案に最も近い行に ★現案 を表示します。</div>
-        <div style="overflow-x:auto;margin-top:8px;"><table class="sim-table" id="secScaleTable"></table></div>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button type="button" class="btn sm" id="secTableToggle" onclick="toggleSecTable()">表を隠す</button>
+          <span class="card-sub" style="margin:0;">グラフと同じ刻み（5%ごと）の税額一覧。最小の行を濃い緑、その前後5％を薄い緑で表示します。</span>
+        </div>
+        <div id="secTableWrap" style="overflow-x:auto;margin-top:8px;"><table class="sim-table" id="secScaleTable"></table></div>
       </div>
 
       <div class="card">
@@ -1356,7 +1376,7 @@ function ensureCaseShape(c){
   if(!Array.isArray(c.compensations)) c.compensations=[];
   if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:''};
   if(!c.progress||typeof c.progress!=='object') c.progress={};
-  if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:'',spouseWants:[]};
+  if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',ownCash:'',consume:'',years:'',nChildren:'',savingsSpend:'',spouseWants:[]};
   if(!Array.isArray(c.secondary.spouseWants)) c.secondary.spouseWants=[];
   if(!c.secondary.spouseAssets||typeof c.secondary.spouseAssets!=='object'||Array.isArray(c.secondary.spouseAssets)) c.secondary.spouseAssets={};
   if(!c.movement||typeof c.movement!=='object') c.movement={rows:[],usage:{}};
@@ -1518,7 +1538,7 @@ function newCaseObject(name){
     compensations:[], // 代償金 {id,from,to,amount}
     agreement:{ date:'', notes:'', extraHeirId:'' },
     progress:{}, // stageKey -> {status,due,done,memo}
-    secondary:{ spouseOwn:'', consume:'', years:'', nChildren:'', spouseWants:[] }, // 二次相続シミュレーション
+    secondary:{ spouseOwn:'', ownCash:'', consume:'', years:'', nChildren:'', savingsSpend:'', spouseWants:[] }, // 二次相続シミュレーション
     movement:{ rows:[], usage:{} }, // 金融資産異動一覧表（税額計算には不使用）
     savings:[] // 節税対策 {id,key,params{}}
   };
@@ -1909,7 +1929,7 @@ function migrateCase(data){
   c.agreement=Object.assign(base.agreement, data.agreement||{});
   c.checklist=data.checklist||{};
   c.successive=Object.assign({enabled:false,A:'',B:'',years:'',prevDate:''}, data.successive||{});
-  c.secondary=Object.assign({spouseOwn:'',consume:'',years:'',nChildren:''}, data.secondary||{});
+  c.secondary=Object.assign({spouseOwn:'',ownCash:'',consume:'',years:'',nChildren:'',savingsSpend:''}, data.secondary||{});
   c.movement=Object.assign({rows:[],usage:{}}, data.movement||{}); if(!Array.isArray(c.movement.rows)) c.movement.rows=[]; if(!c.movement.usage) c.movement.usage={};
   c.savings=Array.isArray(data.savings)? data.savings : [];
   c.compensations=Array.isArray(data.compensations)? data.compensations : [];
@@ -3265,7 +3285,7 @@ function simStep(no,t,v,sub){ return '<div class="sim-step"><div class="no">'+no
 // ============================================================
 //  二次相続シミュレーション
 // ============================================================
-function onSecondaryInput(){ if(!currentCase) return; const s=currentCase.secondary; s.spouseOwn=$('sec_own').value; s.consume=$('sec_consume').value; s.years=$('sec_years').value; s.nChildren=$('sec_nchildren').value; renderSecondary(); cacheCurrentCase(); }
+function onSecondaryInput(){ if(!currentCase) return; const s=currentCase.secondary; s.spouseOwn=$('sec_own').value; s.ownCash=$('sec_ownCash')?$('sec_ownCash').value:s.ownCash; s.consume=$('sec_consume').value; s.years=$('sec_years').value; s.nChildren=$('sec_nchildren').value; s.savingsSpend=$('sec_savingsSpend')?$('sec_savingsSpend').value:s.savingsSpend; renderSecondary(); cacheCurrentCase(); }
 // 一次相続：課税価格合計E1・配偶者取得割合r・子人数で、相続税総額・配偶者納付・子納付を算出
 function firstInheritance(E1, nChildren, r){
   const n=1+nChildren; const basic=30000000+6000000*n; const net=Math.max(0,E1-basic);
@@ -3296,47 +3316,87 @@ function secondInheritance(spouseAcquired, spouseOwn, consume, nChildren, years,
 function renderSecondary(){
   if(!currentCase) return;
   const s=currentCase.secondary||{};
-  $('sec_own').value=s.spouseOwn||''; $('sec_consume').value=s.consume||''; $('sec_years').value=s.years||'';
+  $('sec_own').value=s.spouseOwn||''; if($('sec_ownCash'))$('sec_ownCash').value=s.ownCash||''; $('sec_consume').value=s.consume||''; $('sec_years').value=s.years||''; if($('sec_savingsSpend'))$('sec_savingsSpend').value=s.savingsSpend||'';
   const r=calcTax(); const E1=r.totalTaxable;
   const spouse=currentCase.heirs.find(h=>h.relationType==='spouse');
   const childCount=currentCase.heirs.filter(h=>h.relationType==='child'||h.relationType==='grandchild').length;
   const nCh=Number(s.nChildren)||childCount||1;
   if(!s.nChildren) $('sec_nchildren').value=childCount||'';
   if(!spouse){ if($('secScaleTable'))$('secScaleTable').innerHTML=''; $('secReco').innerHTML='<div class="center-msg">配偶者がいないため二次相続シミュレーションの対象外です（基本情報で配偶者を登録すると計算されます）。</div>'; $('secDisclaimer').innerHTML=''; return; }
-  const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years));
+  const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years)); const ownCash=num(s.ownCash), savingsSpend=num(s.savingsSpend);
   // 実際の配偶者取得割合（未割当などで取得情報が無い場合は0として扱う）
   let actualR = (E1>0 && r.ph && r.ph[spouse.id]) ? (num(r.ph[spouse.id].taxableR)/E1) : 0;
   if(!isFinite(actualR)||actualR<0) actualR=0; if(actualR>1) actualR=1;
   // ===== 取得割合を細かくサンプリング（グラフ・表共通：5%刻み21点） =====
-  const N=21; const samples=[];
-  for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume,nCh,years,f.spouseTax); samples.push({r:rr,first:f.first,acq:f.spouseAcquired,second:sc2.second,total:f.first+sc2.second}); }
-  let minIdx=0; samples.forEach((sm,i)=>{ if(sm.total<samples[minIdx].total-0.5) minIdx=i; });
-  // 現在の分割案に最も近いサンプル行
-  let curIdx=0; samples.forEach((sm,i)=>{ if(Math.abs(sm.r-actualR)<Math.abs(samples[curIdx].r-actualR)) curIdx=i; });
-  if($('secChart')) $('secChart').innerHTML=secChartSVG(samples,minIdx);
-  // 推奨ボックス
-  const best=samples[minIdx], curS=samples[curIdx];
-  let reco='<div class="sum-box accent"><div class="sl">合計税額が最小となる配偶者の取得割合</div><div class="sv" style="font-size:18px;">配偶者 '+Math.round(best.r*100)+'%（子が '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
-  if(Math.abs(curS.total-best.total)>1){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（配偶者 '+Math.round(actualR*100)+'%・合計 '+yen(curS.total)+'）と比べ、最小案は <b>'+yen(curS.total-best.total)+'</b> 軽減できる可能性があります。</div>'; }
-  $('secReco').innerHTML=reco;
-  if($('secScaleTable')) $('secScaleTable').innerHTML=secScaleTableHTML(samples,minIdx,curIdx);
-  _secCtx={E1,minRatio:samples[minIdx].r,nCh,minTotal:samples[minIdx].total};
+  // extra＝二次相続の課税財産から追加で控除する額（節税策で支出する現預金）
+  const N=21;
+  const mk=(extra)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+extra,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,total:f.first+sc2.second}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
+  let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
+  const normal=mk(0), savings=mk(savingsSpend);
+  _secData={E1,nCh,actualR,curIdx,estateCash:secEstateCash(),ownCash,savingsSpend,normal,savings};
+  paintSec();
+  // 財産分割（試算）の前提は通常モードの最小取得割合に固定
+  _secCtx={E1,minRatio:normal.samples[normal.minIdx].r,nCh,minTotal:normal.samples[normal.minIdx].total};
   if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
   renderSecWants(); renderSecAllocTable();
-  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価、二次相続時の生前贈与等は考慮していません。実際の有利判定は税理士にご確認ください。';
+  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは、配偶者が一次相続後に節税策（生前贈与・生命保険の活用・不動産購入等）へ支出する現預金額を、二次相続の課税財産から全額控除できたものとして試算する簡易モデルです（圧縮効果は支出額と同額と仮定）。実際の節税効果・課税関係は個別の手法により異なります。実際の有利判定は税理士にご確認ください。';
 }
 let _secCtx=null;
+let _secData=null;     // {normal,savings,...} 通常／節税策込みの試算データ
+let _secMode='normal'; // 'normal' | 'savings'
+let _secTableOpen=true; // 税額一覧表の表示状態
 function secYenShort(v){ v=Math.round(v); if(Math.abs(v)>=1e8) return (v/1e8).toFixed(2)+'億'; if(Math.abs(v)>=1e4) return Math.round(v/1e4).toLocaleString('ja-JP')+'万'; return v.toLocaleString('ja-JP'); }
-// グラフと同じ刻みの一覧表（最小行を緑・現案行に★現案）
+// 相続財産（被相続人）の現金預金合計
+function secEstateCash(){ if(!currentCase) return 0; return Math.round((currentCase.assets||[]).filter(a=>a&&a.category==='cash').reduce((t,a)=>t+computeAssetValue(a),0)); }
+// タブ切替（通常／節税策込み）
+function setSecMode(m){ _secMode=(m==='savings')?'savings':'normal'; paintSec(); }
+// 税額一覧表の表示／非表示
+function toggleSecTable(){ _secTableOpen=!_secTableOpen; const w=$('secTableWrap'),b=$('secTableToggle'); if(w)w.style.display=_secTableOpen?'':'none'; if(b)b.textContent=_secTableOpen?'表を隠す':'表を表示'; }
+// アクティブなモードでグラフ・推奨・表・残現預金を描画
+function paintSec(){
+  if(!_secData) return; const d=_secData; const md=d[_secMode]||d.normal;
+  ['normal','savings'].forEach(k=>{ const t=$('secTab_'+k); if(t)t.className='sec-tab'+(k===_secMode?' active':''); });
+  const sp=$('secSavingsPanel'); if(sp) sp.style.display=_secMode==='savings'?'':'none';
+  if($('secChartSub')) $('secChartSub').innerHTML=(_secMode==='savings')
+    ? '節税策で支出する現預金を二次相続の課税財産から控除した試算です。折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。'
+    : '折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。';
+  if($('secChart')) $('secChart').innerHTML=secChartSVG(md.samples,md.minIdx);
+  const best=md.samples[md.minIdx], curS=md.samples[d.curIdx];
+  let reco='<div class="sum-box accent"><div class="sl">'+(_secMode==='savings'?'【節税策込み】':'')+'合計税額が最小となる配偶者の取得割合</div><div class="sv" style="font-size:18px;">配偶者 '+Math.round(best.r*100)+'%（子が '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
+  if(_secMode==='savings'){ const n=d.normal.samples[d.normal.minIdx]; if(n && best.total<n.total-1) reco+='<div class="disclaimer" style="margin-top:10px;">通常の最小 '+yen(n.total)+' に対し、節税策で <b>'+yen(n.total-best.total)+'</b> 圧縮できる試算です（支出 '+yen(d.savingsSpend)+'）。</div>'; }
+  else if(Math.abs(curS.total-best.total)>1){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（配偶者 '+Math.round(d.actualR*100)+'%・合計 '+yen(curS.total)+'）と比べ、最小案は <b>'+yen(curS.total-best.total)+'</b> 軽減できる可能性があります。</div>'; }
+  $('secReco').innerHTML=reco;
+  if($('secScaleTable')) $('secScaleTable').innerHTML=secScaleTableHTML(md.samples,md.minIdx,d.curIdx);
+  if(_secMode==='savings') renderSecCashBox();
+}
+// 節税策実行後に配偶者の手元に残る現預金（最小税額となる取得割合の場合）
+function renderSecCashBox(){
+  const el=$('secCashBox'); if(!el||!_secData) return; const d=_secData; const md=d.savings; const best=md.samples[md.minIdx];
+  const rMin=best.r; const acqCash=Math.round(rMin*d.estateCash); const firstTax=best.spouseTax||0;
+  const avail=d.ownCash+acqCash-firstTax; const remain=avail-d.savingsSpend; const neg=remain<0;
+  el.innerHTML='<div class="sum-box accent"><div class="sl">節税策実行後に配偶者の手元に残る現預金（最小税額となる取得割合 '+Math.round(rMin*100)+'% の場合）</div>'
+    +'<div class="sv" style="font-size:20px;color:'+(neg?'#d70015':'var(--accent-ink)')+';">'+yen(remain)+'</div></div>'
+    +'<table class="sim-table" style="margin-top:10px;"><tbody>'
+    +'<tr><td>配偶者固有の現金預金</td><td style="text-align:right;">'+yen(d.ownCash)+'</td></tr>'
+    +'<tr><td>＋ 一次相続で取得した現金預金（取得割合 '+Math.round(rMin*100)+'% × 相続財産の現預金 '+yen(d.estateCash)+'）</td><td style="text-align:right;">'+yen(acqCash)+'</td></tr>'
+    +'<tr><td>− 一次相続で配偶者が納付した相続税</td><td style="text-align:right;">'+yen(firstTax)+'</td></tr>'
+    +'<tr style="font-weight:600;background:#f3f6fb;"><td>＝ 節税策に充てられる現預金</td><td style="text-align:right;">'+yen(avail)+'</td></tr>'
+    +'<tr><td>− 節税策で支出する現預金</td><td style="text-align:right;">'+yen(d.savingsSpend)+'</td></tr>'
+    +'<tr style="font-weight:700;background:#e7f8ec;"><td>＝ 配偶者の手元に残る現預金</td><td style="text-align:right;color:'+(neg?'#d70015':'inherit')+';">'+yen(remain)+'</td></tr>'
+    +'</tbody></table>'
+    +(neg?'<div class="disclaimer" style="margin-top:8px;color:#d70015;">節税策の支出が手元の現預金を上回っています。生活資金を確保できる範囲に支出額を調整してください。</div>':'<div class="muted" style="font-size:11.5px;margin-top:8px;">一次相続で取得する現預金は「取得割合 × 相続財産の現預金合計」で概算しています（実際の分割内容により変わります）。</div>');
+}
+// グラフと同じ刻みの一覧表（最小行＝濃い緑・前後5%＝薄い緑・現案行に★現案）
 function secScaleTableHTML(samples,minIdx,curIdx){
   let html='<thead><tr><th>配偶者の取得割合</th><th>一次相続税</th><th>配偶者へ移る財産</th><th>二次相続税</th><th>一次＋二次 合計</th></tr></thead><tbody>';
   samples.forEach((sm,i)=>{
-    const best=(i===minIdx), cur=(i===curIdx);
-    html+='<tr'+(best?' style="background:#e7f8ec"':'')+'><td>配偶者 '+Math.round(sm.r*100)+'%（子 '+Math.round((1-sm.r)*100)+'%）'
-      +(best?' <span style="color:var(--green);font-size:11px">最小</span>':'')
+    const best=(i===minIdx), near=(Math.abs(i-minIdx)===1), cur=(i===curIdx);
+    const bg=best?'#aadcb5':(near?'#e7f8ec':'');
+    html+='<tr'+(bg?' style="background:'+bg+'"':'')+'><td>配偶者 '+Math.round(sm.r*100)+'%（子 '+Math.round((1-sm.r)*100)+'%）'
+      +(best?' <span style="color:#1a7f37;font-weight:700;font-size:11px">最小</span>':'')
       +(cur?' <span style="color:var(--accent);font-size:11px">★現案</span>':'')+'</td>'
       +'<td>'+yen(sm.first)+'</td><td>'+yen(sm.acq)+'</td><td>'+yen(sm.second)+'</td>'
-      +'<td><b'+(best?' style="color:var(--green)"':'')+'>'+yen(sm.total)+'</b></td></tr>';
+      +'<td><b'+(best?' style="color:#1a7f37"':'')+'>'+yen(sm.total)+'</b></td></tr>';
   });
   html+='</tbody>';
   return html;
