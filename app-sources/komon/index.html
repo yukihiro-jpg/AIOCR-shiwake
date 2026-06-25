@@ -59,7 +59,7 @@
   .bar-row .bar{height:20px;background:var(--blue);border-radius:4px;min-width:2px;}
   .bar-row .val{font-size:12px;color:var(--muted);}
   .analysis-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;}
-  main{padding:24px 28px;max-width:1500px;margin:0 auto;}
+  main{padding:24px 28px;max-width:1900px;margin:0 auto;}
   .page{display:none;} .page.active{display:block;animation:fade .2s;}
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
   .page-head{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
@@ -82,6 +82,14 @@
   th{font-weight:500;color:var(--muted);font-size:13px;background:#fafbfc;}
   tbody tr:hover{background:#f8faff;}
   td.actions{text-align:right;}
+  /* 顧問先一覧：横スクロールで「削除」まで表示（card overflow:hiddenでも見切れない）＋ヘッダー行を固定 */
+  .client-wrap{overflow:auto;max-height:calc(100vh - 220px);scrollbar-color:var(--blue) #e8eaed;}
+  .client-wrap::-webkit-scrollbar{height:12px;width:12px;}
+  .client-wrap::-webkit-scrollbar-track{background:#e8eaed;}
+  .client-wrap::-webkit-scrollbar-thumb{background:var(--blue);border-radius:6px;border:2px solid #e8eaed;}
+  table.has-lead-action{min-width:100%;}
+  table.has-lead-action thead th{position:sticky;top:0;z-index:4;background:#fafbfc;}
+  table.has-lead-action thead th.lead-action{z-index:5;background:#f6f8fc;}
   /* 顧問先一覧の左端：データ表の外側に置く議事録ボタンの列（gutter） */
   th.lead-action,td.lead-action{width:1%;text-align:center;background:#f6f8fc;border-right:2px solid var(--line);padding:8px 12px;}
   td.lead-action .text.sm{white-space:nowrap;}
@@ -892,7 +900,7 @@ function renderClients(){
   const el=document.getElementById('clientTable');
   if(!list.length){ el.innerHTML='<div class="empty"><div class="big">🏢</div>顧問先が登録されていません。「＋ 新規登録」から追加してください。</div>'; return; }
   const useChip=(c,f)=>{ const on=c[f]==='利用'; return `<span class="chip ${on?'green':'gray'}" style="cursor:pointer" title="クリックで利用/未利用を切替" onclick="toggleClientUse('${c.id}','${f}')">${on?'利用':'未利用'}</span>`; };
-  el.innerHTML=`<table class="has-lead-action"><thead><tr><th class="lead-action"></th><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>納付方法</th><th>主担当者</th><th>仕訳作成</th><th>相続管理</th><th>年調データ受信</th><th></th></tr></thead><tbody>`+
+  el.innerHTML=`<div class="client-wrap"><table class="has-lead-action"><thead><tr><th class="lead-action"></th><th>コード</th><th>顧問先名</th><th>区分</th><th>決算月</th><th>納付方法</th><th>主担当者</th><th>仕訳作成</th><th>相続管理</th><th>年調データ受信</th><th></th></tr></thead><tbody>`+
     list.map(c=>`<tr><td class="lead-action"><button class="text sm" onclick="openClientMinutes('${c.id}')">📝 議事録</button></td><td>${esc(c.code||'')}</td>
       <td><a class="link" onclick="openClientModal('${c.id}')">${esc(c.name)}</a><div class="muted" style="font-size:12px">${esc(c.kana||'')}</div></td>
       <td>${esc(c.type||'')}</td><td>${esc(c.fiscal||'')}</td>
@@ -901,7 +909,7 @@ function renderClients(){
       <td>${useChip(c,'useShiwake')}</td>
       <td>${useChip(c,'useSouzoku')}</td>
       <td>${useChip(c,'useNenmatsu')}</td>
-      <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`;
+      <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table></div>`;
   enhanceValueFilter(el.querySelector('table'),'clients',[0,10]);
 }
 const CL_FIELDS=['name','kana','code','type','rep','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','gensenProcessor','payDay','taxOffice','payrollSoftware','noticeMethod','staff','status','useShiwake','useSouzoku','useNenmatsu','useProgMonthly','useProgHotei','useProgShokyaku','useProgNencho','notes'];
