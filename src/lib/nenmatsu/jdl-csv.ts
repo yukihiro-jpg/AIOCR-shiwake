@@ -74,19 +74,19 @@ export function parseJdlCsv(text: string): JdlParseResult {
       skipped++
       continue
     }
-    const birthRaw = (cells[COL.birth] || '').trim()
-    const addr = [cells[COL.addr1], cells[COL.addr2]].map((x) => (x || '').trim()).filter(Boolean).join('')
+    const birthRaw = jtrim(cells[COL.birth] || '')
+    const addr = [cells[COL.addr1], cells[COL.addr2]].map((x) => jtrim(x || '')).filter(Boolean).join('')
     employees.push({
       id: 'e_' + code.replace(/[^0-9A-Za-z]/g, '_'),
       code,
-      lastName: (cells[COL.lastName] || '').trim(),
-      firstName: (cells[COL.firstName] || '').trim(),
-      kanaLast: (cells[COL.kanaLast] || '').trim(),
-      kanaFirst: (cells[COL.kanaFirst] || '').trim(),
+      lastName: jtrim(cells[COL.lastName] || ''),
+      firstName: jtrim(cells[COL.firstName] || ''),
+      kanaLast: jtrim(cells[COL.kanaLast] || ''),
+      kanaFirst: jtrim(cells[COL.kanaFirst] || ''),
       birthRaw,
       birth: normalizeBirth(birthRaw),
       address: addr,
-      rawCells: cells.map((x) => (x || '').trim()),
+      rawCells: cells.map((x) => jtrim(x || '')),
     })
   }
   // フリガナ順で並べ替え
@@ -124,17 +124,20 @@ function pad(n: string | number): string {
   return String(n).padStart(2, '0')
 }
 
-// ===== JDL CSV の列マッピング（推定値。実データに合わせて調整可能） =====
-// 扶養者は col 65 から「氏名・フリガナ・続柄・生年月日・…」が一定間隔で並ぶ想定。
+// ===== JDL CSV の列マッピング（実データ確認済み） =====
+// 郵便番号は 9列目(本番=上3桁)＋10列目(枝番=下4桁) に分かれている。
+// 扶養者1は 65列目から「続柄(65)・氏名(66)・フリガナ(67)・生年月日(68)・親族区分・障害区分・非居住者区分・所得見積額」が8列間隔で並ぶ。
 export const JDL_MAP = {
-  postal: 10, // 郵便番号（住所11,12の直前を想定）
+  postalUpper: 9, // 郵便番号 上3桁
+  postalLower: 10, // 郵便番号 下4桁
   depStart: 65, // 扶養者1の開始列
   depStride: 8, // 1扶養あたりの列数
   depCount: 10, // 最大10人
-  oName: 0, // 開始からのオフセット：氏名
-  oKana: 1, // フリガナ
-  oRelation: 2, // 続柄
+  oRelation: 0, // 開始からのオフセット：続柄
+  oName: 1, // 氏名
+  oKana: 2, // フリガナ
   oBirth: 3, // 生年月日
+  oIncome: 7, // 所得見積額
 }
 
 export interface CsvDependent {
@@ -143,11 +146,15 @@ export interface CsvDependent {
   kana: string
   birthRaw: string
   birth: string
+  income: string
 }
 
 export function extractPostal(cells: string[] | undefined): string {
   if (!cells) return ''
-  return (cells[JDL_MAP.postal] || '').trim()
+  const a = jtrim(cells[JDL_MAP.postalUpper] || '')
+  const b = jtrim(cells[JDL_MAP.postalLower] || '')
+  if (!a && !b) return ''
+  return [a, b].filter(Boolean).join('-')
 }
 
 /** 取込済みの行データ(rawCells)から扶養親族を抽出 */
@@ -156,17 +163,23 @@ export function extractDependents(cells: string[] | undefined): CsvDependent[] {
   const out: CsvDependent[] = []
   for (let i = 0; i < JDL_MAP.depCount; i++) {
     const b = JDL_MAP.depStart + i * JDL_MAP.depStride
-    const name = (cells[b + JDL_MAP.oName] || '').trim()
-    const relation = (cells[b + JDL_MAP.oRelation] || '').trim()
-    const birthRaw = (cells[b + JDL_MAP.oBirth] || '').trim()
+    const name = jtrim(cells[b + JDL_MAP.oName] || '')
+    const relation = jtrim(cells[b + JDL_MAP.oRelation] || '')
+    const birthRaw = jtrim(cells[b + JDL_MAP.oBirth] || '')
     if (!name && !relation && !birthRaw) continue
     out.push({
       name,
-      kana: (cells[b + JDL_MAP.oKana] || '').trim(),
+      kana: jtrim(cells[b + JDL_MAP.oKana] || ''),
       relation,
       birthRaw,
       birth: normalizeBirth(birthRaw),
+      income: jtrim(cells[b + JDL_MAP.oIncome] || ''),
     })
   }
   return out
+}
+
+/** 前後の半角・全角スペースを除去 */
+export function jtrim(s: string): string {
+  return String(s ?? '').replace(/^[\s　]+|[\s　]+$/g, '')
 }
