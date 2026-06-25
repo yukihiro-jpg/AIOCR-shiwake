@@ -121,8 +121,9 @@ export default function AccountMasterUploader({
         e.target.value = ''
       }} className="hidden" />
 
-      {showPanel && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50">
+      {showPanel && (() => {
+        const inner = (
+          <>
           <div className="p-4 space-y-3">
             <h3 className="text-sm font-bold text-gray-800">マスタ登録</h3>
 
@@ -229,8 +230,26 @@ export default function AccountMasterUploader({
               閉じる
             </button>
           </div>
-        </div>
-      )}
+          </>
+        )
+        return embedded ? (
+          <div
+            className="fixed inset-0 z-[100] bg-black/30 flex items-start justify-center pt-16 p-4"
+            onClick={() => setShowPanel(false)}
+          >
+            <div
+              className="w-80 max-w-full bg-white border border-gray-200 rounded-lg shadow-2xl max-h-[80vh] overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {inner}
+            </div>
+          </div>
+        ) : (
+          <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-[70vh] overflow-auto">
+            {inner}
+          </div>
+        )
+      })()}
     </div>
   )
 }
