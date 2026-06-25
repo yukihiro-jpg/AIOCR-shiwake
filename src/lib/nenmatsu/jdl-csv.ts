@@ -47,6 +47,8 @@ const COL = {
   kanaLast: 3,
   kanaFirst: 4,
   birth: 7,
+  addr1: 11,
+  addr2: 12,
   status: 27,
 }
 
@@ -73,6 +75,7 @@ export function parseJdlCsv(text: string): JdlParseResult {
       continue
     }
     const birthRaw = (cells[COL.birth] || '').trim()
+    const addr = [cells[COL.addr1], cells[COL.addr2]].map((x) => (x || '').trim()).filter(Boolean).join('')
     employees.push({
       id: 'e_' + code.replace(/[^0-9A-Za-z]/g, '_'),
       code,
@@ -82,6 +85,8 @@ export function parseJdlCsv(text: string): JdlParseResult {
       kanaFirst: (cells[COL.kanaFirst] || '').trim(),
       birthRaw,
       birth: normalizeBirth(birthRaw),
+      address: addr,
+      rawCells: cells.map((x) => (x || '').trim()),
     })
   }
   // フリガナ順で並べ替え

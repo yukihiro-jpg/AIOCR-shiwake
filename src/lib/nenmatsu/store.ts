@@ -22,6 +22,8 @@ export interface NenmatsuEmployee {
   kanaFirst: string
   birth: string // 正規化済み YYYY-MM-DD（照合用）。空なら未取得
   birthRaw: string // CSVの生の値
+  address?: string // 住所（取込内容確認用）
+  rawCells?: string[] // CSVの行データ（列番号で内容を確認するため）
   isNewHire?: boolean
 }
 
@@ -239,6 +241,19 @@ export async function loadSubmissions(
   const path = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
   const snap = await get(ref(db, path))
   return (snap.val() as Record<string, SubmissionRecord>) || {}
+}
+
+/** 事務所側：保存パスのファイル群をBlobで取得（ZIP一括DL用） */
+export async function getFileBlobs(
+  paths: string[],
+): Promise<{ name: string; blob: Blob }[]> {
+  const { st, ref: sref, getBlob } = await storageFns()
+  const out: { name: string; blob: Blob }[] = []
+  for (const p of paths) {
+    const name = p.split('/').pop() || p
+    out.push({ name, blob: await getBlob(sref(st, p)) })
+  }
+  return out
 }
 
 /** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用） */

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Fragment } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import { FISCAL_YEARS, defaultFiscalYearId } from '@/lib/nenmatsu/fiscal-year'
@@ -13,6 +13,7 @@ import {
   loadEmployees,
   loadSubmissions,
   listEmployeeFiles,
+  getFileBlobs,
   buildUploadUrl,
   type SharedClient,
   type NenmatsuCompany,
@@ -27,6 +28,28 @@ interface Row {
   submitted: number
 }
 
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+/** 保存パス末尾(life_insurance_1.jpg)を「生命保険料控除証明書_1.jpg」に */
+function niceFileName(path: string): string {
+  const fn = path.split('/').pop() || path
+  const m = fn.match(/^(.*)_(\d+)\.jpg$/i)
+  if (m) return `${DOC_BY_KEY[m[1]]?.name || m[1]}_${m[2]}.jpg`
+  return fn
+}
+function safe(name: string): string {
+  return (name || '').replace(/[\\/:*?"<>|]/g, '_')
+}
+
 export default function NenmatsuContent() {
   const [ready, setReady] = useState(false)
   const [pass, setPass] = useState('')
@@ -36,6 +59,7 @@ export default function NenmatsuContent() {
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
   const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
+  const [importCheck, setImportCheck] = useState<{ company: NenmatsuCompany } | null>(null)
 
   useEffect(() => {
     setReady(hasRoom())
@@ -231,6 +255,12 @@ export default function NenmatsuContent() {
                           QR表示
                         </button>
                         <button
+                          onClick={() => setImportCheck({ company })}
+                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                        >
+                          取込内容確認
+                        </button>
+                        <button
                           onClick={() => setDetail({ company })}
                           className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
@@ -267,7 +297,117 @@ export default function NenmatsuContent() {
           onClose={() => setDetail(null)}
         />
       )}
+
+      {importCheck && (
+        <ImportCheck
+          yearId={yearId}
+          company={importCheck.company}
+          onClose={() => setImportCheck(null)}
+        />
+      )}
     </div>
+  )
+}
+
+function ImportCheck({
+  yearId,
+  company,
+  onClose,
+}: {
+  yearId: string
+  company: NenmatsuCompany
+  onClose: () => void
+}) {
+  const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [openId, setOpenId] = useState('')
+
+  useEffect(() => {
+    ;(async () => {
+      setLoading(true)
+      setErr('')
+      try {
+        const emp = await loadEmployees(yearId, company.clientId)
+        emp.sort((a, b) => (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja'))
+        setEmployees(emp)
+      } catch (e) {
+        setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [yearId, company.clientId])
+
+  return (
+    <Overlay onClose={onClose}>
+      <h2 className="font-bold text-gray-800 mb-1">{company.name} — CSV取込内容の確認</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        取り込んだ従業員 {employees.length}名。氏名をクリックすると、CSVの各列の内容（扶養親族情報を含む）を確認できます。
+      </p>
+      {err && (
+        <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">
+          {err}
+        </div>
+      )}
+      {loading ? (
+        <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+      ) : employees.length === 0 ? (
+        <p className="text-sm text-gray-500 py-6 text-center">
+          従業員が未取込です。CSVを取り込んでください。
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500">
+              <th className="text-left px-3 py-2">コード</th>
+              <th className="text-left px-3 py-2">氏名 / フリガナ</th>
+              <th className="text-left px-3 py-2">生年月日</th>
+              <th className="text-left px-3 py-2">住所</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((e) => (
+              <Fragment key={e.id}>
+                <tr
+                  className="border-t border-gray-100 cursor-pointer hover:bg-blue-50/40"
+                  onClick={() => setOpenId(openId === e.id ? '' : e.id)}
+                >
+                  <td className="px-3 py-2 text-gray-700">{e.code}</td>
+                  <td className="px-3 py-2 text-gray-800">
+                    {e.lastName} {e.firstName}
+                    <div className="text-[11px] text-gray-400">
+                      {e.kanaLast} {e.kanaFirst}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">{e.birth || e.birthRaw || '—'}</td>
+                  <td className="px-3 py-2 text-gray-600">{e.address || '—'}</td>
+                </tr>
+                {openId === e.id && (
+                  <tr className="bg-gray-50">
+                    <td colSpan={4} className="px-3 py-2">
+                      <div className="text-[11px] text-gray-500 mb-1">
+                        CSVの全列（列番号: 内容）。扶養親族や配偶者の列を確認できます。
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-0.5 max-h-64 overflow-auto">
+                        {(e.rawCells || []).map((v, i) =>
+                          v ? (
+                            <div key={i} className="text-[11px] flex gap-1">
+                              <span className="text-gray-400 shrink-0">{i}:</span>
+                              <span className="text-gray-700 break-all">{v}</span>
+                            </div>
+                          ) : null,
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Overlay>
   )
 }
 
@@ -329,6 +469,8 @@ function CompanyDetail({
     })()
   }, [yearId, company.clientId])
 
+  const [zipMsg, setZipMsg] = useState('')
+
   async function viewFiles(emp: NenmatsuEmployee) {
     try {
       const items = await listEmployeeFiles(yearId, company.clientId, emp.id)
@@ -338,12 +480,68 @@ function CompanyDetail({
     }
   }
 
+  async function downloadOne(emp: NenmatsuEmployee, rec: SubmissionRecord) {
+    setZipMsg(`${emp.lastName}${emp.firstName} さんのファイルを準備中...`)
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      const blobs = await getFileBlobs(rec.paths || [])
+      blobs.forEach((b) => zip.file(niceFileName(b.name), b.blob))
+      const out = await zip.generateAsync({ type: 'blob' })
+      saveBlob(out, `${safe(company.name)}_${safe(emp.lastName + emp.firstName)}.zip`)
+    } catch (e) {
+      alert('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setZipMsg('')
+  }
+
+  async function downloadAll() {
+    const targets = employees
+      .map((e) => ({ e, rec: subs[e.id] }))
+      .filter((x) => x.rec && (x.rec.paths || []).length > 0)
+    if (!targets.length) {
+      alert('ダウンロードできるファイルがありません。')
+      return
+    }
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      let i = 0
+      for (const { e, rec } of targets) {
+        setZipMsg(`まとめています... (${++i}/${targets.length})`)
+        const folder = zip.folder(safe(`${e.lastName}${e.firstName}`))
+        const blobs = await getFileBlobs(rec.paths || [])
+        blobs.forEach((b) => folder?.file(niceFileName(b.name), b.blob))
+      }
+      setZipMsg('ZIPを作成中...')
+      const out = await zip.generateAsync({ type: 'blob' })
+      saveBlob(out, `${safe(company.name)}_年末調整_${yearId}.zip`)
+    } catch (e) {
+      alert('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setZipMsg('')
+  }
+
   return (
     <Overlay onClose={onClose}>
       <h2 className="font-bold text-gray-800 mb-1">{company.name} — 提出状況</h2>
-      <p className="text-xs text-gray-500 mb-3">
-        提出済みの従業員はファイルをアプリ内で閲覧・ダウンロードできます。
-      </p>
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <p className="text-xs text-gray-500">
+          提出済みの従業員はファイルをアプリ内で閲覧・人別/全員一括でダウンロードできます。
+        </p>
+        <button
+          onClick={downloadAll}
+          disabled={!!zipMsg}
+          className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          全員のファイルを一括DL（ZIP）
+        </button>
+      </div>
+      {zipMsg && (
+        <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">
+          {zipMsg}
+        </div>
+      )}
       {err && (
         <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">
           {err}
@@ -385,14 +583,23 @@ function CompanyDetail({
                       <span className="text-gray-300">未提出</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
                     {rec && (rec.paths || []).length > 0 && (
-                      <button
-                        onClick={() => viewFiles(e)}
-                        className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                      >
-                        ファイルを見る
-                      </button>
+                      <span className="inline-flex gap-1.5">
+                        <button
+                          onClick={() => viewFiles(e)}
+                          className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                        >
+                          ファイルを見る
+                        </button>
+                        <button
+                          onClick={() => downloadOne(e, rec)}
+                          disabled={!!zipMsg}
+                          className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          一括DL
+                        </button>
+                      </span>
                     )}
                   </td>
                 </tr>
