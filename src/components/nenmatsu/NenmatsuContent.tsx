@@ -20,7 +20,7 @@ import {
   type NenmatsuEmployee,
   type SubmissionRecord,
 } from '@/lib/nenmatsu/store'
-import { decodeShiftJis, parseJdlCsv } from '@/lib/nenmatsu/jdl-csv'
+import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { spouseCategory, dependentCategory, type Declaration } from '@/lib/nenmatsu/declaration'
 
@@ -362,53 +362,88 @@ function ImportCheck({
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
-              <th className="text-left px-3 py-2">コード</th>
-              <th className="text-left px-3 py-2">氏名 / フリガナ</th>
+              <th className="text-left px-3 py-2">氏名</th>
               <th className="text-left px-3 py-2">生年月日</th>
+              <th className="text-left px-3 py-2">郵便番号</th>
               <th className="text-left px-3 py-2">住所</th>
+              <th className="text-left px-3 py-2">扶養親族</th>
             </tr>
           </thead>
           <tbody>
-            {employees.map((e) => (
-              <Fragment key={e.id}>
-                <tr
-                  className="border-t border-gray-100 cursor-pointer hover:bg-blue-50/40"
-                  onClick={() => setOpenId(openId === e.id ? '' : e.id)}
-                >
-                  <td className="px-3 py-2 text-gray-700">{e.code}</td>
-                  <td className="px-3 py-2 text-gray-800">
-                    {e.lastName} {e.firstName}
-                    <div className="text-[11px] text-gray-400">
-                      {e.kanaLast} {e.kanaFirst}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-gray-600">{e.birth || e.birthRaw || '—'}</td>
-                  <td className="px-3 py-2 text-gray-600">{e.address || '—'}</td>
-                </tr>
-                {openId === e.id && (
-                  <tr className="bg-gray-50">
-                    <td colSpan={4} className="px-3 py-2">
-                      <div className="text-[11px] text-gray-500 mb-1">
-                        CSVの全列（列番号: 内容）。扶養親族や配偶者の列を確認できます。
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-0.5 max-h-64 overflow-auto">
-                        {(e.rawCells || []).map((v, i) =>
-                          v ? (
-                            <div key={i} className="text-[11px] flex gap-1">
-                              <span className="text-gray-400 shrink-0">{i}:</span>
-                              <span className="text-gray-700 break-all">{v}</span>
-                            </div>
-                          ) : null,
-                        )}
+            {employees.map((e) => {
+              const postal = extractPostal(e.rawCells)
+              const deps = extractDependents(e.rawCells)
+              return (
+                <Fragment key={e.id}>
+                  <tr
+                    className="border-t border-gray-100 cursor-pointer hover:bg-blue-50/40"
+                    onClick={() => setOpenId(openId === e.id ? '' : e.id)}
+                  >
+                    <td className="px-3 py-2 text-gray-800">
+                      {e.lastName} {e.firstName}
+                      <div className="text-[11px] text-gray-400">
+                        {e.kanaLast} {e.kanaFirst}
                       </div>
                     </td>
+                    <td className="px-3 py-2 text-gray-600">{e.birth || e.birthRaw || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{postal || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{e.address || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {deps.length ? `あり（${deps.length}名）` : 'なし'}
+                    </td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
+                  {openId === e.id && (
+                    <tr className="bg-gray-50">
+                      <td colSpan={5} className="px-3 py-2">
+                        {deps.length === 0 ? (
+                          <div className="text-[12px] text-gray-500">扶養親族なし</div>
+                        ) : (
+                          <table className="w-full text-[12px] mb-2">
+                            <thead>
+                              <tr className="text-gray-400">
+                                <th className="text-left py-1">続柄</th>
+                                <th className="text-left py-1">氏名</th>
+                                <th className="text-left py-1">生年月日</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {deps.map((dep, i) => (
+                                <tr key={i} className="border-t border-gray-200">
+                                  <td className="py-1 text-gray-700">{dep.relation || '—'}</td>
+                                  <td className="py-1 text-gray-800">{dep.name || '—'}</td>
+                                  <td className="py-1 text-gray-700">{dep.birth || dep.birthRaw || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        <details>
+                          <summary className="text-[11px] text-gray-400 cursor-pointer">
+                            CSVの全列（列番号: 内容）を表示
+                          </summary>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-0.5 max-h-64 overflow-auto mt-1">
+                            {(e.rawCells || []).map((v, i) =>
+                              v ? (
+                                <div key={i} className="text-[11px] flex gap-1">
+                                  <span className="text-gray-400 shrink-0">{i}:</span>
+                                  <span className="text-gray-700 break-all">{v}</span>
+                                </div>
+                              ) : null,
+                            )}
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       )}
+      <p className="text-[11px] text-gray-400 mt-3">
+        ※ 郵便番号・扶養親族の列位置は推定です。値がずれている場合は、行を開いて「CSVの全列」で正しい列番号を確認し、お知らせください（即修正します）。扶養親族の郵便番号・住所はJDLのCSVに含まれない場合があります。
+      </p>
     </Overlay>
   )
 }

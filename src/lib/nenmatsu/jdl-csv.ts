@@ -123,3 +123,50 @@ export function normalizeBirth(raw: string): string {
 function pad(n: string | number): string {
   return String(n).padStart(2, '0')
 }
+
+// ===== JDL CSV の列マッピング（推定値。実データに合わせて調整可能） =====
+// 扶養者は col 65 から「氏名・フリガナ・続柄・生年月日・…」が一定間隔で並ぶ想定。
+export const JDL_MAP = {
+  postal: 10, // 郵便番号（住所11,12の直前を想定）
+  depStart: 65, // 扶養者1の開始列
+  depStride: 8, // 1扶養あたりの列数
+  depCount: 10, // 最大10人
+  oName: 0, // 開始からのオフセット：氏名
+  oKana: 1, // フリガナ
+  oRelation: 2, // 続柄
+  oBirth: 3, // 生年月日
+}
+
+export interface CsvDependent {
+  relation: string
+  name: string
+  kana: string
+  birthRaw: string
+  birth: string
+}
+
+export function extractPostal(cells: string[] | undefined): string {
+  if (!cells) return ''
+  return (cells[JDL_MAP.postal] || '').trim()
+}
+
+/** 取込済みの行データ(rawCells)から扶養親族を抽出 */
+export function extractDependents(cells: string[] | undefined): CsvDependent[] {
+  if (!cells) return []
+  const out: CsvDependent[] = []
+  for (let i = 0; i < JDL_MAP.depCount; i++) {
+    const b = JDL_MAP.depStart + i * JDL_MAP.depStride
+    const name = (cells[b + JDL_MAP.oName] || '').trim()
+    const relation = (cells[b + JDL_MAP.oRelation] || '').trim()
+    const birthRaw = (cells[b + JDL_MAP.oBirth] || '').trim()
+    if (!name && !relation && !birthRaw) continue
+    out.push({
+      name,
+      kana: (cells[b + JDL_MAP.oKana] || '').trim(),
+      relation,
+      birthRaw,
+      birth: normalizeBirth(birthRaw),
+    })
+  }
+  return out
+}
