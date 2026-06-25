@@ -576,10 +576,10 @@ export default function JournalEntryTable({
           // PL科目の場合は消費税CDも自動設定
           if (isPL(acc.bsPl) && acc.normalBalance === '借方') {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' }
+            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
           } else if (isPL(acc.bsPl) && acc.normalBalance === '貸方') {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' }
+            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
           } else if (isBS(acc.bsPl)) {
             // BS科目の場合: 相手科目もBSかチェック
             const otherAcc = accountMaster.find((a) => a.code === u.creditCode)
@@ -593,10 +593,10 @@ export default function JournalEntryTable({
           // PL科目の場合は消費税CDも自動設定
           if (isPL(acc.bsPl) && acc.normalBalance === '貸方') {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' }
+            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
           } else if (isPL(acc.bsPl) && acc.normalBalance === '借方') {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' }
+            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
           } else if (isBS(acc.bsPl)) {
             const otherAcc = accountMaster.find((a) => a.code === u.debitCode)
             if (otherAcc && isBS(otherAcc.bsPl)) {
@@ -627,7 +627,7 @@ export default function JournalEntryTable({
           const updated = { ...e, debitCode: code, debitName: acc ? (acc.shortName || acc.name) : '' }
           if (acc && isPL(acc.bsPl) && acc.normalBalance === '借方' && !e.debitTaxCode) {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' }
+            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' } }
           }
           return updated
         }
@@ -638,7 +638,7 @@ export default function JournalEntryTable({
           const updated = { ...e, creditCode: code, creditName: acc ? (acc.shortName || acc.name) : '' }
           if (acc && isPL(acc.bsPl) && acc.normalBalance === '貸方' && !e.debitTaxCode) {
             const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' }
+            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' } }
           }
           return updated
         }
@@ -1127,8 +1127,11 @@ export default function JournalEntryTable({
                   }
                   if (taxCode && !entry.debitTaxCode) {
                     updated.debitTaxCode = taxCode
-                    updated.debitTaxType = taxName
-                    updated.debitTaxRate = taxRate
+                    // レシート由来(taxLocked)は読み取った税率・税区分を維持し、消費税CDのみ補完
+                    if (!entry.taxLocked) {
+                      updated.debitTaxType = taxName
+                      updated.debitTaxRate = taxRate
+                    }
                   }
                   return updated
                 }))

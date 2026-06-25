@@ -25,6 +25,7 @@ export function receiptToEntries(
   creditSubCode?: string,
   creditSubName?: string,
   forceRegistered?: boolean,
+  getPageId?: (rcp: ReceiptData) => string | undefined,
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -33,6 +34,7 @@ export function receiptToEntries(
     const date = rcp.receiptDate.replace(/-/g, '')
     const totalAmount = rcp.taxLines.reduce((s, t) => s + t.totalAmount, 0)
     const hasInvoice = forceRegistered ? true : !!rcp.invoiceNumber
+    const sourcePageId = getPageId?.(rcp)
 
     if (rcp.taxLines.length <= 1) {
       const line = rcp.taxLines[0]
@@ -44,9 +46,10 @@ export function receiptToEntries(
         taxRate: line?.taxRate, hasInvoice,
         description, originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
       })
+      entry.sourcePageId = sourcePageId
       entries.push(entry)
     } else {
-      // 複数税率: 997諸口の複合仕訳
+      // 複数税率: 諸口(997)で 10%対象額 / 軽減8%対象額 等を税率ごとに分けた複合仕訳を作成
       const parentEntry = makeEntry({
         date,
         debitCode: '997', debitName: '諸口',
@@ -57,6 +60,7 @@ export function receiptToEntries(
         description,
         originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
       })
+      parentEntry.sourcePageId = sourcePageId
       entries.push(parentEntry)
 
       for (const line of rcp.taxLines) {
@@ -70,6 +74,7 @@ export function receiptToEntries(
         })
         childEntry.isCompound = true
         childEntry.parentId = parentEntry.id
+        childEntry.sourcePageId = sourcePageId
         entries.push(childEntry)
       }
     }
@@ -113,6 +118,8 @@ function makeEntry(p: {
   entry.debitTaxType = p.taxType
   entry.debitTaxRate = p.taxRate ? taxRateToCode(p.taxRate) : ''
   entry.debitBusinessType = p.hasInvoice != null ? (p.hasInvoice ? '0' : '1') : '0'
+  // レシートで読み取った税率を固定（科目別消費税マスタ・科目名デフォルトで上書きさせない）
+  entry.taxLocked = true
   entry.description = p.description
   entry.originalDescription = p.originalDescription
   return entry

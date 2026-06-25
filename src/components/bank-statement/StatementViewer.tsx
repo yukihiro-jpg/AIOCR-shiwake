@@ -35,6 +35,9 @@ export default function StatementViewer({
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
   const [zoom, setZoom] = useState(100)
+  // 画像の回転（0/90/180/270度）。ページ切替でリセット
+  const [rotation, setRotation] = useState(0)
+  useEffect(() => { setRotation(0) }, [currentPageIndex])
 
   // 右ペインで仕訳行を選択したら、左の該当行へスクロール
   useEffect(() => {
@@ -117,6 +120,24 @@ export default function StatementViewer({
               ファイル削除
             </button>
           )}
+          {currentPage.imageDataUrl && !currentPage.pdfDataUrl && (
+            <>
+              <button
+                onClick={() => setRotation((r) => (r + 270) % 360)}
+                title="左に90°回転"
+                className="w-7 h-7 flex items-center justify-center text-sm bg-white border border-gray-300 rounded hover:bg-gray-50"
+              >
+                ↺
+              </button>
+              <button
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+                title="右に90°回転"
+                className="w-7 h-7 flex items-center justify-center text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 mr-1"
+              >
+                ↻
+              </button>
+            </>
+          )}
           <button
             onClick={handleZoomOut}
             disabled={zoom <= ZOOM_MIN}
@@ -166,11 +187,12 @@ export default function StatementViewer({
             style={{ height: 'calc(100vh - 200px)', minHeight: '600px' }}
           />
         ) : currentPage.imageDataUrl ? (
-          <div className="inline-block" style={{ width: `${zoom}%`, minWidth: '100%' }}>
+          <div className="flex justify-center items-start" style={{ width: `${zoom}%`, minWidth: '100%' }}>
             <img
               src={currentPage.imageDataUrl}
               alt={`通帳ページ ${currentPageIndex + 1}`}
-              className="w-full select-none pointer-events-none"
+              className="max-w-full h-auto select-none pointer-events-none"
+              style={{ transform: `rotate(${rotation}deg)`, transformOrigin: 'center center' }}
               draggable={false}
             />
           </div>

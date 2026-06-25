@@ -25,6 +25,7 @@ export interface StatementPage {
   balanceDifference: number
   imageDataUrl?: string
   pdfDataUrl?: string   // 元PDFのdata URL（iframe表示用、キャンバス描画失敗時のフォールバック）
+  id?: string           // レシート・請求書等「1書類=1画像」ページの一意ID。仕訳行(sourcePageId)と紐付け、行削除時の画像削除に使う
 }
 
 // 仕訳行
@@ -62,6 +63,8 @@ export interface JournalEntry {
   needsQuestion?: boolean       // 仮払金の質問リスト対象か（false=本物の仮払金で質問しない。未設定=質問する）
   isCompound: boolean
   parentId: string | null
+  taxLocked?: boolean           // レシート等で読み取った消費税率を固定（科目別消費税マスタ・科目名デフォルトで上書きしない）
+  sourcePageId?: string         // この仕訳の解析元ページ(StatementPage.id)。行クリックで左ペインに表示、行削除で画像も削除
 }
 
 // 科目マスタ

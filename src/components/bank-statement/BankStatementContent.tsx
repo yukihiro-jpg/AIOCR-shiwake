@@ -49,6 +49,12 @@ import ClientSelector from '@/components/bank-statement/ClientSelector'
 import type { Client } from '@/lib/bank-statement/client-store'
 import { getSelectedClientId, setSelectedClientId, recordCsvExport } from '@/lib/bank-statement/client-store'
 
+// レシート・請求書等「1書類=1画像」ページの一意ID生成（行クリックでの画像表示／行削除での画像削除に使用）
+let pageIdCounter = 0
+function genPageId(i = 0): string {
+  return `pg-${Date.now()}-${i}-${++pageIdCounter}`
+}
+
 export default function BankStatementContent() {
   // 顧問先選択
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
@@ -489,7 +495,8 @@ export default function BankStatementContent() {
             setLoadingProgress(100)
             const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1)
             setParseElapsed(`${elapsedSec}秒`)
-            setPages((prev) => [...prev, ...textResult.pages])
+            const idPages = textResult.pages.map((p, i) => ({ ...p, id: p.id || genPageId(i) }))
+            setPages((prev) => [...prev, ...idPages])
             setCurrentPageIndex(0)
             const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
             const entries = receiptToEntries(textResult.receipts.map((r) => ({
@@ -500,7 +507,8 @@ export default function BankStatementContent() {
               invoiceNumber: r.invoiceNumber,
               taxLines: [{ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
               pageIndex: r.pageIndex,
-            })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
+            })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName, undefined,
+            (rcp) => idPages[rcp.pageIndex]?.id)
             setJournalEntries((prev) => [...prev, ...entries])
             setInfo(`${textResult.receipts.length}件のレシートをテキスト解析しました（${elapsedSec}秒）`)
             setIsLoading(false)
@@ -527,11 +535,16 @@ export default function BankStatementContent() {
             pageIndex: i, transactions: [],
             openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
             imageDataUrl: url,
+            id: genPageId(i),
           }))
           setPages((prev) => [...prev, ...statementPages])
 
           const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
-          const entries = receiptToEntries(receipts, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
+          const entries = receiptToEntries(
+            receipts, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName, undefined,
+            // レシートのページ番号→解析元ページIDを紐付け（行クリックで左に表示／行削除で画像も削除）
+            (rcp) => statementPages[rcp.pageIndex]?.id,
+          )
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)
@@ -972,6 +985,7 @@ export default function BankStatementContent() {
 
         if (receipts.length === 0) throw new Error('有効なレシート行が見つかりませんでした（日付・相手先・支払総額を確認してください）')
 
+        const previewPageId = genPageId(0)
         const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
         const entries = receiptToEntries(
           receipts,
@@ -980,10 +994,12 @@ export default function BankStatementContent() {
           uploadConfig.creditSubCode,
           uploadConfig.creditSubName,
           true, // 列マッピング経由は常にインボイス登録事業者扱い（経過措置※を付けない）
+          () => previewPageId, // Excel取込は1プレビューページに全行を紐付け
         )
 
         // 左側プレビュー用に仮想ページを生成
         const previewPage: StatementPage = {
+          id: previewPageId,
           pageIndex: 0,
           transactions: receipts.map((r, i) => ({
             id: `rcpt-prev-${Date.now()}-${i}`,
@@ -1055,18 +1071,44 @@ export default function BankStatementContent() {
       setSelectedEntryId(entryId)
       if (entryId) {
         const entry = journalEntries.find((e) => e.id === entryId)
-        if (entry && entry.transactionId) {
-          const page = pages.find((p) =>
-            p.transactions.some((t) => t.id === entry.transactionId),
-          )
-          if (page && page.pageIndex !== currentPageIndex) {
-            setCurrentPageIndex(page.pageIndex)
+        if (entry) {
+          // レシート・請求書等: 解析元ページ(sourcePageId)を左ペインに表示
+          let idx = -1
+          if (entry.sourcePageId) {
+            idx = pages.findIndex((p) => p.id === entry.sourcePageId)
+          }
+          // 通帳・CC等: 取引IDを含むページを表示
+          if (idx < 0 && entry.transactionId) {
+            idx = pages.findIndex((p) => p.transactions.some((t) => t.id === entry.transactionId))
+          }
+          if (idx >= 0 && idx !== currentPageIndex) {
+            setCurrentPageIndex(idx)
           }
         }
       }
     },
     [journalEntries, pages, currentPageIndex],
   )
+
+  // 仕訳行を削除したら、その解析元の画像ページ（id付き=レシート等の1書類1画像）も
+  // どの仕訳からも参照されなくなった時点で一緒に削除する
+  useEffect(() => {
+    setPages((prev) => {
+      if (!prev.some((p) => p.id)) return prev
+      const referenced = new Set(
+        journalEntries.map((e) => e.sourcePageId).filter((x): x is string => !!x),
+      )
+      const next = prev.filter((p) => !p.id || referenced.has(p.id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [journalEntries])
+
+  // ページ削除で現在ページが範囲外になったら補正
+  useEffect(() => {
+    if (currentPageIndex > 0 && currentPageIndex >= pages.length) {
+      setCurrentPageIndex(Math.max(0, pages.length - 1))
+    }
+  }, [pages.length, currentPageIndex])
 
   const handleAccountMasterUpdate = useCallback((items: AccountItem[]) => {
     setAccountMaster(items)
@@ -1288,10 +1330,12 @@ export default function BankStatementContent() {
                           let changed = false
                           if (!updated.debitTaxCode || updated.debitTaxCode === '0') {
                             updated.debitTaxCode = tax.taxCode
-                            updated.debitTaxType = tax.taxName
+                            // レシート由来(taxLocked)は読み取った税区分を維持し、消費税CDのみ補完
+                            if (!updated.taxLocked) updated.debitTaxType = tax.taxName
                             changed = true
                           }
-                          if (!updated.debitTaxRate && tax.taxRate) {
+                          // レシート由来は読み取った税率を固定（科目別消費税マスタで上書きしない）
+                          if (!updated.taxLocked && !updated.debitTaxRate && tax.taxRate) {
                             updated.debitTaxRate = tax.taxRate
                             changed = true
                           }
