@@ -3854,7 +3854,7 @@ h3.blk{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-in
 /* タイトル＋表などを1ページに収める／意図的に改ページを入れるためのユーティリティ */
 .keepblk{page-break-inside:avoid;break-inside:avoid;}
 .pbefore{page-break-before:always;break-before:page;}
-table.t.nowraph th{white-space:nowrap;}
+table.t.nowraph th,table.t.nowraph td{white-space:nowrap;}
 @media print{@page{size:A4;margin:0;}}`;
 function buildReport(){
   const r=calcTax();
