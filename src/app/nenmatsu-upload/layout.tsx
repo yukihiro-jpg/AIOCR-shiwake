@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: '年末調整 書類アップロード',
+  title: '年調データ受信 書類アップロード',
   description: '控除証明書等を撮影して提出します',
 }
 

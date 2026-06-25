@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: '会計大将インポートデータ変換',
+  title: '総合管理アプリ',
   description: 'AI-OCRで通帳・レシート・請求書から会計大将向け仕訳CSVを生成',
 }
 

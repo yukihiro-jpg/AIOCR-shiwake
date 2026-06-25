@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: '年調データ受信 - 控除証明書・申告データの回収',
+  title: '総合管理アプリ',
   description: '従業員の控除証明書をスマホ撮影で回収・管理します',
 }
 
