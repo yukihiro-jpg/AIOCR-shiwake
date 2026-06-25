@@ -3851,6 +3851,10 @@ h3.blk{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-in
 .kpis{page-break-inside:avoid;break-inside:avoid;}
 .chartbox{page-break-inside:avoid;break-inside:avoid;}
 .note{page-break-inside:avoid;break-inside:avoid;}
+/* タイトル＋表などを1ページに収める／意図的に改ページを入れるためのユーティリティ */
+.keepblk{page-break-inside:avoid;break-inside:avoid;}
+.pbefore{page-break-before:always;break-before:page;}
+table.t.nowraph th{white-space:nowrap;}
 @media print{@page{size:A4;margin:0;}}`;
 function buildReport(){
   const r=calcTax();
@@ -3935,7 +3939,7 @@ function downloadShindanPDF(){
       +'<div class="kpi"><div class="l">課税価格の合計額</div><div class="v">'+yen(r.totalTaxable)+'</div></div>'
       +'<div class="kpi"><div class="l">納付すべき相続税額</div><div class="v">'+yen(r.grandTotal)+'</div></div>'
       +'<div class="kpi"><div class="l">実効税率</div><div class="v">'+R.effRate.toFixed(2)+'%</div></div></div>'
-      +'<h3 class="blk">親族関係（法定相続人）</h3><table class="t"><tr><th>続柄</th><th>氏名</th><th>生年月日</th><th class="r">年齢</th><th class="r">法定相続分</th></tr>'+famRows+'</table>'
+      +'<h3 class="blk">親族関係（法定相続人）</h3><table class="t"><thead><tr><th>続柄</th><th>氏名</th><th>生年月日</th><th class="r">年齢</th><th class="r">法定相続分</th></tr></thead><tbody>'+famRows+'</tbody></table>'
       +'<p class="note">本書は、ご提供いただいた情報に基づき相続財産と相続税額を試算したものです。詳細は次ページ以降をご参照ください。</p>'
       +foot(2)+'</div>'
     +'<div class="page"><div class="sec-title">2. 資産構成<span class="pno">ASSETS</span></div>'
@@ -3948,7 +3952,7 @@ function downloadShindanPDF(){
       +foot(4)+'</div>'
     +'<div class="page"><div class="sec-title">4. 相続税の概算<span class="pno">TAX</span></div>'
       +'<table class="t"><tr><th>項目</th><th class="r">金額</th></tr>'+taxRows+'</table>'
-      +'<h3 class="blk">相続人別の納付税額</h3><table class="t"><tr><th>相続人</th><th class="r">課税価格</th><th class="r">算出税額</th><th class="r">税額控除等</th><th class="r">納付税額</th></tr>'+heirTaxRows+'</table>'
+      +'<h3 class="blk">相続人別の納付税額</h3><table class="t"><thead><tr><th>相続人</th><th class="r">課税価格</th><th class="r">算出税額</th><th class="r">税額控除等</th><th class="r">納付税額</th></tr></thead><tbody>'+heirTaxRows+'</tbody></table>'
       +foot(5)+'</div>'
     +'<div class="page"><div class="sec-title">5. 財産分割案<span class="pno">DIVISION</span></div>'
       +'<table class="t">'+divHead+divBody+'</table>'
@@ -4115,14 +4119,14 @@ function downloadSavingsPDF(){
     +'<div class="kpi"><div class="l">相続税の削減額</div><div class="v">'+yen(R.save)+'</div></div>'
     +(hasGift?'<div class="kpi"><div class="l">贈与税の発生額</div><div class="v">＋'+yen(R.gTaxTotal)+'</div></div>':'')
     +'<div class="kpi a"><div class="l">'+(hasGift?'実質の節税効果':'節税効果（削減額）')+'</div><div class="v">'+yen(R.netSave)+'</div></div></div>'
-    +'<div class="sec-title">課税価格の比較</div>'
-    +'<table class="t"><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr>'
+    +'<div class="keepblk"><div class="sec-title">課税価格の比較</div>'
+    +'<table class="t"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
     +'<tr><td>課税価格の合計額</td><td class="r">'+yen(R.T0)+'</td><td class="r">'+yen(R.T1)+'</td></tr>'
     +'<tr><td>課税価格の削減額</td><td class="r">-</td><td class="r">−'+yen(R.dTtotal)+'</td></tr>'
-    +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(R.baseTax)+'</td><td class="r">'+yen(R.afterTax)+'</td></tr></table>'
-    +'<div class="sec-title">実施する節税対策</div>'
-    +'<table class="t"><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr>'+mrows
-    +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></table>'
+    +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(R.baseTax)+'</td><td class="r">'+yen(R.afterTax)+'</td></tr></tbody></table></div>'
+    +'<div class="keepblk"><div class="sec-title">実施する節税対策</div>'
+    +'<table class="t"><thead><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr></thead><tbody>'+mrows
+    +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></tbody></table></div>'
     +(hasGift?'<div class="note">※ 相続税の削減額 '+yen(R.save)+' から贈与税の発生額 '+yen(R.gTaxTotal)+' を差し引いた<b>実質の節税効果は '+yen(R.netSave)+'</b>です（年110万円超の暦年贈与に特例税率で課税）。</div>':'')
     +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。実行可否は必ず税理士にご相談ください。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
@@ -4178,37 +4182,37 @@ function downloadSecondaryPDF(mode){
   const styles=REPORT_STYLE;
   let body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
-    +'<div class="sec-title">前提条件</div>'
-    +'<table class="t"><tr><th>項目</th><th class="r">金額・条件</th></tr>'
+    +'<div class="keepblk"><div class="sec-title">前提条件</div>'
+    +'<table class="t"><thead><tr><th>項目</th><th class="r">金額・条件</th></tr></thead><tbody>'
     +'<tr><td>今回の相続（一次）の課税価格の合計額</td><td class="r">'+yen(D.E1)+'</td></tr>'
     +'<tr><td>配偶者固有の財産</td><td class="r">'+yen(D.own)+'</td></tr>'
     +'<tr><td>（うち現金預金）</td><td class="r">'+yen(D.ownCash)+'</td></tr>'
     +'<tr><td>二次相続までに減少する額</td><td class="r">'+yen(D.consume)+'</td></tr>'
     +'<tr><td>二次相続までの想定年数</td><td class="r">'+D.years+' 年</td></tr>'
-    +'<tr><td>二次相続の相続人（子の人数）</td><td class="r">'+D.nCh+' 人</td></tr></table>'
+    +'<tr><td>二次相続の相続人（子の人数）</td><td class="r">'+D.nCh+' 人</td></tr></tbody></table></div>'
     +'<div class="kpis"><div class="kpi a"><div class="l">合計税額が最小となる配偶者の取得割合</div><div class="v">'+Math.round(mb.r*100)+'%</div></div>'
     +'<div class="kpi a"><div class="l">そのときの'+(mode==='savings'?'一次＋二次＋贈与税':'一次＋二次')+' 合計</div><div class="v">'+yen(mb.total)+'</div></div>'
     +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
     +(mode==='savings'?'<div class="kpi a"><div class="l">通常の最小との差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
     +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
     +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME)+'</div>'
-    +'<table class="t"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
+    +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
     +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>';
   if(mode==='savings'){
-    body+='<div class="sec-title">節税策の内訳</div>'
-      +'<table class="t"><tr><th>節税策</th><th class="r">現預金の減少</th><th class="r">課税財産の圧縮</th><th class="r">贈与税の発生</th></tr>'
+    body+='<div class="keepblk"><div class="sec-title">節税策の内訳</div>'
+      +'<table class="t nowraph"><thead><tr><th>節税策</th><th class="r">現預金の減少</th><th class="r">課税財産の圧縮</th><th class="r">贈与税の発生</th></tr></thead><tbody>'
       +'<tr><td>生命保険の活用（保険料×契約数）</td><td class="r">'+(st.insP?'−'+yen(st.insP):'-')+'</td><td class="r">'+(st.insCompress?'−'+yen(st.insCompress):'-')+'</td><td class="r">-</td></tr>'
       +'<tr><td>暦年贈与（一般贈与）</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>'
       +'<tr><td>暦年贈与（特例贈与）</td><td class="r">'+(st.gSpcGiven?'−'+yen(st.gSpcGiven):'-')+'</td><td class="r">'+(st.gSpcGiven?'−'+yen(st.gSpcGiven):'-')+'</td><td class="r">'+(st.gSpcTax?'＋'+yen(st.gSpcTax):'-')+'</td></tr>'
-      +'<tr class="tot"><td>合計</td><td class="r">−'+yen(st.spendCash)+'</td><td class="r">−'+yen(st.compress)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td></tr></table>'
-      +'<div class="sec-title">節税策実行後に配偶者の手元に残る現預金（生活資金）</div>'
-      +'<table class="t"><tr><th>内訳</th><th class="r">金額</th></tr>'
+      +'<tr class="tot"><td>合計</td><td class="r">−'+yen(st.spendCash)+'</td><td class="r">−'+yen(st.compress)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td></tr></tbody></table></div>'
+      +'<div class="keepblk pbefore"><div class="sec-title">節税策実行後に配偶者の手元に残る現預金（生活資金）</div>'
+      +'<table class="t"><thead><tr><th>内訳</th><th class="r">金額</th></tr></thead><tbody>'
       +'<tr><td>配偶者固有の現金預金</td><td class="r">'+yen(D.ownCash)+'</td></tr>'
       +'<tr><td>＋ 一次相続で取得した現金預金（遺産分割の小計）</td><td class="r">'+yen(D.allocCash)+'</td></tr>'
       +'<tr><td>− 一次相続で配偶者が納付した相続税</td><td class="r">'+yen(D.firstTaxActual)+'</td></tr>'
       +'<tr><td>− 生命保険の保険料支出</td><td class="r">'+yen(st.insP)+'</td></tr>'
       +'<tr><td>− 暦年贈与による支出</td><td class="r">'+yen(st.giftGiven)+'</td></tr>'
-      +'<tr class="tot"><td>＝ 配偶者の手元に残る現預金</td><td class="r">'+yen(D.ownCash+D.allocCash-D.firstTaxActual-st.spendCash)+'</td></tr></table>'
+      +'<tr class="tot"><td>＝ 配偶者の手元に残る現預金</td><td class="r">'+yen(D.ownCash+D.allocCash-D.firstTaxActual-st.spendCash)+'</td></tr></tbody></table></div>'
       +'<div class="note">※ 合計税額は「一次＋二次＋贈与税」です。生命保険は非課税枠（500万円×二次の法定相続人数）の範囲で課税財産を圧縮、暦年贈与は贈与額が課税財産から外れる前提の簡易モデルです。贈与税は受贈者負担のため手元現預金には含めていません。</div>';
   }
   body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。実際の有利判定は税理士にご確認ください。</div>'
