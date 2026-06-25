@@ -3840,6 +3840,17 @@ table.t tr.best td{background:#f6efdc !important;font-weight:700;color:#8a6a1f;}
 table.t tr.cur td{background:#fff4e0 !important;}
 .note{font-size:10.5px;color:#4a5562;line-height:1.9;margin-top:10px;}
 .pgfoot{margin-top:18px;border-top:1px solid #e0e0e0;padding-top:6px;font-size:9px;color:#9aa3ad;display:flex;justify-content:space-between;}
+/* ===== ページ区切りの制御（印刷時に資料構成上、適切な箇所で改ページ） ===== */
+/* 表は行の途中で切らない。見出しはページ末尾で孤立させず次の内容と同ページに保つ */
+table.t{page-break-inside:auto;break-inside:auto;}
+table.t tr{page-break-inside:avoid;break-inside:avoid;}
+table.t thead{display:table-header-group;}
+table.t tr.tot,table.t tr.best,table.t tr.cur,table.t tr.sub{page-break-inside:avoid;break-inside:avoid;}
+.sec-title{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;}
+h3.blk{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-inside:avoid;}
+.kpis{page-break-inside:avoid;break-inside:avoid;}
+.chartbox{page-break-inside:avoid;break-inside:avoid;}
+.note{page-break-inside:avoid;break-inside:avoid;}
 @media print{@page{size:A4;margin:0;}}`;
 function buildReport(){
   const r=calcTax();
@@ -3900,8 +3911,8 @@ function downloadShindanPDF(){
     const sg=t.sign<0?-1:1; let sub=0;
     const rows=items.map(a=>{ const v=assetVal(a); sub+=v; return '<tr><td>'+esc(assetDesc(a))+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
     detailBody+='<h3 class="blk">'+t.name+'（'+items.length+'件）</h3>'
-      +'<table class="t"><tr><th>明細</th><th class="r">'+(t.key==='gift'?'贈与時の価額':'評価額')+'</th></tr>'+rows
-      +'<tr class="tot"><td>小計</td><td class="r">'+(sg<0?'△'+yen(sub):yen(sub))+'</td></tr></table>';
+      +'<table class="t"><thead><tr><th>明細</th><th class="r">'+(t.key==='gift'?'贈与時の価額':'評価額')+'</th></tr></thead><tbody>'+rows
+      +'<tr class="tot"><td>小計</td><td class="r">'+(sg<0?'△'+yen(sub):yen(sub))+'</td></tr></tbody></table>';
   });
   if(!detailBody) detailBody='<p class="note">登録されている財産はありません。</p>';
   // 相続人別 取得財産明細
@@ -3912,7 +3923,7 @@ function downloadShindanPDF(){
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
     heirDetail+='<h3 class="blk">'+esc(h.name||'')+' 様（'+relDisp(h)+'）　純財産合計：'+yen(totals[h.id])+'</h3>'
-      +'<table class="t"><tr><th>種類</th><th>明細</th><th class="r">取得額</th></tr>'+rows+'</table>';
+      +'<table class="t"><thead><tr><th>種類</th><th>明細</th><th class="r">取得額</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   const body=
     '<div class="page"><div class="cover"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">財産診断書</div><div class="sub">相続税 試算レポート</div><div class="goldline"></div>'
@@ -4181,8 +4192,8 @@ function downloadSecondaryPDF(mode){
     +(mode==='savings'?'<div class="kpi a"><div class="l">通常の最小との差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
     +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
     +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME)+'</div>'
-    +'<table class="t"><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr>'
-    +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</table>';
+    +'<table class="t"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
+    +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>';
   if(mode==='savings'){
     body+='<div class="sec-title">節税策の内訳</div>'
       +'<table class="t"><tr><th>節税策</th><th class="r">現預金の減少</th><th class="r">課税財産の圧縮</th><th class="r">贈与税の発生</th></tr>'
