@@ -34,6 +34,7 @@ export default function NenmatsuUpload() {
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState('')
+  const [submitErr, setSubmitErr] = useState('')
 
   useEffect(() => {
     ;(async () => {
@@ -134,6 +135,7 @@ export default function NenmatsuUpload() {
     }
 
     setSubmitting(true)
+    setSubmitErr('')
     setProgress('画像を準備しています...')
     try {
       const docs: Record<string, Blob[]> = {}
@@ -152,7 +154,9 @@ export default function NenmatsuUpload() {
       await submitDocsPublic(params.rk, params.y, params.c, me, docs)
       setPhase('done')
     } catch (e) {
-      alert('送信に失敗しました：' + (e instanceof Error ? e.message : '') + '\nもう一度お試しください。')
+      const m = e instanceof Error ? e.message : String(e)
+      setSubmitErr('送信に失敗しました：' + m)
+      alert('送信に失敗しました：' + m + '\nもう一度お試しください。')
     }
     setSubmitting(false)
     setProgress('')
@@ -307,6 +311,9 @@ export default function NenmatsuUpload() {
       {phase === 'docs' && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 p-3">
           <div className="max-w-md mx-auto">
+            {submitErr && (
+              <div className="text-xs text-red-600 mb-2 break-words">{submitErr}</div>
+            )}
             <button
               onClick={submit}
               disabled={submitting}

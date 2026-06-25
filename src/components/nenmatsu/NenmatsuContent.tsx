@@ -304,6 +304,7 @@ function CompanyDetail({
   const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
   const [subs, setSubs] = useState<Record<string, SubmissionRecord>>({})
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
   const [files, setFiles] = useState<{ emp: string; items: { name: string; url: string }[] } | null>(
     null,
   )
@@ -311,6 +312,7 @@ function CompanyDetail({
   useEffect(() => {
     ;(async () => {
       setLoading(true)
+      setErr('')
       try {
         const [emp, sub] = await Promise.all([
           loadEmployees(yearId, company.clientId),
@@ -319,6 +321,8 @@ function CompanyDetail({
         emp.sort((a, b) => (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja'))
         setEmployees(emp)
         setSubs(sub)
+      } catch (e) {
+        setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
       } finally {
         setLoading(false)
       }
@@ -326,8 +330,12 @@ function CompanyDetail({
   }, [yearId, company.clientId])
 
   async function viewFiles(emp: NenmatsuEmployee) {
-    const items = await listEmployeeFiles(yearId, company.clientId, emp.id)
-    setFiles({ emp: `${emp.lastName} ${emp.firstName}`, items })
+    try {
+      const items = await listEmployeeFiles(yearId, company.clientId, emp.id)
+      setFiles({ emp: `${emp.lastName} ${emp.firstName}`, items })
+    } catch (e) {
+      alert('ファイルの取得に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
   }
 
   return (
@@ -336,6 +344,11 @@ function CompanyDetail({
       <p className="text-xs text-gray-500 mb-3">
         提出済みの従業員はファイルをアプリ内で閲覧・ダウンロードできます。
       </p>
+      {err && (
+        <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">
+          {err}
+        </div>
+      )}
       {loading ? (
         <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
       ) : employees.length === 0 ? (
@@ -361,8 +374,8 @@ function CompanyDetail({
                   </td>
                   <td className="px-3 py-2 text-gray-600">
                     {rec ? (
-                      Object.keys(rec.docs).length ? (
-                        Object.entries(rec.docs)
+                      Object.keys(rec.docs || {}).length ? (
+                        Object.entries(rec.docs || {})
                           .map(([k, n]) => `${DOC_BY_KEY[k]?.name || k}(${n})`)
                           .join('、')
                       ) : (
@@ -373,7 +386,7 @@ function CompanyDetail({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {rec && rec.paths.length > 0 && (
+                    {rec && (rec.paths || []).length > 0 && (
                       <button
                         onClick={() => viewFiles(e)}
                         className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
