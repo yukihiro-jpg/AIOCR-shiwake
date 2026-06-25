@@ -105,7 +105,9 @@ export default function NenmatsuUpload() {
 
   function onCapture(docKey: string, list: FileList | null) {
     if (!list || !list.length) return
-    setPhotos((prev) => ({ ...prev, [docKey]: [...(prev[docKey] || []), ...Array.from(list)] }))
+    // FileList は input の値クリアで空になるため、ここで即座に配列へコピーする
+    const arr = Array.from(list)
+    setPhotos((prev) => ({ ...prev, [docKey]: [...(prev[docKey] || []), ...arr] }))
   }
   function removePhoto(docKey: string, idx: number) {
     setPhotos((prev) => ({ ...prev, [docKey]: (prev[docKey] || []).filter((_, i) => i !== idx) }))
