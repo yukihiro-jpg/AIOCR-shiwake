@@ -172,7 +172,7 @@ export default function NenmatsuContent() {
       <GlobalNav currentKey="nenmatsu" />
       <div className="flex-1 p-6 max-w-5xl w-full mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <h1 className="text-xl font-bold text-gray-800">年末調整 — 控除証明書の回収</h1>
+          <h1 className="text-xl font-bold text-gray-800">年調データ受信 — 控除証明書・申告データの回収</h1>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-500">年度</label>
             <select
@@ -204,11 +204,11 @@ export default function NenmatsuContent() {
 
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
-            「顧問先情報登録」で<strong>年末調整＝利用</strong>にした会社が表示されます。JDLのCSVで従業員を取り込み、URL/QRを配布してください。
+            「顧問先情報登録」の「アプリ利用」で<strong>年調データ受信＝利用</strong>にした会社が表示されます。JDLのCSVで従業員を取り込み、URL/QRを配布してください。
           </div>
           {rows.length === 0 ? (
             <div className="p-6 text-center text-sm text-gray-500">
-              対象会社がありません。「顧問先情報登録」で対象会社の<strong>年末調整</strong>を<strong>利用</strong>に設定してください。
+              対象会社がありません。「顧問先情報登録」の「アプリ利用」で対象会社の<strong>年調データ受信</strong>を<strong>利用</strong>に設定してください。
             </div>
           ) : (
             <table className="w-full text-sm">

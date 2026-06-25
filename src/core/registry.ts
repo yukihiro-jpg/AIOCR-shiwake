@@ -51,8 +51,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     key: 'nenmatsu',
-    label: '年末調整',
-    desc: '従業員の控除証明書をスマホ撮影で回収・管理',
+    label: '年調データ受信',
+    desc: '従業員の控除証明書・申告データをスマホ撮影で回収・管理',
     path: '/nenmatsu',
     icon: '📋',
     status: 'ready',
