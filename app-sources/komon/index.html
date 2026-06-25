@@ -967,14 +967,22 @@ const CL_FIELD_META=[
   {k:'name',label:'顧問先名'},{k:'kana',label:'フリガナ'},{k:'code',label:'顧問先コード'},
   {k:'type',label:'区分',vals:['法人','個人']},{k:'rep',label:'代表者名'},
   {k:'zip',label:'郵便番号'},{k:'fiscal',label:'決算月',note:'「3月」のように○月の形式'},{k:'addr',label:'住所'},
-  {k:'tel',label:'電話番号'},{k:'email',label:'メールアドレス'},{k:'contract',label:'契約区分'},
+  {k:'tel',label:'電話番号'},{k:'email',label:'メールアドレス'},{k:'contract',label:'関与形態'},
   {k:'payMethod',label:'納付方法',vals:['ダイレクト納付','紙納付書']},
-  {k:'gensenStatus',label:'源泉税納付ステータス',vals:['毎月納付','納期特例','不要']},
-  {k:'gensenProcessor',label:'源泉処理者区分',vals:['税理士','顧問先']},
+  {k:'gensenStatus',label:'源泉税（毎月・納特）',vals:['毎月納付','納期特例','不要']},
+  {k:'gensenProcessor',label:'源泉税処理者',vals:['税理士','顧問先']},
   {k:'taxOffice',label:'所轄税務署'},{k:'payrollSoftware',label:'給与ソフト'},
-  {k:'noticeMethod',label:'お知らせ方法',vals:['メール','郵送','FAX','電話','チャット','その他']},
+  {k:'noticeMethod',label:'連絡方法',vals:['メール','郵送','FAX','電話','チャット','その他']},
   {k:'staff',label:'主担当者'},
-  {k:'status',label:'ステータス',vals:['契約中','休止','解約']},{k:'notes',label:'備考'} ];
+  {k:'status',label:'契約状況',vals:['契約中','休止','解約']},
+  {k:'useShiwake',label:'仕訳作成の利用',vals:['利用','未利用']},
+  {k:'useSouzoku',label:'相続管理の利用',vals:['利用','未利用']},
+  {k:'useNenmatsu',label:'年調データ受信の利用',vals:['利用','未利用']},
+  {k:'useProgMonthly',label:'月次（進捗管理）',vals:['利用','未利用']},
+  {k:'useProgHotei',label:'法定調書（進捗管理）',vals:['利用','未利用']},
+  {k:'useProgShokyaku',label:'償却資産（進捗管理）',vals:['利用','未利用']},
+  {k:'useProgNencho',label:'年末調整（進捗管理）',vals:['利用','未利用']},
+  {k:'notes',label:'備考'} ];
 const CL_LABEL=Object.fromEntries(CL_FIELD_META.map(m=>[m.k,m.label]));
 let pendingAiEdits=null;
 function openAiEditModal(){ if(!data.clients.length){ toast('先に顧問先を登録してください','err'); return; }
@@ -991,19 +999,23 @@ async function runAiEdit(){
   const sys='あなたは税理士事務所の顧問先データ編集アシスタントです。ユーザーの日本語の指示を、変更指示のJSON配列に変換します。'
     +'各要素は {"clientId":"顧問先リストのid","field":"項目キー(英字)","value":"新しい値"} の形式。'
     +'指示に一致する顧問先が複数ある場合は要素を複数出力します（決算月や担当などの条件指定にも対応）。'
-    +'選択式項目は必ず許可値の中から選びます。determinできない指示は無視します。'
+    +'「すべて」「全部」「全社」「全顧問先」など全体を対象とする指示の場合は、顧問先リストにある"すべてのid"について1件ずつ要素を出力してください（1社も省略しないこと）。'
+    +'選択式項目（許可値があるもの）は必ず許可値の中から正確に選びます（例:「未利用にして」→ value は "未利用"）。'
+    +'指示の項目名は表示ラベルで書かれることが多いので、対応する項目キー(英字)に変換してください。判断できない指示は無視します。'
     +'出力はJSON配列のみ。コードブロックや説明文は一切付けないこと。';
   const usr='# 顧問先リスト（id: 名前）\n'+clientList+'\n\n# 編集可能な項目\n'+fieldDesc+'\n\n# 指示\n'+instr;
   hint.textContent='AIが解析しています…';
   try{
-    const out=await callAI(sys,usr,2000);
+    const out=await callAI(sys,usr,Math.min(8000,1000+data.clients.length*40));
     let arr; try{ const a=out.indexOf('['),b=out.lastIndexOf(']'); arr=JSON.parse(out.slice(a,b+1)); }catch(_){ throw new Error('AIの応答を解析できませんでした'); }
     if(!Array.isArray(arr)||!arr.length){ hint.textContent=''; prev.innerHTML='<div class="hint">該当する変更が見つかりませんでした。指示を具体的にしてお試しください。</div>'; return; }
     const edits=[];
     arr.forEach(e=>{ if(!e||!e.field||e.value==null)return; const c=clientById(String(e.clientId||''))||data.clients.find(x=>x.name===e.clientId);
       if(!c){ edits.push({bad:'対象の顧問先が特定できませんでした',raw:JSON.stringify(e)}); return; }
       if(!CL_LABEL[e.field]){ edits.push({bad:'不明な項目: '+e.field,name:c.name}); return; }
-      edits.push({id:c.id,name:c.name,field:e.field,label:CL_LABEL[e.field],oldVal:c[e.field]||'',newVal:String(e.value)}); });
+      const meta=CL_FIELD_META.find(m=>m.k===e.field); let nv=String(e.value);
+      if(meta&&meta.vals&&!meta.vals.includes(nv)){ edits.push({bad:`「${meta.label}」に許可されない値: ${nv}`,name:c.name}); return; }
+      edits.push({id:c.id,name:c.name,field:e.field,label:CL_LABEL[e.field],oldVal:c[e.field]||'',newVal:nv}); });
     const valid=edits.filter(e=>!e.bad&&e.oldVal!==e.newVal);
     pendingAiEdits=valid;
     let html='<table class="grid"><thead><tr><th>顧問先</th><th>項目</th><th>変更前</th><th></th><th>変更後</th></tr></thead><tbody>';
@@ -1017,8 +1029,10 @@ async function runAiEdit(){
   }catch(e){ hint.textContent=''; toast(e.message,'err'); }
 }
 function applyAiEdit(){ if(!pendingAiEdits||!pendingAiEdits.length){ toast('反映する変更がありません','err'); return; }
-  let n=0; pendingAiEdits.forEach(e=>{ const c=clientById(e.id); if(c){ c[e.field]=e.newVal; n++; } });
-  persist(); refreshAll(); closeModal('aiEditModal'); toast(`${n}件の顧問先情報を変更しました`,'ok'); }
+  let n=0; const toSync=new Set();
+  pendingAiEdits.forEach(e=>{ const c=clientById(e.id); if(c){ c[e.field]=e.newVal; n++; if(e.field==='useShiwake'||e.field==='useSouzoku'||e.field==='useNenmatsu'||e.field==='name'||e.field==='code')toSync.add(c.id); } });
+  persist(); refreshAll(); toSync.forEach(id=>{ const c=clientById(id); if(c)syncClientExternal(c); });
+  closeModal('aiEditModal'); toast(`${n}件の顧問先情報を変更しました`,'ok'); }
 function downloadClientTemplate(){
   const header=CLIENT_COLS.map(c=>c[0]); let aoa=[header];
   if(data.clients.length){
