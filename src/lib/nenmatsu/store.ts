@@ -172,6 +172,7 @@ export interface SubmissionRecord {
   submittedAt: string
   docs: Record<string, number> // docKey -> 枚数
   paths: string[] // Storage 上のファイルパス
+  declaration?: import('./declaration').Declaration // 本人・配偶者・扶養の申告内容
 }
 
 async function storageFns() {
@@ -189,6 +190,7 @@ export async function submitDocsPublic(
   clientId: string,
   emp: NenmatsuEmployee,
   docs: Record<string, Blob[]>,
+  declaration?: import('./declaration').Declaration,
 ): Promise<void> {
   const { st, ref: sref, uploadBytes } = await storageFns()
   const paths: string[] = []
@@ -212,6 +214,7 @@ export async function submitDocsPublic(
     docs: counts,
     paths,
   }
+  if (declaration) rec.declaration = declaration
   await set(
     ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/submissions/${clientId}/${emp.id}`),
     rec,

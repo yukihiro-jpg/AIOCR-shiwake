@@ -11,8 +11,11 @@ import {
 import { normalizeBirth } from '@/lib/nenmatsu/jdl-csv'
 import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
+import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
+import { emptyDeclaration, type Declaration } from '@/lib/nenmatsu/declaration'
+import DeclarationForm from './DeclarationForm'
 
-type Phase = 'loading' | 'error' | 'verify' | 'docs' | 'done'
+type Phase = 'loading' | 'error' | 'select' | 'verify' | 'declare' | 'docs' | 'done'
 interface Params {
   rk: string
   y: string
@@ -31,10 +34,14 @@ export default function NenmatsuUpload() {
   const [bd, setBd] = useState('')
   const [verifyErr, setVerifyErr] = useState('')
   const [me, setMe] = useState<NenmatsuEmployee | null>(null)
+  const [decl, setDecl] = useState<Declaration | null>(null)
+  const [noChange, setNoChange] = useState(false)
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState('')
   const [submitErr, setSubmitErr] = useState('')
+
+  const fyGregorian = useMemo(() => FY_BY_ID[params?.y || '']?.gregorian || new Date().getFullYear(), [params])
 
   useEffect(() => {
     ;(async () => {
@@ -58,7 +65,7 @@ export default function NenmatsuUpload() {
         setParams({ rk, y, c })
         setCompany(res.company)
         setEmployees(res.employees)
-        setPhase('verify')
+        setPhase('select')
       } catch {
         setErrMsg('読み込みに失敗しました。通信環境をご確認のうえ、再度お試しください。')
         setPhase('error')
@@ -67,13 +74,9 @@ export default function NenmatsuUpload() {
   }, [])
 
   const sortedEmployees = useMemo(
-    () =>
-      [...employees].sort((a, b) =>
-        (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja'),
-      ),
+    () => [...employees].sort((a, b) => (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja')),
     [employees],
   )
-
   const years = useMemo(() => {
     const now = new Date().getFullYear()
     const arr: number[] = []
@@ -81,31 +84,50 @@ export default function NenmatsuUpload() {
     return arr
   }, [])
 
+  function startExisting() {
+    setPhase('verify')
+  }
+  function startNewHire() {
+    setMe(null)
+    setDecl(emptyDeclaration(true))
+    setNoChange(false)
+    setPhase('declare')
+  }
+
   function verify() {
     setVerifyErr('')
     const emp = employees.find((e) => e.id === empId)
-    if (!emp) {
-      setVerifyErr('お名前を選択してください。')
-      return
-    }
-    if (!by || !bm || !bd) {
-      setVerifyErr('生年月日を選択してください。')
-      return
-    }
+    if (!emp) return setVerifyErr('お名前を選択してください。')
+    if (!by || !bm || !bd) return setVerifyErr('生年月日を選択してください。')
     const input = `${by}-${String(Number(bm)).padStart(2, '0')}-${String(Number(bd)).padStart(2, '0')}`
     const stored = emp.birth || normalizeBirth(emp.birthRaw)
-    // CSVに生年月日がある人は必ず照合
-    if (stored && stored !== input) {
-      setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
+    if (stored && stored !== input) return setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
+    setMe(emp)
+    // 前年情報（CSVから取れる範囲）をプリセット
+    const d = emptyDeclaration(false)
+    d.lastName = emp.lastName
+    d.firstName = emp.firstName
+    d.kanaLast = emp.kanaLast
+    d.kanaFirst = emp.kanaFirst
+    d.birth = stored || input
+    d.address = emp.address || ''
+    setDecl(d)
+    setNoChange(false)
+    setPhase('declare')
+  }
+
+  function proceedToDocs() {
+    if (!decl) return
+    if (!decl.lastName || !decl.firstName) {
+      alert('氏名を入力してください。')
       return
     }
-    setMe(emp)
+    setDecl({ ...decl, noChange, confirmedAt: new Date().toISOString() })
     setPhase('docs')
   }
 
   function onCapture(docKey: string, list: FileList | null) {
     if (!list || !list.length) return
-    // FileList は input の値クリアで空になるため、ここで即座に配列へコピーする
     const arr = Array.from(list)
     setPhotos((prev) => ({ ...prev, [docKey]: [...(prev[docKey] || []), ...arr] }))
   }
@@ -114,26 +136,32 @@ export default function NenmatsuUpload() {
   }
 
   async function submit() {
-    if (!params || !me) return
+    if (!params || !decl) return
+    // 提出者（既存=me、新入社員=申告から生成）
+    const emp: NenmatsuEmployee =
+      me ||
+      {
+        id: 'n_' + Math.abs(hashCode(decl.lastName + decl.firstName + decl.birth)).toString(36) + '_' + (decl.birth || '').replace(/-/g, ''),
+        code: '',
+        lastName: decl.lastName,
+        firstName: decl.firstName,
+        kanaLast: decl.kanaLast,
+        kanaFirst: decl.kanaFirst,
+        birth: decl.birth,
+        birthRaw: decl.birth,
+        isNewHire: true,
+      }
     const totalFiles = Object.values(photos).reduce((s, a) => s + a.length, 0)
     if (totalFiles === 0) {
       if (!confirm('撮影した書類がありません。「該当する書類なし」として提出しますか？')) return
     }
-    // 二重提出チェック
     try {
-      const existing = await getSubmissionPublic(params.rk, params.y, params.c, me.id)
+      const existing = await getSubmissionPublic(params.rk, params.y, params.c, emp.id)
       if (existing) {
-        if (
-          !confirm(
-            `${me.lastName} ${me.firstName} さんは既に提出済みです（${new Date(
-              existing.submittedAt,
-            ).toLocaleString('ja-JP')}）。\n上書きして提出しますか？`,
-          )
-        )
-          return
+        if (!confirm(`${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n上書きして提出しますか？`)) return
       }
     } catch {
-      /* チェック失敗時はそのまま続行 */
+      /* チェック失敗時は続行 */
     }
 
     setSubmitting(true)
@@ -153,7 +181,7 @@ export default function NenmatsuUpload() {
         docs[key] = blobs
       }
       setProgress('送信しています...')
-      await submitDocsPublic(params.rk, params.y, params.c, me, docs)
+      await submitDocsPublic(params.rk, params.y, params.c, emp, docs, decl)
       setPhase('done')
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
@@ -195,17 +223,24 @@ export default function NenmatsuUpload() {
       </header>
 
       <div className="max-w-md mx-auto p-4">
+        {phase === 'select' && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-5">
+            <h1 className="font-bold text-gray-800 mb-3">あてはまるものを選んでください</h1>
+            <button onClick={startExisting} className="w-full py-3 mb-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
+              在籍中の従業員の方
+            </button>
+            <button onClick={startNewHire} className="w-full py-3 border border-blue-600 text-blue-700 rounded-lg font-semibold hover:bg-blue-50">
+              本年入社の方
+            </button>
+          </div>
+        )}
+
         {phase === 'verify' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
             <h1 className="font-bold text-gray-800 mb-1">ご本人の確認</h1>
             <p className="text-xs text-gray-500 mb-4">お名前と生年月日（必須）で確認します。</p>
-
             <label className="block text-sm font-medium text-gray-700 mb-1">お名前</label>
-            <select
-              value={empId}
-              onChange={(e) => setEmpId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded mb-4"
-            >
+            <select value={empId} onChange={(e) => setEmpId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded mb-4">
               <option value="">選択してください</option>
               {sortedEmployees.map((e) => (
                 <option key={e.id} value={e.id}>
@@ -213,7 +248,6 @@ export default function NenmatsuUpload() {
                 </option>
               ))}
             </select>
-
             <label className="block text-sm font-medium text-gray-700 mb-1">生年月日</label>
             <div className="flex gap-2 mb-2">
               <select value={by} onChange={(e) => setBy(e.target.value)} className="flex-1 px-2 py-2 border border-gray-300 rounded">
@@ -230,42 +264,56 @@ export default function NenmatsuUpload() {
               </select>
               <select value={bd} onChange={(e) => setBd(e.target.value)} className="w-20 px-2 py-2 border border-gray-300 rounded">
                 <option value="">日</option>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                  <option key={d} value={d}>{d}</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((dd) => (
+                  <option key={dd} value={dd}>{dd}</option>
                 ))}
               </select>
             </div>
-
             {verifyErr && <div className="text-sm text-red-600 mb-2">{verifyErr}</div>}
-
-            <button
-              onClick={verify}
-              className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 mt-2"
-            >
+            <button onClick={verify} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 mt-2">
               次へ
             </button>
           </div>
         )}
 
-        {phase === 'docs' && me && (
+        {phase === 'declare' && decl && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
             <h1 className="font-bold text-gray-800 mb-1">
-              {me.lastName} {me.firstName} 様
+              {decl.isNewHire ? '扶養控除等申告書（本年入社）' : '個人情報・扶養親族の確認'}
             </h1>
-            <p className="text-xs text-gray-500 mb-4">
-              該当する書類を撮影してください（複数ページは続けて撮影できます）。
+            <p className="text-xs text-gray-500 mb-3">
+              {decl.isNewHire
+                ? '本人・配偶者・扶養親族の情報を入力してください。'
+                : '前年の情報をもとに表示しています。変更があれば修正してください。'}
             </p>
+            {!decl.isNewHire && (
+              <label className="flex items-center gap-2 text-sm mb-3 bg-blue-50 rounded px-3 py-2">
+                <input type="checkbox" checked={noChange} onChange={(e) => setNoChange(e.target.checked)} />
+                <span>前年と相違ありません</span>
+              </label>
+            )}
+            <DeclarationForm value={decl} onChange={setDecl} fyGregorian={fyGregorian} editableName={decl.isNewHire} />
+            <button onClick={proceedToDocs} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 mt-5">
+              次へ（書類の撮影）
+            </button>
+          </div>
+        )}
+
+        {phase === 'docs' && decl && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-5">
+            <h1 className="font-bold text-gray-800 mb-1">
+              {decl.lastName} {decl.firstName} 様
+            </h1>
+            <p className="text-xs text-gray-500 mb-4">該当する書類を撮影してください（複数ページは続けて撮影できます）。</p>
             <ul className="space-y-3">
-              {NENMATSU_DOC_TYPES.map((d) => {
-                const list = photos[d.key] || []
+              {NENMATSU_DOC_TYPES.map((dt) => {
+                const list = photos[dt.key] || []
                 return (
-                  <li key={d.key} className="border border-gray-200 rounded-lg p-3">
+                  <li key={dt.key} className="border border-gray-200 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-gray-700">
-                        {d.name}
-                        {d.note && (
-                          <span className="text-[11px] text-gray-400 ml-1">（{d.note}）</span>
-                        )}
+                        {dt.name}
+                        {dt.note && <span className="text-[11px] text-gray-400 ml-1">（{dt.note}）</span>}
                       </span>
                       <label className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded cursor-pointer whitespace-nowrap">
                         ＋撮影
@@ -276,7 +324,7 @@ export default function NenmatsuUpload() {
                           multiple
                           className="hidden"
                           onChange={(e) => {
-                            onCapture(d.key, e.target.files)
+                            onCapture(dt.key, e.target.files)
                             e.target.value = ''
                           }}
                         />
@@ -287,15 +335,8 @@ export default function NenmatsuUpload() {
                         {list.map((f, i) => (
                           <div key={i} className="relative">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={URL.createObjectURL(f)}
-                              alt=""
-                              className="w-16 h-16 object-cover rounded border border-gray-200"
-                            />
-                            <button
-                              onClick={() => removePhoto(d.key, i)}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none"
-                            >
+                            <img src={URL.createObjectURL(f)} alt="" className="w-16 h-16 object-cover rounded border border-gray-200" />
+                            <button onClick={() => removePhoto(dt.key, i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none">
                               ×
                             </button>
                           </div>
@@ -313,14 +354,8 @@ export default function NenmatsuUpload() {
       {phase === 'docs' && (
         <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 p-3">
           <div className="max-w-md mx-auto">
-            {submitErr && (
-              <div className="text-xs text-red-600 mb-2 break-words">{submitErr}</div>
-            )}
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-60"
-            >
+            {submitErr && <div className="text-xs text-red-600 mb-2 break-words">{submitErr}</div>}
+            <button onClick={submit} disabled={submitting} className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-60">
               {submitting ? progress || '送信中...' : '送信する'}
             </button>
           </div>
@@ -330,10 +365,12 @@ export default function NenmatsuUpload() {
   )
 }
 
+function hashCode(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
+  return h
+}
+
 function Center({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6 text-gray-500">
-      {children}
-    </div>
-  )
+  return <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6 text-gray-500">{children}</div>
 }

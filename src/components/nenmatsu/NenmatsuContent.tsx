@@ -21,6 +21,8 @@ import {
   type SubmissionRecord,
 } from '@/lib/nenmatsu/store'
 import { decodeShiftJis, parseJdlCsv } from '@/lib/nenmatsu/jdl-csv'
+import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
+import { spouseCategory, dependentCategory, type Declaration } from '@/lib/nenmatsu/declaration'
 
 interface Row {
   client: SharedClient
@@ -448,6 +450,8 @@ function CompanyDetail({
   const [files, setFiles] = useState<{ emp: string; items: { name: string; url: string }[] } | null>(
     null,
   )
+  const [declView, setDeclView] = useState<{ name: string; decl: Declaration } | null>(null)
+  const fyGregorian = FY_BY_ID[yearId]?.gregorian || new Date().getFullYear()
 
   useEffect(() => {
     ;(async () => {
@@ -584,23 +588,35 @@ function CompanyDetail({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {rec && (rec.paths || []).length > 0 && (
-                      <span className="inline-flex gap-1.5">
+                    <span className="inline-flex gap-1.5">
+                      {rec?.declaration && (
                         <button
-                          onClick={() => viewFiles(e)}
+                          onClick={() =>
+                            setDeclView({ name: `${e.lastName} ${e.firstName}`, decl: rec.declaration! })
+                          }
                           className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
                         >
-                          ファイルを見る
+                          申告内容
                         </button>
-                        <button
-                          onClick={() => downloadOne(e, rec)}
-                          disabled={!!zipMsg}
-                          className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          一括DL
-                        </button>
-                      </span>
-                    )}
+                      )}
+                      {rec && (rec.paths || []).length > 0 && (
+                        <>
+                          <button
+                            onClick={() => viewFiles(e)}
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                          >
+                            ファイルを見る
+                          </button>
+                          <button
+                            onClick={() => downloadOne(e, rec)}
+                            disabled={!!zipMsg}
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            一括DL
+                          </button>
+                        </>
+                      )}
+                    </span>
                   </td>
                 </tr>
               )
@@ -643,6 +659,82 @@ function CompanyDetail({
           )}
         </div>
       )}
+
+      {declView && (
+        <div className="mt-4 border-t border-gray-200 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold text-sm text-gray-800">{declView.name} 様 の申告内容</h3>
+            <button onClick={() => setDeclView(null)} className="text-xs text-gray-500">
+              閉じる
+            </button>
+          </div>
+          <DeclarationView decl={declView.decl} fyGregorian={fyGregorian} />
+        </div>
+      )}
     </Overlay>
+  )
+}
+
+function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian: number }) {
+  const Row = ({ k, v }: { k: string; v: string }) => (
+    <div className="flex gap-2 text-[12px] py-0.5">
+      <span className="text-gray-400 w-28 shrink-0">{k}</span>
+      <span className="text-gray-800 break-all">{v || '—'}</span>
+    </div>
+  )
+  return (
+    <div className="text-sm space-y-3">
+      {!decl.isNewHire && decl.noChange && (
+        <div className="text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1">
+          本人が「前年と相違ありません」を選択
+        </div>
+      )}
+      {decl.isNewHire && (
+        <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded px-2 py-1">
+          本年入社（新規申告）
+        </div>
+      )}
+      <div>
+        <div className="font-semibold text-gray-700 mb-1">本人</div>
+        <Row k="氏名" v={`${decl.lastName} ${decl.firstName}`} />
+        <Row k="フリガナ" v={`${decl.kanaLast} ${decl.kanaFirst}`} />
+        <Row k="生年月日" v={decl.birth} />
+        <Row k="住所" v={`〒${decl.postal} ${decl.address}`} />
+        <Row k="世帯主" v={`${decl.householder}（${decl.householderRelation}）`} />
+        <Row k="障害者区分" v={decl.selfDisability} />
+        <Row k="寡婦/ひとり親" v={decl.widow} />
+        <Row k="勤労学生" v={decl.workingStudent ? '該当' : '非該当'} />
+      </div>
+      <div>
+        <div className="font-semibold text-gray-700 mb-1">配偶者</div>
+        {decl.spouse.exists ? (
+          <>
+            <Row k="氏名" v={decl.spouse.name} />
+            <Row k="生年月日" v={decl.spouse.birth} />
+            <Row k="年収" v={decl.spouse.income ? `${Number(decl.spouse.income).toLocaleString('ja-JP')}円` : ''} />
+            <Row k="控除区分" v={spouseCategory(decl.spouse)} />
+          </>
+        ) : (
+          <div className="text-[12px] text-gray-400">なし</div>
+        )}
+      </div>
+      <div>
+        <div className="font-semibold text-gray-700 mb-1">扶養親族（{decl.dependents.length}名）</div>
+        {decl.dependents.length === 0 ? (
+          <div className="text-[12px] text-gray-400">なし</div>
+        ) : (
+          decl.dependents.map((dep, i) => (
+            <div key={i} className="border border-gray-100 rounded p-2 mb-1.5">
+              <Row k="氏名・続柄" v={`${dep.name}（${dep.relation}）`} />
+              <Row k="生年月日" v={dep.birth} />
+              <Row k="年収" v={dep.income ? `${Number(dep.income).toLocaleString('ja-JP')}円` : ''} />
+              <Row k="同居" v={dep.liveTogether ? '同居' : '別居'} />
+              <Row k="障害者区分" v={dep.disability} />
+              <Row k="控除区分" v={dependentCategory(dep, fyGregorian)} />
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   )
 }
