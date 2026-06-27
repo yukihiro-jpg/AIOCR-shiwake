@@ -20,6 +20,7 @@ import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
 import SectionDetail from './SectionDetail'
 import SectionCVP from './SectionCVP'
 import SectionCash from './SectionCash'
+import { openSubmissionPdf } from '@/lib/keiei/submission'
 
 type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash'
 
@@ -280,12 +281,18 @@ export default function KeieiContent() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {sorted.map((y) => (
-                <span key={y.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs border ${y.id === yearId ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-                  {y.label}（{y.lastFilledIndex + 1}ヶ月）
-                  <button onClick={() => deleteYear(y.id)} className="text-gray-400 hover:text-red-600 ml-1">✕</button>
-                </span>
-              ))}
+              <span className="text-xs text-gray-400">取込済み（期ごとに追加・差し替え可）:</span>
+              {sorted.map((y, i) => {
+                const rel = sorted.length - 1 - i
+                const relLabel = rel === 0 ? '当期' : rel === 1 ? '前期' : rel === 2 ? '前々期' : `${rel}期前`
+                return (
+                  <span key={y.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs border ${y.id === yearId ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+                    <span className={`px-1 rounded text-[10px] font-bold ${rel === 0 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-700'}`}>{relLabel}</span>
+                    {y.label}（{y.lastFilledIndex + 1}ヶ月）
+                    <button onClick={() => deleteYear(y.id)} className="text-gray-400 hover:text-red-600 ml-1">✕</button>
+                  </span>
+                )
+              })}
             </div>
             {/* 分析タブ＋印刷 */}
             <div className="flex items-center gap-1 flex-wrap mt-3 pt-3 border-t border-gray-100">
@@ -293,7 +300,11 @@ export default function KeieiContent() {
                 <button key={v} onClick={() => setView(v)}
                   className={`px-3 py-1.5 text-sm rounded-lg ${view === v ? 'bg-blue-600 text-white font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
               ))}
-              <button onClick={handlePrint} className="ml-auto px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">🖨 PDF / 印刷</button>
+              <div className="ml-auto flex items-center gap-1">
+                {fy && <button onClick={() => openSubmissionPdf(current?.name || '', fy, comp, monthIdx)}
+                  className="px-3 py-1.5 text-sm bg-[#1F3A5F] text-white rounded-lg hover:bg-[#16304f] font-medium">🏦 金融機関提出用PDF（詳細）</button>}
+                <button onClick={handlePrint} className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">🖨 画面を印刷</button>
+              </div>
             </div>
           </div>
 
@@ -538,22 +549,24 @@ function KpiCard({ title, value, margin, prior }: { title: string; value: number
   const neg = value < 0
   const yy = prior != null && prior !== 0 ? ((value - prior) / Math.abs(prior)) * 100 : null
   return (
-    <div className={`rounded-lg border p-3 ${neg ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
-      <div className="text-xs text-gray-500 mb-1 truncate">{title}</div>
-      <div className={`text-lg font-bold ${neg ? 'text-red-600' : 'text-gray-800'}`}>{fmtShort(value)}</div>
-      <div className="text-[11px] text-gray-400">{fmtYen(value)}</div>
-      {margin != null && <div className="text-[11px] text-gray-500 mt-0.5">利益率 {fmtPct(margin)}</div>}
-      <div className="mt-1 pt-1 border-t border-gray-200/70 text-[11px] flex items-center gap-1">
-        <span className="text-gray-400">前年同月比</span>
-        {prior == null ? (
-          <span className="text-gray-400">データなし</span>
-        ) : (
-          <>
-            <span className={yy == null ? 'text-gray-400' : yy >= 0 ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{fmtPctSigned(yy)}</span>
-            <span className="text-gray-400 ml-auto">前年 {fmtShort(prior)}</span>
-          </>
+    <div className={`rounded-xl border p-4 ${neg ? 'border-red-200 bg-red-50/70' : 'border-gray-200 bg-white'} shadow-sm`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[13px] font-semibold text-gray-700">{title}</span>
+        {margin != null && (
+          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold whitespace-nowrap">利益率 {fmtPct(margin)}</span>
         )}
       </div>
+      <div className={`text-[26px] leading-none font-extrabold ${neg ? 'text-red-600' : 'text-gray-900'}`}>{fmtShort(value)}</div>
+      <div className="text-xs text-gray-500 mt-1">{fmtYen(value)}</div>
+      <div className="mt-2.5 pt-2 border-t border-gray-200 flex items-center justify-between">
+        <span className="text-[11px] text-gray-500">前年同月比</span>
+        {prior == null ? (
+          <span className="text-[11px] text-gray-400">データなし</span>
+        ) : (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${yy == null ? 'bg-gray-100 text-gray-400' : yy >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{fmtPctSigned(yy)}</span>
+        )}
+      </div>
+      {prior != null && <div className="text-[11px] text-gray-400 mt-1 text-right">前年同月 {fmtShort(prior)}</div>}
     </div>
   )
 }

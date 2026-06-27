@@ -67,9 +67,15 @@ export function ComboBarLine({ labels, bars, barLabel, barColor = '#3b82f6', lin
             points={line.map((v, i) => `${padL + step * i + step / 2},${y(v)}`).join(' ')}
           />
         )}
-        {line && line.map((v, i) => (
-          <circle key={i} cx={padL + step * i + step / 2} cy={y(v)} r={2.5} fill={lineColor} />
-        ))}
+        {line && line.map((v, i) => {
+          const cx = padL + step * i + step / 2
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={y(v)} r={3} fill={lineColor} />
+              <text x={cx} y={v >= 0 ? y(v) - 6 : y(v) + 13} textAnchor="middle" fontSize={9} fontWeight={700} fill={lineColor}>{fmtShort(v)}</text>
+            </g>
+          )
+        })}
       </svg>
     </div>
   )
