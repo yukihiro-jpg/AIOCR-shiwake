@@ -96,6 +96,7 @@ export default function SectionDetail({ fy, prior, monthIdx }: { fy: FiscalYearD
     { label: op >= 0 ? '営業利益' : '営業損失', val: Math.abs(op), color: op >= 0 ? '#10b981' : '#dc2626' },
   ]
   const segTotal = cogs + labor + otherFixed + Math.abs(op) || 1
+  const per = (v: number) => Math.round((v / (sales || 1)) * 100) // 売上100円あたりの円
 
   return (
     <div className="space-y-5">
@@ -112,41 +113,47 @@ export default function SectionDetail({ fy, prior, monthIdx }: { fy: FiscalYearD
       </Section>
 
       {/* コスト構造 */}
-      <Section title="お金の流れ（売上100円の使いみち）" note="売上に占める原価・人件費・その他固定費・利益の割合">
-        <div className="flex w-full h-9 rounded-lg overflow-hidden border border-gray-200 mb-2">
+      <Section title="お金の流れ（売上100円の使いみち）" note={`${fy.label}　期首〜${monthLabel}の累計。売上を100円としたとき、原価・人件費・固定費にいくら使い、利益がいくら残るかを表します`}>
+        <div className="flex w-full rounded-lg overflow-hidden border border-gray-200 mb-3" style={{ height: 78 }}>
           {seg.map((s, i) => {
             const w = (s.val / segTotal) * 100
-            return w < 0.5 ? null : (
-              <div key={i} className="h-full flex items-center justify-center text-[11px] text-white font-bold" style={{ width: `${w}%`, background: s.color }} title={`${s.label} ${fmtShort(s.val)}`}>
-                {w > 8 ? `${Math.round(w)}%` : ''}
+            if (w < 0.6) return null
+            return (
+              <div key={i} className="h-full flex flex-col items-center justify-center text-white text-center px-1 overflow-hidden leading-tight" style={{ width: `${w}%`, background: s.color }} title={`${s.label}：${fmtYen(s.val)}（売上100円あたり ${per(s.val)}円）`}>
+                {w > 12 && <span className="text-[11px] font-semibold truncate max-w-full">{s.label}</span>}
+                {w > 7 && <span className="text-[13px] font-extrabold">{fmtShort(s.val)}</span>}
+                <span className="text-[11px] font-bold">{per(s.val)}円</span>
               </div>
             )
           })}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {seg.map((s, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs">
-              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: s.color }} />
-              <span className="text-gray-600">{s.label}</span>
-              <span className="ml-auto font-bold text-gray-800">{fmtShort(s.val)}</span>
-              <span className="text-gray-400 w-10 text-right">{Math.round((s.val / (sales || 1)) * 100)}%</span>
-            </div>
-          ))}
+        <div className="text-sm text-gray-700 leading-relaxed">
+          売上 <b>100円</b> のうち、<span style={{ color: '#9a7320' }}>原価に <b>{per(cogs)}円</b></span>・<span style={{ color: '#c2554d' }}>人件費に <b>{per(labor)}円</b></span>・<span className="text-slate-500">その他固定費に <b>{per(otherFixed)}円</b></span> を使い、
+          {op >= 0
+            ? <>本業の利益（営業利益）が <b className="text-green-700">{per(op)}円</b> 残ります。</>
+            : <>費用が売上を上回り、本業は <b className="text-red-600">{Math.abs(per(op))}円の赤字（営業損失）</b>になっています。</>}
         </div>
       </Section>
 
-      {/* 経費の前年比 増減 */}
-      <div className="grid md:grid-cols-2 gap-5">
-        <Section title="増えた経費 TOP（前年同期比）" note="コスト削減の着眼点">
-          {prior ? <DiffBars items={increases} positive /> : <Empty />}
-        </Section>
-        <Section title="減った経費 TOP（前年同期比）" note="改善できている費目">
-          {prior ? <DiffBars items={decreases} /> : <Empty />}
-        </Section>
-      </div>
+      {/* 経費の前期同期比 増減 */}
+      <Section title="経費の増減（前期の同じ期間との比較）"
+        note={prior
+          ? `前期 ${prior.label} の「期首〜${monthLabel}まで」と、当期 ${fy.label} の「期首〜${monthLabel}まで」を販管費の科目ごとに比べた増減です`
+          : '前期のデータを取り込むと比較を表示します'}>
+        <div className="grid md:grid-cols-2 gap-x-8 gap-y-3">
+          <div>
+            <div className="text-sm font-bold text-red-600 mb-2">▲ 前期より増えた経費 TOP（コスト見直しの着眼点）</div>
+            {prior ? <DiffBars items={increases} positive /> : <Empty />}
+          </div>
+          <div>
+            <div className="text-sm font-bold text-green-600 mb-2">▼ 前期より減った経費 TOP（改善できている費目）</div>
+            {prior ? <DiffBars items={decreases} /> : <Empty />}
+          </div>
+        </div>
+      </Section>
 
       {/* 販管費ランキング */}
-      <Section title={`販管費 科目別ランキング（期首〜${monthLabel} 累計）`} note="金額の大きい経費と前年比">
+      <Section title="販管費（経費）の大きい順" note={`${fy.label}　期首〜${monthLabel}の累計額が大きい経費の順。「対売上」＝売上に占める割合、「前期比」＝前期同期間からの増減率`}>
         <RankTable items={sgnaRank} sales={sales} hasPrior={!!prior} />
       </Section>
 
@@ -170,11 +177,12 @@ function DiffBars({ items, positive }: { items: { name: string; diff: number; cu
     <div className="space-y-1.5">
       {items.map((x, i) => (
         <div key={i} className="flex items-center gap-2 text-xs">
-          <span className="w-36 shrink-0 truncate text-gray-700" title={x.name}>{x.name}</span>
+          <span className="w-32 shrink-0 truncate text-gray-700" title={x.name}>{x.name}</span>
           <div className="flex-1 bg-gray-100 rounded h-5 overflow-hidden">
             <div className="h-full rounded" style={{ width: `${(Math.abs(x.diff) / max) * 100}%`, background: positive ? '#ef6b6b' : '#10b981' }} />
           </div>
-          <span className={`w-20 text-right font-bold ${positive ? 'text-red-600' : 'text-green-600'}`}>{x.diff >= 0 ? '+' : '−'}{fmtShort(Math.abs(x.diff))}</span>
+          <span className={`w-16 text-right font-bold ${positive ? 'text-red-600' : 'text-green-600'}`}>{x.diff >= 0 ? '+' : '−'}{fmtShort(Math.abs(x.diff))}</span>
+          <span className="w-24 text-right text-[11px] text-gray-400">当期 {fmtShort(x.cur)}</span>
         </div>
       ))}
     </div>

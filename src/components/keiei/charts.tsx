@@ -120,7 +120,7 @@ export function GroupedBars({ groups, seriesLabels, colors = PALETTE }: GroupedP
                 return (
                   <g key={si}>
                     <rect x={x} y={top} width={barW * 0.86} height={h} rx={2} fill={colors[si % colors.length]} />
-                    <text x={x + barW * 0.43} y={v >= 0 ? top - 3 : top + h + 9} textAnchor="middle" fontSize={8} fill="#475569">{fmtShort(v)}</text>
+                    <text x={x + barW * 0.43} y={v >= 0 ? top - 4 : top + h + 10} textAnchor="middle" fontSize={9.5} fontWeight={600} fill="#334155" stroke="#fff" strokeWidth={2.5} paintOrder="stroke">{fmtShort(v)}</text>
                   </g>
                 )
               })}

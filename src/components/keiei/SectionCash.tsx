@@ -63,24 +63,12 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
         </div>
       </Section>
 
-      <Section title={`借入・リース残高の推移（各月末・期首〜${monthLabel}）`} note="残高の減少＝元金の返済が進んでいる目安">
+      <Section title={`借入金・リース債務の残高推移（各月末の残高）`} note={`横軸＝月、棒の高さ＝その月末の残高。棒が右に向かって下がるほど返済が進んでいます（期首〜${monthLabel}）`}>
         <GroupedBars
           groups={monthLabels.map((m, i) => ({ label: m, values: [loanSeries[i], leaseSeries[i]] }))}
-          seriesLabels={['金融機関借入', 'リース債務']}
+          seriesLabels={['金融機関からの借入金', 'リース債務']}
           colors={['#1F3A5F', '#C8A24B']}
         />
-        <div className="overflow-x-auto mt-2">
-          <table className="text-[11px] border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
-            <thead><tr className="text-gray-500">
-              <th className="text-left px-2 py-1"></th>
-              {monthLabels.map((m, i) => <th key={i} className="text-right px-2 py-1 whitespace-nowrap">{m}</th>)}
-            </tr></thead>
-            <tbody>
-              <tr className="border-t border-gray-100"><td className="text-left px-2 py-1 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: '#1F3A5F' }} />金融機関借入</td>{loanSeries.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtShort(v)}</td>)}</tr>
-              <tr className="border-t border-gray-100"><td className="text-left px-2 py-1 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: '#C8A24B' }} />リース債務</td>{leaseSeries.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtShort(v)}</td>)}</tr>
-            </tbody>
-          </table>
-        </div>
       </Section>
 
       {(loans.length > 0 || leases.length > 0) && (
