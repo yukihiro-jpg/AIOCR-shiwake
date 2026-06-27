@@ -31,7 +31,7 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
   const { loans, leases } = debtAccounts(fy)
   const ex = settings.loanExclude || {}
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-  const upto = fy.lastFilledIndex + 1
+  const upto = monthIdx + 1 // 対象月までの推移
   const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
 
   // 借入・リース残高の推移
@@ -63,8 +63,8 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
         </div>
       </Section>
 
-      <Section title="借入・リース残高の推移（当期・各月末）" note="残高の減少＝元金の返済が進んでいる目安">
-        <MultiLine labels={monthLabels} unit="yen" series={[
+      <Section title={`借入・リース残高の推移（各月末・期首〜${monthLabel}）`} note="残高の減少＝元金の返済が進んでいる目安">
+        <MultiLine labels={monthLabels} unit="yen" showTable series={[
           { label: '金融機関借入', values: loanSeries, color: '#1F3A5F' },
           { label: 'リース債務', values: leaseSeries, color: '#C8A24B' },
         ]} />

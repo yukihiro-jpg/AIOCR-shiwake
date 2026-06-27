@@ -32,7 +32,7 @@ function rankItems(fy: FiscalYearData, subtotalCode: string, monthIdx: number, s
 
 export default function SectionDetail({ fy, monthIdx }: { fy: FiscalYearData; monthIdx: number }) {
   const [tab, setTab] = useState<'PL' | 'BS'>('PL')
-  const upto = fy.lastFilledIndex + 1
+  const upto = monthIdx + 1 // 対象月までの推移を表示
   const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
 
@@ -60,8 +60,8 @@ export default function SectionDetail({ fy, monthIdx }: { fy: FiscalYearData; mo
 
   return (
     <div className="space-y-5">
-      <Section title="利益率の推移（当期・月別）" note="売上に対する各利益の割合">
-        <MultiLine labels={monthLabels} unit="pct" series={[
+      <Section title={`利益率の推移（当期・期首〜${monthLabel}）`} note="売上に対する各利益の割合">
+        <MultiLine labels={monthLabels} unit="pct" showTable series={[
           { label: '粗利率', values: gmS, color: '#1F3A5F' },
           { label: '営業利益率', values: omS, color: '#3b82f6' },
           { label: '経常利益率', values: ordS, color: '#C8A24B' },
@@ -77,8 +77,8 @@ export default function SectionDetail({ fy, monthIdx }: { fy: FiscalYearData; mo
         </Section>
       </div>
 
-      <Section title="主要BS科目の推移（当期・各月末残高）">
-        <MultiLine labels={monthLabels} unit="yen" series={[
+      <Section title={`主要BS科目の推移（各月末残高・期首〜${monthLabel}）`}>
+        <MultiLine labels={monthLabels} unit="yen" showTable series={[
           { label: '総資産', values: assetS, color: '#1F3A5F' },
           { label: '純資産', values: netS, color: '#3b82f6' },
           { label: '現預金', values: cashS, color: '#10b981' },

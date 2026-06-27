@@ -132,10 +132,11 @@ interface MultiLineProps {
   labels: string[]
   series: { label: string; values: number[]; color: string }[]
   unit?: 'yen' | 'pct'
+  showTable?: boolean
 }
 
-/** 複数折れ線（利益率の推移／借入残高の推移など） */
-export function MultiLine({ labels, series, unit = 'yen' }: MultiLineProps) {
+/** 複数折れ線（利益率の推移／借入残高の推移など）。showTable で各月の数値表も表示 */
+export function MultiLine({ labels, series, unit = 'yen', showTable }: MultiLineProps) {
   const W = 760, H = 240, padL = 16, padR = 16, padT = 24, padB = 26
   const all = series.flatMap((s) => s.values)
   const { y } = makeScale(all.length ? all : [0], padT, H - padB)
@@ -166,6 +167,28 @@ export function MultiLine({ labels, series, unit = 'yen' }: MultiLineProps) {
           <text key={i} x={padL + step * i} y={y(v) - 5} textAnchor="middle" fontSize={8} fill="#475569">{fmt(v)}</text>
         ))}
       </svg>
+      {showTable && (
+        <div className="overflow-x-auto mt-2">
+          <table className="w-full text-[11px] border-collapse">
+            <thead>
+              <tr className="text-gray-500">
+                <th className="text-left px-2 py-1 sticky left-0 bg-white"></th>
+                {labels.map((l, i) => <th key={i} className="text-right px-2 py-1 whitespace-nowrap">{l}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {series.map((s, si) => (
+                <tr key={si} className="border-t border-gray-100">
+                  <td className="text-left px-2 py-1 whitespace-nowrap sticky left-0 bg-white">
+                    <span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: s.color }} />{s.label}
+                  </td>
+                  {s.values.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmt(v)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

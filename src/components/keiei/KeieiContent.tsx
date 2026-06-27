@@ -11,7 +11,7 @@ import { decodeCsv, parseMonthlyCsv, finalizeFiscalYear } from '@/lib/keiei/pars
 import type { FiscalYearData } from '@/lib/keiei/types'
 import {
   CODES, getRow, plKpisSingle, plKpisYtd, ytd, singleMonth,
-  sortedYears, findPriorYear, yoy,
+  sortedYears, findPriorYear,
 } from '@/lib/keiei/calc'
 import { fmtYen, fmtShort, fmtPct, fmtPctSigned } from '@/lib/keiei/format'
 import { ComboBarLine, GroupedBars } from './charts'
@@ -21,7 +21,7 @@ import SectionDetail from './SectionDetail'
 import SectionCVP from './SectionCVP'
 import SectionCash from './SectionCash'
 
-type View = 'overview' | 'detail' | 'cvp' | 'cash'
+type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -41,6 +41,17 @@ export default function KeieiContent() {
   const [pending, setPending] = useState<{ data: FiscalYearData; fileName: string; year: number }[] | null>(null)
 
   useEffect(() => { setRoomReady(hasRoom()) }, [])
+
+  // Noto Sans JP を読み込む（月次レポート全体に適用）
+  useEffect(() => {
+    const id = 'noto-sans-jp-font'
+    if (typeof document !== 'undefined' && !document.getElementById(id)) {
+      const l = document.createElement('link')
+      l.id = id; l.rel = 'stylesheet'
+      l.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap'
+      document.head.appendChild(l)
+    }
+  }, [])
 
   // 顧問先リスト読み込み
   useEffect(() => {
@@ -153,7 +164,7 @@ export default function KeieiContent() {
   // ---- 合言葉ゲート ----
   if (!roomReady) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
+      <div className="min-h-screen flex flex-col bg-gray-50" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
         <GlobalNav currentKey="keiei" />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="bg-white rounded-xl shadow p-6 w-full max-w-sm">
@@ -170,7 +181,7 @@ export default function KeieiContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
       <GlobalNav currentKey="keiei" />
 
       {/* ヘッダ */}
@@ -278,7 +289,7 @@ export default function KeieiContent() {
             </div>
             {/* 分析タブ＋印刷 */}
             <div className="flex items-center gap-1 flex-wrap mt-3 pt-3 border-t border-gray-100">
-              {([['overview', '概要'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
+              {([['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
                 <button key={v} onClick={() => setView(v)}
                   className={`px-3 py-1.5 text-sm rounded-lg ${view === v ? 'bg-blue-600 text-white font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
               ))}
@@ -291,7 +302,8 @@ export default function KeieiContent() {
               <div className="hidden print:block text-base font-bold text-gray-800">
                 月次レポート ｜ {current?.name} ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月
               </div>
-              {view === 'overview' && <Report fy={fy} prior={prior} comp={comp} monthIdx={monthIdx} />}
+              {view === 'overview' && <Overview fy={fy} prior={prior} monthIdx={monthIdx} />}
+              {view === 'report' && <SectionReport fy={fy} prior={prior} comp={comp} monthIdx={monthIdx} />}
               {view === 'detail' && <SectionDetail fy={fy} monthIdx={monthIdx} />}
               {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
               {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
@@ -348,115 +360,164 @@ export default function KeieiContent() {
   )
 }
 
-// ============ レポート本体 ============
-function Report({ fy, prior, comp, monthIdx }: {
-  fy: FiscalYearData
-  prior: FiscalYearData | null
-  comp: FiscalYearData[]
-  monthIdx: number
+// ============ 概要（単月業績＋推移グラフ） ============
+function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number }) {
+  const single = plKpisSingle(fy, monthIdx)
+  const pSingle = prior ? plKpisSingle(prior, monthIdx) : null
+  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
+  const upto = monthIdx + 1
+  const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
+  const salesSeries = (getRow(fy, CODES.sales)?.monthly || []).slice(0, upto)
+  const opSeries = (getRow(fy, CODES.opProfit)?.monthly || []).slice(0, upto)
+  return (
+    <div className="space-y-5">
+      <Section title={`${fy.label}　${monthLabel}（単月）の業績`} note={prior ? '各カード下段に前年同月比を表示' : '前年のデータを取り込むと前年同月比を表示します'}>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <KpiCard title="売上高" value={single.sales} prior={pSingle?.sales} />
+          <KpiCard title="売上総利益(粗利)" value={single.grossProfit} margin={single.grossMargin} prior={pSingle?.grossProfit} />
+          <KpiCard title="営業利益" value={single.opProfit} margin={single.opMargin} prior={pSingle?.opProfit} />
+          <KpiCard title="経常利益" value={single.ordProfit} margin={single.ordMargin} prior={pSingle?.ordProfit} />
+          <KpiCard title="当期純利益" value={single.netProfit} prior={pSingle?.netProfit} />
+        </div>
+      </Section>
+      <Section title={`損益の推移実績（当期・期首〜${monthLabel}）`}>
+        <ComboBarLine labels={monthLabels} bars={salesSeries} barLabel="売上高（棒）" line={opSeries} lineLabel="営業利益（線）" />
+      </Section>
+    </div>
+  )
+}
+
+// ============ 試算表・3期比較・推移試算表（サブタブ） ============
+function SectionReport({ fy, prior, comp, monthIdx }: {
+  fy: FiscalYearData; prior: FiscalYearData | null; comp: FiscalYearData[]; monthIdx: number
 }) {
+  const [sub, setSub] = useState<'trial' | 'compare' | 'trend'>('trial')
   const single = plKpisSingle(fy, monthIdx)
   const ytdK = plKpisYtd(fy, monthIdx)
-  const pSingle = prior ? plKpisSingle(prior, monthIdx) : null
   const pYtd = prior ? plKpisYtd(prior, monthIdx) : null
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-
-  // 推移グラフ用（単月、入力済み月まで）
-  const upto = fy.lastFilledIndex + 1
+  const upto = monthIdx + 1
   const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
-  const salesRow = getRow(fy, CODES.sales)
-  const opRow = getRow(fy, CODES.opProfit)
-  const salesSeries = salesRow ? salesRow.monthly.slice(0, upto) : []
-  const opSeries = opRow ? opRow.monthly.slice(0, upto) : []
 
-  // 3期比較
   const metrics: { key: keyof typeof CODES; label: string }[] = [
-    { key: 'sales', label: '売上高' },
-    { key: 'grossProfit', label: '売上総利益' },
-    { key: 'opProfit', label: '営業利益' },
-    { key: 'ordProfit', label: '経常利益' },
+    { key: 'sales', label: '売上高' }, { key: 'grossProfit', label: '売上総利益' },
+    { key: 'opProfit', label: '営業利益' }, { key: 'ordProfit', label: '経常利益' },
   ]
   const compLabels = comp.map((y) => y.label)
-  const sameMonthGroups = metrics.map((m) => ({
-    label: m.label,
-    values: comp.map((y) => singleMonth(y, CODES[m.key], monthIdx)),
-  }))
-  const ytdGroups = metrics.map((m) => ({
-    label: m.label,
-    values: comp.map((y) => ytd(y, CODES[m.key], monthIdx)),
-  }))
+  const sameMonthGroups = metrics.map((m) => ({ label: m.label, values: comp.map((y) => singleMonth(y, CODES[m.key], monthIdx)) }))
+  const ytdGroups = metrics.map((m) => ({ label: m.label, values: comp.map((y) => ytd(y, CODES[m.key], monthIdx)) }))
 
-  // BS要約
   const asset = singleMonth(fy, CODES.assetTotal, monthIdx)
   const netAsset = singleMonth(fy, CODES.netAsset, monthIdx)
   const cash = singleMonth(fy, CODES.cash, monthIdx)
   const equityRatio = asset ? (netAsset / asset) * 100 : 0
 
+  // 推移試算表（PL=単月 / BS=月末残高）
+  const plItems: [string, string][] = [
+    ['売上高', CODES.sales], ['売上原価', CODES.cogs], ['売上総利益', CODES.grossProfit],
+    ['販管費', CODES.sgna], ['営業利益', CODES.opProfit], ['経常利益', CODES.ordProfit], ['当期純利益', CODES.netProfit],
+  ]
+  const bsItems: [string, string][] = [
+    ['総資産', CODES.assetTotal], ['流動資産', CODES.currentAsset], ['固定資産', CODES.fixedAsset], ['現預金', CODES.cash],
+    ['流動負債', CODES.currentLiab], ['固定負債', CODES.fixedLiab], ['純資産', CODES.netAsset],
+  ]
+  const plTrend = plItems.map(([label, code]) => ({
+    label, bold: ['売上総利益', '営業利益', '経常利益', '当期純利益'].includes(label),
+    values: monthLabels.map((_, i) => singleMonth(fy, code, i)), cum: ytd(fy, code, monthIdx),
+  }))
+  const bsTrend = bsItems.map(([label, code]) => ({
+    label, bold: ['総資産', '純資産'].includes(label),
+    values: monthLabels.map((_, i) => singleMonth(fy, code, i)), cum: singleMonth(fy, code, monthIdx),
+  }))
+
   return (
-    <div className="space-y-5">
-      {/* A. 単月サマリーカード */}
-      <Section title={`${fy.label}　${monthLabel}（単月）の業績`} note={prior ? `（カッコ内は前年同月比）` : '（前年データがあると前年比を表示します）'}>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KpiCard title="売上高" value={single.sales} yoy={pSingle ? yoy(single.sales, pSingle.sales) : null} />
-          <KpiCard title="売上総利益(粗利)" value={single.grossProfit} margin={single.grossMargin} yoy={pSingle ? yoy(single.grossProfit, pSingle.grossProfit) : null} />
-          <KpiCard title="営業利益" value={single.opProfit} margin={single.opMargin} yoy={pSingle ? yoy(single.opProfit, pSingle.opProfit) : null} />
-          <KpiCard title="経常利益" value={single.ordProfit} margin={single.ordMargin} yoy={pSingle ? yoy(single.ordProfit, pSingle.ordProfit) : null} />
-          <KpiCard title="当期純利益" value={single.netProfit} yoy={pSingle ? yoy(single.netProfit, pSingle.netProfit) : null} />
-        </div>
-      </Section>
-
-      {/* B. 損益推移実績 */}
-      <Section title="損益の推移実績（当期・月別）">
-        <ComboBarLine labels={monthLabels} bars={salesSeries} barLabel="売上高（棒）" line={opSeries} lineLabel="営業利益（線）" />
-      </Section>
-
-      <div className="grid md:grid-cols-2 gap-5">
-        {/* C. 3期同月比較 */}
-        <Section title={`3期 同月比較（${monthLabel} 単月）`}>
-          <GroupedBars groups={sameMonthGroups} seriesLabels={compLabels} />
-        </Section>
-        {/* D. 3期累計比較 */}
-        <Section title={`3期 累計比較（期首〜${monthLabel}）`}>
-          <GroupedBars groups={ytdGroups} seriesLabels={compLabels} />
-        </Section>
+    <div className="space-y-4">
+      <div className="flex gap-1">
+        {([['trial', '試算表'], ['compare', '3期比較'], ['trend', '推移試算表']] as ['trial' | 'compare' | 'trend', string][]).map(([v, l]) => (
+          <button key={v} onClick={() => setSub(v)}
+            className={`px-3 py-1.5 text-sm rounded-lg ${sub === v ? 'bg-slate-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+        ))}
       </div>
 
-      {/* E. かみ砕いた試算表（PL） */}
-      <Section title={`損益のまとめ（${monthLabel}単月 ／ 期首〜${monthLabel}累計）`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-gray-600 text-xs">
-                <th className="text-left px-3 py-2 border-b">科目</th>
-                <th className="text-right px-3 py-2 border-b">当月(単月)</th>
-                <th className="text-right px-3 py-2 border-b">対売上比</th>
-                <th className="text-right px-3 py-2 border-b">累計</th>
-                <th className="text-right px-3 py-2 border-b">前年累計</th>
-                <th className="text-right px-3 py-2 border-b">前年比</th>
-              </tr>
-            </thead>
-            <tbody>
-              <PlRow label="売上高" single={single.sales} ytd={ytdK.sales} sales={ytdK.sales} pYtd={pYtd?.sales} bold />
-              <PlRow label="売上原価" single={single.cogs} ytd={ytdK.cogs} sales={ytdK.sales} pYtd={pYtd?.cogs} />
-              <PlRow label="売上総利益（粗利）" single={single.grossProfit} ytd={ytdK.grossProfit} sales={ytdK.sales} pYtd={pYtd?.grossProfit} bold highlight />
-              <PlRow label="販売費及び一般管理費" single={single.sgna} ytd={ytdK.sgna} sales={ytdK.sales} pYtd={pYtd?.sgna} />
-              <PlRow label="営業利益" single={single.opProfit} ytd={ytdK.opProfit} sales={ytdK.sales} pYtd={pYtd?.opProfit} bold highlight />
-              <PlRow label="経常利益" single={single.ordProfit} ytd={ytdK.ordProfit} sales={ytdK.sales} pYtd={pYtd?.ordProfit} bold highlight />
-              <PlRow label="当期純利益" single={single.netProfit} ytd={ytdK.netProfit} sales={ytdK.sales} pYtd={pYtd?.netProfit} bold />
-            </tbody>
-          </table>
-        </div>
-      </Section>
+      {sub === 'trial' && (
+        <>
+          <Section title={`損益の試算表（${monthLabel}単月 ／ 期首〜${monthLabel}累計）`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead><tr className="bg-gray-50 text-gray-600 text-xs">
+                  <th className="text-left px-3 py-2 border-b">科目</th><th className="text-right px-3 py-2 border-b">当月(単月)</th>
+                  <th className="text-right px-3 py-2 border-b">対売上比</th><th className="text-right px-3 py-2 border-b">累計</th>
+                  <th className="text-right px-3 py-2 border-b">前年累計</th><th className="text-right px-3 py-2 border-b">前年比</th>
+                </tr></thead>
+                <tbody>
+                  <PlRow label="売上高" single={single.sales} ytd={ytdK.sales} sales={ytdK.sales} pYtd={pYtd?.sales} bold />
+                  <PlRow label="売上原価" single={single.cogs} ytd={ytdK.cogs} sales={ytdK.sales} pYtd={pYtd?.cogs} />
+                  <PlRow label="売上総利益（粗利）" single={single.grossProfit} ytd={ytdK.grossProfit} sales={ytdK.sales} pYtd={pYtd?.grossProfit} bold highlight />
+                  <PlRow label="販売費及び一般管理費" single={single.sgna} ytd={ytdK.sgna} sales={ytdK.sales} pYtd={pYtd?.sgna} />
+                  <PlRow label="営業利益" single={single.opProfit} ytd={ytdK.opProfit} sales={ytdK.sales} pYtd={pYtd?.opProfit} bold highlight />
+                  <PlRow label="経常利益" single={single.ordProfit} ytd={ytdK.ordProfit} sales={ytdK.sales} pYtd={pYtd?.ordProfit} bold highlight />
+                  <PlRow label="当期純利益" single={single.netProfit} ytd={ytdK.netProfit} sales={ytdK.sales} pYtd={pYtd?.netProfit} bold />
+                </tbody>
+              </table>
+            </div>
+          </Section>
+          <Section title={`財政状態のまとめ（${monthLabel}末残高）`}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MiniStat label="総資産" value={asset} />
+              <MiniStat label="純資産（自己資本）" value={netAsset} />
+              <MiniStat label="自己資本比率" text={fmtPct(equityRatio)} good={equityRatio >= 30} />
+              <MiniStat label="現金及び預金" value={cash} />
+            </div>
+          </Section>
+        </>
+      )}
 
-      {/* F. BS要約 */}
-      <Section title={`財政状態のまとめ（${monthLabel}末残高）`}>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MiniStat label="総資産" value={asset} />
-          <MiniStat label="純資産（自己資本）" value={netAsset} />
-          <MiniStat label="自己資本比率" text={fmtPct(equityRatio)} good={equityRatio >= 30} />
-          <MiniStat label="現金及び預金" value={cash} />
+      {sub === 'compare' && (
+        <div className="grid md:grid-cols-2 gap-5">
+          <Section title={`3期 同月比較（${monthLabel} 単月）`} note={comp.length < 2 ? '比較対象期がありません' : undefined}>
+            <GroupedBars groups={sameMonthGroups} seriesLabels={compLabels} />
+          </Section>
+          <Section title={`3期 累計比較（期首〜${monthLabel}）`} note={comp.length < 2 ? '比較対象期がありません' : undefined}>
+            <GroupedBars groups={ytdGroups} seriesLabels={compLabels} />
+          </Section>
         </div>
-      </Section>
+      )}
+
+      {sub === 'trend' && (
+        <>
+          <Section title={`推移損益（単月 ／ 期首〜${monthLabel}）`} note="各月の単月発生額と累計">
+            <TrendTable rows={plTrend} monthLabels={monthLabels} cumLabel="累計" />
+          </Section>
+          <Section title={`推移BS（各月末残高 ／ 〜${monthLabel}）`} note="各月末の残高">
+            <TrendTable rows={bsTrend} monthLabels={monthLabels} cumLabel={`${monthLabel}末`} />
+          </Section>
+        </>
+      )}
+    </div>
+  )
+}
+
+function TrendTable({ rows, monthLabels, cumLabel }: { rows: { label: string; values: number[]; cum: number; bold?: boolean }[]; monthLabels: string[]; cumLabel: string }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="bg-gray-50 text-gray-500">
+            <th className="text-left px-2 py-1.5 sticky left-0 bg-gray-50 z-10">科目</th>
+            {monthLabels.map((l, i) => <th key={i} className="text-right px-2 py-1.5 whitespace-nowrap">{l}</th>)}
+            <th className="text-right px-2 py-1.5 whitespace-nowrap bg-blue-50">{cumLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={ri} className={`border-t border-gray-100 ${r.bold ? 'font-bold bg-blue-50/30' : ''}`}>
+              <td className="text-left px-2 py-1 whitespace-nowrap sticky left-0 bg-white">{r.label}</td>
+              {r.values.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtYen(v)}</td>)}
+              <td className="text-right px-2 py-1 tabular-nums bg-blue-50">{fmtYen(r.cum)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -473,16 +534,25 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   )
 }
 
-function KpiCard({ title, value, margin, yoy }: { title: string; value: number; margin?: number; yoy: number | null }) {
+function KpiCard({ title, value, margin, prior }: { title: string; value: number; margin?: number; prior?: number }) {
   const neg = value < 0
+  const yy = prior != null && prior !== 0 ? ((value - prior) / Math.abs(prior)) * 100 : null
   return (
     <div className={`rounded-lg border p-3 ${neg ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
       <div className="text-xs text-gray-500 mb-1 truncate">{title}</div>
       <div className={`text-lg font-bold ${neg ? 'text-red-600' : 'text-gray-800'}`}>{fmtShort(value)}</div>
       <div className="text-[11px] text-gray-400">{fmtYen(value)}</div>
-      <div className="mt-1 flex items-center gap-2 text-xs">
-        {margin != null && <span className="text-gray-500">率 {fmtPct(margin)}</span>}
-        {yoy != null && <span className={yoy >= 0 ? 'text-green-600' : 'text-red-500'}>{fmtPctSigned(yoy)}</span>}
+      {margin != null && <div className="text-[11px] text-gray-500 mt-0.5">利益率 {fmtPct(margin)}</div>}
+      <div className="mt-1 pt-1 border-t border-gray-200/70 text-[11px] flex items-center gap-1">
+        <span className="text-gray-400">前年同月比</span>
+        {prior == null ? (
+          <span className="text-gray-400">データなし</span>
+        ) : (
+          <>
+            <span className={yy == null ? 'text-gray-400' : yy >= 0 ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{fmtPctSigned(yy)}</span>
+            <span className="text-gray-400 ml-auto">前年 {fmtShort(prior)}</span>
+          </>
+        )}
       </div>
     </div>
   )
