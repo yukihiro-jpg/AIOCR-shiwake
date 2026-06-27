@@ -22,7 +22,6 @@ import SectionCVP from './SectionCVP'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
 import SectionFCF from './SectionFCF'
-import { openSubmissionPdf } from '@/lib/keiei/submission'
 
 type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash' | 'fcf'
 
@@ -303,11 +302,7 @@ export default function KeieiContent() {
                 <button key={v} onClick={() => setView(v)}
                   className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
-              <div className="ml-auto flex items-center gap-2">
-                {fy && <button onClick={() => openSubmissionPdf(current?.name || '', fy, comp, monthIdx)}
-                  className="px-4 py-1.5 text-sm bg-[#1F3A5F] text-white rounded-full hover:bg-[#16304f] font-semibold shadow-sm">🏦 金融機関提出用PDF</button>}
-                <button onClick={handlePrint} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷</button>
-              </div>
+              <button onClick={handlePrint} className="ml-auto px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷</button>
             </div>
           </div>
 
@@ -317,7 +312,7 @@ export default function KeieiContent() {
                 月次レポート ｜ {current?.name} ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月
               </div>
               {view === 'overview' && <Overview fy={fy} prior={prior} monthIdx={monthIdx} />}
-              {view === 'report' && <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} />}
+              {view === 'report' && <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />}
               {view === 'detail' && <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />}
               {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
               {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}

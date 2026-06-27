@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { FiscalYearData } from '@/lib/keiei/types'
 import { CODES, ytd, singleMonth } from '@/lib/keiei/calc'
 import { aggregateRows, aggRowValue, type AggRow } from '@/lib/keiei/analysis'
+import { openReportsPdf, REPORT_KEYS, REPORT_LABELS } from '@/lib/keiei/submission'
 
 function fmtN(n: number): string {
   if (!n) return '0'
@@ -65,12 +66,20 @@ function NameTd({ r, even }: { r: AggRow; even: boolean }) {
   )
 }
 
-export default function SectionReport({ fy, comp, monthIdx }: {
-  fy: FiscalYearData; comp: FiscalYearData[]; monthIdx: number
+export default function SectionReport({ fy, comp, monthIdx, company }: {
+  fy: FiscalYearData; comp: FiscalYearData[]; monthIdx: number; company: string
 }) {
   type Tab = 'trialPL' | 'trialBS' | 'cmpPL' | 'cmpBS' | 'trendPL' | 'trendBS'
   const [tab, setTab] = useState<Tab>('trialPL')
   const [cmpMode, setCmpMode] = useState<'single' | 'cum'>('cum')
+  const [showDl, setShowDl] = useState(false)
+  const dlRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (dlRef.current && !dlRef.current.contains(e.target as Node)) setShowDl(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  const dl = (keys: typeof REPORT_KEYS) => { openReportsPdf(company, fy, comp, monthIdx, keys); setShowDl(false) }
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const months = fy.fiscalMonths.slice(0, monthIdx + 1)
 
@@ -88,11 +97,29 @@ export default function SectionReport({ fy, comp, monthIdx }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-5 flex-wrap border-b border-gray-200">
+      <div className="flex items-center gap-5 flex-wrap border-b border-gray-200">
         {tabs.map(([v, l]) => (
           <button key={v} onClick={() => setTab(v)}
             className={`px-1 py-2 text-sm border-b-2 -mb-px transition-colors ${tab === v ? 'border-[#1F3A5F] text-[#1F3A5F] font-bold' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>{l}</button>
         ))}
+        <div ref={dlRef} className="ml-auto relative pb-1">
+          <button onClick={() => setShowDl((v) => !v)}
+            className="px-4 py-1.5 text-sm bg-[#1F3A5F] text-white rounded-full font-semibold hover:bg-[#16304f] shadow-sm">🏦 金融機関提出用PDF ▾</button>
+          {showDl && (
+            <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-2">
+              <button onClick={() => dl(REPORT_KEYS)}
+                className="w-full px-3 py-2 bg-[#1a73e8] text-white rounded-lg text-sm font-bold hover:bg-[#1765cc] mb-2">⬇ すべてダウンロード（1ファイル）</button>
+              <div className="text-[11px] text-gray-400 px-1 mb-1">個別にダウンロード（各1ファイル）</div>
+              {REPORT_KEYS.map((k) => (
+                <button key={k} onClick={() => dl([k])}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 rounded">
+                  <span className="text-gray-700">{REPORT_LABELS[k]}</span>
+                  <span className="text-[#1a73e8] text-xs font-bold">⬇ DL</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {tab === 'trialPL' && (

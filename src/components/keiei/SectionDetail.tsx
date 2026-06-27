@@ -96,7 +96,8 @@ export default function SectionDetail({ fy, prior, monthIdx }: { fy: FiscalYearD
     { label: op >= 0 ? '営業利益' : '営業損失', val: Math.abs(op), color: op >= 0 ? '#10b981' : '#dc2626' },
   ]
   const segTotal = cogs + labor + otherFixed + Math.abs(op) || 1
-  const per = (v: number) => Math.round((v / (sales || 1)) * 100) // 売上100円あたりの円
+  const per = (v: number) => Math.round((v / (sales || 1)) * 1000) / 10 // 売上に対する割合（％）
+  const perStr = (v: number) => `${per(v)}%`
 
   return (
     <div className="space-y-5">
@@ -113,25 +114,25 @@ export default function SectionDetail({ fy, prior, monthIdx }: { fy: FiscalYearD
       </Section>
 
       {/* コスト構造 */}
-      <Section title="お金の流れ（売上100円の使いみち）" note={`${fy.label}　期首〜${monthLabel}の累計。売上を100円としたとき、原価・人件費・固定費にいくら使い、利益がいくら残るかを表します`}>
+      <Section title="お金の流れ（売上に対する割合）" note={`${fy.label}　期首〜${monthLabel}の累計（実績値）。売上高 ${fmtYen(sales)} に対し、原価・人件費・固定費に何％を使い、利益が何％残るかを表します`}>
         <div className="flex w-full rounded-lg overflow-hidden border border-gray-200 mb-3" style={{ height: 78 }}>
           {seg.map((s, i) => {
             const w = (s.val / segTotal) * 100
             if (w < 0.6) return null
             return (
-              <div key={i} className="h-full flex flex-col items-center justify-center text-white text-center px-1 overflow-hidden leading-tight" style={{ width: `${w}%`, background: s.color }} title={`${s.label}：${fmtYen(s.val)}（売上100円あたり ${per(s.val)}円）`}>
+              <div key={i} className="h-full flex flex-col items-center justify-center text-white text-center px-1 overflow-hidden leading-tight" style={{ width: `${w}%`, background: s.color }} title={`${s.label}：${fmtYen(s.val)}（売上の ${perStr(s.val)}）`}>
                 {w > 12 && <span className="text-[11px] font-semibold truncate max-w-full">{s.label}</span>}
                 {w > 7 && <span className="text-[13px] font-extrabold">{fmtShort(s.val)}</span>}
-                <span className="text-[11px] font-bold">{per(s.val)}円</span>
+                <span className="text-[11px] font-bold">{perStr(s.val)}</span>
               </div>
             )
           })}
         </div>
         <div className="text-sm text-gray-700 leading-relaxed">
-          売上 <b>100円</b> のうち、<span style={{ color: '#9a7320' }}>原価に <b>{per(cogs)}円</b></span>・<span style={{ color: '#c2554d' }}>人件費に <b>{per(labor)}円</b></span>・<span className="text-slate-500">その他固定費に <b>{per(otherFixed)}円</b></span> を使い、
+          売上高 <b>{fmtYen(sales)}（100%）</b> のうち、<span style={{ color: '#9a7320' }}>原価に <b>{fmtShort(cogs)}（{perStr(cogs)}）</b></span>・<span style={{ color: '#c2554d' }}>人件費に <b>{fmtShort(labor)}（{perStr(labor)}）</b></span>・<span className="text-slate-500">その他固定費に <b>{fmtShort(otherFixed)}（{perStr(otherFixed)}）</b></span> を使い、
           {op >= 0
-            ? <>本業の利益（営業利益）が <b className="text-green-700">{per(op)}円</b> 残ります。</>
-            : <>費用が売上を上回り、本業は <b className="text-red-600">{Math.abs(per(op))}円の赤字（営業損失）</b>になっています。</>}
+            ? <>本業の利益（営業利益）が <b className="text-green-700">{fmtShort(op)}（{perStr(op)}）</b> 残ります。</>
+            : <>費用が売上を上回り、本業は <b className="text-red-600">{fmtShort(Math.abs(op))}（{perStr(Math.abs(op))}）の赤字（営業損失）</b>になっています。</>}
         </div>
       </Section>
 
