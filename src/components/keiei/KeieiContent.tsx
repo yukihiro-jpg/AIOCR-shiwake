@@ -20,6 +20,7 @@ import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
 import SectionDetail from './SectionDetail'
 import SectionCVP from './SectionCVP'
 import SectionCash from './SectionCash'
+import SectionReport from './SectionReport'
 import { openSubmissionPdf } from '@/lib/keiei/submission'
 
 type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash'
@@ -314,7 +315,7 @@ export default function KeieiContent() {
                 月次レポート ｜ {current?.name} ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月
               </div>
               {view === 'overview' && <Overview fy={fy} prior={prior} monthIdx={monthIdx} />}
-              {view === 'report' && <SectionReport fy={fy} prior={prior} comp={comp} monthIdx={monthIdx} />}
+              {view === 'report' && <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} />}
               {view === 'detail' && <SectionDetail fy={fy} monthIdx={monthIdx} />}
               {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
               {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
@@ -398,141 +399,6 @@ function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYe
   )
 }
 
-// ============ 試算表・3期比較・推移試算表（サブタブ） ============
-function SectionReport({ fy, prior, comp, monthIdx }: {
-  fy: FiscalYearData; prior: FiscalYearData | null; comp: FiscalYearData[]; monthIdx: number
-}) {
-  const [sub, setSub] = useState<'trial' | 'compare' | 'trend'>('trial')
-  const single = plKpisSingle(fy, monthIdx)
-  const ytdK = plKpisYtd(fy, monthIdx)
-  const pYtd = prior ? plKpisYtd(prior, monthIdx) : null
-  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-  const upto = monthIdx + 1
-  const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
-
-  const metrics: { key: keyof typeof CODES; label: string }[] = [
-    { key: 'sales', label: '売上高' }, { key: 'grossProfit', label: '売上総利益' },
-    { key: 'opProfit', label: '営業利益' }, { key: 'ordProfit', label: '経常利益' },
-  ]
-  const compLabels = comp.map((y) => y.label)
-  const sameMonthGroups = metrics.map((m) => ({ label: m.label, values: comp.map((y) => singleMonth(y, CODES[m.key], monthIdx)) }))
-  const ytdGroups = metrics.map((m) => ({ label: m.label, values: comp.map((y) => ytd(y, CODES[m.key], monthIdx)) }))
-
-  const asset = singleMonth(fy, CODES.assetTotal, monthIdx)
-  const netAsset = singleMonth(fy, CODES.netAsset, monthIdx)
-  const cash = singleMonth(fy, CODES.cash, monthIdx)
-  const equityRatio = asset ? (netAsset / asset) * 100 : 0
-
-  // 推移試算表（PL=単月 / BS=月末残高）
-  const plItems: [string, string][] = [
-    ['売上高', CODES.sales], ['売上原価', CODES.cogs], ['売上総利益', CODES.grossProfit],
-    ['販管費', CODES.sgna], ['営業利益', CODES.opProfit], ['経常利益', CODES.ordProfit], ['当期純利益', CODES.netProfit],
-  ]
-  const bsItems: [string, string][] = [
-    ['総資産', CODES.assetTotal], ['流動資産', CODES.currentAsset], ['固定資産', CODES.fixedAsset], ['現預金', CODES.cash],
-    ['流動負債', CODES.currentLiab], ['固定負債', CODES.fixedLiab], ['純資産', CODES.netAsset],
-  ]
-  const plTrend = plItems.map(([label, code]) => ({
-    label, bold: ['売上総利益', '営業利益', '経常利益', '当期純利益'].includes(label),
-    values: monthLabels.map((_, i) => singleMonth(fy, code, i)), cum: ytd(fy, code, monthIdx),
-  }))
-  const bsTrend = bsItems.map(([label, code]) => ({
-    label, bold: ['総資産', '純資産'].includes(label),
-    values: monthLabels.map((_, i) => singleMonth(fy, code, i)), cum: singleMonth(fy, code, monthIdx),
-  }))
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-1">
-        {([['trial', '試算表'], ['compare', '3期比較'], ['trend', '推移試算表']] as ['trial' | 'compare' | 'trend', string][]).map(([v, l]) => (
-          <button key={v} onClick={() => setSub(v)}
-            className={`px-3 py-1.5 text-sm rounded-lg ${sub === v ? 'bg-slate-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
-        ))}
-      </div>
-
-      {sub === 'trial' && (
-        <>
-          <Section title={`損益の試算表（${monthLabel}単月 ／ 期首〜${monthLabel}累計）`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead><tr className="bg-gray-50 text-gray-600 text-xs">
-                  <th className="text-left px-3 py-2 border-b">科目</th><th className="text-right px-3 py-2 border-b">当月(単月)</th>
-                  <th className="text-right px-3 py-2 border-b">対売上比</th><th className="text-right px-3 py-2 border-b">累計</th>
-                  <th className="text-right px-3 py-2 border-b">前年累計</th><th className="text-right px-3 py-2 border-b">前年比</th>
-                </tr></thead>
-                <tbody>
-                  <PlRow label="売上高" single={single.sales} ytd={ytdK.sales} sales={ytdK.sales} pYtd={pYtd?.sales} bold />
-                  <PlRow label="売上原価" single={single.cogs} ytd={ytdK.cogs} sales={ytdK.sales} pYtd={pYtd?.cogs} />
-                  <PlRow label="売上総利益（粗利）" single={single.grossProfit} ytd={ytdK.grossProfit} sales={ytdK.sales} pYtd={pYtd?.grossProfit} bold highlight />
-                  <PlRow label="販売費及び一般管理費" single={single.sgna} ytd={ytdK.sgna} sales={ytdK.sales} pYtd={pYtd?.sgna} />
-                  <PlRow label="営業利益" single={single.opProfit} ytd={ytdK.opProfit} sales={ytdK.sales} pYtd={pYtd?.opProfit} bold highlight />
-                  <PlRow label="経常利益" single={single.ordProfit} ytd={ytdK.ordProfit} sales={ytdK.sales} pYtd={pYtd?.ordProfit} bold highlight />
-                  <PlRow label="当期純利益" single={single.netProfit} ytd={ytdK.netProfit} sales={ytdK.sales} pYtd={pYtd?.netProfit} bold />
-                </tbody>
-              </table>
-            </div>
-          </Section>
-          <Section title={`財政状態のまとめ（${monthLabel}末残高）`}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <MiniStat label="総資産" value={asset} />
-              <MiniStat label="純資産（自己資本）" value={netAsset} />
-              <MiniStat label="自己資本比率" text={fmtPct(equityRatio)} good={equityRatio >= 30} />
-              <MiniStat label="現金及び預金" value={cash} />
-            </div>
-          </Section>
-        </>
-      )}
-
-      {sub === 'compare' && (
-        <div className="grid md:grid-cols-2 gap-5">
-          <Section title={`3期 同月比較（${monthLabel} 単月）`} note={comp.length < 2 ? '比較対象期がありません' : undefined}>
-            <GroupedBars groups={sameMonthGroups} seriesLabels={compLabels} />
-          </Section>
-          <Section title={`3期 累計比較（期首〜${monthLabel}）`} note={comp.length < 2 ? '比較対象期がありません' : undefined}>
-            <GroupedBars groups={ytdGroups} seriesLabels={compLabels} />
-          </Section>
-        </div>
-      )}
-
-      {sub === 'trend' && (
-        <>
-          <Section title={`推移損益（単月 ／ 期首〜${monthLabel}）`} note="各月の単月発生額と累計">
-            <TrendTable rows={plTrend} monthLabels={monthLabels} cumLabel="累計" />
-          </Section>
-          <Section title={`推移BS（各月末残高 ／ 〜${monthLabel}）`} note="各月末の残高">
-            <TrendTable rows={bsTrend} monthLabels={monthLabels} cumLabel={`${monthLabel}末`} />
-          </Section>
-        </>
-      )}
-    </div>
-  )
-}
-
-function TrendTable({ rows, monthLabels, cumLabel }: { rows: { label: string; values: number[]; cum: number; bold?: boolean }[]; monthLabels: string[]; cumLabel: string }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-gray-50 text-gray-500">
-            <th className="text-left px-2 py-1.5 sticky left-0 bg-gray-50 z-10">科目</th>
-            {monthLabels.map((l, i) => <th key={i} className="text-right px-2 py-1.5 whitespace-nowrap">{l}</th>)}
-            <th className="text-right px-2 py-1.5 whitespace-nowrap bg-blue-50">{cumLabel}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, ri) => (
-            <tr key={ri} className={`border-t border-gray-100 ${r.bold ? 'font-bold bg-blue-50/30' : ''}`}>
-              <td className="text-left px-2 py-1 whitespace-nowrap sticky left-0 bg-white">{r.label}</td>
-              {r.values.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtYen(v)}</td>)}
-              <td className="text-right px-2 py-1 tabular-nums bg-blue-50">{fmtYen(r.cum)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -571,31 +437,3 @@ function KpiCard({ title, value, margin, prior }: { title: string; value: number
   )
 }
 
-function PlRow({ label, single, ytd, sales, pYtd, bold, highlight }: {
-  label: string; single: number; ytd: number; sales: number; pYtd?: number; bold?: boolean; highlight?: boolean
-}) {
-  const ratio = sales ? (ytd / sales) * 100 : 0
-  const yy = pYtd != null && pYtd !== 0 ? ((ytd - pYtd) / Math.abs(pYtd)) * 100 : null
-  return (
-    <tr className={`${highlight ? 'bg-blue-50/40' : ''} border-b border-gray-100`}>
-      <td className={`px-3 py-1.5 ${bold ? 'font-bold text-gray-800' : 'text-gray-700'}`}>{label}</td>
-      <td className="px-3 py-1.5 text-right tabular-nums">{fmtYen(single)}</td>
-      <td className="px-3 py-1.5 text-right text-gray-500">{fmtPct(ratio)}</td>
-      <td className={`px-3 py-1.5 text-right tabular-nums ${bold ? 'font-bold' : ''}`}>{fmtYen(ytd)}</td>
-      <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{pYtd != null ? fmtYen(pYtd) : '—'}</td>
-      <td className={`px-3 py-1.5 text-right ${yy == null ? 'text-gray-400' : yy >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmtPctSigned(yy)}</td>
-    </tr>
-  )
-}
-
-function MiniStat({ label, value, text, good }: { label: string; value?: number; text?: string; good?: boolean }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-      <div className="text-xs text-gray-500 mb-1">{label}</div>
-      <div className={`text-base font-bold ${good == null ? 'text-gray-800' : good ? 'text-green-600' : 'text-amber-600'}`}>
-        {text != null ? text : fmtShort(value || 0)}
-      </div>
-      {text == null && <div className="text-[11px] text-gray-400">{fmtYen(value || 0)}</div>}
-    </div>
-  )
-}

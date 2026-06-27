@@ -1,5 +1,6 @@
 import type { FiscalYearData } from './types'
 import { CODES, singleMonth, ytd } from './calc'
+import { aggregateRows } from './analysis'
 
 // 会計報告らしい表記: 負数は △、3桁区切り
 function fmtAcct(n: number): string {
@@ -17,7 +18,8 @@ export function buildSubmissionHtml(company: string, fy: FiscalYearData, comp: F
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const monthHdr = months.map((m) => `<th class="num">${m}月</th>`).join('')
 
-  const rowsHtml = (statement: 'PL' | 'BS') => fy.rows.filter((r) => r.statement === statement).map((r) => {
+  const agg = aggregateRows(fy) // 補助科目を畳んで科目単位に
+  const rowsHtml = (statement: 'PL' | 'BS') => agg.filter((r) => r.statement === statement).map((r) => {
     const cells = months.map((_, i) => `<td class="num">${fmtAcct(r.monthly[i] ?? 0)}</td>`).join('')
     // PL=累計（単月の合算） / BS=対象月末残高
     let cum = 0
