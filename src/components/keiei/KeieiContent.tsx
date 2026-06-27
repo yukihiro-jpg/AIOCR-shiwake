@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
-  loadSharedClients, type SharedClient,
+  loadKeieiClients, type KeieiClient,
   loadYears, saveYears, getSelectedClientId, setSelectedClientId,
 } from '@/lib/keiei/store'
 import { decodeCsv, parseMonthlyCsv, finalizeFiscalYear } from '@/lib/keiei/parse'
@@ -19,7 +19,7 @@ import { ComboBarLine, GroupedBars } from './charts'
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
   const [passInput, setPassInput] = useState('')
-  const [clients, setClients] = useState<SharedClient[]>([])
+  const [clients, setClients] = useState<KeieiClient[]>([])
   const [clientId, setClientId] = useState('')
   const [years, setYears] = useState<Record<string, FiscalYearData>>({})
   const [yearId, setYearId] = useState('')
@@ -37,7 +37,7 @@ export default function KeieiContent() {
   // 顧問先リスト読み込み
   useEffect(() => {
     if (!roomReady) return
-    loadSharedClients().then((cs) => {
+    loadKeieiClients().then((cs) => {
       setClients(cs)
       const saved = getSelectedClientId()
       if (saved && cs.some((c) => c.id === saved)) setClientId(saved)
@@ -159,7 +159,13 @@ export default function KeieiContent() {
       {msg && <div className="px-5 py-2 bg-green-50 text-green-700 text-sm border-b border-green-100">{msg}</div>}
       {err && <div className="px-5 py-2 bg-red-50 text-red-700 text-sm border-b border-red-100">{err}</div>}
 
-      {!clientId ? (
+      {clients.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-1">
+          <div className="text-4xl opacity-30">📈</div>
+          表示できる顧問先がありません。
+          <div className="text-xs text-gray-400">顧問先情報の「アプリ利用 ＞ 月次レポート」を<b>利用</b>に設定してください。</div>
+        </div>
+      ) : !clientId ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">顧問先を選択してください</div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">読み込み中…</div>

@@ -1,10 +1,12 @@
 import { getDb } from '@/core/firebase'
 import { modulePath, hasRoom } from '@/core/room'
-import { loadSharedClients } from '@/lib/nenmatsu/store'
 import type { ClientKeieiData, FiscalYearData } from './types'
 
-export type { SharedClient } from '@/lib/nenmatsu/store'
-export { loadSharedClients }
+export interface KeieiClient {
+  id: string
+  name: string
+  code?: string
+}
 
 const MODULE_KEY = 'keiei'
 const lsKey = (cid: string) => `keiei-years-${cid}`
@@ -13,6 +15,22 @@ async function dbfns() {
   const db = await getDb()
   const m = await import('firebase/database')
   return { db, ...m }
+}
+
+/** 顧問先情報で「月次レポート＝利用」にした顧問先のみを読み込む（komonが連携書き込み） */
+export async function loadKeieiClients(): Promise<KeieiClient[]> {
+  if (!hasRoom()) return []
+  try {
+    const { db, ref, get } = await dbfns()
+    const snap = await get(ref(db, await modulePath(MODULE_KEY, '_clients')))
+    const val = snap.val() || {}
+    return Object.values(val)
+      .map((c: unknown) => c as KeieiClient)
+      .filter((c) => c && c.id && c.name)
+      .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'ja', { numeric: true }))
+  } catch {
+    return []
+  }
 }
 
 export function loadYearsLocal(cid: string): Record<string, FiscalYearData> {
