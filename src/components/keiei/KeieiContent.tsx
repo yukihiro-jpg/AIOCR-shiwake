@@ -166,7 +166,7 @@ export default function KeieiContent() {
   // ---- 合言葉ゲート ----
   if (!roomReady) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
+      <div className="min-h-screen flex flex-col bg-[#f6f8fc]" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
         <GlobalNav currentKey="keiei" />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="bg-white rounded-xl shadow p-6 w-full max-w-sm">
@@ -183,19 +183,20 @@ export default function KeieiContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
+    <div className="min-h-screen flex flex-col bg-[#f6f8fc]" style={{ fontFamily: "'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif" }}>
       <GlobalNav currentKey="keiei" />
 
-      {/* ヘッダ */}
-      <div className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-gray-800">📈 月次レポート</h1>
+      {/* ヘッダ（④ Apple×Google調） */}
+      <div className="bg-white shadow-[0_1px_2px_rgba(60,64,67,0.1)] px-6 py-3 flex items-center gap-3 flex-wrap">
+        <div className="w-9 h-9 rounded-[12px] bg-gradient-to-br from-[#1a73e8] to-[#0071e3] flex items-center justify-center text-lg shrink-0">📈</div>
+        <h1 className="text-[19px] font-bold text-gray-800 tracking-tight">月次レポート</h1>
         {clientId && (
           <>
             <button onClick={() => setClientId('')}
-              className="px-2.5 py-1.5 text-sm text-blue-700 border border-blue-200 rounded hover:bg-blue-50">← 一覧へ戻る</button>
-            <span className="text-sm font-bold text-gray-800">{current ? `${current.code ? current.code + ' ' : ''}${current.name}` : ''}</span>
-            <label className="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 cursor-pointer">
-              ＋ 月次推移CSVを取込（複数選択OK）
+              className="px-3 py-1.5 text-sm text-[#1a73e8] rounded-full hover:bg-[#e8f0fe]">← 一覧へ戻る</button>
+            <span className="text-sm font-bold text-gray-700">{current ? `${current.code ? current.code + ' ' : ''}${current.name}` : ''}</span>
+            <label className="ml-auto px-4 py-2 bg-[#1a73e8] text-white rounded-full text-sm font-semibold hover:bg-[#1765cc] cursor-pointer shadow-sm">
+              ＋ CSVを取込
               <input type="file" accept=".csv" multiple className="hidden"
                 onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
             </label>
@@ -262,7 +263,7 @@ export default function KeieiContent() {
       ) : (
         <div className="flex-1 overflow-auto p-5 space-y-5">
           {/* 期・月の選択＋取込済み一覧 */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-4">
             <div className="flex items-center gap-3 flex-wrap mb-3">
               <span className="text-xs text-gray-500">対象期</span>
               <select value={yearId} onChange={(e) => { setYearId(e.target.value); const y = years[e.target.value]; if (y) setMonthIdx(y.lastFilledIndex) }}
@@ -295,16 +296,16 @@ export default function KeieiContent() {
                 )
               })}
             </div>
-            {/* 分析タブ＋印刷 */}
-            <div className="flex items-center gap-1 flex-wrap mt-3 pt-3 border-t border-gray-100">
+            {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
               {([['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
                 <button key={v} onClick={() => setView(v)}
-                  className={`px-3 py-1.5 text-sm rounded-lg ${view === v ? 'bg-blue-600 text-white font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+                  className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
-              <div className="ml-auto flex items-center gap-1">
+              <div className="ml-auto flex items-center gap-2">
                 {fy && <button onClick={() => openSubmissionPdf(current?.name || '', fy, comp, monthIdx)}
-                  className="px-3 py-1.5 text-sm bg-[#1F3A5F] text-white rounded-lg hover:bg-[#16304f] font-medium">🏦 金融機関提出用PDF（詳細）</button>}
-                <button onClick={handlePrint} className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">🖨 画面を印刷</button>
+                  className="px-4 py-1.5 text-sm bg-[#1F3A5F] text-white rounded-full hover:bg-[#16304f] font-semibold shadow-sm">🏦 金融機関提出用PDF</button>}
+                <button onClick={handlePrint} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷</button>
               </div>
             </div>
           </div>
@@ -401,9 +402,9 @@ function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYe
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-5">
       <div className="flex items-baseline gap-2 mb-3">
-        <h2 className="text-sm font-bold text-gray-800">{title}</h2>
+        <h2 className="text-[15px] font-bold text-gray-800">{title}</h2>
         {note && <span className="text-xs text-gray-400">{note}</span>}
       </div>
       {children}

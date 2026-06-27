@@ -10,7 +10,7 @@ import { fmtYen, fmtShort, fmtPct } from '@/lib/keiei/format'
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-5">
       <div className="flex items-baseline gap-2 mb-3">
         <h2 className="text-sm font-bold text-gray-800">{title}</h2>
         {note && <span className="text-xs text-gray-400">{note}</span>}

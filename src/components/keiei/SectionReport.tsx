@@ -87,10 +87,10 @@ export default function SectionReport({ fy, comp, monthIdx }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-5 flex-wrap border-b border-gray-200">
         {tabs.map(([v, l]) => (
           <button key={v} onClick={() => setTab(v)}
-            className={`px-3 py-1.5 text-sm rounded-lg ${tab === v ? 'bg-slate-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+            className={`px-1 py-2 text-sm border-b-2 -mb-px transition-colors ${tab === v ? 'border-[#1F3A5F] text-[#1F3A5F] font-bold' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>{l}</button>
         ))}
       </div>
 
