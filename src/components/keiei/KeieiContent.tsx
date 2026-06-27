@@ -316,7 +316,7 @@ export default function KeieiContent() {
               </div>
               {view === 'overview' && <Overview fy={fy} prior={prior} monthIdx={monthIdx} />}
               {view === 'report' && <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} />}
-              {view === 'detail' && <SectionDetail fy={fy} monthIdx={monthIdx} />}
+              {view === 'detail' && <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />}
               {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
               {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
             </div>

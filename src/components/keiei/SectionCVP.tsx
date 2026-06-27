@@ -140,32 +140,30 @@ export default function SectionCVP({ fy, monthIdx, settings, onSettingsChange, y
 
 function Stat({ label, value, sub, text, accent, good }: { label: string; value?: number; sub?: string; text?: string; accent?: boolean; good?: boolean }) {
   return (
-    <div className={`rounded-lg border p-3 ${accent ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
-      <div className="text-xs text-gray-500 mb-1 truncate">{label}</div>
-      <div className={`text-base font-bold ${good == null ? 'text-gray-800' : good ? 'text-green-600' : 'text-red-600'}`}>{text != null ? text : fmtShort(value || 0)}</div>
-      {sub && <div className="text-[11px] text-gray-500 mt-0.5">{sub}</div>}
+    <div className={`rounded-xl border p-4 shadow-sm ${accent ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+      <div className="text-[13px] font-semibold text-gray-600 mb-1.5">{label}</div>
+      <div className={`text-[22px] leading-none font-extrabold ${good == null ? (accent ? 'text-amber-700' : 'text-gray-900') : good ? 'text-green-600' : 'text-red-600'}`}>{text != null ? text : fmtShort(value || 0)}</div>
+      {sub && <div className="text-[11px] text-gray-500 mt-1.5">{sub}</div>}
     </div>
   )
 }
 
 function BepBar({ sales, bep }: { sales: number; bep: number }) {
   const max = Math.max(sales, bep, 1)
+  const Row = ({ label, val, color }: { label: string; val: number; color: string }) => (
+    <div className="flex items-center gap-3 text-sm">
+      <div className="w-28 shrink-0 text-gray-700 font-medium">{label}</div>
+      <div className="flex-1 bg-gray-100 rounded-md h-8 relative overflow-hidden">
+        <div className="h-full rounded-md flex items-center justify-end pr-2" style={{ width: `${(val / max) * 100}%`, background: color }}>
+          <span className="text-white text-xs font-bold whitespace-nowrap">{fmtShort(val)}</span>
+        </div>
+      </div>
+    </div>
+  )
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-xs">
-        <div className="w-28 shrink-0 text-gray-600">現状の売上</div>
-        <div className="flex-1 bg-gray-100 rounded h-6 relative overflow-hidden">
-          <div className="h-full bg-blue-500 rounded" style={{ width: `${(sales / max) * 100}%` }} />
-        </div>
-        <div className="w-24 text-right tabular-nums">{fmtShort(sales)}</div>
-      </div>
-      <div className="flex items-center gap-2 text-xs">
-        <div className="w-28 shrink-0 text-gray-600">損益分岐点売上</div>
-        <div className="flex-1 bg-gray-100 rounded h-6 relative overflow-hidden">
-          <div className="h-full bg-amber-500 rounded" style={{ width: `${(bep / max) * 100}%` }} />
-        </div>
-        <div className="w-24 text-right tabular-nums">{fmtShort(bep)}</div>
-      </div>
+    <div className="space-y-2.5">
+      <Row label="現状の売上" val={sales} color="#3b82f6" />
+      <Row label="損益分岐点売上" val={bep} color="#e0a91b" />
     </div>
   )
 }
