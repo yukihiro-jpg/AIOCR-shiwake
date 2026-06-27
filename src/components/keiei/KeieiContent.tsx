@@ -5,7 +5,7 @@ import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
   loadKeieiClients, type KeieiClient,
-  loadYears, saveYears, getSelectedClientId, setSelectedClientId,
+  loadYears, saveYears, setSelectedClientId,
 } from '@/lib/keiei/store'
 import { decodeCsv, parseMonthlyCsv, finalizeFiscalYear } from '@/lib/keiei/parse'
 import type { FiscalYearData } from '@/lib/keiei/types'
@@ -37,11 +37,8 @@ export default function KeieiContent() {
   // 顧問先リスト読み込み
   useEffect(() => {
     if (!roomReady) return
-    loadKeieiClients().then((cs) => {
-      setClients(cs)
-      const saved = getSelectedClientId()
-      if (saved && cs.some((c) => c.id === saved)) setClientId(saved)
-    }).catch(() => setClients([]))
+    // 年調データ受信と同様、利用顧問先を最初から一覧表示する（自動選択はしない）
+    loadKeieiClients().then((cs) => setClients(cs)).catch(() => setClients([]))
   }, [roomReady])
 
   // 顧問先の年度データ読み込み
@@ -58,6 +55,7 @@ export default function KeieiContent() {
     }).finally(() => setLoading(false))
   }, [clientId])
 
+  const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
   const sorted = useMemo(() => sortedYears(years), [years])
@@ -140,19 +138,19 @@ export default function KeieiContent() {
       <GlobalNav currentKey="keiei" />
 
       {/* ヘッダ */}
-      <div className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-4 flex-wrap">
+      <div className="bg-white border-b border-gray-200 px-5 py-3 flex items-center gap-3 flex-wrap">
         <h1 className="text-lg font-bold text-gray-800">📈 月次レポート</h1>
-        <select value={clientId} onChange={(e) => setClientId(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded text-sm min-w-[220px]">
-          <option value="">顧問先を選択…</option>
-          {clients.map((c) => <option key={c.id} value={c.id}>{c.code ? `${c.code} ` : ''}{c.name}</option>)}
-        </select>
         {clientId && (
-          <label className="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 cursor-pointer">
-            ＋ 月次推移CSVを取込
-            <input type="file" accept=".csv" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
-          </label>
+          <>
+            <button onClick={() => setClientId('')}
+              className="px-2.5 py-1.5 text-sm text-blue-700 border border-blue-200 rounded hover:bg-blue-50">← 一覧へ戻る</button>
+            <span className="text-sm font-bold text-gray-800">{current ? `${current.code ? current.code + ' ' : ''}${current.name}` : ''}</span>
+            <label className="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 cursor-pointer">
+              ＋ 月次推移CSVを取込
+              <input type="file" accept=".csv" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+            </label>
+          </>
         )}
       </div>
 
@@ -166,7 +164,34 @@ export default function KeieiContent() {
           <div className="text-xs text-gray-400">顧問先情報の「アプリ利用 ＞ 月次レポート」を<b>利用</b>に設定してください。</div>
         </div>
       ) : !clientId ? (
-        <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">顧問先を選択してください</div>
+        <div className="flex-1 overflow-auto p-5">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs text-gray-500">
+              「顧問先情報登録」の「アプリ利用」で<b>月次レポート＝利用</b>にした顧問先です（コード順）。会社を選ぶと月次レポートを表示します。
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-2 w-24">コード</th>
+                  <th className="text-left px-4 py-2">会社名</th>
+                  <th className="text-right px-4 py-2 w-28">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((c) => (
+                  <tr key={c.id} className="border-b border-gray-100 hover:bg-sky-50 cursor-pointer" onClick={() => setClientId(c.id)}>
+                    <td className="px-4 py-2.5 text-gray-600">{c.code || ''}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">{c.name}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button onClick={(e) => { e.stopPropagation(); setClientId(c.id) }}
+                        className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700">開く</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">読み込み中…</div>
       ) : sorted.length === 0 ? (
