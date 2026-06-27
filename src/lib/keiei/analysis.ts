@@ -1,0 +1,242 @@
+import type { AccountRow, FiscalYearData, Statement } from './types'
+import { CODES, getRow, ytd, singleMonth, sortedYears, findPriorYear } from './calc'
+import { effectiveTaxRate } from './tax'
+
+export interface SubGroup { subtotal: AccountRow; details: AccountRow[] }
+
+/** 小計行の手前に並ぶ明細をその小計のグループとしてまとめる（会計大将の並び順に準拠） */
+export function groupBySubtotal(fy: FiscalYearData, statement: Statement): SubGroup[] {
+  const out: SubGroup[] = []
+  let acc: AccountRow[] = []
+  for (const r of fy.rows) {
+    if (r.statement !== statement) continue
+    if (r.isSubtotal) { out.push({ subtotal: r, details: acc }); acc = [] }
+    else acc.push(r)
+  }
+  return out
+}
+
+/** 指定小計コードの明細科目 */
+export function detailsOf(fy: FiscalYearData, subtotalCode: string): AccountRow[] {
+  const st = getRow(fy, subtotalCode)?.statement || 'PL'
+  return groupBySubtotal(fy, st).find((g) => g.subtotal.code === subtotalCode)?.details || []
+}
+
+/** 行の期首〜monthIdx累計（PL=合算 / BS=残高） */
+export function rowYtd(row: AccountRow, monthIdx: number): number {
+  if (row.statement === 'BS') return row.monthly[monthIdx] ?? 0
+  let s = 0
+  for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0
+  return s
+}
+
+// ===== 変動費 / 固定費 =====
+export type VarFix = 'variable' | 'fixed'
+export interface KeieiSettings { varfix: Record<string, VarFix>; loanExclude: Record<string, boolean> }
+export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {} } }
+
+// 分類対象 = 「売上原価（合計を1ブロック）」＋「販管費の各明細」。
+// ※売上原価は期首/期末棚卸を含むため明細合算では正しくならない。小計(9577)を一括で扱う。
+export function classifiableCodes(fy: FiscalYearData): { code: string; name: string }[] {
+  return [{ code: CODES.cogs, name: '売上原価（合計）' }, ...detailsOf(fy, CODES.sgna).map((a) => ({ code: a.code, name: a.name.trim() }))]
+}
+
+/** 指定コードの期首〜monthIdx累計（小計・明細どちらでも） */
+export function costValue(fy: FiscalYearData, code: string, monthIdx: number): number {
+  const r = getRow(fy, code)
+  return r ? rowYtd(r, monthIdx) : 0
+}
+
+/** 既定の変動/固定判定（売上原価=変動・販管費=固定）＋ settings の上書き */
+export function classifyOf(fy: FiscalYearData, settings: KeieiSettings) {
+  return (code: string): VarFix => settings.varfix[code] || (code === CODES.cogs ? 'variable' : 'fixed')
+}
+
+export interface Cvp { sales: number; variable: number; fixed: number; marginal: number; marginalRate: number; bep: number; safety: number; opProfit: number }
+
+/** 期首〜monthIdx累計ベースのCVP指標 */
+export function cvp(fy: FiscalYearData, monthIdx: number, settings: KeieiSettings): Cvp {
+  const cls = classifyOf(fy, settings)
+  const sales = ytd(fy, CODES.sales, monthIdx)
+  let variable = 0, fixed = 0
+  for (const { code } of classifiableCodes(fy)) {
+    const v = costValue(fy, code, monthIdx)
+    if (cls(code) === 'variable') variable += v
+    else fixed += v
+  }
+  const marginal = sales - variable
+  const marginalRate = sales ? marginal / sales : 0
+  const bep = marginalRate ? fixed / marginalRate : 0
+  const safety = sales ? (sales - bep) / sales : 0
+  const opProfit = marginal - fixed
+  return { sales, variable, fixed, marginal, marginalRate, bep, safety, opProfit }
+}
+
+/** 月次系列の相関（3期分を連結して変動費らしさを推定） */
+export function suggestVarFix(years: Record<string, FiscalYearData>): Record<string, VarFix> {
+  const list = sortedYears(years)
+  if (!list.length) return {}
+  // 売上の月次（全期連結）
+  const salesSeries: number[] = []
+  for (const fy of list) {
+    const s = getRow(fy, CODES.sales)
+    for (let i = 0; i <= fy.lastFilledIndex; i++) salesSeries.push(s?.monthly[i] ?? 0)
+  }
+  const codes = new Set<string>()
+  for (const fy of list) for (const c of classifiableCodes(fy)) codes.add(c.code)
+  const out: Record<string, VarFix> = {}
+  for (const code of Array.from(codes)) {
+    const series: number[] = []
+    for (const fy of list) {
+      const a = getRow(fy, code)
+      for (let i = 0; i <= fy.lastFilledIndex; i++) series.push(a?.monthly[i] ?? 0)
+    }
+    out[code] = correlation(series, salesSeries) >= 0.6 ? 'variable' : 'fixed'
+  }
+  return out
+}
+
+function correlation(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length)
+  if (n < 4) return 0
+  let sx = 0, sy = 0
+  for (let i = 0; i < n; i++) { sx += x[i]; sy += y[i] }
+  const mx = sx / n, my = sy / n
+  let cov = 0, vx = 0, vy = 0
+  for (let i = 0; i < n; i++) { const dx = x[i] - mx, dy = y[i] - my; cov += dx * dy; vx += dx * dx; vy += dy * dy }
+  if (vx === 0 || vy === 0) return 0
+  return cov / Math.sqrt(vx * vy)
+}
+
+// ===== 有利子負債・キャッシュフロー・安全性 =====
+export function isLoanAccount(name: string): boolean {
+  return /(短期借入|長期借入|借入金)/.test(name) && !/役員/.test(name)
+}
+export function isLeaseAccount(name: string): boolean {
+  return /リース債務/.test(name)
+}
+
+/** BS負債の明細から有利子負債（金融機関）・リース債務の科目を抽出 */
+export function debtAccounts(fy: FiscalYearData) {
+  const liab = [...detailsOf(fy, CODES.currentLiab), ...detailsOf(fy, CODES.fixedLiab)]
+  return {
+    loans: liab.filter((a) => isLoanAccount(a.name)),
+    leases: liab.filter((a) => isLeaseAccount(a.name)),
+  }
+}
+
+/** 減価償却費（販管費・売上原価の明細から名称一致でYTD合算） */
+export function depreciationYtd(fy: FiscalYearData, monthIdx: number): number {
+  let s = 0
+  for (const a of [...detailsOf(fy, CODES.sgna), ...detailsOf(fy, CODES.cogs)]) {
+    if (/減価償却/.test(a.name)) s += rowYtd(a, monthIdx)
+  }
+  return s
+}
+
+export interface SafetyResult {
+  months: number // 経過月数
+  annualFactor: number
+  loans: number; leases: number
+  simpleCfYtd: number; simpleCfAnnual: number
+  taxRate: number
+  cash: number; monthlySales: number; liquidityMonths: number
+  payoffLoans: number | null; payoffLoansLease: number | null
+  equityRatio: number
+}
+
+export function safety(fy: FiscalYearData, monthIdx: number, settings: KeieiSettings): SafetyResult {
+  const months = monthIdx + 1
+  const annualFactor = 12 / months
+  const ord = ytd(fy, CODES.ordProfit, monthIdx)
+  const dep = depreciationYtd(fy, monthIdx)
+  const incomeAnnual = ord * annualFactor // 概算課税所得 ≒ 経常利益(年換算)
+  const taxRate = effectiveTaxRate(incomeAnnual)
+  const afterTax = ord * (1 - taxRate)
+  const simpleCfYtd = afterTax + dep
+  const simpleCfAnnual = simpleCfYtd * annualFactor
+  const { loans, leases } = debtAccounts(fy)
+  const ex = settings.loanExclude || {}
+  const loanBal = loans.filter((a) => !ex[a.code]).reduce((s, a) => s + singleMonth(fy, a.code, monthIdx), 0)
+  const leaseBal = leases.filter((a) => !ex[a.code]).reduce((s, a) => s + singleMonth(fy, a.code, monthIdx), 0)
+  const cash = singleMonth(fy, CODES.cash, monthIdx)
+  const salesAnnual = ytd(fy, CODES.sales, monthIdx) * annualFactor
+  const monthlySales = salesAnnual / 12
+  const asset = singleMonth(fy, CODES.assetTotal, monthIdx)
+  const netAsset = singleMonth(fy, CODES.netAsset, monthIdx)
+  return {
+    months, annualFactor,
+    loans: loanBal, leases: leaseBal,
+    simpleCfYtd, simpleCfAnnual, taxRate,
+    cash, monthlySales, liquidityMonths: monthlySales ? cash / monthlySales : 0,
+    payoffLoans: simpleCfAnnual > 0 ? loanBal / simpleCfAnnual : null,
+    payoffLoansLease: simpleCfAnnual > 0 ? (loanBal + leaseBal) / simpleCfAnnual : null,
+    equityRatio: asset ? (netAsset / asset) * 100 : 0,
+  }
+}
+
+// ===== 着地見込み（複数シナリオ） =====
+export type ScenarioKey = 'conservative' | 'standard' | 'optimistic'
+export interface Landing { key: ScenarioKey; label: string; sales: number; opProfit: number; ordProfit: number }
+
+/**
+ * 期中の当期について通期着地を予測。残月の単月値を、前年同月（保守）／
+ * 前期前々期の同月平均×今期ペース（標準）／前年同月×(1+X%)（楽観）で補完。
+ */
+export function landingScenarios(
+  years: Record<string, FiscalYearData>,
+  fy: FiscalYearData,
+  optimisticPct = 5,
+): { partial: boolean; scenarios: Landing[] } {
+  const partial = fy.lastFilledIndex < 11
+  const codes = [CODES.sales, CODES.opProfit, CODES.ordProfit] as const
+  const prior = findPriorYear(years, fy)
+  const prior2 = prior ? findPriorYear(years, prior) : null
+
+  // 各指標のYTD（確定分）
+  const ytdOf = (code: string) => ytd(fy, code, fy.lastFilledIndex)
+
+  if (!partial) {
+    const s = ytdOf(CODES.sales), o = ytdOf(CODES.opProfit), r = ytdOf(CODES.ordProfit)
+    return { partial: false, scenarios: [{ key: 'standard', label: '確定（通期）', sales: s, opProfit: o, ordProfit: r }] }
+  }
+
+  // 今期ペース係数（売上ベース: 今期YTD ÷ 前年同YTD）
+  let pace = 1
+  if (prior) {
+    const cur = ytd(fy, CODES.sales, fy.lastFilledIndex)
+    const pre = ytd(prior, CODES.sales, fy.lastFilledIndex)
+    if (pre) pace = cur / pre
+  }
+
+  // 指定指標の「残月」補完額（方式別）
+  const remainBy = (code: string, mode: ScenarioKey): number => {
+    let s = 0
+    for (let i = fy.lastFilledIndex + 1; i <= 11; i++) {
+      const a = (prior ? getRow(prior, code)?.monthly[i] : 0) ?? 0
+      if (mode === 'conservative') { s += a; continue }
+      if (mode === 'optimistic') { s += a * (1 + optimisticPct / 100); continue }
+      // standard: 前期・前々期 同月平均 × 今期ペース
+      const b = prior2 ? getRow(prior2, code)?.monthly[i] : undefined
+      const avg = b != null ? (a + b) / 2 : a
+      s += avg * pace
+    }
+    return s
+  }
+
+  const make = (key: ScenarioKey, label: string): Landing => ({
+    key, label,
+    sales: ytdOf(CODES.sales) + remainBy(CODES.sales, key),
+    opProfit: ytdOf(CODES.opProfit) + remainBy(CODES.opProfit, key),
+    ordProfit: ytdOf(CODES.ordProfit) + remainBy(CODES.ordProfit, key),
+  })
+
+  return {
+    partial: true,
+    scenarios: [
+      make('conservative', '保守（前年同月）'),
+      make('standard', '標準（季節性×今期ペース）'),
+      make('optimistic', `楽観（前年+${optimisticPct}%）`),
+    ],
+  }
+}

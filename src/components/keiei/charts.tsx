@@ -1,6 +1,6 @@
 'use client'
 
-import { fmtShort } from '@/lib/keiei/format'
+import { fmtShort, fmtPct } from '@/lib/keiei/format'
 
 // 共通: 値域(0を含む)から y 座標スケールを作る
 function makeScale(values: number[], top: number, bottom: number) {
@@ -124,6 +124,69 @@ export function GroupedBars({ groups, seriesLabels, colors = PALETTE }: GroupedP
           )
         })}
       </svg>
+    </div>
+  )
+}
+
+interface MultiLineProps {
+  labels: string[]
+  series: { label: string; values: number[]; color: string }[]
+  unit?: 'yen' | 'pct'
+}
+
+/** 複数折れ線（利益率の推移／借入残高の推移など） */
+export function MultiLine({ labels, series, unit = 'yen' }: MultiLineProps) {
+  const W = 760, H = 240, padL = 16, padR = 16, padT = 24, padB = 26
+  const all = series.flatMap((s) => s.values)
+  const { y } = makeScale(all.length ? all : [0], padT, H - padB)
+  const n = labels.length
+  const step = (W - padL - padR) / Math.max(1, n - 1)
+  const fmt = (v: number) => (unit === 'pct' ? fmtPct(v) : fmtShort(v))
+  const zero = y(0)
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-1 text-xs text-gray-600 flex-wrap">
+        {series.map((s, i) => (
+          <span key={i} className="flex items-center gap-1"><span className="inline-block w-4 h-0.5" style={{ background: s.color }} />{s.label}</span>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'auto' }}>
+        <line x1={padL} y1={zero} x2={W - padR} y2={zero} stroke="#e2e8f0" strokeWidth={1} />
+        {labels.map((l, i) => (
+          <text key={i} x={padL + step * i} y={H - 8} textAnchor="middle" fontSize={10} fill="#64748b">{l}</text>
+        ))}
+        {series.map((s, si) => (
+          <g key={si}>
+            <polyline fill="none" stroke={s.color} strokeWidth={2}
+              points={s.values.map((v, i) => `${padL + step * i},${y(v)}`).join(' ')} />
+            {s.values.map((v, i) => <circle key={i} cx={padL + step * i} cy={y(v)} r={2.5} fill={s.color} />)}
+          </g>
+        ))}
+        {series.length === 1 && series[0].values.map((v, i) => (
+          <text key={i} x={padL + step * i} y={y(v) - 5} textAnchor="middle" fontSize={8} fill="#475569">{fmt(v)}</text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
+interface HBarsProps { items: { label: string; value: number; sub?: string }[]; color?: string }
+
+/** 横棒ランキング（経費の科目別など） */
+export function HBars({ items, color = '#3b82f6' }: HBarsProps) {
+  const max = Math.max(1, ...items.map((it) => Math.abs(it.value)))
+  return (
+    <div className="space-y-1.5">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-center gap-2 text-xs">
+          <div className="w-40 shrink-0 truncate text-gray-700" title={it.label}>{it.label}</div>
+          <div className="flex-1 bg-gray-100 rounded h-5 relative overflow-hidden">
+            <div className="h-full rounded" style={{ width: `${(Math.abs(it.value) / max) * 100}%`, background: color }} />
+          </div>
+          <div className="w-24 shrink-0 text-right tabular-nums text-gray-700">{fmtShort(it.value)}</div>
+          {it.sub != null && <div className="w-12 shrink-0 text-right text-gray-400">{it.sub}</div>}
+        </div>
+      ))}
     </div>
   )
 }

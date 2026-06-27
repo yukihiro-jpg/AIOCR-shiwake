@@ -15,6 +15,13 @@ import {
 } from '@/lib/keiei/calc'
 import { fmtYen, fmtShort, fmtPct, fmtPctSigned } from '@/lib/keiei/format'
 import { ComboBarLine, GroupedBars } from './charts'
+import { loadSettings, saveSettings } from '@/lib/keiei/store'
+import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
+import SectionDetail from './SectionDetail'
+import SectionCVP from './SectionCVP'
+import SectionCash from './SectionCash'
+
+type View = 'overview' | 'detail' | 'cvp' | 'cash'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -24,6 +31,8 @@ export default function KeieiContent() {
   const [years, setYears] = useState<Record<string, FiscalYearData>>({})
   const [yearId, setYearId] = useState('')
   const [monthIdx, setMonthIdx] = useState(0)
+  const [view, setView] = useState<View>('overview')
+  const [settings, setSettings] = useState<KeieiSettings>(defaultSettings())
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -44,6 +53,8 @@ export default function KeieiContent() {
   useEffect(() => {
     if (!clientId) { setYears({}); return }
     setSelectedClientId(clientId)
+    setView('overview')
+    loadSettings(clientId).then(setSettings)
     setLoading(true)
     loadYears(clientId).then((y) => {
       setYears(y)
@@ -54,8 +65,22 @@ export default function KeieiContent() {
     }).finally(() => setLoading(false))
   }, [clientId])
 
+  const changeSettings = useCallback((s: KeieiSettings) => {
+    setSettings(s)
+    if (clientId) saveSettings(clientId, s)
+  }, [clientId])
+
   const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]
+
+  const handlePrint = useCallback(() => {
+    const prev = document.title
+    const m = fy ? `${fy.fiscalMonths[monthIdx]}月` : ''
+    document.title = `月次レポート_${current?.name || ''}_${fy?.label || ''}_${m}`
+    const restore = () => { document.title = prev; window.removeEventListener('afterprint', restore) }
+    window.addEventListener('afterprint', restore)
+    window.print()
+  }, [current, fy, monthIdx])
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
   const sorted = useMemo(() => sortedYears(years), [years])
   const comp = useMemo(() => {
@@ -251,11 +276,40 @@ export default function KeieiContent() {
                 </span>
               ))}
             </div>
+            {/* 分析タブ＋印刷 */}
+            <div className="flex items-center gap-1 flex-wrap mt-3 pt-3 border-t border-gray-100">
+              {([['overview', '概要'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
+                <button key={v} onClick={() => setView(v)}
+                  className={`px-3 py-1.5 text-sm rounded-lg ${view === v ? 'bg-blue-600 text-white font-medium' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+              ))}
+              <button onClick={handlePrint} className="ml-auto px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">🖨 PDF / 印刷</button>
+            </div>
           </div>
 
-          {fy && <Report fy={fy} prior={prior} comp={comp} monthIdx={monthIdx} />}
+          {fy && (
+            <div id="keiei-print-area" className="space-y-5">
+              <div className="hidden print:block text-base font-bold text-gray-800">
+                月次レポート ｜ {current?.name} ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月
+              </div>
+              {view === 'overview' && <Report fy={fy} prior={prior} comp={comp} monthIdx={monthIdx} />}
+              {view === 'detail' && <SectionDetail fy={fy} monthIdx={monthIdx} />}
+              {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
+              {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
+            </div>
+          )}
         </div>
       )}
+
+      <style jsx global>{`
+        @media print {
+          body * { visibility: hidden; }
+          #keiei-print-area, #keiei-print-area * { visibility: visible; }
+          #keiei-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; }
+          #keiei-print-area * { overflow: visible !important; max-height: none !important; }
+          #keiei-print-area .bg-white { break-inside: avoid; border: 1px solid #e5e7eb; }
+          @page { size: A4; margin: 12mm; }
+        }
+      `}</style>
 
       {/* 期末年の確認ダイアログ（複数ファイルまとめて） */}
       {pending && (

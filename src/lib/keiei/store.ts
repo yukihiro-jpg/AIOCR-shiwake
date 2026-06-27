@@ -85,6 +85,39 @@ export async function saveYears(cid: string, years: Record<string, FiscalYearDat
   await pushYearsRemote(cid, years)
 }
 
+// ===== 設定（変動/固定分類・有利子負債除外）の保存 =====
+import type { KeieiSettings } from './analysis'
+import { defaultSettings } from './analysis'
+const lsSettings = (cid: string) => `keiei-settings-${cid}`
+
+export async function loadSettings(cid: string): Promise<KeieiSettings> {
+  // リモート優先
+  if (hasRoom() && cid) {
+    try {
+      const { db, ref, get } = await dbfns()
+      const snap = await get(ref(db, await modulePath(MODULE_KEY, cid, 'settings')))
+      const v = snap.val() as KeieiSettings | null
+      if (v) { saveSettingsLocal(cid, v); return { ...defaultSettings(), ...v } }
+    } catch { /* ignore */ }
+  }
+  if (typeof window !== 'undefined' && cid) {
+    try { const raw = localStorage.getItem(lsSettings(cid)); if (raw) return { ...defaultSettings(), ...JSON.parse(raw) } } catch { /* ignore */ }
+  }
+  return defaultSettings()
+}
+
+function saveSettingsLocal(cid: string, s: KeieiSettings) {
+  if (typeof window === 'undefined' || !cid) return
+  try { localStorage.setItem(lsSettings(cid), JSON.stringify(s)) } catch { /* ignore */ }
+}
+
+export async function saveSettings(cid: string, s: KeieiSettings): Promise<void> {
+  saveSettingsLocal(cid, s)
+  if (hasRoom() && cid) {
+    try { const { db, ref, set } = await dbfns(); await set(ref(db, await modulePath(MODULE_KEY, cid, 'settings')), s) } catch { /* ignore */ }
+  }
+}
+
 const SEL_KEY = 'keiei-selected-client'
 export function getSelectedClientId(): string {
   if (typeof window === 'undefined') return ''
