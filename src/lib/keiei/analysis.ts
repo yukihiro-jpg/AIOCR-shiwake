@@ -72,8 +72,8 @@ export function rowYtd(row: AccountRow, monthIdx: number): number {
 
 // ===== 変動費 / 固定費 =====
 export type VarFix = 'variable' | 'fixed'
-export interface KeieiSettings { varfix: Record<string, VarFix>; loanExclude: Record<string, boolean> }
-export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {} } }
+export interface KeieiSettings { varfix: Record<string, VarFix>; loanExclude: Record<string, boolean>; fcfComments?: Record<string, string> }
+export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {}, fcfComments: {} } }
 
 // 分類対象 = 「売上原価（合計を1ブロック）」＋「販管費の各明細」。
 // ※売上原価は期首/期末棚卸を含むため明細合算では正しくならない。小計(9577)を一括で扱う。
@@ -213,6 +213,101 @@ export function safety(fy: FiscalYearData, monthIdx: number, settings: KeieiSett
     payoffLoansLease: simpleCfAnnual > 0 ? (loanBal + leaseBal) / simpleCfAnnual : null,
     equityRatio: asset ? (netAsset / asset) * 100 : 0,
   }
+}
+
+// ===== 簡易フリーキャッシュフロー分析 =====
+const RECV_RE = /受取手形|電子記録債権|売掛/
+const INV_RE = /商品|製品|仕掛|原材料|貯蔵/
+const LOAN_RE = /(短期借入|長期借入|借入金)/
+function isPay(name: string): boolean { return /買掛|支払手形|電子記録債務/.test(name) || name === '未払金' }
+
+function sumBsAt(rows: AggRow[], monthIdx: number, match: (name: string) => boolean): number {
+  let s = 0
+  for (const r of rows) if (r.statement === 'BS' && !r.isSubtotal && match(r.name)) s += r.monthly[monthIdx] ?? 0
+  return s
+}
+
+export interface FcfResult {
+  hasPrior: boolean
+  ordProfit: number; taxRate: number; afterTax: number; depreciation: number
+  recvChg: number; invChg: number; payChg: number
+  wcOpen: number; wcClose: number; wcIncrease: number
+  operatingCf: number
+  loanChg: number; leaseChg: number; financeBalance: number
+  netCash: number; cashActualChg: number
+}
+
+/** 推移BS/PLから簡易フリーキャッシュフロー（営業CF）と財務収支を算出 */
+export function fcfAnalysis(
+  fy: FiscalYearData,
+  prior: FiscalYearData | null,
+  monthIdx: number,
+): FcfResult {
+  const cur = aggregateRows(fy)
+  const pre = prior ? aggregateRows(prior) : null
+  const recvM = (n: string) => RECV_RE.test(n)
+  const invM = (n: string) => INV_RE.test(n)
+  const payM = isPay
+  const loanM = (n: string) => LOAN_RE.test(n) && !/役員/.test(n)
+  const leaseM = (n: string) => /リース債務/.test(n)
+  const open = (m: (n: string) => boolean) => pre ? sumBsAt(pre, 11, m) : sumBsAt(cur, 0, m)
+  const close = (m: (n: string) => boolean) => sumBsAt(cur, monthIdx, m)
+
+  const recvChg = close(recvM) - open(recvM)
+  const invChg = close(invM) - open(invM)
+  const payChg = close(payM) - open(payM)
+  const wcOpen = open(recvM) + open(invM) - open(payM)
+  const wcClose = close(recvM) + close(invM) - close(payM)
+  const wcIncrease = wcClose - wcOpen
+
+  const ordProfit = ytd(fy, CODES.ordProfit, monthIdx)
+  const depreciation = depreciationYtd(fy, monthIdx)
+  const months = monthIdx + 1
+  const taxRate = effectiveTaxRate(ordProfit * (12 / months))
+  const afterTax = ordProfit * (1 - taxRate)
+  const operatingCf = afterTax + depreciation - wcIncrease
+
+  const loanChg = close(loanM) - open(loanM)
+  const leaseChg = close(leaseM) - open(leaseM)
+  const financeBalance = loanChg + leaseChg
+
+  const cashOpen = prior ? singleMonth(prior, CODES.cash, 11) : singleMonth(fy, CODES.cash, 0)
+  const cashClose = singleMonth(fy, CODES.cash, monthIdx)
+
+  return {
+    hasPrior: !!prior,
+    ordProfit, taxRate, afterTax, depreciation,
+    recvChg, invChg, payChg, wcOpen, wcClose, wcIncrease,
+    operatingCf, loanChg, leaseChg, financeBalance,
+    netCash: operatingCf + financeBalance,
+    cashActualChg: cashClose - cashOpen,
+  }
+}
+
+/** FCF評価コメントの自動生成（ユーザーが編集可能。短い文章） */
+export function buildFcfComment(r: FcfResult, fmt: (n: number) => string): string {
+  const repay = -(Math.min(0, r.loanChg) + Math.min(0, r.leaseChg)) // 返済額（正の値）
+  const lines: string[] = []
+  lines.push(
+    r.operatingCf >= 0
+      ? `期首〜当月の簡易営業キャッシュフローは ${fmt(r.operatingCf)} のプラスです。本業で現金を生み出せています。`
+      : `期首〜当月の簡易営業キャッシュフローは ${fmt(r.operatingCf)} のマイナスです。本業から現金が流出しています。`,
+  )
+  lines.push(
+    r.wcIncrease > 0
+      ? `売上債権・在庫の増加（運転資本 ${fmt(r.wcIncrease)} 増）が資金を圧迫しています。回収・在庫圧縮が改善余地です。`
+      : `運転資本が ${fmt(-r.wcIncrease)} 減少し、回収・在庫の圧縮で資金が改善しています。`,
+  )
+  if (repay > 0) {
+    lines.push(
+      r.operatingCf >= repay
+        ? `借入・リースの返済 ${fmt(repay)} は営業CFの範囲内で返済できています（健全）。`
+        : `借入・リースの返済 ${fmt(repay)} に対し営業CFが不足しており、手元資金や追加借入に依存しています。`,
+    )
+  } else if (r.financeBalance > 0) {
+    lines.push(`当期は借入・リースで ${fmt(r.financeBalance)} の資金調達をしています。資金使途と返済計画の確認を。`)
+  }
+  return lines.join('\n')
 }
 
 // ===== 着地見込み（複数シナリオ） =====

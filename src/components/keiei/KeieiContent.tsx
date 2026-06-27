@@ -21,9 +21,10 @@ import SectionDetail from './SectionDetail'
 import SectionCVP from './SectionCVP'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
+import SectionFCF from './SectionFCF'
 import { openSubmissionPdf } from '@/lib/keiei/submission'
 
-type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash'
+type View = 'overview' | 'report' | 'detail' | 'cvp' | 'cash' | 'fcf'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -298,7 +299,7 @@ export default function KeieiContent() {
             </div>
             {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
             <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
-              {([['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
+              {([['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvp', '損益分岐点'], ['cash', '資金繰り・安全性'], ['fcf', 'フリーキャッシュフロー']] as [View, string][]).map(([v, l]) => (
                 <button key={v} onClick={() => setView(v)}
                   className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
@@ -320,6 +321,7 @@ export default function KeieiContent() {
               {view === 'detail' && <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />}
               {view === 'cvp' && <SectionCVP fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
               {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
+              {view === 'fcf' && <SectionFCF fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} />}
             </div>
           )}
         </div>

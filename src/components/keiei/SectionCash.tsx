@@ -4,7 +4,7 @@ import type { FiscalYearData } from '@/lib/keiei/types'
 import { singleMonth } from '@/lib/keiei/calc'
 import { safety, debtAccounts, landingScenarios, type KeieiSettings } from '@/lib/keiei/analysis'
 import { fmtYen, fmtShort, fmtPct } from '@/lib/keiei/format'
-import { MultiLine, GroupedBars } from './charts'
+import { GroupedBars } from './charts'
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
@@ -64,10 +64,23 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
       </Section>
 
       <Section title={`借入・リース残高の推移（各月末・期首〜${monthLabel}）`} note="残高の減少＝元金の返済が進んでいる目安">
-        <MultiLine labels={monthLabels} unit="yen" showTable series={[
-          { label: '金融機関借入', values: loanSeries, color: '#1F3A5F' },
-          { label: 'リース債務', values: leaseSeries, color: '#C8A24B' },
-        ]} />
+        <GroupedBars
+          groups={monthLabels.map((m, i) => ({ label: m, values: [loanSeries[i], leaseSeries[i]] }))}
+          seriesLabels={['金融機関借入', 'リース債務']}
+          colors={['#1F3A5F', '#C8A24B']}
+        />
+        <div className="overflow-x-auto mt-2">
+          <table className="text-[11px] border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
+            <thead><tr className="text-gray-500">
+              <th className="text-left px-2 py-1"></th>
+              {monthLabels.map((m, i) => <th key={i} className="text-right px-2 py-1 whitespace-nowrap">{m}</th>)}
+            </tr></thead>
+            <tbody>
+              <tr className="border-t border-gray-100"><td className="text-left px-2 py-1 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: '#1F3A5F' }} />金融機関借入</td>{loanSeries.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtShort(v)}</td>)}</tr>
+              <tr className="border-t border-gray-100"><td className="text-left px-2 py-1 whitespace-nowrap"><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: '#C8A24B' }} />リース債務</td>{leaseSeries.map((v, i) => <td key={i} className="text-right px-2 py-1 tabular-nums">{fmtShort(v)}</td>)}</tr>
+            </tbody>
+          </table>
+        </div>
       </Section>
 
       {(loans.length > 0 || leases.length > 0) && (
