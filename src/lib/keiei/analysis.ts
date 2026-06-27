@@ -286,7 +286,6 @@ export function fcfAnalysis(
 
 /** FCF評価コメントの自動生成（ユーザーが編集可能。短い文章） */
 export function buildFcfComment(r: FcfResult, fmt: (n: number) => string): string {
-  const repay = -(Math.min(0, r.loanChg) + Math.min(0, r.leaseChg)) // 返済額（正の値）
   const lines: string[] = []
   lines.push(
     r.operatingCf >= 0
@@ -298,15 +297,17 @@ export function buildFcfComment(r: FcfResult, fmt: (n: number) => string): strin
       ? `売上債権・在庫の増加（運転資本 ${fmt(r.wcIncrease)} 増）が資金を圧迫しています。回収・在庫圧縮が改善余地です。`
       : `運転資本が ${fmt(-r.wcIncrease)} 減少し、回収・在庫の圧縮で資金が改善しています。`,
   )
-  if (repay > 0) {
+  if (r.financeBalance < 0) {
+    const rep = -r.financeBalance
     lines.push(
-      r.operatingCf >= repay
-        ? `借入・リースの返済 ${fmt(repay)} は営業CFの範囲内で返済できています（健全）。`
-        : `借入・リースの返済 ${fmt(repay)} に対し営業CFが不足しており、手元資金や追加借入に依存しています。`,
+      r.operatingCf >= rep
+        ? `借入・リースの返済 ${fmt(rep)} は営業CFの範囲内でまかなえています（健全）。`
+        : `借入・リースの返済 ${fmt(rep)} に対し営業CFが不足し、手元資金に依存しています。`,
     )
   } else if (r.financeBalance > 0) {
-    lines.push(`当期は借入・リースで ${fmt(r.financeBalance)} の資金調達をしています。資金使途と返済計画の確認を。`)
+    lines.push(`当期は借入・リースで ${fmt(r.financeBalance)} を新たに調達しています。借入に依存した資金繰りになっていないか、資金使途と返済計画を確認しましょう。`)
   }
+  lines.push(`借入・リースの増減を含めた現金の純増減は ${fmt(r.netCash)} です。`)
   return lines.join('\n')
 }
 

@@ -65,8 +65,10 @@ export default function SectionFCF({ fy, prior, monthIdx, yearId, settings, onSe
   const r = fcfAnalysis(fy, prior, monthIdx)
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const tax = r.ordProfit - r.afterTax
-  const repay = -(Math.min(0, r.loanChg) + Math.min(0, r.leaseChg))
-  const good = r.operatingCf >= 0 && (repay === 0 || r.operatingCf >= repay)
+  // 財務収支（借入＋リースの増減）: ＋＝追加融資（調達）, −＝返済
+  const isRaise = r.financeBalance > 0
+  // 評価: 本業赤字=要注意 / 本業黒字でも借入増(調達依存)=注意 / 本業黒字＆純返済=健全
+  const evalState: 'good' | 'warn' | 'bad' = r.operatingCf < 0 ? 'bad' : (isRaise ? 'warn' : 'good')
 
   const auto = buildFcfComment(r, fmtShort)
   const comment = settings.fcfComments?.[yearId] ?? auto
@@ -94,22 +96,22 @@ export default function SectionFCF({ fy, prior, monthIdx, yearId, settings, onSe
           <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-[0_3px_10px_rgba(26,115,232,0.06)]">
             <div className="text-[13px] font-semibold text-gray-600 mb-1.5">簡易営業CF（フリーCF）</div>
             <div className={`text-[22px] leading-none font-extrabold ${r.operatingCf >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtShort(r.operatingCf)}</div>
-            <div className="text-[11px] text-gray-400 mt-1.5">{fmtYen(r.operatingCf)}</div>
+            <div className="text-[11px] text-gray-400 mt-1.5">本業で生む現金</div>
           </div>
           <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-[0_3px_10px_rgba(26,115,232,0.06)]">
-            <div className="text-[13px] font-semibold text-gray-600 mb-1.5">借入・リース返済</div>
-            <div className="text-[22px] leading-none font-extrabold text-gray-900">{fmtShort(repay)}</div>
-            <div className="text-[11px] text-gray-400 mt-1.5">財務収支 {fmtShort(r.financeBalance)}</div>
+            <div className="text-[13px] font-semibold text-gray-600 mb-1.5">借入・リース増減（財務収支）</div>
+            <div className={`text-[22px] leading-none font-extrabold ${isRaise ? 'text-amber-600' : r.financeBalance < 0 ? 'text-blue-600' : 'text-gray-900'}`}>{r.financeBalance >= 0 ? '＋' : '−'}{fmtShort(Math.abs(r.financeBalance))}</div>
+            <div className="text-[11px] text-gray-400 mt-1.5">{isRaise ? '追加融資（調達）' : r.financeBalance < 0 ? '返済（資金流出）' : '増減なし'}</div>
           </div>
           <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-[0_3px_10px_rgba(26,115,232,0.06)]">
-            <div className="text-[13px] font-semibold text-gray-600 mb-1.5">営業CF − 返済</div>
-            <div className={`text-[22px] leading-none font-extrabold ${r.operatingCf - repay >= 0 ? 'text-green-600' : 'text-amber-600'}`}>{fmtShort(r.operatingCf - repay)}</div>
-            <div className="text-[11px] text-gray-400 mt-1.5">返済余力</div>
+            <div className="text-[13px] font-semibold text-gray-600 mb-1.5">現金の純増減（営業CF＋財務）</div>
+            <div className={`text-[22px] leading-none font-extrabold ${r.netCash >= 0 ? 'text-gray-900' : 'text-red-600'}`}>{fmtShort(r.netCash)}</div>
+            <div className="text-[11px] text-gray-400 mt-1.5">参考 実際の現預金増減 {fmtShort(r.cashActualChg)}</div>
           </div>
-          <div className={`rounded-xl border p-4 shadow-[0_3px_10px_rgba(26,115,232,0.06)] ${good ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+          <div className={`rounded-xl border p-4 shadow-[0_3px_10px_rgba(26,115,232,0.06)] ${evalState === 'good' ? 'border-green-200 bg-green-50' : evalState === 'warn' ? 'border-amber-200 bg-amber-50' : 'border-red-200 bg-red-50'}`}>
             <div className="text-[13px] font-semibold text-gray-600 mb-1.5">評価</div>
-            <div className={`text-[20px] leading-none font-extrabold ${good ? 'text-green-700' : 'text-amber-700'}`}>{good ? '✅ 健全' : '⚠ 要注意'}</div>
-            <div className="text-[11px] text-gray-400 mt-1.5">{good ? '本業の現金で返済可' : '本業の現金が不足'}</div>
+            <div className={`text-[20px] leading-none font-extrabold ${evalState === 'good' ? 'text-green-700' : evalState === 'warn' ? 'text-amber-700' : 'text-red-700'}`}>{evalState === 'good' ? '✅ 健全' : evalState === 'warn' ? '△ 注意' : '⚠ 要注意'}</div>
+            <div className="text-[11px] text-gray-400 mt-1.5">{evalState === 'good' ? '本業の現金で返済できている' : evalState === 'warn' ? '本業は黒字だが借入で調達' : '本業から現金が流出'}</div>
           </div>
         </div>
         <FcfBars items={bars} />
