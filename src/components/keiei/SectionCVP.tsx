@@ -32,21 +32,32 @@ export default function SectionCVP({ fy, monthIdx, settings, onSettingsChange, y
   const base = cvp(fy, monthIdx, settings)
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const [showEditor, setShowEditor] = useState(false)
-  // シミュレータ
+  // シミュレータ（売上%／粗利率pt／変動費率pt／固定費%）
   const [salesAdj, setSalesAdj] = useState(0)
+  const [grossAdj, setGrossAdj] = useState(0)
   const [varAdj, setVarAdj] = useState(0)
   const [fixedAdj, setFixedAdj] = useState(0)
 
   const baseVarRate = base.sales ? base.variable / base.sales : 0
-  const simSales = base.sales * (1 + salesAdj / 100)
-  const simVarRate = clamp(baseVarRate + varAdj / 100, 0, 0.99)
-  const simVariable = simSales * simVarRate
-  const simFixed = base.fixed * (1 + fixedAdj / 100)
-  const simMarginal = simSales - simVariable
-  const simMarginalRate = simSales ? simMarginal / simSales : 0
-  const simBep = simMarginalRate ? simFixed / simMarginalRate : 0
-  const simOp = simMarginal - simFixed
-  const simSafety = simSales ? (simSales - simBep) / simSales : 0
+  // 売上倍率／限界利益率の増減pt／固定費倍率 から各指標を計算
+  // 粗利率↑ と 変動費率↓ はどちらも限界利益率を上げる（同じ向き）
+  const compute = (salesMul: number, marginPt: number, fixedMul: number) => {
+    const sales = base.sales * salesMul
+    const mr = clamp(base.marginalRate + marginPt, 0.01, 0.99)
+    const fixed = base.fixed * fixedMul
+    const marginal = sales * mr
+    const op = marginal - fixed
+    const bep = mr ? fixed / mr : 0
+    const safety = sales ? (sales - bep) / sales : 0
+    return { sales, mr: mr * 100, fixed, op, bep, safety: safety * 100 }
+  }
+  const baseM = compute(1, 0, 1)
+  const afterM = compute(1 + salesAdj / 100, (grossAdj - varAdj) / 100, 1 + fixedAdj / 100)
+  // 各要素を単独で動かしたときの影響（基準との差）
+  const impSales = compute(1 + salesAdj / 100, 0, 1)
+  const impGross = compute(1, grossAdj / 100, 1)
+  const impVar = compute(1, -varAdj / 100, 1)
+  const impFixed = compute(1, 0, 1 + fixedAdj / 100)
 
   const cls = classifyOf(fy, settings)
   const costs = classifiableCodes(fy).map((c) => ({ code: c.code, name: c.name, value: costValue(fy, c.code, monthIdx), kind: cls(c.code) }))
@@ -77,27 +88,35 @@ export default function SectionCVP({ fy, monthIdx, settings, onSettingsChange, y
       </Section>
 
       <Section title="CVPシミュレーション" note="スライダーを動かすと損益分岐点・営業利益が即時に変わります">
-        <div className="grid md:grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <Slider label="売上" value={salesAdj} min={-30} max={30} unit="%" onChange={setSalesAdj} />
+          <Slider label="粗利率" value={grossAdj} min={-10} max={10} unit="pt" onChange={setGrossAdj} />
           <Slider label="変動費率" value={varAdj} min={-10} max={10} unit="pt" onChange={setVarAdj} />
           <Slider label="固定費" value={fixedAdj} min={-30} max={30} unit="%" onChange={setFixedAdj} />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-xs text-gray-500 bg-gray-50">
-              <th className="text-left px-3 py-2">指標</th><th className="text-right px-3 py-2">現状</th><th className="text-right px-3 py-2">シミュレーション後</th>
+          <table className="w-full text-sm table-fixed">
+            <colgroup><col style={{ width: '16%' }} /><col style={{ width: '14%' }} /><col style={{ width: '14%' }} /><col style={{ width: '14%' }} /><col style={{ width: '14%' }} /><col style={{ width: '14%' }} /><col style={{ width: '14%' }} /></colgroup>
+            <thead><tr className="text-xs text-gray-600 bg-gray-50">
+              <th className="text-left px-3 py-2">指標</th>
+              <th className="text-right px-3 py-2">現状</th>
+              <th className="text-right px-3 py-2">シミュレーション後</th>
+              <th className="text-right px-3 py-2">売上高による影響額</th>
+              <th className="text-right px-3 py-2">粗利率による影響額</th>
+              <th className="text-right px-3 py-2">変動費率による影響額</th>
+              <th className="text-right px-3 py-2">固定比率による影響額</th>
             </tr></thead>
             <tbody>
-              <SimRow label="売上高" a={base.sales} b={simSales} />
-              <SimRow label="限界利益率" a={base.marginalRate * 100} b={simMarginalRate * 100} pct />
-              <SimRow label="固定費" a={base.fixed} b={simFixed} />
-              <SimRow label="営業利益" a={base.opProfit} b={simOp} bold />
-              <SimRow label="損益分岐点売上" a={base.bep} b={simBep} bold />
-              <SimRow label="経営安全率" a={base.safety * 100} b={simSafety * 100} pct />
+              <AttrRow label="売上高" sel="sales" baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="限界利益率" sel="mr" pct baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="固定費" sel="fixed" baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="営業利益" sel="op" bold baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="損益分岐点売上" sel="bep" bold baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="経営安全率" sel="safety" pct baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
             </tbody>
           </table>
         </div>
-        <div className="text-xs text-gray-400 mt-2">※ 損益分岐点売上を下げるには「固定費を下げる」「変動費率を下げる（＝限界利益率を上げる）」が効きます。スライダーで効果の大きさを比較できます。</div>
+        <div className="text-xs text-gray-400 mt-2">※「影響額」は各要素だけを動かしたときの現状からの差。粗利率↑と変動費率↓は同じ向き（限界利益率を上げる）に効きます。損益分岐点を下げるには固定費↓・粗利率↑が有効です。</div>
       </Section>
 
       <Section title="変動費／固定費の分類" note="売上原価＝変動・販管費＝固定が既定。実態に合わせて修正できます">
@@ -177,14 +196,27 @@ function Slider({ label, value, min, max, unit, onChange }: { label: string; val
   )
 }
 
-function SimRow({ label, a, b, pct, bold }: { label: string; a: number; b: number; pct?: boolean; bold?: boolean }) {
-  const f = (v: number) => (pct ? fmtPct(v) : fmtYen(v))
-  const up = b >= a
+type Metric = { sales: number; mr: number; fixed: number; op: number; bep: number; safety: number }
+function AttrRow({ label, sel, pct, bold, baseM, afterM, imp }: {
+  label: string; sel: keyof Metric; pct?: boolean; bold?: boolean; baseM: Metric; afterM: Metric; imp: Metric[]
+}) {
+  const baseV = baseM[sel]; const afterV = afterM[sel]
+  const fAbs = (v: number) => (pct ? `${v.toFixed(1)}%` : fmtYen(v))
+  const fDelta = (v: number) => {
+    if (Math.abs(v) < (pct ? 0.05 : 0.5)) return '—'
+    const s = v >= 0 ? '+' : '−'
+    return pct ? `${s}${Math.abs(v).toFixed(1)}pt` : `${s}${fmtYen(Math.abs(v))}`
+  }
+  const cellCls = (v: number) => v > 0.05 ? 'text-green-600' : v < -0.05 ? 'text-red-600' : 'text-gray-300'
+  const deltas = imp.map((m) => m[sel] - baseV)
   return (
     <tr className="border-b border-gray-100">
       <td className={`px-3 py-1.5 ${bold ? 'font-bold' : ''}`}>{label}</td>
-      <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{f(a)}</td>
-      <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${bold ? (up ? 'text-green-600' : 'text-red-600') : 'text-gray-800'}`}>{f(b)}</td>
+      <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">{fAbs(baseV)}</td>
+      <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${bold ? (afterV >= baseV ? 'text-green-600' : 'text-red-600') : 'text-gray-800'}`}>{fAbs(afterV)}</td>
+      {deltas.map((d, i) => (
+        <td key={i} className={`px-3 py-1.5 text-right tabular-nums ${cellCls(d)}`}>{fDelta(d)}</td>
+      ))}
     </tr>
   )
 }

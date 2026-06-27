@@ -38,11 +38,12 @@ export function ComboBarLine({ labels, bars, barLabel, barColor = '#3b82f6', lin
   const step = innerW / n
   const barW = Math.min(34, step * 0.6)
   const zero = y(0)
+  const lineLabelColor = '#8a6a1f'
   return (
     <div>
-      <div className="flex items-center gap-4 mb-1 text-xs text-gray-600">
-        <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: barColor }} />{barLabel}</span>
-        {line && <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5" style={{ background: lineColor }} />{lineLabel}</span>}
+      <div className="flex items-center gap-5 mb-2 text-[13px] text-gray-700 font-medium">
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-4 rounded" style={{ background: barColor }} />{barLabel}</span>
+        {line && <span className="flex items-center gap-1.5"><span className="inline-block w-6 h-[3px] rounded" style={{ background: lineColor }} /><span className="inline-block w-2.5 h-2.5 rounded-full -ml-4" style={{ background: lineColor }} />{lineLabel}</span>}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'auto' }}>
         {/* ゼロ線 */}
@@ -54,25 +55,23 @@ export function ComboBarLine({ labels, bars, barLabel, barColor = '#3b82f6', lin
           return (
             <g key={i}>
               <rect x={cx - barW / 2} y={top} width={barW} height={h} rx={2} fill={barColor} opacity={0.9} />
-              <text x={cx} y={v >= 0 ? top - 3 : top + h + 10} textAnchor="middle" fontSize={9} fill="#475569">{fmtShort(v)}</text>
-              <text x={cx} y={H - 8} textAnchor="middle" fontSize={10} fill="#64748b">{labels[i]}</text>
+              <text x={cx} y={v >= 0 ? top - 4 : top + h + 12} textAnchor="middle" fontSize={11} fontWeight={600} fill="#334155" stroke="#fff" strokeWidth={3} paintOrder="stroke">{fmtShort(v)}</text>
+              <text x={cx} y={H - 7} textAnchor="middle" fontSize={12} fill="#475569" fontWeight={500}>{labels[i]}</text>
             </g>
           )
         })}
         {line && (
-          <polyline
-            fill="none"
-            stroke={lineColor}
-            strokeWidth={2}
-            points={line.map((v, i) => `${padL + step * i + step / 2},${y(v)}`).join(' ')}
-          />
+          <polyline fill="none" stroke={lineColor} strokeWidth={2.5}
+            points={line.map((v, i) => `${padL + step * i + step / 2},${y(v)}`).join(' ')} />
         )}
         {line && line.map((v, i) => {
           const cx = padL + step * i + step / 2
+          // ラベルは常に点の上に置き、月ラベル(下端)と重ならないようにする
+          const ly = Math.max(padT + 9, y(v) - 9)
           return (
             <g key={i}>
-              <circle cx={cx} cy={y(v)} r={3} fill={lineColor} />
-              <text x={cx} y={v >= 0 ? y(v) - 6 : y(v) + 13} textAnchor="middle" fontSize={9} fontWeight={700} fill={lineColor}>{fmtShort(v)}</text>
+              <circle cx={cx} cy={y(v)} r={3.5} fill={lineColor} stroke="#fff" strokeWidth={1.5} />
+              <text x={cx} y={ly} textAnchor="middle" fontSize={11} fontWeight={700} fill={lineLabelColor} stroke="#fff" strokeWidth={3} paintOrder="stroke">{fmtShort(v)}</text>
             </g>
           )
         })}

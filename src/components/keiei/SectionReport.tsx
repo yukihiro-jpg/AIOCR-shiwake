@@ -5,7 +5,6 @@ import type { FiscalYearData } from '@/lib/keiei/types'
 import { CODES, ytd, singleMonth } from '@/lib/keiei/calc'
 import { aggregateRows, aggRowValue, type AggRow } from '@/lib/keiei/analysis'
 
-// 会計報告表記: 負数は △、3桁区切り
 function fmtN(n: number): string {
   if (!n) return '0'
   const a = Math.round(Math.abs(n)).toLocaleString('ja-JP')
@@ -26,24 +25,26 @@ function Card({ title, subtitle, children, right }: { title: string; subtitle?: 
   )
 }
 
-function bgFor(r: { isSubtotal: boolean; bracket: string }): string {
-  if (!r.isSubtotal) return ''
-  return r.bracket === 'profit' ? 'bg-blue-50' : 'bg-gray-100'
-}
+// 行の背景（控えめなゼブラ＋小計/利益の色分け）
 function bgHex(r: { isSubtotal: boolean; bracket: string }, even: boolean): string {
-  if (r.isSubtotal) return r.bracket === 'profit' ? '#eff6ff' : '#f3f4f6'
-  return even ? '#fafbfc' : '#ffffff'
+  if (r.isSubtotal) return r.bracket === 'profit' ? '#e8eefc' : '#eef1f5'
+  return even ? '#f8fafc' : '#ffffff'
+}
+// 段階利益・小計の行にはっきりした罫線を付ける
+function rowBorder(r: { isSubtotal: boolean; bracket: string }): string {
+  if (!r.isSubtotal) return ''
+  return r.bracket === 'profit'
+    ? '[&>td]:border-y-2 [&>td]:border-slate-400'
+    : '[&>td]:border-y [&>td]:border-slate-300'
 }
 
-// 数値列ヘッダ（右寄せ・固定幅）
-function NumTh({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
-  return <th className={`text-right px-3 py-1.5 font-semibold ${accent ? 'bg-[#16304f]' : ''}`} style={{ minWidth: 96 }}>{children}</th>
+function NumTh({ children, accent, center }: { children: React.ReactNode; accent?: boolean; center?: boolean }) {
+  return <th className={`${center ? 'text-center' : 'text-right'} px-3 py-1.5 font-semibold ${accent ? 'bg-[#16304f]' : ''}`} style={{ minWidth: 96 }}>{children}</th>
 }
-function NumTd({ children, cls = '', accent }: { children: React.ReactNode; cls?: string; accent?: boolean }) {
-  return <td className={`text-right px-3 py-1 tabular-nums whitespace-nowrap ${accent ? 'bg-blue-50 font-medium' : ''} ${cls}`} style={{ minWidth: 96 }}>{children}</td>
+function NumTd({ children, cls = '', strong }: { children: React.ReactNode; cls?: string; strong?: boolean }) {
+  return <td className={`text-right px-3 py-1 tabular-nums whitespace-nowrap ${strong ? 'font-bold text-gray-900' : ''} ${cls}`} style={{ minWidth: 96 }}>{children}</td>
 }
 
-// 共通テーブル枠（科目は左固定・幅を抑え、数値はすぐ右に寄せる）
 function GTable({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="overflow-x-auto max-h-[600px] border border-gray-100 rounded-lg">
@@ -55,10 +56,10 @@ function GTable({ head, children }: { head: React.ReactNode; children: React.Rea
   )
 }
 
-function NameTd({ r, z }: { r: AggRow; z?: boolean }) {
+function NameTd({ r, even }: { r: AggRow; even: boolean }) {
   return (
     <td className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 font-medium ${r.isSubtotal ? (r.bracket === 'profit' ? 'text-[#1F3A5F]' : 'text-gray-800') : 'text-gray-700'}`}
-      style={{ paddingLeft: 12 + r.level * 12, background: bgHex(r, false), zIndex: z ? 11 : 'auto', width: 220, maxWidth: 220 }}>
+      style={{ paddingLeft: 12 + r.level * 12, background: bgHex(r, even), width: 220, maxWidth: 220, zIndex: 5 }}>
       <span className="block truncate" title={r.name}>{r.name}</span>
     </td>
   )
@@ -98,12 +99,12 @@ export default function SectionReport({ fy, comp, monthIdx }: {
         <Card title="損益計算書（月次試算表）" subtitle={`${monthLabel}単月 ／ 期首〜${monthLabel}累計`}>
           <GTable head={<tr><th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 220 }}>科目</th><NumTh>当月（単月）</NumTh><NumTh accent>累計</NumTh><NumTh>対売上比</NumTh></tr>}>
             {plRows.map((r, i) => {
-              const single = aggRowValue(r, monthIdx, 'single'); const cum = aggRowValue(r, monthIdx, 'cum')
+              const single = aggRowValue(r, monthIdx, 'single'); const cum = aggRowValue(r, monthIdx, 'cum'); const even = i % 2 === 1
               return (
-                <tr key={i} className={`border-b border-gray-100 ${bgFor(r)}`} style={!r.isSubtotal ? { background: bgHex(r, i % 2 === 1) } : {}}>
-                  <NameTd r={r} />
+                <tr key={i} className={`border-b border-gray-100 ${rowBorder(r)}`} style={{ background: bgHex(r, even) }}>
+                  <NameTd r={r} even={even} />
                   <NumTd cls="text-gray-700">{fmtN(single)}</NumTd>
-                  <NumTd accent>{fmtN(cum)}</NumTd>
+                  <NumTd strong>{fmtN(cum)}</NumTd>
                   <td className="text-right px-3 py-1 text-gray-500" style={{ minWidth: 72 }}>{salesYtd ? `${((cum / salesYtd) * 100).toFixed(1)}%` : ''}</td>
                 </tr>
               )
@@ -116,12 +117,12 @@ export default function SectionReport({ fy, comp, monthIdx }: {
         <Card title="貸借対照表（月次試算表）" subtitle={`${monthLabel}末残高`}>
           <GTable head={<tr><th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 220 }}>科目</th><NumTh>前月末残高</NumTh><NumTh accent>当月末残高</NumTh><NumTh>増減</NumTh><NumTh>構成比</NumTh></tr>}>
             {bsRows.map((r, i) => {
-              const cur = r.monthly[monthIdx] ?? 0; const prev = monthIdx > 0 ? (r.monthly[monthIdx - 1] ?? 0) : 0
+              const cur = r.monthly[monthIdx] ?? 0; const prev = monthIdx > 0 ? (r.monthly[monthIdx - 1] ?? 0) : 0; const even = i % 2 === 1
               return (
-                <tr key={i} className={`border-b border-gray-100 ${bgFor(r)}`} style={!r.isSubtotal ? { background: bgHex(r, i % 2 === 1) } : {}}>
-                  <NameTd r={r} />
+                <tr key={i} className={`border-b border-gray-100 ${rowBorder(r)}`} style={{ background: bgHex(r, even) }}>
+                  <NameTd r={r} even={even} />
                   <NumTd cls="text-gray-500">{fmtN(prev)}</NumTd>
-                  <NumTd accent>{fmtN(cur)}</NumTd>
+                  <NumTd strong>{fmtN(cur)}</NumTd>
                   <NumTd cls={cur - prev < 0 ? 'text-red-500' : ''}>{fmtN(cur - prev)}</NumTd>
                   <td className="text-right px-3 py-1 text-gray-500" style={{ minWidth: 72 }}>{assetBal ? `${((cur / assetBal) * 100).toFixed(1)}%` : ''}</td>
                 </tr>
@@ -171,7 +172,7 @@ function CompareView({ statement, rows, comp, monthIdx, monthLabel, mode, setMod
   const toggle = statement === 'PL' ? (
     <div className="flex gap-1">
       {([['single', `${monthLabel}単月`], ['cum', `期首〜${monthLabel}累計`]] as ['single' | 'cum', string][]).map(([v, l]) => (
-        <button key={v} onClick={() => setMode(v)} className={`px-2.5 py-1 text-xs rounded ${mode === v ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+        <button key={v} onClick={() => setMode(v)} className={`px-2.5 py-1 text-xs rounded-full ${mode === v ? 'bg-[#1a73e8] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
       ))}
     </div>
   ) : null
@@ -194,12 +195,13 @@ function CompareView({ statement, rows, comp, monthIdx, monthLabel, mode, setMod
           const vPrev2 = idxPrev2 >= 0 ? valFor(idxPrev2, r) : null
           const diff = vPrev != null ? vCur - vPrev : null
           const rate = vPrev != null && vPrev !== 0 ? ((vCur - vPrev) / Math.abs(vPrev)) * 100 : null
+          const even = i % 2 === 1
           return (
-            <tr key={i} className={`border-b border-gray-100 ${bgFor(r)}`} style={!r.isSubtotal ? { background: bgHex(r, i % 2 === 1) } : {}}>
-              <NameTd r={r} />
+            <tr key={i} className={`border-b border-gray-100 ${rowBorder(r)}`} style={{ background: bgHex(r, even) }}>
+              <NameTd r={r} even={even} />
               <NumTd cls="text-gray-500">{vPrev2 == null ? '—' : fmtN(vPrev2)}</NumTd>
               <NumTd cls="text-gray-500">{vPrev == null ? '—' : fmtN(vPrev)}</NumTd>
-              <NumTd accent>{fmtN(vCur)}</NumTd>
+              <NumTd strong>{fmtN(vCur)}</NumTd>
               <NumTd cls={diff != null && diff < 0 ? 'text-red-500' : ''}>{diff == null ? '—' : fmtN(diff)}</NumTd>
               <td className={`text-right px-3 py-1 ${rate == null ? 'text-gray-400' : rate >= 0 ? 'text-green-600' : 'text-red-500'}`} style={{ minWidth: 72 }}>{rate == null ? '—' : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}%`}</td>
             </tr>
@@ -216,22 +218,25 @@ function TrendGrid({ rows, months, monthIdx, cumLabel, cumMode }: { rows: AggRow
       <table className="text-[11px] border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
         <thead className="sticky top-0 z-10 bg-[#1F3A5F] text-white">
           <tr>
-            <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F] z-20" style={{ width: 200 }}>科目</th>
-            {months.map((m, i) => <th key={i} className="text-right px-2.5 py-1.5 whitespace-nowrap" style={{ minWidth: 78 }}>{m}月</th>)}
-            <th className="text-right px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 90 }}>{cumLabel}</th>
+            <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 200, zIndex: 20 }}>科目</th>
+            {months.map((m, i) => <th key={i} className="text-center px-2.5 py-1.5 whitespace-nowrap" style={{ minWidth: 78 }}>{m}月</th>)}
+            <th className="text-center px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 90 }}>{cumLabel}</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className={`border-b border-gray-100 ${bgFor(r)}`} style={!r.isSubtotal ? { background: bgHex(r, i % 2 === 1) } : {}}>
-              <td className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 z-10 font-medium ${r.isSubtotal ? (r.bracket === 'profit' ? 'text-[#1F3A5F]' : 'text-gray-800') : 'text-gray-700'}`}
-                style={{ paddingLeft: 12 + r.level * 10, background: bgHex(r, i % 2 === 1), width: 200, maxWidth: 200 }}>
-                <span className="block truncate" title={r.name}>{r.name}</span>
-              </td>
-              {months.map((_, mi) => <td key={mi} className="text-right px-2.5 py-1 tabular-nums whitespace-nowrap">{fmtN(r.monthly[mi] ?? 0)}</td>)}
-              <td className="text-right px-2.5 py-1 tabular-nums whitespace-nowrap bg-blue-50 font-medium">{fmtN(aggRowValue(r, monthIdx, cumMode))}</td>
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const even = i % 2 === 1
+            return (
+              <tr key={i} className={`border-b border-gray-100 ${rowBorder(r)}`} style={{ background: bgHex(r, even) }}>
+                <td className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 font-medium ${r.isSubtotal ? (r.bracket === 'profit' ? 'text-[#1F3A5F]' : 'text-gray-800') : 'text-gray-700'}`}
+                  style={{ paddingLeft: 12 + r.level * 10, background: bgHex(r, even), width: 200, maxWidth: 200, zIndex: 5 }}>
+                  <span className="block truncate" title={r.name}>{r.name}</span>
+                </td>
+                {months.map((_, mi) => <td key={mi} className="text-right px-2.5 py-1 tabular-nums whitespace-nowrap">{fmtN(r.monthly[mi] ?? 0)}</td>)}
+                <td className="text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold text-gray-900">{fmtN(aggRowValue(r, monthIdx, cumMode))}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
