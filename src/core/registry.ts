@@ -57,4 +57,12 @@ export const MODULES: ModuleDef[] = [
     icon: '📋',
     status: 'ready',
   },
+  {
+    key: 'keiei',
+    label: '月次レポート',
+    desc: '月次推移BS/PLから経営の数字をグラフで可視化（経営会議ツール）',
+    path: '/keiei',
+    icon: '📈',
+    status: 'ready',
+  },
 ]
