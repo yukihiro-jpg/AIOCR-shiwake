@@ -28,9 +28,8 @@ export default function KeieiContent() {
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  // 期末年の確認ダイアログ
-  const [pending, setPending] = useState<{ data: FiscalYearData; fileName: string } | null>(null)
-  const [pendingYear, setPendingYear] = useState(0)
+  // 期末年の確認ダイアログ（複数ファイルまとめて）
+  const [pending, setPending] = useState<{ data: FiscalYearData; fileName: string; year: number }[] | null>(null)
 
   useEffect(() => { setRoomReady(hasRoom()) }, [])
 
@@ -76,30 +75,42 @@ export default function KeieiContent() {
     return now.getMonth() + 1 >= endMonth ? ny : ny - 1
   }
 
-  const handleFile = useCallback(async (file: File) => {
+  // 複数CSVをまとめて解析 → 確認ダイアログに並べる
+  const handleFiles = useCallback(async (files: FileList) => {
     setErr(null); setMsg(null)
-    try {
-      const buf = await file.arrayBuffer()
-      const text = decodeCsv(buf)
-      const data = parseMonthlyCsv(text)
-      setPending({ data, fileName: file.name })
-      setPendingYear(guessYear(file.name, data.endMonth))
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'CSVの解析に失敗しました')
+    const items: { data: FiscalYearData; fileName: string; year: number }[] = []
+    const errs: string[] = []
+    for (const file of Array.from(files)) {
+      try {
+        const data = parseMonthlyCsv(decodeCsv(await file.arrayBuffer()))
+        items.push({ data, fileName: file.name, year: guessYear(file.name, data.endMonth) })
+      } catch (e) {
+        errs.push(`${file.name}: ${e instanceof Error ? e.message : '解析失敗'}`)
+      }
+    }
+    if (errs.length) setErr(errs.join(' / '))
+    if (items.length) {
+      // 期末月→期末年で並べ替えて表示（古い順）
+      items.sort((a, b) => (a.year * 12 + a.data.endMonth) - (b.year * 12 + b.data.endMonth))
+      setPending(items)
     }
   }, [])
 
-  const confirmYear = useCallback(async () => {
+  const confirmAll = useCallback(async () => {
     if (!pending || !clientId) return
-    const finalized = finalizeFiscalYear(pending.data, pendingYear)
-    const next = { ...years, [finalized.id]: finalized }
+    const next = { ...years }
+    for (const it of pending) {
+      const f = finalizeFiscalYear(it.data, it.year)
+      next[f.id] = f
+    }
+    const s = sortedYears(next)
+    const newest = s[s.length - 1]
     setYears(next)
-    setYearId(finalized.id)
-    setMonthIdx(finalized.lastFilledIndex)
+    if (newest) { setYearId(newest.id); setMonthIdx(newest.lastFilledIndex) }
     setPending(null)
     await saveYears(clientId, next)
-    setMsg(`${finalized.label} を取り込みました（${finalized.lastFilledIndex + 1}ヶ月分）`)
-  }, [pending, pendingYear, years, clientId])
+    setMsg(`${pending.length}期分を取り込みました`)
+  }, [pending, years, clientId])
 
   const deleteYear = useCallback(async (id: string) => {
     if (!clientId) return
@@ -146,9 +157,9 @@ export default function KeieiContent() {
               className="px-2.5 py-1.5 text-sm text-blue-700 border border-blue-200 rounded hover:bg-blue-50">← 一覧へ戻る</button>
             <span className="text-sm font-bold text-gray-800">{current ? `${current.code ? current.code + ' ' : ''}${current.name}` : ''}</span>
             <label className="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 cursor-pointer">
-              ＋ 月次推移CSVを取込
-              <input type="file" accept=".csv" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
+              ＋ 月次推移CSVを取込（複数選択OK）
+              <input type="file" accept=".csv" multiple className="hidden"
+                onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
             </label>
           </>
         )}
@@ -195,9 +206,20 @@ export default function KeieiContent() {
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">読み込み中…</div>
       ) : sorted.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm gap-2">
-          <div className="text-4xl opacity-30">📈</div>
-          会計大将の「月次推移 貸借対照表／損益計算書」CSVを3期分取り込んでください。
+        <div className="flex-1 flex items-center justify-center p-6">
+          <label className="w-full max-w-xl border-2 border-dashed border-blue-300 rounded-2xl bg-blue-50/40 hover:bg-blue-50 p-8 flex flex-col items-center gap-3 text-center cursor-pointer">
+            <div className="text-5xl opacity-40">📈</div>
+            <div className="text-gray-700 font-medium">会計大将の「月次推移 貸借対照表／損益計算書」CSVを取り込みます</div>
+            <div className="text-xs text-gray-500 leading-relaxed">
+              3期分のCSVファイルを<b>まとめて選択</b>できます（1ファイル＝1期）。<br />
+              選択後、ファイルごとに決算期（西暦年）を確認して取り込みます。
+            </div>
+            <span className="mt-1 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700">
+              ＋ CSVファイルを選択（複数可）
+            </span>
+            <input type="file" accept=".csv" multiple className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
+          </label>
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-5 space-y-5">
@@ -235,22 +257,35 @@ export default function KeieiContent() {
         </div>
       )}
 
-      {/* 期末年の確認ダイアログ */}
+      {/* 期末年の確認ダイアログ（複数ファイルまとめて） */}
       {pending && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setPending(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-gray-800 mb-1">取込内容の確認</h3>
-            <p className="text-xs text-gray-500 mb-3 break-all">{pending.fileName}</p>
-            <div className="text-sm text-gray-700 mb-2">決算期末月：<b>{pending.data.endMonth}月</b>（自動判定）</div>
-            <label className="block text-xs text-gray-500 mb-1">期末の西暦年（決算期を確定します）</label>
-            <input type="number" value={pendingYear} onChange={(e) => setPendingYear(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-2" />
-            <div className="text-sm text-blue-700 font-medium mb-4">
-              → {pendingYear - 2018 >= 1 ? `令和${pendingYear - 2018}年` : `${pendingYear}年`}{pending.data.endMonth}月期
+          <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-gray-800 mb-1">取込内容の確認（{pending.length}ファイル）</h3>
+            <p className="text-xs text-gray-500 mb-3">決算期末月は自動判定しました。各ファイルの<b>期末の西暦年</b>を確認してください（決算期を確定します）。</p>
+            <div className="space-y-2 max-h-[55vh] overflow-auto">
+              {pending.map((it, i) => {
+                const dup = pending.some((o, j) => j !== i && o.year === it.year && o.data.endMonth === it.data.endMonth)
+                return (
+                  <div key={i} className="border border-gray-200 rounded-lg p-3">
+                    <div className="text-xs text-gray-500 break-all mb-1.5">{it.fileName}</div>
+                    <div className="flex items-center gap-2 flex-wrap text-sm">
+                      <span className="text-gray-700">期末 <b>{it.data.endMonth}月</b></span>
+                      <span className="text-gray-300">/</span>
+                      <span className="text-gray-500 text-xs">期末年</span>
+                      <input type="number" value={it.year}
+                        onChange={(e) => setPending((p) => p ? p.map((x, j) => j === i ? { ...x, year: Number(e.target.value) } : x) : p)}
+                        className="w-24 px-2 py-1 border border-gray-300 rounded text-sm" />
+                      <span className="text-blue-700 font-medium ml-1">→ {it.year - 2018 >= 1 ? `令和${it.year - 2018}年` : `${it.year}年`}{it.data.endMonth}月期（{it.data.lastFilledIndex + 1}ヶ月）</span>
+                    </div>
+                    {dup && <div className="text-xs text-amber-600 mt-1">⚠ 同じ決算期が複数あります。重複すると後のファイルで上書きされます。</div>}
+                  </div>
+                )
+              })}
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setPending(null)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded">キャンセル</button>
-              <button onClick={confirmYear} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded font-medium hover:bg-blue-700">取込</button>
+              <button onClick={confirmAll} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded font-medium hover:bg-blue-700">取込（{pending.length}期）</button>
             </div>
           </div>
         </div>
