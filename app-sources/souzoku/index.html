@@ -3568,6 +3568,15 @@ function secOptimalSummaryHTML(opt,d,best){
   const nMin=d.normal.samples[d.normal.minIdx]; const cut=nMin.total-best.total;
   let html='<div class="sum-box accent"><div class="sl">【最適解】一次相続の配偶者取得割合と節税策の最適な組み合わせ</div>'
     +'<div class="sv" style="font-size:18px;">配偶者 '+r+'%（子が '+(100-r)+'%）取得＋節税策 ／ 一次＋二次＋贈与税 合計 '+yen(best.total)+'</div></div>';
+  // 実際に行う節税手法を明記
+  const ms=[];
+  if(pl.insAmount>0) ms.push('生命保険金の非課税枠を活用し <b>'+yen(pl.insAmount)+'</b> を一時払いで加入（非課税枠 '+yen(opt.insLimit)+'）');
+  if(pl.ga>0) ms.push('暦年贈与を <b>年 '+yen(pl.ga)+'</b> ずつ <b>子'+opt.nCh+'人</b> へ <b>'+opt.yearsOpt+'年間</b> 贈与（贈与総額 '+yen(pl.giftTotal)+'・贈与税 '+yen(pl.giftTax)+'）');
+  const methodsHTML='<div style="margin-top:12px;border:1px solid #c9def0;background:#f2f8fd;border-radius:12px;padding:12px 14px;">'
+    +'<div style="font-size:13px;font-weight:700;color:#0058b8;margin-bottom:6px;">実際に行う節税策</div>'
+    +(ms.length?'<ul style="margin:0;padding-left:18px;font-size:13.5px;color:#1d1d1f;line-height:1.9;">'+ms.map(m=>'<li>'+m+'</li>').join('')+'</ul>'
+       :'<div style="font-size:13px;color:#444;">この条件では節税策を行わないほうが合計が小さくなります。</div>')+'</div>';
+  html+=methodsHTML;
   if(cut>1){ html+='<div style="margin-top:12px;border:2px solid #1a7f37;background:#eafaf0;border-radius:12px;padding:14px 16px;">'
     +'<div style="font-size:13px;color:#555;margin-bottom:4px;">何も対策をしない場合の最小（配偶者 '+Math.round(nMin.r*100)+'%・'+yen(nMin.total)+'）と比較</div>'
     +'<div style="font-size:24px;font-weight:800;color:#1a7f37;">最適プランで '+yen(cut)+' 軽減</div>'
@@ -4469,6 +4478,13 @@ function downloadOptimalPDF(){
   const best=opt.samples[opt.minIdx], pl=best.plan, r=Math.round(best.r*100);
   const nMin=D.normal.samples[D.normal.minIdx], curOpt=opt.samples[D.curIdx];
   const cut=nMin.total-best.total;
+  // 実際に行う節税策（概要）
+  const pm=[];
+  if(pl.insAmount>0) pm.push('生命保険金の非課税枠を活用し '+yen(pl.insAmount)+' を一時払いで加入（非課税枠 '+yen(opt.insLimit)+'）');
+  if(pl.giftTotal>0) pm.push('暦年贈与を 年 '+yen(pl.ga)+' ずつ 子'+opt.nCh+'人 へ '+yrs+'年間 贈与（贈与総額 '+yen(pl.giftTotal)+'・贈与税 '+yen(pl.giftTax)+'）');
+  let methodsBlock='<div class="keepblk"><div class="sec-title">実際に行う節税策</div>'
+    +(pm.length?'<ul style="margin:6px 0 0;padding-left:20px;line-height:1.9;">'+pm.map(m=>'<li>'+m+'</li>').join('')+'</ul>'
+       :'<div class="note" style="margin-top:6px;">この条件では節税策を行わないほうが合計が小さくなります。</div>')+'</div>';
   // 最適プランの内訳
   let planTable='<div class="keepblk"><div class="sec-title">最適プランの内訳</div>'
     +'<table class="t nowraph"><thead><tr><th>項目</th><th class="r">内容・金額</th></tr></thead><tbody>'
@@ -4505,7 +4521,7 @@ function downloadOptimalPDF(){
     +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計が最小となる一次相続の配偶者取得割合</div><div class="v">'+r+'%</div></div>'
     +'<div class="kpi a"><div class="l">最適プランの一次＋二次＋贈与税の合計額</div><div class="v">'+yen(best.total)+'</div></div>'
     +(cut>1?'<div class="kpi a"><div class="l">何も対策をしない場合の最小（配偶者 '+Math.round(nMin.r*100)+'%）との差額</div><div class="v">−'+yen(cut)+'</div></div>':'')+'</div>'
-    +planTable
+    +methodsBlock+planTable
     +cmpTable
     +'<div class="sec-title pbefore">配偶者の取得割合による二次相続シミュレーション（最適解）</div>'
     +'<div class="note" style="margin:0 0 8px;">各取得割合で「生命保険（非課税枠）＋暦年贈与」を最適化し、一次＋二次＋贈与税の合計が最小となる組み合わせを探索しています。緑＝最適な取得割合、紫＝現在の分割案。</div>'
