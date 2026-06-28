@@ -4240,6 +4240,36 @@ function downloadSecondaryPDF(mode){
   const samp = (mode==='savings')? D.savings : D.normal;
   const mb=samp.samples[samp.minIdx], mc=samp.samples[D.curIdx];
   const nb=D.normal.samples[D.normal.minIdx];
+  // ===== 節税策の効果の説明（節税策込み版のみ） =====
+  let saveExplain='';
+  if(mode==='savings'){
+    const ci=D.curIdx;
+    const cur=D.normal.samples[ci], curS=D.savings.samples[ci];
+    const acq=cur.acq, sptax=cur.spouseTax, baseRed=D.consume-D.increase;
+    const sec0=cur.second, secAll=curS.second;          // 二次相続税：対策なし／対策あり
+    const secAfter=(extra)=>secondInheritance(acq, D.own, baseRed+extra, D.nCh, D.years, sptax).second;
+    const secIns=st.insCompress>0?secAfter(st.insCompress):sec0;
+    const secInsGen=st.gGenGiven>0?secAfter(st.insCompress+st.gGenGiven):secIns;
+    const redIns=sec0-secIns, redGen=secIns-secInsGen, redSpc=secInsGen-secAll;
+    const totRed2=sec0-secAll;                            // 二次相続税の総削減
+    const first=cur.first, totalBefore=cur.total, totalAfter=curS.total, netCut=totalBefore-totalAfter;
+    const minRatio=Math.round(nb.r*100), minNoneTotal=nb.total, minSaveTotal=D.savings.samples[D.normal.minIdx].total, minCut=minNoneTotal-minSaveTotal;
+    let stratRows='';
+    if(st.insP>0) stratRows+='<tr><td>生命保険の活用（非課税枠の圧縮）</td><td class="r">'+yen(st.insP)+'</td><td class="r">−'+yen(redIns)+'</td><td class="r">-</td></tr>';
+    if(st.gGenGiven>0) stratRows+='<tr><td>暦年贈与（一般贈与）</td><td class="r">'+yen(st.gGenGiven)+'</td><td class="r">−'+yen(redGen)+'</td><td class="r">'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>';
+    if(st.gSpcGiven>0) stratRows+='<tr><td>暦年贈与（特例贈与）</td><td class="r">'+yen(st.gSpcGiven)+'</td><td class="r">−'+yen(redSpc)+'</td><td class="r">'+(st.gSpcTax?'＋'+yen(st.gSpcTax):'-')+'</td></tr>';
+    saveExplain='<div class="keepblk"><div class="sec-title">節税策の効果（現在の分割案・最小取得割合での比較）</div>'
+      +'<div class="note" style="margin:0 0 8px;">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）について、何も対策を講じない場合と、生命保険・暦年贈与等の節税策を講じた場合の一次・二次相続税を比較します。</div>'
+      +'<table class="t chead nowraph"><thead><tr><th>現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）</th><th class="r">一次相続税</th><th class="r">二次相続税</th><th class="r">贈与税</th><th class="r">一次＋二次＋贈与 合計</th></tr></thead><tbody>'
+      +'<tr><td>節税策なし（現状）</td><td class="r">'+yen(first)+'</td><td class="r">'+yen(sec0)+'</td><td class="r">-</td><td class="r">'+yen(totalBefore)+'</td></tr>'
+      +'<tr><td>節税策あり</td><td class="r">'+yen(first)+'</td><td class="r">'+yen(secAll)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td><td class="r">'+yen(totalAfter)+'</td></tr>'
+      +'<tr class="tot"><td>削減額</td><td class="r">-</td><td class="r">−'+yen(totRed2)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td><td class="r">−'+yen(netCut)+'</td></tr></tbody></table>'
+      +(stratRows?'<table class="t chead nowraph" style="margin-top:8px;"><thead><tr><th>講じた節税策</th><th class="r">支出・贈与額</th><th class="r">二次相続税の削減</th><th class="r">贈与税の発生</th></tr></thead><tbody>'+stratRows
+        +'<tr class="tot"><td>合計</td><td class="r">'+yen(st.spendCash)+'</td><td class="r">−'+yen(totRed2)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td></tr></tbody></table>':'')
+      +'<div class="note" style="margin-top:8px;">節税策により二次相続税が '+yen(totRed2)+' 減少し、贈与税 '+yen(st.giftTaxTotal)+' を考慮した<b>実質の削減額は '+yen(netCut)+'</b>です（合計 '+yen(totalBefore)+' → '+yen(totalAfter)+'）。</div>'
+      +'<div class="note" style="margin-top:4px;">なお、何も対策を講じない場合に最も税負担が軽くなるのは<b>配偶者の取得割合 '+minRatio+'%</b>のときで、一次＋二次合計は '+yen(minNoneTotal)+' です。同じ '+minRatio+'% の取得割合で同じ節税策を講じると合計は '+yen(minSaveTotal)+' となり、<b>'+yen(minCut)+' の削減</b>となります。</div>'
+      +'</div>';
+  }
   const styles=REPORT_STYLE;
   let body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
@@ -4255,7 +4285,8 @@ function downloadSecondaryPDF(mode){
     +'<div class="kpi a"><div class="l">配偶者の取得割合'+Math.round(mb.r*100)+'％の時の一次・二次相続税'+(mode==='savings'?'＋贈与税':'')+'の合計額</div><div class="v">'+yen(mb.total)+'</div></div>'
     +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）の一次・二次相続税の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
     +(mode==='savings'?'<div class="kpi a"><div class="l">節税対策をしない場合とした場合の一次・二次相続税負担額の差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
-    +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
+    +saveExplain
+    +'<div class="sec-title'+(mode==='savings'?' pbefore':'')+'">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
     +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME, D.curIdx)+'</div>'
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
     +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>';
