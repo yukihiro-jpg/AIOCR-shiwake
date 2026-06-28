@@ -4327,25 +4327,39 @@ function buildAgreement(){
   if(!heirs.length){ toast('相続人を入力してください', true); return; }
   const base=d.deathDate? toWarekiDate(d.deathDate):'';
   const heldByCat=(h,key)=>currentCase.assets.filter(a=>a.category===key && allocAmt(a,h)!==0);
-  // 各相続人の取得財産（種別ごとに項目化）
+  // 各相続人の取得財産（種別ごとに項目化）。財産一覧に登録された内容を可能な限り引用する。
   function heirItems(h){
     const subs=[]; const re=(s)=>'<div class="re-block">'+s+'</div>';
+    const F=(label,val)=>{ val=(val==null?'':String(val)).trim(); return val?('<div class="re-line"><span class="re-k">'+label+'</span>'+esc(val)+'</div>'):''; };
+    const yenLine=(label,n)=>'<div class="re-line"><span class="re-k">'+label+'</span>'+num(n).toLocaleString('ja-JP')+' 円'+(base?'（'+base+' 現在）':'')+'</div>';
+    const mochibun=(a)=>{ const n=num(a.ownNum||1), de=num(a.ownDen||1); return (de>0 && de!==n)?(de+'分の'+n):''; };
+    // 不動産（土地・建物）
     const lands=heldByCat(h,'land'), blds=heldByCat(h,'building');
-    if(lands.length||blds.length){ let b='以下の土地・建物の一切（当該不動産に関する賃貸借契約に基づく賃貸人としての地位、およびこれに付随する一切の権利義務を含む）。';
-      lands.forEach(a=>{ b+=re('所　在　'+esc(a.location||'')+'<br>地　目　'+esc(a.subcategory||'')+'<br>地　積　'+esc(a.quantity||'')+'㎡'); });
-      blds.forEach(a=>{ b+=re('所　在　'+esc(a.location||'')+'<br>種　類　'+esc(a.subcategory||'')+(a.riyou?'（'+esc(a.riyou)+'）':'')+'<br>床面積　'+esc(a.quantity||'')+'㎡'); });
+    if(lands.length||blds.length){ let b='<div class="re-lead">以下の不動産の一切（当該不動産に関する賃貸借契約に基づく賃貸人としての地位、及びこれに付随する一切の権利義務を含む）。</div>';
+      lands.forEach(a=>{ const area=num(a.kazeiChiseki)||num(a.tokiChiseki)||num(a.quantity);
+        b+=re('<div class="re-h">【土地】</div>'+F('所　在',a.location)+F('地　番',a.chiban)+F('地　目',a.kazeiChimoku||a.tokiChimoku||a.subcategory)+(area?F('地　積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))+F('利用区分',a.landUse||a.riyou)+F('備　考',a.memo)); });
+      blds.forEach(a=>{ const area=num(a.kazeiYuka)||num(a.tokiYuka)||num(a.quantity);
+        b+=re('<div class="re-h">【建物】</div>'+F('所　在',a.location)+F('家屋番号',a.kaokuNo)+F('種　類',a.subcategory)+F('構　造',a.kozo)+F('階　層',a.kaiso)+(area?F('床面積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))+F('利用区分',a.buildingUse||a.riyou)+F('備　考',a.memo)); });
       subs.push({t:'不動産',b}); }
+    // 預貯金
     const yokin=heldByCat(h,'cash').filter(a=>!/現金/.test(a.subcategory||''));
-    if(yokin.length){ let b=''; yokin.forEach(a=>{ b+=re(esc([a.name,a.branch,a.subcategory].filter(Boolean).join(' '))+'<br>口座番号 '+esc(a.accountNo||'')+'<br>口座名義 '+esc(a.nominee||'')+'<br>'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円'+(base?'（'+base+' 現在）':'')); });
-      b+='<div style="margin-top:4px;">上記各口座に関する預貯金、並びに本協議成立時までに生じた利息および未受領配当金等の一切。</div>'; subs.push({t:'預貯金',b}); }
+    if(yokin.length){ let b=''; yokin.forEach(a=>{ b+=re(F('金融機関',a.name)+F('支　店',a.branch)+F('種　別',a.subcategory)+F('口座番号',a.accountNo)+F('名　義',a.nominee)+yenLine('金　額',allocAmt(a,h))); });
+      b+='<div class="re-note">上記各口座に関する預貯金、並びに本協議成立時までに生じた利息及び未受領配当金等の一切。</div>'; subs.push({t:'預貯金',b}); }
+    // 有価証券・投資信託
     const sec=heldByCat(h,'securities');
-    if(sec.length){ let b=''; sec.forEach(a=>{ b+=re(esc(a.name||(isFund(a)?'投資信託':'有価証券'))+(a.subcategory?'（'+esc(a.subcategory)+'）':'')+'　'+(a.quantity?num(a.quantity).toLocaleString('ja-JP')+(isFund(a)?' 口':' 株'):'')+(base?'（'+base+'現在）':'')); });
-      b+='<div style="margin-top:4px;">上記に関する本協議成立時までに生じた運用益、分配金の再投資による増加口数、未受領配当金を含む当該口座に関する一切の権利。</div>'; subs.push({t:'有価証券・投資信託',b}); }
-    const unl=heldByCat(h,'unlisted'); if(unl.length){ let b=''; unl.forEach(a=>{ b+=re(esc(a.name||'')+'　'+(a.quantity?num(a.quantity).toLocaleString('ja-JP')+' 株':'')); }); subs.push({t:'非上場株式・出資金',b}); }
-    const cash=heldByCat(h,'cash').filter(a=>/現金/.test(a.subcategory||'')); if(cash.length){ subs.push({t:'現金',b:'被相続人が有していた手元現金一切。'}); }
-    const ins=heldByCat(h,'insurance'); if(ins.length){ let b=''; ins.forEach(a=>{ b+=re(esc([a.subcategory,a.name].filter(Boolean).join(' '))+(a.nominee?'（受取人：'+esc(a.nominee)+'）':'')+'　'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円'); }); subs.push({t:'生命保険金等の受取権',b}); }
-    const ret=heldByCat(h,'retirement'); if(ret.length){ let b=''; ret.forEach(a=>{ b+=re(esc([a.subcategory,a.name].filter(Boolean).join(' '))+'　'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円'); }); subs.push({t:'退職手当金等',b}); }
-    const oth=heldByCat(h,'other'); if(oth.length){ let b=''; oth.forEach(a=>{ b+=re(esc([a.subcategory,a.name,a.location].filter(Boolean).join('　'))+'　'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円'); }); subs.push({t:'その他の財産',b}); }
+    if(sec.length){ let b=''; sec.forEach(a=>{ const unit=isFund(a)?'口':'株';
+      b+=re(F('種　別',a.subcategory)+F('銘　柄',a.name||(isFund(a)?'投資信託':'有価証券'))+F(isFund(a)?'ISIN等':'銘柄コード',a.code)+F(isFund(a)?'協会コード':'証券会社',a.assoc)+(a.quantity?F('数　量',num(a.quantity).toLocaleString('ja-JP')+' '+unit):'')+yenLine('金　額',allocAmt(a,h))); });
+      b+='<div class="re-note">上記に係る本協議成立時までに生じた運用益、再投資による増加口数、未受領配当金を含む当該口座に関する一切の権利。</div>'; subs.push({t:'有価証券・投資信託',b}); }
+    // 非上場株式・出資金
+    const unl=heldByCat(h,'unlisted'); if(unl.length){ let b=''; unl.forEach(a=>{ b+=re(F('会社名',a.name)+F('所在地',a.location)+(a.quantity?F('株　数',num(a.quantity).toLocaleString('ja-JP')+' 株'):'')+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'非上場株式・出資金',b}); }
+    // 現金
+    const cash=heldByCat(h,'cash').filter(a=>/現金/.test(a.subcategory||'')); if(cash.length){ let b=''; cash.forEach(a=>{ b+=re(F('内　容',a.name||'現金')+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'現金',b}); }
+    // 生命保険金等
+    const ins=heldByCat(h,'insurance'); if(ins.length){ let b=''; ins.forEach(a=>{ b+=re(F('保険会社・種別',[a.subcategory,a.name].filter(Boolean).join(' '))+F('種　類',a.insType)+F('証券番号',a.accountNo)+F('受取人',a.nominee)+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'生命保険金等の受取権',b}); }
+    // 退職手当金等
+    const ret=heldByCat(h,'retirement'); if(ret.length){ let b=''; ret.forEach(a=>{ b+=re(F('種　別',a.subcategory)+F('支給者',a.name)+F('受取人',a.nominee)+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'退職手当金等',b}); }
+    // その他
+    const oth=heldByCat(h,'other'); if(oth.length){ let b=''; oth.forEach(a=>{ b+=re(F('種　別',a.subcategory)+F('内　容',a.name)+F('所在・明細',a.location)+(a.quantity?F('数　量',num(a.quantity).toLocaleString('ja-JP')):'')+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'その他の財産',b}); }
     return subs;
   }
   let sections=''; let cn=0;
@@ -4372,7 +4386,14 @@ function buildAgreement(){
   if(currentCase.agreement.notes){ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（特記事項）</div><div class="agr-sub-b">'+esc(currentCase.agreement.notes).replace(/\n/g,'<br>')+'</div></div>'; }
 
   const dateStr=currentCase.agreement.date? toWarekiDate(currentCase.agreement.date) : '令和　　年　　月　　日';
-  let sigs=''; heirs.forEach(h=>{ sigs+='<div class="sig-block"><div class="sig-row"><span class="sl">住　所</span><span class="sv">'+esc(h.address||'')+'</span></div><div class="sig-row"><span class="sl">氏　名</span><span class="sv">'+esc(h.name)+'</span><span class="seal">印</span></div></div>'; });
+  let sigs=''; heirs.forEach(h=>{ sigs+='<table class="sig-table"><tbody><tr>'
+    +'<td class="seal-cell"><div class="seal-cap">捨印</div><div class="seal-mark">㊞</div></td>'
+    +'<td class="sig-cell"><table class="sig-inner"><tbody>'
+    +'<tr><td class="sl">住　所</td><td class="sv">'+esc(h.address||'')+'</td></tr>'
+    +'<tr><td class="sl">氏　名</td><td class="sv">'+esc(h.name)+'</td></tr>'
+    +'</tbody></table></td>'
+    +'<td class="seal-cell"><div class="seal-cap">実印</div><div class="seal-mark">㊞</div></td>'
+    +'</tr></tbody></table>'; });
 
   const styles=DOC_STYLE_BASE+`
     .cover{display:flex;align-items:center;justify-content:center;min-height:240mm;page-break-after:always;}
@@ -4387,14 +4408,24 @@ function buildAgreement(){
     .agr-sub{margin:6px 0 6px 1em;}
     .agr-sub-t{font-weight:700;page-break-after:avoid;}
     .agr-sub-b{margin-left:1em;font-size:10.5pt;line-height:1.8;page-break-inside:avoid;}
-    .re-block{margin:14px 0 14px 1em;line-height:1.7;page-break-inside:avoid;}
+    .re-block{margin:10px 0 10px 1em;line-height:1.7;page-break-inside:avoid;}
+    .re-lead{margin:6px 0 4px;}
+    .re-h{font-weight:700;margin-bottom:2px;}
+    .re-line{line-height:1.75;}
+    .re-k{display:inline-block;width:86px;vertical-align:top;}
+    .re-note{margin-top:4px;font-size:10pt;}
     .closing{text-indent:1em;margin:18px 0;}
     .date{margin:16px 0;}
-    .sig-block{margin-bottom:18px;page-break-inside:avoid;}
-    .sig-row{display:flex;align-items:baseline;margin-bottom:6px;}
-    .sig-row .sl{width:80px;}
-    .sig-row .sv{flex:1;border-bottom:1px solid #000;padding:0 6px;min-height:1.8em;}
-    .sig-row .seal{margin-left:16px;}
+    .sig-table{width:100%;border-collapse:collapse;margin-bottom:16px;page-break-inside:avoid;}
+    .sig-table>tbody>tr>td{vertical-align:middle;}
+    .seal-cell{width:72px;border:1px solid #888;text-align:center;padding:8px 2px;}
+    .seal-cap{font-size:9pt;color:#555;margin-bottom:3px;}
+    .seal-mark{font-size:22pt;color:#c0392b;line-height:1;}
+    .sig-cell{padding:2px 18px;}
+    .sig-inner{width:100%;border-collapse:collapse;}
+    .sig-inner td{padding:7px 0;font-size:11pt;}
+    .sig-inner .sl{width:74px;white-space:nowrap;}
+    .sig-inner .sv{border-bottom:1px solid #000;padding:0 8px;}
   `;
   const body='<div class="cover"><h1>遺産分割協議書</h1></div>'
     +'<h1>遺産分割協議書</h1>'
