@@ -2,13 +2,16 @@ import type { FiscalYearData } from './types'
 import { CODES, singleMonth, ytd } from './calc'
 import { aggregateRows, aggRowValue, type AggRow } from './analysis'
 
-export type ReportKey = 'trialPL' | 'trialBS' | 'cmpPL' | 'cmpBS' | 'trendPL' | 'trendBS'
-export const REPORT_KEYS: ReportKey[] = ['trialPL', 'trialBS', 'cmpPL', 'cmpBS', 'trendPL', 'trendBS']
+export type ReportKey = 'trialPL' | 'trialBS' | 'cmpPL' | 'cmpBS' | 'trendPL' | 'trendBS' | 'trend3PL'
+export const REPORT_KEYS: ReportKey[] = ['trialPL', 'trialBS', 'cmpPL', 'cmpBS', 'trendPL', 'trendBS', 'trend3PL']
 export const REPORT_LABELS: Record<ReportKey, string> = {
   trialPL: '月次試算表(PL)', trialBS: '月次試算表(BS)',
   cmpPL: '3期比較(PL)', cmpBS: '3期比較(BS)',
   trendPL: '推移表(PL)', trendBS: '推移表(BS)',
+  trend3PL: '3期PL推移表（A3縦）',
 }
+// A3縦で出力する帳票（横幅はA4横と同じ297mm。縦が長く明細の多い表に好適）
+const A3_PORTRAIT_KEYS: ReportKey[] = ['trend3PL']
 
 function fmtAcct(n: number): string {
   if (!n) return '0'
@@ -68,6 +71,7 @@ function buildOne(key: ReportKey, fy: FiscalYearData, comp: FiscalYearData[], mo
     const headers = [prev2 ? prev2.label : '前々期', prev ? prev.label : '前期', `${cur.label}（当期）`, '前期比増減', '増減率']
     return { title: `${statement === 'PL' ? '損益計算書' : '貸借対照表'}（3期比較）`, sub: statement === 'PL' ? `期首〜${monthLabel}累計` : `${monthLabel}末残高`, table: tableHtml(headers, data) }
   }
+  if (key === 'trend3PL') return buildTrend3(comp, monthIdx)
   // trendPL / trendBS
   const statement = key === 'trendPL' ? 'PL' : 'BS'
   const cumMode: 'single' | 'cum' = key === 'trendPL' ? 'cum' : 'single'
@@ -76,6 +80,61 @@ function buildOne(key: ReportKey, fy: FiscalYearData, comp: FiscalYearData[], mo
   }))
   const headers = [...months.map((m) => `${m}月`), key === 'trendPL' ? '累計' : `${monthLabel}末`]
   return { title: `${statement === 'PL' ? '損益計算書' : '貸借対照表'}（月次推移）`, sub: statement === 'PL' ? `単月発生額 ／ 期首〜${monthLabel}` : `各月末残高 ／ 〜${monthLabel}`, table: tableHtml(headers, data) }
+}
+
+// いずれかの期に存在するPL科目を、当期→前期→前々期の順序を尊重してunion（欠落科目は直前科目の後ろに挿入）
+function unionPL(comp: FiscalYearData[]): AggRow[] {
+  const periods = [comp[comp.length - 1], comp[comp.length - 2] ?? null, comp[comp.length - 3] ?? null]
+  const merged: AggRow[] = []
+  const pos = new Map<string, number>()
+  const rebuild = () => { pos.clear(); merged.forEach((r, i) => pos.set(r.name, i)) }
+  const seed = periods.find((y) => y)
+  if (seed) for (const r of aggregateRows(seed).filter((r) => r.statement === 'PL')) merged.push(r)
+  rebuild()
+  const weave = (y: FiscalYearData | null) => {
+    if (!y) return
+    let last = -1
+    for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) {
+      if (pos.has(r.name)) { last = pos.get(r.name)! }
+      else { merged.splice(last + 1, 0, r); rebuild(); last = last + 1 }
+    }
+  }
+  weave(periods[1]); weave(periods[2])
+  return merged
+}
+
+// 3期PL推移表：各科目を当期/前期/前々期の3行で縦に並べ、月次推移＋合計（年計）＋期首〜選択月累計を表示
+function buildTrend3(comp: FiscalYearData[], monthIdx: number): OneReport {
+  const cur = comp[comp.length - 1]
+  const periods = [comp[comp.length - 1], comp[comp.length - 2] ?? null, comp[comp.length - 3] ?? null]
+  const labels = ['当期', '前期', '前々期']
+  const months = cur.fiscalMonths
+  const monthLabel = `${cur.fiscalMonths[monthIdx]}月`
+  const maps = periods.map((y) => { const m = new Map<string, AggRow>(); if (y) for (const r of aggregateRows(y).filter((r) => r.statement === 'PL')) m.set(r.name, r); return m })
+  const order = unionPL(comp)
+  const cum = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
+
+  const head = `<tr><th class="name">科目</th><th class="num kbnh">期</th>${months.map((m) => `<th class="num">${m}月</th>`).join('')}<th class="num">合計額<br><span class="th2">年計</span></th><th class="num">累計額<br><span class="th2">期首〜${esc(monthLabel)}</span></th></tr>`
+  const body = order.map((base) => {
+    const baseCls = base.isSubtotal ? (base.bracket === 'profit' ? 'sub profit' : 'sub') : ''
+    const pad = 4 + base.level * 10
+    const rows = periods.map((y, pi) => {
+      const row = y ? maps[pi].get(base.name) : undefined
+      const nameCell = pi === 0 ? `<th class="name" rowspan="3" style="padding-left:${pad}px">${esc(base.name)}</th>` : ''
+      const totalV = row ? row.annual : null
+      const cumV = cum(row)
+      const monthCells = months.map((_, mi) => `<td class="num">${row ? fmtAcct(row.monthly[mi] ?? 0) : '—'}</td>`).join('')
+      const rowCls = `${baseCls} r${pi}`.trim()
+      return `<tr class="${rowCls}">${nameCell}<td class="num kbn">${labels[pi]}</td>${monthCells}<td class="num tot">${totalV == null ? '—' : fmtAcct(totalV)}</td><td class="num tot">${cumV == null ? '—' : fmtAcct(cumV)}</td></tr>`
+    }).join('')
+    return `<tbody class="acct">${rows}</tbody>` // 科目ごとに1tbody＝改ページで3行が分断されない
+  }).join('')
+
+  return {
+    title: '損益計算書（3期推移）',
+    sub: `当期・前期・前々期 ／ 単月発生額 ／ 合計＝年計・累計＝期首〜${monthLabel}`,
+    table: `<table class="grid t3"><thead>${head}</thead>${body}</table>`,
+  }
 }
 
 /** 選択した帳票を1ファイル（項目ごとに改ページ）として印刷ダイアログで開く */
@@ -87,7 +146,8 @@ export function openReportsPdf(company: string, fy: FiscalYearData, comp: Fiscal
   const co = company || '顧問先'
   const sections = keys.map((k) => {
     const o = buildOne(k, fy, comp, monthIdx)
-    return `<section class="report">
+    const a3 = A3_PORTRAIT_KEYS.includes(k) ? ' a3p' : ''
+    return `<section class="report${a3}">
       <div class="head"><div><div class="ttl">${esc(o.title)}</div><div class="co">${esc(co)}　御中　<span class="sub2">${esc(o.sub)}</span></div></div>
       <div class="meta">${esc(fy.label)}<br>対象：期首〜${monthLabel}<br>作成日：${dateStr}</div></div>
       ${o.table}</section>`
@@ -113,7 +173,27 @@ export function openReportsPdf(company: string, fy: FiscalYearData, comp: Fiscal
     td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
     tr.sub td,tr.sub th{background:#eef1f5;font-weight:700;}
     tr.sub.profit td,tr.sub.profit th{background:#e7eefc;color:#1F3A5F;}
-    @media print{ @page{ size:A4 landscape; margin:8mm; } tr{break-inside:avoid;} table{break-inside:auto;} }
+    /* 3期PL推移表（科目ごとに当期/前期/前々期の3行） */
+    table.t3{font-size:7.5px;}
+    table.t3 th.name{vertical-align:top;}
+    table.t3 td.kbn,table.t3 th.kbnh{text-align:center;width:30px;}
+    table.t3 td.kbn{color:#1F3A5F;font-weight:600;}
+    table.t3 td.tot{background:#eef4ff;font-weight:700;}
+    table.t3 thead th .th2{font-weight:400;font-size:6.5px;opacity:.85;}
+    table.t3 tr.r1 td,table.t3 tr.r2 td{color:#555;}
+    table.t3 tr.sub td,table.t3 tr.sub th{background:#eef1f5;}
+    table.t3 tr.sub.profit td,table.t3 tr.sub.profit th{background:#e7eefc;color:#1F3A5F;}
+    table.t3 tr.sub.profit td.tot{background:#dbe6fb;}
+    table.t3 tr.profit.r0 td,table.t3 tr.profit.r0 th{border-top:2px solid #1F3A5F;}
+    table.t3 tr.profit.r2 td,table.t3 tr.profit.r2 th{border-bottom:2px solid #1F3A5F;}
+    table.t3 tbody.acct{break-inside:avoid;}
+    table.t3 thead th{position:sticky;top:0;}
+    .report.a3p{page:a3p;}
+    @media print{
+      @page{ size:A4 landscape; margin:8mm; }
+      @page a3p{ size:A3 portrait; margin:8mm; }
+      tr{break-inside:avoid;} table{break-inside:auto;}
+    }
   </style></head>
   <body onload="setTimeout(function(){window.focus();window.print();},250)">${sections}</body></html>`
 
