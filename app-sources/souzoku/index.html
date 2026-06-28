@@ -3833,7 +3833,7 @@ h3.blk{font-size:13px;font-weight:700;margin:16px 0 6px;padding-left:8px;border-
 .kpi .v{font-size:18px;font-weight:800;color:#1F3A5F;margin-top:4px;font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI",sans-serif;}
 .seckpi .kpi{text-align:center;padding:13px 13px;}
 .seckpi .kpi .l{font-size:12.5px;font-weight:700;color:#5a6573;letter-spacing:.2px;line-height:1.5;}
-.seckpi .kpi .v{font-size:24px;margin-top:6px;}
+.seckpi .kpi .v{font-size:24px;margin-top:6px;white-space:nowrap;}
 .kpi.a,.kpi.hl{border-top-color:#C8A24B;background:#fbf7ee;}
 .chartbox{border:1px solid #e3e7ee;border-radius:8px;padding:12px;margin-bottom:12px;background:#fcfcfd;}
 table.t{width:100%;border-collapse:collapse;margin-bottom:8px;}
@@ -3863,7 +3863,9 @@ h3.blk{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-in
 .keepblk{page-break-inside:avoid;break-inside:avoid;}
 .pbefore{page-break-before:always;break-before:page;}
 table.t.nowraph th,table.t.nowraph td{white-space:nowrap;}
-@media print{@page{size:A4;margin:0;}}`;
+table.t.chead thead th{text-align:center;}
+table.t.nowraph td .pdesc{white-space:normal;}
+@media print{@page{size:A4;margin:16mm 14mm;}.page{padding:0;}}`;
 function buildReport(){
   const r=calcTax();
   const sc=k=>currentCase.assets.filter(a=>a.category===k).reduce((s,a)=>s+assetVal(a),0);
@@ -4117,23 +4119,23 @@ function downloadSavingsPDF(){
   const hasGift=R.gTaxTotal>0;
   let mrows=R.rows.map((x,i)=>{ const s=currentCase.savings[i]; const t=SAVING_BY_KEY[s.key];
     const pdesc=t.fields.map(f=>f.label+'：'+(f.type==='money'?yen(num(s.params[f.k])):(s.params[f.k]||'-'))).join(' ／ ');
-    return '<tr><td>'+esc(x.name)+'<div style="font-size:10px;color:#666;">'+esc(pdesc)+'</div></td><td class="r">'+(x.dT?'−'+yen(x.dT):'-')+'</td><td class="r">'+(x.dn?'＋'+x.dn+'人':'-')+'</td>'+(hasGift?'<td class="r">'+(x.gTax?'＋'+yen(x.gTax):'-')+'</td>':'')+'</tr>';
+    return '<tr><td>'+esc(x.name)+'<div class="pdesc" style="font-size:10px;color:#666;">'+esc(pdesc)+'</div></td><td class="r">'+(x.dT?'−'+yen(x.dT):'-')+'</td><td class="r">'+(x.dn?'＋'+x.dn+'人':'-')+'</td>'+(hasGift?'<td class="r">'+(x.gTax?'＋'+yen(x.gTax):'-')+'</td>':'')+'</tr>';
   }).join('');
   const styles=REPORT_STYLE;
   const body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">相続税 節税シミュレーション報告書</div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
-    +'<div class="kpis"><div class="kpi"><div class="l">対策前 相続税の総額</div><div class="v">'+yen(R.baseTax)+'</div></div>'
+    +'<div class="kpis seckpi"><div class="kpi"><div class="l">対策前 相続税の総額</div><div class="v">'+yen(R.baseTax)+'</div></div>'
     +'<div class="kpi"><div class="l">対策後 相続税の総額</div><div class="v">'+yen(R.afterTax)+'</div></div>'
     +'<div class="kpi"><div class="l">相続税の削減額</div><div class="v">'+yen(R.save)+'</div></div>'
     +(hasGift?'<div class="kpi"><div class="l">贈与税の発生額</div><div class="v">＋'+yen(R.gTaxTotal)+'</div></div>':'')
     +'<div class="kpi a"><div class="l">'+(hasGift?'実質の節税効果':'節税効果（削減額）')+'</div><div class="v">'+yen(R.netSave)+'</div></div></div>'
     +'<div class="keepblk"><div class="sec-title">課税価格の比較</div>'
-    +'<table class="t"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
+    +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
     +'<tr><td>課税価格の合計額</td><td class="r">'+yen(R.T0)+'</td><td class="r">'+yen(R.T1)+'</td></tr>'
     +'<tr><td>課税価格の削減額</td><td class="r">-</td><td class="r">−'+yen(R.dTtotal)+'</td></tr>'
     +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(R.baseTax)+'</td><td class="r">'+yen(R.afterTax)+'</td></tr></tbody></table></div>'
     +'<div class="keepblk"><div class="sec-title">実施する節税対策</div>'
-    +'<table class="t"><thead><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr></thead><tbody>'+mrows
+    +'<table class="t chead nowraph"><thead><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr></thead><tbody>'+mrows
     +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></tbody></table></div>'
     +(hasGift?'<div class="note">※ 相続税の削減額 '+yen(R.save)+' から贈与税の発生額 '+yen(R.gTaxTotal)+' を差し引いた<b>実質の節税効果は '+yen(R.netSave)+'</b>です（年110万円超の暦年贈与に特例税率で課税）。</div>':'')
     +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。実行可否は必ず税理士にご相談ください。</div>'
