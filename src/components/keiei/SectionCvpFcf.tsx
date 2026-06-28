@@ -24,7 +24,8 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)) }
 function parseNum(s: string) { return Number(s.replace(/[^0-9.\-]/g, '')) || 0 }
 
-export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, onSettingsChange, years }: {
+export type CvpSim = { sales: number; gross: number; var: number; fixed: number }
+export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, onSettingsChange, years, sim, onSimChange }: {
   fy: FiscalYearData
   prior: FiscalYearData | null
   monthIdx: number
@@ -32,6 +33,8 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
   settings: KeieiSettings
   onSettingsChange: (s: KeieiSettings) => void
   years: Record<string, FiscalYearData>
+  sim?: CvpSim
+  onSimChange?: (s: CvpSim) => void
 }) {
   const base = cvp(fy, monthIdx, settings)
   const fcf = fcfAnalysis(fy, prior, monthIdx)
@@ -39,10 +42,16 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const [showEditor, setShowEditor] = useState(false)
   // シミュレータ（売上%／粗利率pt／変動費率pt／固定費%）
-  const [salesAdj, setSalesAdj] = useState(0)
-  const [grossAdj, setGrossAdj] = useState(0)
-  const [varAdj, setVarAdj] = useState(0)
-  const [fixedAdj, setFixedAdj] = useState(0)
+  // 親（KeieiContent）が状態を保持している場合はそれを使い、印刷時もユーザー調整値を反映する。
+  // 単体利用（親未指定）のときはローカル状態にフォールバック。
+  const [localSim, setLocalSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
+  const s0 = sim ?? localSim
+  const setSim = onSimChange ?? setLocalSim
+  const salesAdj = s0.sales, grossAdj = s0.gross, varAdj = s0.var, fixedAdj = s0.fixed
+  const setSalesAdj = (v: number) => setSim({ ...s0, sales: v })
+  const setGrossAdj = (v: number) => setSim({ ...s0, gross: v })
+  const setVarAdj = (v: number) => setSim({ ...s0, var: v })
+  const setFixedAdj = (v: number) => setSim({ ...s0, fixed: v })
 
   const baseVarRate = base.sales ? base.variable / base.sales : 0
   const compute = (salesMul: number, marginPt: number, fixedMul: number) => {

@@ -18,7 +18,7 @@ import { ComboBarLine, GroupedBars } from './charts'
 import { loadSettings, saveSettings } from '@/lib/keiei/store'
 import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
 import SectionDetail from './SectionDetail'
-import SectionCvpFcf from './SectionCvpFcf'
+import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
 
@@ -89,6 +89,8 @@ export default function KeieiContent() {
   const TABS: [View, string][] = [['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']]
   const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
+  // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
+  const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
   const [printSel, setPrintSel] = useState<View[]>(['overview', 'report', 'detail', 'cvpfcf', 'cash'])
   const [printViews, setPrintViews] = useState<View[] | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
@@ -124,7 +126,7 @@ export default function KeieiContent() {
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
       case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
-      case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />
+      case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} sim={cvpSim} onSimChange={setCvpSim} />
       case 'cash': return <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />
     }
   }
@@ -386,7 +388,8 @@ export default function KeieiContent() {
         @media print {
           body * { visibility: hidden; }
           #keiei-multiprint, #keiei-multiprint * { visibility: visible; }
-          #keiei-multiprint { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #243042; }
+          #keiei-multiprint { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #243042; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          #keiei-multiprint * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           #keiei-multiprint * { overflow: visible !important; max-height: none !important; }
           @page { size: A4; margin: 14mm 12mm; }
 
@@ -409,6 +412,19 @@ export default function KeieiContent() {
           /* 操作系（スライダー・ボタン）は報告書では非表示。数値・入力値は残す */
           #keiei-multiprint input[type='range'], #keiei-multiprint button { display: none !important; }
           #keiei-multiprint input { border-color: #d7dde6 !important; }
+
+          /* 表を二次相続レポートと同系統のコンサル調に：ネイビーのヘッダ・細罫線・ゼブラ */
+          #keiei-multiprint table { border-collapse: collapse !important; width: 100%; }
+          #keiei-multiprint thead th, #keiei-multiprint thead td { background: #1f3a5f !important; color: #fff !important; border-color: #1f3a5f !important; font-weight: 700; }
+          #keiei-multiprint table th, #keiei-multiprint table td { border: 1px solid #d3dae3 !important; }
+          #keiei-multiprint tbody tr:nth-child(even) td { background: #f6f8fb !important; }
+          /* 合計・強調行（太字）は淡いネイビー地に寄せる */
+          #keiei-multiprint tbody tr.font-bold td, #keiei-multiprint tbody tr.font-semibold td { background: #e7edf5 !important; }
+          /* 損益・安全性などの良し悪しは緑/赤を維持（コンサル調でも意味色は残す） */
+          #keiei-multiprint .text-green-600, #keiei-multiprint .text-green-700 { color: #1a7f37 !important; }
+          #keiei-multiprint .text-amber-700, #keiei-multiprint .text-amber-600 { color: #b4690e !important; }
+          /* ゴールドの細い区切りをセクション見出し直後に */
+          #keiei-multiprint .kp-sec-title { background: linear-gradient(180deg,#fbfcfe,#fff); }
         }
       `}</style>
 
