@@ -3660,6 +3660,23 @@ const SAVING_TEMPLATES=[
     compute:(p)=>({dT:1100000*num(p.people)*num(p.years), dn:0, note:'相続時精算課税を選択した受贈者ごとに年110万円が非課税です。'})}
 ];
 const SAVING_BY_KEY=Object.fromEntries(SAVING_TEMPLATES.map(t=>[t.key,t]));
+// 各節税策で被相続人の現金預金から実際に支出する金額（保険料・贈与・購入等）
+function savingCashOut(key,p){ p=p||{};
+  switch(key){
+    case 'koyo': case 'koyoIppan': return num(p.annual)*num(p.people)*num(p.years); // 贈与の元本
+    case 'seimei': return num(p.amount);   // 一時払い保険料 ≒ 加入する死亡保険金
+    case 'fudosan': return num(p.amount);  // 不動産購入額（時価）
+    case 'chintai': return num(p.amount);  // 賃貸建物の建築費
+    case 'hikazei': return num(p.amount);  // 墓・仏壇等の購入額
+    case 'kyoiku': return num(p.amount)*num(p.people); // 教育資金の一括贈与額
+    case 'seisan110': return 1100000*num(p.people)*num(p.years); // 精算課税の贈与
+    case 'shokibo': case 'yoshi': default: return 0; // 評価減・人数増は現金支出なし
+  }
+}
+// 渡された節税策リストによる現金預金の支出合計と対策後残高（被相続人の財産一覧の現金預金ベース）
+function savingsCashSummary(list){ const arr=list||[];
+  const estate=secEstateCash(); const out=arr.reduce((t,s)=>t+savingCashOut(s.key,s.params),0);
+  return {estate, out, after:estate-out, over: out>estate}; }
 // 暦年贈与税（1年分）：base=贈与額−110万。special=特例税率（直系卑属・18歳以上）／一般税率
 function giftTaxYearly(amount, special){
   const base=Math.max(0, num(amount)-1100000);
@@ -3765,6 +3782,18 @@ function refreshSavingsResult(){
     ? '相続税 −'+yen(R.save)+'　／　贈与税 ＋'+yen(R.gTaxTotal)
     : '削減率 '+rate+'％'+(R.dnTotal?'　／　法定相続人 ＋'+R.dnTotal+'人':'');
   const selNote = all.length? '<div class="muted" style="font-size:12px;margin-bottom:10px;">下の対策のうち「合算に含める」にチェックした <b>'+selList.length+'</b> 件／全 '+all.length+' 件を<b>同時に利用した場合</b>の合算結果です（チェックを外すと合算から除外されます）。</div>':'';
+  // 節税策による現金預金の増減
+  const cash=savingsCashSummary(selList);
+  const cashBox='<div style="margin-top:14px;border:1px solid '+(cash.over?'#f1b6b6':'var(--line)')+';background:'+(cash.over?'#fff5f5':'#f7f9fc')+';border-radius:12px;padding:14px 16px;">'
+    +'<div style="font-weight:700;font-size:13.5px;margin-bottom:8px;">節税策による現金預金の増減（被相続人の財産一覧ベース）</div>'
+    +'<table class="sim-table" style="margin:0;"><tbody>'
+    +'<tr><td style="text-align:left;">現金預金の合計額（財産一覧）</td><td style="text-align:right;">'+yen(cash.estate)+'</td></tr>'
+    +'<tr><td style="text-align:left;">− 節税策による資金支出（保険料・贈与・購入等）</td><td style="text-align:right;">'+(cash.out?'−'+yen(cash.out):yen(0))+'</td></tr>'
+    +'<tr style="font-weight:700;background:#eef3f9;"><td style="text-align:left;">＝ 対策後に残る現金預金</td><td style="text-align:right;'+(cash.after<0?'color:#d70015;':'')+'">'+yen(cash.after)+'</td></tr>'
+    +'</tbody></table>'
+    +(cash.over?'<div style="color:#d70015;font-size:12px;font-weight:600;margin-top:8px;">⚠ 資金支出が現金預金の合計額を超えています。現金預金を上回る贈与・保険加入はできません。各対策の金額を見直してください。</div>'
+      :'<div class="muted" style="font-size:11.5px;margin-top:8px;">※ 生命保険の加入・暦年贈与・不動産購入等で支出した現金を、財産一覧の現金預金合計から差し引いた残額です。資金支出が現金預金を超えないようご確認ください。</div>')
+    +'</div>';
   if($('savCompare')) $('savCompare').innerHTML= selNote
     +'<div class="sav-compare">'
     +'<div class="sc-col"><div class="sc-l">対策前　相続税の総額</div><div class="sc-v">'+yen(R.baseTax)+'</div><div class="sc-sub">課税価格 '+yen(R.T0)+'</div></div>'
@@ -3772,7 +3801,8 @@ function refreshSavingsResult(){
     +'<div class="sc-col"><div class="sc-l">対策後　相続税の総額</div><div class="sc-v">'+yen(R.afterTax)+'</div><div class="sc-sub">課税価格 '+yen(R.T1)+'</div></div>'
     +'<div class="sc-col '+saveCls+'"><div class="sc-l">'+saveLbl+'</div><div class="sc-v">'+saveVal+'</div><div class="sc-sub">'+saveSub+'</div></div>'
     +'</div>'
-    +(hasGift?'<div class="muted" style="font-size:11.5px;margin-top:8px;">※ 贈与を用いた対策で年110万円を超える贈与には暦年贈与税が発生します。上記「実質の節税効果」は「相続税の削減額 − 贈与税の発生額」です。</div>':'');
+    +(hasGift?'<div class="muted" style="font-size:11.5px;margin-top:8px;">※ 贈与を用いた対策で年110万円を超える贈与には暦年贈与税が発生します。上記「実質の節税効果」は「相続税の削減額 − 贈与税の発生額」です。</div>':'')
+    +cashBox;
   // 各対策の効果ライン＋算出根拠
   all.forEach((s)=>{ const el=$('saveff-'+s.id); if(!el) return;
     if(s.sel===false){ el.innerHTML='<span class="muted" style="font-size:12px;">合算対象外（「合算に含める」にチェックすると上のサマリー・下の内訳に反映されます）</span>'; return; }
@@ -4127,6 +4157,7 @@ function downloadSavingsPDF(){
   if(!(currentCase.savings||[]).length){ toast('節税対策が登録されていません。節税シミュレーションで追加してください。', true); switchView('savings'); return; }
   const R=savingsCompute();
   const hasGift=R.gTaxTotal>0;
+  const cash=savingsCashSummary(currentCase.savings||[]);
   let mrows=R.rows.map((x,i)=>{ const s=currentCase.savings[i]; const t=SAVING_BY_KEY[s.key];
     const pdesc=t.fields.map(f=>f.label+'：'+(f.type==='money'?yen(num(s.params[f.k])):(s.params[f.k]||'-'))).join(' ／ ');
     return '<tr><td>'+esc(x.name)+'<div class="pdesc" style="font-size:10px;color:#666;">'+esc(pdesc)+'</div></td><td class="r">'+(x.dT?'−'+yen(x.dT):'-')+'</td><td class="r">'+(x.dn?'＋'+x.dn+'人':'-')+'</td>'+(hasGift?'<td class="r">'+(x.gTax?'＋'+yen(x.gTax):'-')+'</td>':'')+'</tr>';
@@ -4147,6 +4178,12 @@ function downloadSavingsPDF(){
     +'<div class="keepblk"><div class="sec-title">実施する節税対策</div>'
     +'<table class="t chead nowraph"><thead><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr></thead><tbody>'+mrows
     +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></tbody></table></div>'
+    +'<div class="keepblk"><div class="sec-title">節税策による現金預金の増減</div>'
+    +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">金額</th></tr></thead><tbody>'
+    +'<tr><td>現金預金の合計額（財産一覧）</td><td class="r">'+yen(cash.estate)+'</td></tr>'
+    +'<tr><td>− 節税策による資金支出（保険料・贈与・購入等）</td><td class="r">'+(cash.out?'−'+yen(cash.out):yen(0))+'</td></tr>'
+    +'<tr class="tot"><td>＝ 対策後に残る現金預金</td><td class="r">'+yen(cash.after)+'</td></tr></tbody></table></div>'
+    +(cash.over?'<div class="note" style="color:#b00020;">※ 資金支出が現金預金の合計額を超えています。現金預金を上回る贈与・保険加入はできないため、各対策の金額をご確認ください。</div>':'<div class="note">※ 上表は、生命保険の加入・暦年贈与・不動産購入等で支出した現金を、財産一覧の現金預金合計から差し引いた残額です。</div>')
     +(hasGift?'<div class="note">※ 相続税の削減額 '+yen(R.save)+' から贈与税の発生額 '+yen(R.gTaxTotal)+' を差し引いた<b>実質の節税効果は '+yen(R.netSave)+'</b>です（年110万円超の暦年贈与に特例税率で課税）。</div>':'')
     +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。実行可否は必ず税理士にご相談ください。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
