@@ -786,7 +786,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div style="overflow-x:auto;margin-top:14px;"><table class="sim-table" id="secAllocTable"></table></div>
       </div>
 
-      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF('normal')">📄 通常版 報告書PDF</button><button class="btn primary" onclick="downloadSecondaryPDF('savings')">📄 節税策込み版 報告書PDF</button></div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn primary" onclick="downloadSecondaryPDF('normal')">📄 通常版 報告書PDF</button><button class="btn primary" onclick="downloadSecondaryPDF('savings')">📄 節税策込み版 報告書PDF</button><button class="btn primary" onclick="downloadOptimalPDF()">📄 最適解版 報告書PDF</button></div>
       <div class="disclaimer" id="secDisclaimer"></div>
     </section>
 
@@ -849,10 +849,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
       <div class="card">
         <h2>二次相続シミュレーション報告書</h2>
-        <div class="card-sub">配偶者の取得割合による一次＋二次の税額比較・グラフをまとめた報告書です。通常版と、生命保険・暦年贈与の節税策を反映した節税策込み版を出力できます。</div>
+        <div class="card-sub">配偶者の取得割合による一次＋二次の税額比較・グラフをまとめた報告書です。通常版・節税策込み版に加え、生命保険（既加入分の枠も考慮）と暦年贈与の最適な組み合わせを自動探索した最適解版を出力できます。</div>
         <div class="btn-row">
           <button class="btn primary" onclick="downloadSecondaryPDF('normal')">通常版 PDF</button>
           <button class="btn primary" onclick="downloadSecondaryPDF('savings')">節税策込み版 PDF</button>
+          <button class="btn primary" onclick="downloadOptimalPDF()">最適解版 PDF</button>
         </div>
       </div>
       <div class="card">
@@ -4487,9 +4488,10 @@ function downloadOptimalPDF(){
   const D=secondaryReportData();
   if(!D){ toast('案件がありません', true); return; }
   if(D.noSpouse){ toast('配偶者が登録されていないため二次相続シミュレーションの対象外です。', true); switchView('secondary'); return; }
-  const yi=$('sec_optYears'); let yrs=Math.floor(num(yi&&yi.value));
+  const s=currentCase.secondary||{};
+  const yi=$('sec_optYears'); let yrs=Math.floor(num((yi&&yi.value)||s.optYears));
   if(!yrs) yrs=Math.max(1,Math.floor(D.years)||10);
-  const ei=$('sec_existIns'); D.existIns=num(ei&&ei.value);
+  const ei=$('sec_existIns'); D.existIns=num((ei&&ei.value)||s.existIns);
   const d=currentCase.deceased;
   const opt=computeOptimal(D,yrs);
   const best=opt.samples[opt.minIdx], pl=best.plan, r=Math.round(best.r*100);
