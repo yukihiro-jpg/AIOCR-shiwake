@@ -4195,7 +4195,7 @@ function downloadSecondaryPDF(mode){
   const styles=REPORT_STYLE;
   let body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
-    +'<div class="keepblk"><div class="sec-title">前提条件<span class="sec-note">（一次相続＝'+esc(d.name)+' 様の死亡による相続、二次相続＝'+esc(D.spouseName)+' 様の死亡による相続）</span></div>'
+    +'<div class="keepblk"><div class="sec-title">前提条件<span class="sec-note">（一次相続＝'+esc(d.name)+' 様の相続、二次相続＝'+esc(D.spouseName)+' 様の相続）</span></div>'
     +'<table class="t"><thead><tr><th>項目</th><th class="r">金額・条件</th></tr></thead><tbody>'
     +'<tr><td>'+esc(d.name)+' 様の相続における課税価格の合計額（一次相続）</td><td class="r">'+yen(D.E1)+'</td></tr>'
     +'<tr><td>'+esc(D.spouseName)+' 様固有の財産</td><td class="r">'+yen(D.own)+'</td></tr>'
