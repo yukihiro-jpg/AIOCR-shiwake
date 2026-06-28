@@ -709,11 +709,14 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="grid grid-4">
           <div class="field"><label>配偶者固有の財産（円）</label><input type="text" class="num" id="sec_own" placeholder="配偶者がもともと持つ財産" oninput="onSecondaryInput()"></div>
           <div class="field"><label>うち現金預金（円）<span class="muted" style="font-weight:400;font-size:11px;"> ※固有財産の内訳</span></label><input type="text" class="num" id="sec_ownCash" placeholder="固有財産のうち現預金" oninput="onSecondaryInput()"></div>
-          <div class="field"><label>二次相続までに減少する額（円）</label><input type="text" class="num" id="sec_consume" placeholder="生活費等で取り崩す額" oninput="onSecondaryInput()"></div>
           <div class="field"><label>二次相続までの想定年数</label><input type="number" min="0" max="30" id="sec_years" placeholder="例：10" oninput="onSecondaryInput()"></div>
           <div class="field"><label>二次相続の相続人（子の人数）</label><input type="number" min="1" id="sec_nchildren" placeholder="自動：子の人数" oninput="onSecondaryInput()"></div>
+          <div class="field"><label>1年で減少する額（円）</label><input type="text" class="num" id="sec_decPerYear" placeholder="例：1,000,000" oninput="onSecondaryInput()"></div>
+          <div class="field"><label>二次相続までに減少する額（円）<span class="muted" style="font-weight:400;font-size:11px;"> ※自動</span></label><input type="text" class="num" id="sec_consume" placeholder="1年で減少する額×想定年数" readonly style="background:#f1f3f6;color:#555;"></div>
+          <div class="field"><label>1年で増加する額（円）</label><input type="text" class="num" id="sec_incPerYear" placeholder="例：500,000" oninput="onSecondaryInput()"></div>
+          <div class="field"><label>二次相続までの間に増加する額（円）<span class="muted" style="font-weight:400;font-size:11px;"> ※自動</span></label><input type="text" class="num" id="sec_increase" placeholder="1年で増加する額×想定年数" readonly style="background:#f1f3f6;color:#555;"></div>
         </div>
-        <div class="muted" style="font-size:11.5px;margin-top:6px;">「うち現金預金」は二次相続シミュレーションの税額計算には使いません（計算には「配偶者固有の財産」を使用）。節税策込みタブで「生活資金として残る現預金」を表示するための内訳です。</div>
+        <div class="muted" style="font-size:11.5px;margin-top:6px;">「二次相続までに減少／増加する額」は『1年で減少／増加する額 × 想定年数』で自動計算され、二次相続の課税財産（配偶者固有の財産＋一次取得分−減少額＋増加額）に反映されます。<br>「うち現金預金」は二次相続シミュレーションの税額計算には使いません（計算には「配偶者固有の財産」を使用）。節税策込みタブで「生活資金として残る現預金」を表示するための内訳です。</div>
       </div>
 
       <div class="card">
@@ -3338,7 +3341,9 @@ function simStep(no,t,v,sub){ return '<div class="sim-step"><div class="no">'+no
 // ============================================================
 //  二次相続シミュレーション
 // ============================================================
-function onSecondaryInput(){ if(!currentCase) return; const s=currentCase.secondary; s.spouseOwn=$('sec_own').value; s.ownCash=$('sec_ownCash')?$('sec_ownCash').value:s.ownCash; s.consume=$('sec_consume').value; s.years=$('sec_years').value; s.nChildren=$('sec_nchildren').value;
+// 「1年で減少/増加する額 × 想定年数」から、二次相続までの減少額・増加額を自動算出して表示・保存
+function secApplyDerived(s){ const years=Math.max(0,Math.floor(num(s.years))); const dec=Math.round(num(s.decPerYear)*years); const inc=Math.round(num(s.incPerYear)*years); s.consume=String(dec); s.increase=String(inc); if($('sec_consume')) $('sec_consume').value=dec?dec.toLocaleString('ja-JP'):''; if($('sec_increase')) $('sec_increase').value=inc?inc.toLocaleString('ja-JP'):''; }
+function onSecondaryInput(){ if(!currentCase) return; const s=currentCase.secondary; s.spouseOwn=$('sec_own').value; s.ownCash=$('sec_ownCash')?$('sec_ownCash').value:s.ownCash; if($('sec_decPerYear')) s.decPerYear=$('sec_decPerYear').value; if($('sec_incPerYear')) s.incPerYear=$('sec_incPerYear').value; s.years=$('sec_years').value; s.nChildren=$('sec_nchildren').value; secApplyDerived(s);
   const g=(id,k)=>{ if($(id)) s[k]=$(id).value; };
   g('sec_insPremium','insPremium'); g('sec_insCount','insCount');
   g('sec_gGenAmt','gGenAmt'); g('sec_gGenPpl','gGenPpl'); g('sec_gGenYrs','gGenYrs');
@@ -3374,7 +3379,9 @@ function secondInheritance(spouseAcquired, spouseOwn, consume, nChildren, years,
 function renderSecondary(){
   if(!currentCase) return;
   const s=currentCase.secondary||{};
-  $('sec_own').value=s.spouseOwn||''; if($('sec_ownCash'))$('sec_ownCash').value=s.ownCash||''; $('sec_consume').value=s.consume||''; $('sec_years').value=s.years||'';
+  // 旧データ（二次相続までに減少する額を直接保存）からの移行：1年あたり額へ換算
+  if((s.decPerYear==null||s.decPerYear==='') && num(s.consume)>0){ const _y=Math.max(1,Math.floor(num(s.years))); s.decPerYear=String(Math.round(num(s.consume)/_y)); }
+  $('sec_own').value=s.spouseOwn||''; if($('sec_ownCash'))$('sec_ownCash').value=s.ownCash||''; if($('sec_decPerYear'))$('sec_decPerYear').value=s.decPerYear||''; if($('sec_incPerYear'))$('sec_incPerYear').value=s.incPerYear||''; $('sec_years').value=s.years||''; secApplyDerived(s);
   [['sec_insPremium','insPremium'],['sec_insCount','insCount'],['sec_gGenAmt','gGenAmt'],['sec_gGenPpl','gGenPpl'],['sec_gGenYrs','gGenYrs'],['sec_gSpcAmt','gSpcAmt'],['sec_gSpcPpl','gSpcPpl'],['sec_gSpcYrs','gSpcYrs']].forEach(([id,k])=>{ if($(id))$(id).value=s[k]||''; });
   const r=calcTax(); const E1=r.totalTaxable;
   const spouse=currentCase.heirs.find(h=>h.relationType==='spouse');
@@ -3382,7 +3389,7 @@ function renderSecondary(){
   const nCh=Number(s.nChildren)||childCount||1;
   if(!s.nChildren) $('sec_nchildren').value=childCount||'';
   if(!spouse){ if($('secScaleTable'))$('secScaleTable').innerHTML=''; $('secReco').innerHTML='<div class="center-msg">配偶者がいないため二次相続シミュレーションの対象外です（基本情報で配偶者を登録すると計算されます）。</div>'; $('secDisclaimer').innerHTML=''; return; }
-  const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years)); const ownCash=num(s.ownCash);
+  const years=Math.max(0,Math.floor(num(s.years))); const own=num(s.spouseOwn); const consume=Math.round(num(s.decPerYear)*years); const increase=Math.round(num(s.incPerYear)*years); const ownCash=num(s.ownCash);
   // 実際の配偶者取得割合（未割当などで取得情報が無い場合は0として扱う）
   let actualR = (E1>0 && r.ph && r.ph[spouse.id]) ? (num(r.ph[spouse.id].taxableR)/E1) : 0;
   if(!isFinite(actualR)||actualR<0) actualR=0; if(actualR>1) actualR=1;
@@ -3405,7 +3412,7 @@ function renderSecondary(){
   // ===== 取得割合を細かくサンプリング（グラフ・表共通：5%刻み21点） =====
   // reduce＝二次相続の課税財産から控除する額／addTotal＝合計に上乗せする額（贈与税）
   const N=21;
-  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
+  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress, giftTaxTotal);
   _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings};
@@ -3415,7 +3422,7 @@ function renderSecondary(){
   _secCtx={E1,minRatio:normal.samples[normal.minIdx].r,nCh,minTotal:normal.samples[normal.minIdx].total};
   if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
   renderSecWants(); renderSecAllocTable();
-  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険の活用は（保険料×契約数）の現預金が減少し、二次相続では非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されるものとしています（圧縮額＝min(支払保険料, 非課税枠)）。暦年贈与は（毎年の贈与額×人数×年数）が二次相続の課税財産から外れ、現行の贈与税速算表（一般／特例、基礎控除110万円／人・年）で計算した贈与税を一次＋二次の合計に加算しています。生前贈与加算（相続開始前3〜7年）・贈与税の配偶者控除・各種特例等は考慮していません。実際の有利判定は税理士にご確認ください。';
+  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険の活用は（保険料×契約数）の現預金が減少し、二次相続では非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されるものとしています（圧縮額＝min(支払保険料, 非課税枠)）。暦年贈与は（毎年の贈与額×人数×年数）が二次相続の課税財産から外れ、現行の贈与税速算表（一般／特例、基礎控除110万円／人・年）で計算した贈与税を一次＋二次の合計に加算しています。生前贈与加算（相続開始前3〜7年）・贈与税の配偶者控除・各種特例等は考慮していません。実際の有利判定は税理士にご確認ください。';
 }
 let _secCtx=null;
 let _secData=null;     // {normal,savings,...} 通常／節税策込みの試算データ
@@ -4156,7 +4163,11 @@ function secondaryReportData(){
   if(!spouse) return {noSpouse:true};
   const childCount=currentCase.heirs.filter(h=>h.relationType==='child'||h.relationType==='grandchild').length;
   const nCh=Number(s.nChildren)||childCount||1;
-  const own=num(s.spouseOwn), consume=num(s.consume), years=Math.floor(num(s.years)), ownCash=num(s.ownCash);
+  const years=Math.max(0,Math.floor(num(s.years)));
+  let decPerYear=num(s.decPerYear), incPerYear=num(s.incPerYear);
+  if(!decPerYear && num(s.consume)>0 && years>0) decPerYear=Math.round(num(s.consume)/years); // 旧データ移行
+  const consume=Math.round(decPerYear*years), increase=Math.round(incPerYear*years);
+  const own=num(s.spouseOwn), ownCash=num(s.ownCash);
   let actualR=(E1>0&&r.ph&&r.ph[spouse.id])?(num(r.ph[spouse.id].taxableR)/E1):0; if(!isFinite(actualR)||actualR<0)actualR=0; if(actualR>1)actualR=1;
   const insPremium1=num(s.insPremium), insCount=Math.max(0,Math.floor(num(s.insCount)));
   const insP=insPremium1*insCount, insAllow=5000000*nCh, insCompress=Math.min(insP,insAllow);
@@ -4167,12 +4178,12 @@ function secondaryReportData(){
   const compress=insCompress+giftGiven, spendCash=insP+giftGiven;
   const hasSavings=insP>0||giftGiven>0;
   const N=21;
-  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
+  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress,giftTaxTotal);
   const allocCash=secSpouseFirstCash();
   const firstTaxActual=(r.ph&&r.ph[spouse.id])?Math.max(0,r.ph[spouse.id].final||0):0;
-  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,years,actualR,curIdx,normal,savings,hasSavings,allocCash,firstTaxActual,
+  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,firstTaxActual,
     strat:{insPremium1,insCount,insP,insAllow,insCompress,gGenGiven,gSpcGiven,giftGiven,gGenTax,gSpcTax,giftTaxTotal,compress,spendCash}};
 }
 function secSampleRows(samples,minIdx,curIdx){
@@ -4200,8 +4211,11 @@ function downloadSecondaryPDF(mode){
     +'<tr><td>'+esc(d.name)+' 様の相続における課税価格の合計額（一次相続）</td><td class="r">'+yen(D.E1)+'</td></tr>'
     +'<tr><td>'+esc(D.spouseName)+' 様固有の財産</td><td class="r">'+yen(D.own)+'</td></tr>'
     +'<tr><td>（うち現金預金）</td><td class="r">'+yen(D.ownCash)+'</td></tr>'
-    +'<tr><td>二次相続までに減少する額</td><td class="r">'+yen(D.consume)+'</td></tr>'
     +'<tr><td>二次相続までの想定年数</td><td class="r">'+D.years+' 年</td></tr>'
+    +'<tr><td>1年で減少する額</td><td class="r">'+yen(D.decPerYear)+'</td></tr>'
+    +'<tr><td>二次相続までに減少する額（1年で減少する額 × 想定年数）</td><td class="r">'+yen(D.consume)+'</td></tr>'
+    +'<tr><td>1年で増加する額</td><td class="r">'+yen(D.incPerYear)+'</td></tr>'
+    +'<tr><td>二次相続までの間に増加する額（1年で増加する額 × 想定年数）</td><td class="r">'+yen(D.increase)+'</td></tr>'
     +'<tr><td>二次相続の相続人（子の人数）</td><td class="r">'+D.nCh+' 人</td></tr></tbody></table></div>'
     +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計税額が最小となる配偶者の取得割合</div><div class="v">'+Math.round(mb.r*100)+'%</div></div>'
     +'<div class="kpi a"><div class="l">配偶者の取得割合'+Math.round(mb.r*100)+'％の時の一次・二次相続税'+(mode==='savings'?'＋贈与税':'')+'の合計額</div><div class="v">'+yen(mb.total)+'</div></div>'
@@ -4228,7 +4242,7 @@ function downloadSecondaryPDF(mode){
       +'<tr class="tot"><td>＝ 配偶者の手元に残る現預金</td><td class="r">'+yen(D.ownCash+D.allocCash-D.firstTaxActual-st.spendCash)+'</td></tr></tbody></table></div>'
       +'<div class="note">※ 合計税額は「一次＋二次＋贈与税」です。生命保険は非課税枠（500万円×二次の法定相続人数）の範囲で課税財産を圧縮、暦年贈与は贈与額が課税財産から外れる前提の簡易モデルです。贈与税は受贈者負担のため手元現預金には含めていません。</div>';
   }
-  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−取崩額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。実際の有利判定は税理士にご確認ください。</div>'
+  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。実際の有利判定は税理士にご確認ください。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('二次相続シミュレーション_'+(mode==='savings'?'節税策込み':'通常')+'_'+d.name, body, styles);
