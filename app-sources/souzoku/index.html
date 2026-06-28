@@ -4386,14 +4386,22 @@ function buildAgreement(){
   if(currentCase.agreement.notes){ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（特記事項）</div><div class="agr-sub-b">'+esc(currentCase.agreement.notes).replace(/\n/g,'<br>')+'</div></div>'; }
 
   const dateStr=currentCase.agreement.date? toWarekiDate(currentCase.agreement.date) : '令和　　年　　月　　日';
-  let sigs=''; heirs.forEach(h=>{ sigs+='<table class="sig-table"><tbody><tr>'
+  // 署名欄: filled=true で住所・氏名を印字、false で空欄（自署用）
+  const sigArea=(filled)=>{ let sigs=''; heirs.forEach(h=>{ sigs+='<table class="sig-table"><tbody><tr>'
     +'<td class="seal-cell"><div class="seal-cap">捨印</div><div class="seal-mark">㊞</div></td>'
     +'<td class="sig-cell"><table class="sig-inner"><tbody>'
-    +'<tr><td class="sl">住　所</td><td class="sv">'+esc(h.address||'')+'</td></tr>'
-    +'<tr><td class="sl">氏　名</td><td class="sv">'+esc(h.name)+'</td></tr>'
+    +'<tr><td class="sl">住　所</td><td class="sv">'+(filled?esc(h.address||''):'')+'</td></tr>'
+    +'<tr><td class="sl">氏　名</td><td class="sv">'+(filled?esc(h.name):'')+'</td></tr>'
     +'</tbody></table></td>'
     +'<td class="seal-cell"><div class="seal-cap">実印</div><div class="seal-mark">㊞</div></td>'
     +'</tr></tbody></table>'; });
+    return '<div class="sig-area">'+sigs+'</div>'; };
+  // 最終頁（押印ページ）: filled=false=自署用（空欄）、filled=true=参考用（印字済み）
+  const lastPage=(filled,note)=> (note?'<div class="ref-note">'+note+'</div>':'')
+    +'<p class="closing">以上の協議を証するため、この協議書を作成し各自署名押印のうえ、各自1通保有する。</p>'
+    +'<div class="date">'+dateStr+'</div>'
+    +'<div style="margin-bottom:8px;">相続人</div>'
+    +sigArea(filled);
 
   const styles=DOC_STYLE_BASE+`
     .cover{display:flex;align-items:center;justify-content:center;min-height:240mm;page-break-after:always;}
@@ -4426,6 +4434,10 @@ function buildAgreement(){
     .sig-inner td{padding:7px 0;font-size:11pt;}
     .sig-inner .sl{width:74px;white-space:nowrap;}
     .sig-inner .sv{border-bottom:1px solid #000;padding:0 8px;}
+    .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
+    .pgbreak{page-break-before:always;break-before:page;}
+    /* 製本（ホチキス）用に左余白を広めに確保 */
+    @media print{ @page{ size:A4; margin:18mm 16mm 18mm 30mm; } }
   `;
   const body='<div class="cover"><h1>遺産分割協議書</h1></div>'
     +'<h1>遺産分割協議書</h1>'
@@ -4438,10 +4450,9 @@ function buildAgreement(){
     +(d.deathDate?'<div><span class="k">死亡年月日</span><span>'+toWarekiDate(d.deathDate)+'</span></div>':'')
     +'</div>'
     +sections
-    +'<p class="closing">以上の協議を証するため、この協議書を作成し各自署名押印のうえ、各自1通保有する。</p>'
-    +'<div class="date">'+dateStr+'</div>'
-    +'<div style="margin-bottom:8px;">相続人</div>'
-    +'<div class="sig-area">'+sigs+'</div>';
+    +lastPage(false,'')
+    +'<div class="pgbreak"></div>'
+    +lastPage(true,'【参考】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。');
   return {title:'遺産分割協議書_'+d.name, body, styles};
 }
 function downloadAgreement(){ const r=buildAgreement(); if(r) openPrintWindow(r.title, r.body, r.styles); }
