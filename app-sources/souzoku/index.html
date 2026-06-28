@@ -757,6 +757,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="card-sub" id="secChartSub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
         <div id="secChart"></div>
         <div id="secReco" style="margin-top:14px;"></div>
+        <div id="secEffect" style="margin-top:14px;"></div>
         <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button type="button" class="btn sm" id="secTableToggle" onclick="toggleSecTable()">表を隠す</button>
           <span class="card-sub" style="margin:0;">グラフと同じ刻み（5%ごと）の税額一覧。最小の行を濃い緑、その前後5％を薄い緑で表示します。</span>
@@ -3415,7 +3416,7 @@ function renderSecondary(){
   const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress, giftTaxTotal);
-  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings};
+  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings,own,consume,increase,years};
   renderStrategyResults(strat);
   paintSec();
   // 財産分割（試算）の前提は通常モードの最小取得割合に固定
@@ -3466,8 +3467,43 @@ function paintSec(){
         +'<div style="font-size:13px;color:#444;margin-top:5px;">通常の最小 '+yen(n.total)+' → 節税策込みの最小 <b>'+yen(best.total)+'</b>（現預金支出 '+yen(d.strat.spendCash)+'）</div></div>'; } }
   else if(Math.abs(curS.total-best.total)>1){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（配偶者 '+Math.round(d.actualR*100)+'%・合計 '+yen(curS.total)+'）と比べ、最小案は <b>'+yen(curS.total-best.total)+'</b> 軽減できる可能性があります。</div>'; }
   $('secReco').innerHTML=reco;
+  if($('secEffect')) $('secEffect').innerHTML=(_secMode==='savings')?secEffectHTML(d):'';
   if($('secScaleTable')) $('secScaleTable').innerHTML=secScaleTableHTML(md.samples,md.minIdx,d.curIdx);
   if(_secMode==='savings') renderSecCashBox();
+}
+// 節税策の効果（現在の分割案／最小取得割合）の画面用テーブル（資料出力と同内容）
+function secEffectBlockHTML(d,idx,title,ratioLabel,lead){
+  const st=d.strat, baseRed=d.consume-d.increase;
+  const cur=d.normal.samples[idx], curS=d.savings.samples[idx];
+  const acq=cur.acq, sptax=cur.spouseTax, sec0=cur.second, secAll=curS.second;
+  const secAfter=(extra)=>secondInheritance(acq,d.own,baseRed+extra,d.nCh,d.years,sptax).second;
+  const secIns=st.insCompress>0?secAfter(st.insCompress):sec0;
+  const secInsGen=st.gGenGiven>0?secAfter(st.insCompress+st.gGenGiven):secIns;
+  const redIns=sec0-secIns, redGen=secIns-secInsGen, redSpc=secInsGen-secAll, totRed2=sec0-secAll;
+  const first=cur.first, totalBefore=cur.total, totalAfter=curS.total, netCut=totalBefore-totalAfter;
+  let sr='';
+  if(st.insP>0) sr+='<tr><td style="text-align:left;">生命保険の活用（非課税枠の圧縮）</td><td>'+yen(st.insP)+'</td><td>−'+yen(redIns)+'</td><td>-</td></tr>';
+  if(st.gGenGiven>0) sr+='<tr><td style="text-align:left;">暦年贈与（一般贈与）</td><td>'+yen(st.gGenGiven)+'</td><td>−'+yen(redGen)+'</td><td>'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>';
+  if(st.gSpcGiven>0) sr+='<tr><td style="text-align:left;">暦年贈与（特例贈与）</td><td>'+yen(st.gSpcGiven)+'</td><td>−'+yen(redSpc)+'</td><td>'+(st.gSpcTax?'＋'+yen(st.gSpcTax):'-')+'</td></tr>';
+  const totRow='<tr style="font-weight:700;background:#eef3f9;">';
+  return '<div style="margin-top:16px;"><div style="font-weight:700;font-size:14.5px;color:#1d1d1f;border-left:4px solid #0071e3;padding-left:8px;margin-bottom:6px;">'+title+'</div>'
+    +'<div class="card-sub" style="margin:0 0 8px;">'+lead+'</div>'
+    +'<div style="overflow-x:auto;"><table class="sim-table"><thead><tr><th style="text-align:left;">'+ratioLabel+'</th><th>一次相続税</th><th>二次相続税</th><th>贈与税</th><th>一次＋二次＋贈与 合計</th></tr></thead><tbody>'
+    +'<tr><td style="text-align:left;">節税策なし（現状）</td><td>'+yen(first)+'</td><td>'+yen(sec0)+'</td><td>-</td><td>'+yen(totalBefore)+'</td></tr>'
+    +'<tr><td style="text-align:left;">節税策あり</td><td>'+yen(first)+'</td><td>'+yen(secAll)+'</td><td>'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td><td>'+yen(totalAfter)+'</td></tr>'
+    +totRow+'<td style="text-align:left;">削減額</td><td>-</td><td>−'+yen(totRed2)+'</td><td>'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td><td>−'+yen(netCut)+'</td></tr></tbody></table></div>'
+    +(sr?'<div style="overflow-x:auto;"><table class="sim-table" style="margin-top:8px;"><thead><tr><th style="text-align:left;">講じた節税策</th><th>支出・贈与額</th><th>二次相続税の削減</th><th>贈与税の発生</th></tr></thead><tbody>'+sr
+      +totRow+'<td style="text-align:left;">合計</td><td>'+yen(st.spendCash)+'</td><td>−'+yen(totRed2)+'</td><td>'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td></tr></tbody></table></div>':'')
+    +'<div class="card-sub" style="margin-top:8px;">節税策により二次相続税が '+yen(totRed2)+' 減少し、贈与税 '+yen(st.giftTaxTotal)+' を考慮した<b>実質の削減額は '+yen(netCut)+'</b>です（合計 '+yen(totalBefore)+' → '+yen(totalAfter)+'）。</div></div>';
+}
+function secEffectHTML(d){
+  if(!d||!d.strat||!(d.strat.insP>0||d.strat.giftGiven>0)) return '<div class="disclaimer" style="margin-top:6px;">「節税策込み」タブの生命保険・暦年贈与を入力すると、現在の分割案・最小取得割合それぞれでの節税効果をここに表示します。</div>';
+  const curRatio=Math.round(d.actualR*100);
+  const minIdx=d.normal.minIdx, minRatio=Math.round(d.normal.samples[minIdx].r*100);
+  return secEffectBlockHTML(d,d.curIdx,'節税策の効果（現在の分割案）','現在の分割案（配偶者 '+curRatio+'%）',
+      '現在の分割案（配偶者 '+curRatio+'%）について、何も対策を講じない場合と、生命保険・暦年贈与等の節税策を講じた場合の一次・二次相続税を比較します。')
+    +secEffectBlockHTML(d,minIdx,'節税策の効果（最小取得割合）','最小取得割合（配偶者 '+minRatio+'%）',
+      '何も対策を講じない場合に最も税負担が軽くなる配偶者の取得割合 '+minRatio+'% について、同じ節税策を講じた場合の一次・二次相続税を比較します。');
 }
 // 節税策実行後に配偶者の手元に残る現預金（遺産分割の割り当てに基づく）
 function renderSecCashBox(){
