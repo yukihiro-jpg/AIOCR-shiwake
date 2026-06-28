@@ -62,14 +62,25 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
   const impVar = compute(1, -varAdj / 100, 1)
   const impFixed = compute(1, 0, 1 + fixedAdj / 100)
 
-  // ===== 借入返済の充足（CVP × FCF） =====
-  const plannedRepay = settings.repayAnnual?.[yearId] ?? Math.round(ctx.defaultRepay)
-  const isOverride = settings.repayAnnual?.[yearId] != null
-  const setRepay = (v: number) => onSettingsChange({ ...settings, repayAnnual: { ...(settings.repayAnnual || {}), [yearId]: Math.max(0, Math.round(v)) } })
-  const resetRepay = () => { const next = { ...(settings.repayAnnual || {}) }; delete next[yearId]; onSettingsChange({ ...settings, repayAnnual: next }) }
-  const af = ctx.annualFactor
-  const sol = repaymentSolve(ctx, plannedRepay, afterM.op * af) // 現在のスライダー状態での充足
-  const solBase = repaymentSolve(ctx, plannedRepay, ctx.opProfitAnnual) // 現状（無調整）での必要改善
+  // ===== 借入返済の充足（CVP × FCF, 期首〜選択月の累計ベース） =====
+  // 月額元本・月額リースをユーザー入力し、経過月数（期首〜選択月）を乗じて返済額を算出
+  const loanMonthly = settings.repayLoanMonthly?.[yearId] ?? 0
+  const leaseMonthly = settings.repayLeaseMonthly?.[yearId] ?? 0
+  const setLoanMonthly = (v: number) => onSettingsChange({ ...settings, repayLoanMonthly: { ...(settings.repayLoanMonthly || {}), [yearId]: Math.max(0, Math.round(v)) } })
+  const setLeaseMonthly = (v: number) => onSettingsChange({ ...settings, repayLeaseMonthly: { ...(settings.repayLeaseMonthly || {}), [yearId]: Math.max(0, Math.round(v)) } })
+  const plannedRepay = (loanMonthly + leaseMonthly) * ctx.months // 期首〜選択月の返済額（累計）
+  const sol = repaymentSolve(ctx, plannedRepay, afterM.op) // 現在のスライダー状態での充足
+  const solBase = repaymentSolve(ctx, plannedRepay, ctx.opProfitYtd) // 現状（無調整）での必要改善
+  // 参考: 実績の月平均返済（自動読取りは使わないが目安として表示）
+  const refMonthlyRepay = ctx.months > 0 ? Math.max(0, -(ctx.loanChg + ctx.leaseChg)) / ctx.months : 0
+
+  // ===== 損益分岐点の逆算 =====
+  const [fixSales, setFixSales] = useState<number>(Math.round(base.sales))
+  const [fixRate, setFixRate] = useState<number>(Number((base.marginalRate * 100).toFixed(1)))
+  const [bepRate, setBepRate] = useState<number | null>(null)
+  const [bepSales, setBepSales] = useState<number | null>(null)
+  const calcBepRate = () => setBepRate(fixSales > 0 ? (base.fixed / fixSales) * 100 : null)
+  const calcBepSales = () => setBepSales(fixRate > 0 ? base.fixed / (fixRate / 100) : null)
 
   const cls = classifyOf(fy, settings)
   const costs = classifiableCodes(fy).map((c) => ({ code: c.code, name: c.name, value: costValue(fy, c.code, monthIdx), kind: cls(c.code) }))
@@ -113,6 +124,44 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
           限界利益率 {fmtPct(base.marginalRate * 100)} ／ 変動費 {fmtShort(base.variable)}（変動費率 {fmtPct(baseVarRate * 100)}） ／ 固定費 {fmtShort(base.fixed)}。
           {base.safety < 0 ? '　現状は損益分岐点を下回っています（営業赤字）。' : `　損益分岐点を ${fmtShort(base.sales - base.bep)} 上回っています。`}
         </div>
+
+        {/* 損益分岐点の逆算 */}
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div className="text-sm font-bold text-gray-700 mb-1">損益分岐点の逆算</div>
+          <div className="text-[11px] text-gray-400 mb-3">固定費 {fmtShort(base.fixed)}（期首〜{monthLabel} 累計）を前提に、売上高または限界利益率を固定して損益分岐点を求めます。</div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
+              <div className="text-xs text-gray-600 mb-2">売上高を固定 → 損益分岐点となる<b>限界利益率</b></div>
+              <div className="flex items-center gap-2">
+                <MoneyInput value={fixSales} onChange={setFixSales} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded text-right tabular-nums text-sm" />
+                <span className="text-xs text-gray-400">円</span>
+                <button onClick={calcBepRate} className="px-3 py-1.5 text-xs bg-amber-500 text-white rounded font-bold hover:bg-amber-600 whitespace-nowrap">算出</button>
+              </div>
+              {bepRate != null && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                  <span className="text-[11px] text-gray-600">損益分岐点となる限界利益率</span>
+                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">{bepRate.toFixed(1)}%</div>
+                </div>
+              )}
+            </div>
+            <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/40">
+              <div className="text-xs text-gray-600 mb-2">限界利益率を固定 → 損益分岐点となる<b>売上高</b></div>
+              <div className="flex items-center gap-2">
+                <input type="number" value={fixRate} step={0.1} onChange={(e) => setFixRate(Number(e.target.value))}
+                  className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded text-right tabular-nums text-sm" />
+                <span className="text-xs text-gray-400">%</span>
+                <button onClick={calcBepSales} className="px-3 py-1.5 text-xs bg-amber-500 text-white rounded font-bold hover:bg-amber-600 whitespace-nowrap">算出</button>
+              </div>
+              {bepSales != null && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                  <span className="text-[11px] text-gray-600">損益分岐点売上</span>
+                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">{fmtShort(bepSales)}</div>
+                  <div className="text-[11px] text-gray-500">{fmtYen(bepSales)}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </Section>
 
       {/* 2. CVPシミュレーション × 借入返済（核心） */}
@@ -126,28 +175,34 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
 
         {/* 借入返済の充足パネル */}
         <div className={`rounded-xl border p-4 mb-4 ${sol.covered ? 'border-green-200 bg-green-50/60' : 'border-amber-300 bg-amber-50/60'}`}>
-          <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <div className="text-sm font-bold text-gray-800">借入返済の充足（年換算ベース）</div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500">年間返済予定額</span>
-              <input type="number" value={plannedRepay} onChange={(e) => setRepay(parseNum(e.target.value))}
-                className="w-36 px-2 py-1 border border-gray-300 rounded text-right tabular-nums" />
-              <span className="text-gray-400">円</span>
-              {isOverride && <button onClick={resetRepay} className="text-blue-600 hover:underline">自動に戻す</button>}
+          <div className="text-sm font-bold text-gray-800 mb-3">借入返済の充足（期首〜{monthLabel} 累計ベース）</div>
+          {/* 月額返済の入力 → 返済額（累計）を算出 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+            <div className="rounded-xl border border-gray-200 bg-white p-3">
+              <label className="text-[12px] font-semibold text-gray-600 block mb-1">月額元本返済額</label>
+              <div className="flex items-center gap-1.5">
+                <MoneyInput value={loanMonthly} onChange={setLoanMonthly} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded text-right tabular-nums text-sm" />
+                <span className="text-xs text-gray-400">円/月</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-3">
+              <label className="text-[12px] font-semibold text-gray-600 block mb-1">月額リース債務返済額</label>
+              <div className="flex items-center gap-1.5">
+                <MoneyInput value={leaseMonthly} onChange={setLeaseMonthly} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded text-right tabular-nums text-sm" />
+                <span className="text-xs text-gray-400">円/月</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-[#1F3A5F]/30 bg-white p-3">
+              <div className="text-[12px] font-semibold text-gray-600 mb-1">返済額（期首〜{monthLabel}）</div>
+              <div className="text-[20px] leading-tight font-extrabold text-[#1F3A5F] tabular-nums">{plannedRepay.toLocaleString('ja-JP')}</div>
+              <div className="text-[11px] text-gray-400 mt-0.5">（月額元本＋月額リース）× {ctx.months}ヶ月</div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5 mb-3 text-[11px]">
-            <span className="text-gray-400 self-center">目安:</span>
-            <button onClick={() => setRepay(ctx.repayActualAnnual)} disabled={ctx.repayActualAnnual <= 0}
-              className="px-2 py-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">実績の返済ペース {fmtShort(ctx.repayActualAnnual)}</button>
-            <button onClick={() => setRepay(ctx.loanLeaseBal / 7)} disabled={ctx.loanLeaseBal <= 0}
-              className="px-2 py-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">残高 {fmtShort(ctx.loanLeaseBal)} ÷ 7年</button>
-            <button onClick={() => setRepay(ctx.loanLeaseBal / 10)} disabled={ctx.loanLeaseBal <= 0}
-              className="px-2 py-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">残高 ÷ 10年</button>
-          </div>
+          <div className="text-[11px] text-gray-400 mb-3">（参考）実績の月平均返済額 ≒ {fmtShort(refMonthlyRepay)}／月。上の欄に月額を入力すると、経過月数を乗じた返済額がシミュレーションに使われます。</div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <MiniStat label="年間返済予定額" value={plannedRepay} />
-            <MiniStat label="現状の営業CF（年換算）" value={ctx.opCfActualAnnual} good={ctx.opCfActualAnnual >= plannedRepay} />
+            <MiniStat label={`返済額（期首〜${monthLabel}）`} value={plannedRepay} />
+            <MiniStat label="現状の営業CF（累計）" value={ctx.opCfYtd} good={ctx.opCfYtd >= plannedRepay} />
             <MiniStat label="シミュレーション後の営業CF" value={sol.cfSim} good={sol.covered} hint="スライダー反映後" />
             <div className={`rounded-xl border p-3 ${sol.covered ? 'border-green-300 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
               <div className="text-[12px] font-semibold text-gray-600 mb-1">返済の充足</div>
@@ -158,22 +213,24 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
           {/* 営業CF vs 返済額 バー */}
           <BepBar rows={[
             { label: '営業CF（後）', val: Math.max(0, sol.cfSim), color: sol.covered ? '#1e8e3e' : '#ef8a00' },
-            { label: '年間返済額', val: plannedRepay, color: '#1F3A5F' },
+            { label: '返済額', val: plannedRepay, color: '#1F3A5F' },
           ]} small />
           {/* 必要改善ガイド（現状＝無調整からの必要量） */}
           <div className={`text-sm mt-3 leading-relaxed ${sol.covered ? 'text-green-800' : 'text-gray-700'}`}>
-            {ctx.opCfActualAnnual >= plannedRepay ? (
-              <>現状の営業CF（年換算 <b>{fmtShort(ctx.opCfActualAnnual)}</b>）で年間返済 <b>{fmtShort(plannedRepay)}</b> を賄えています。</>
+            {plannedRepay <= 0 ? (
+              <>月額元本返済額・月額リース債務返済額を入力すると、返済を賄うのに必要な売上・粗利率の改善量を試算します。</>
+            ) : ctx.opCfYtd >= plannedRepay ? (
+              <>現状の営業CF（累計 <b>{fmtShort(ctx.opCfYtd)}</b>）で返済額 <b>{fmtShort(plannedRepay)}</b> を賄えています。</>
             ) : solBase.reachableByMargin ? (
               <>現状の営業CFでは返済に <b className="text-amber-700">{fmtShort(solBase.shortfall)}</b> 不足します。返済を賄うには
-                <b className="text-blue-700"> 売上を {solBase.salesGapPct >= 0 ? '+' : ''}{solBase.salesGapPct.toFixed(1)}%</b>（約 {fmtShort(ctx.salesAnnual + solBase.salesGap)} へ）、
+                <b className="text-blue-700"> 売上を {solBase.salesGapPct >= 0 ? '+' : ''}{solBase.salesGapPct.toFixed(1)}%</b>（約 {fmtShort(ctx.salesYtd + solBase.salesGap)} へ）、
                 <b className="text-blue-700"> または粗利率を {solBase.marginRateGapPt >= 0 ? '+' : ''}{solBase.marginRateGapPt.toFixed(1)}pt</b>（{fmtPct(ctx.marginalRate * 100)}→{fmtPct(solBase.reqMarginalRate * 100)}）
                 改善する必要があります。上のスライダーで試算できます。</>
             ) : (
               <>現状の営業CFでは返済に <b className="text-amber-700">{fmtShort(solBase.shortfall)}</b> 不足します。固定費の削減も含めて改善が必要です（上のスライダーで試算）。</>
             )}
           </div>
-          <div className="text-[11px] text-gray-400 mt-2">※ 営業CF（年換算）＝（営業利益＋営業外損益）×(1−実効税率{(ctx.taxRate * 100).toFixed(0)}%)＋減価償却−運転資本増減。営業外損益・減価償却・運転資本・税率は実績ベースで一定とし、売上・粗利率・固定費の変化のみを反映しています。</div>
+          <div className="text-[11px] text-gray-400 mt-2">※ 営業CF（累計）＝（営業利益＋営業外損益）×(1−実効税率{(ctx.taxRate * 100).toFixed(0)}%)＋減価償却−運転資本増減。営業外損益・減価償却・運転資本・税率は実績ベースで一定とし、売上・粗利率・固定費の変化のみを反映しています。返済額はアップロードファイルからの自動読取りではなく、上の月額入力×経過月数で算出します。</div>
         </div>
 
         {/* 影響度の表 */}
@@ -343,11 +400,29 @@ function BepBar({ rows, small }: { rows: { label: string; val: number; color: st
   )
 }
 
-function Slider({ label, value, min, max, unit, onChange }: { label: string; value: number; min: number; max: number; unit: string; onChange: (v: number) => void }) {
+function MoneyInput({ value, onChange, className }: { value: number; onChange: (v: number) => void; className?: string }) {
+  return (
+    <input type="text" inputMode="numeric" value={value ? value.toLocaleString('ja-JP') : ''}
+      onChange={(e) => onChange(parseNum(e.target.value))} placeholder="0" className={className} />
+  )
+}
+
+function Slider({ label, value, min, max, unit, step = 1, onChange }: { label: string; value: number; min: number; max: number; unit: string; step?: number; onChange: (v: number) => void }) {
+  const dec = () => onChange(clamp(Number((value - step).toFixed(1)), min, max))
+  const inc = () => onChange(clamp(Number((value + step).toFixed(1)), min, max))
   return (
     <div>
-      <div className="flex justify-between text-xs mb-1"><span className="text-gray-600">{label}</span><span className="font-bold text-blue-700">{value >= 0 ? '+' : ''}{value}{unit}</span></div>
-      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
+      <div className="flex items-center justify-between mb-1 gap-1">
+        <span className="text-xs text-gray-600">{label}</span>
+        <button onClick={() => onChange(0)} title="基準値（±0）に戻す"
+          className="text-[11px] text-gray-400 hover:text-blue-600 px-1 rounded">⟲ 基準に戻す</button>
+      </div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <button onClick={dec} aria-label="減らす" className="w-7 h-7 shrink-0 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-blue-50 hover:border-blue-200 font-bold leading-none">←</button>
+        <div className="flex-1 text-center text-[20px] font-extrabold text-blue-700 tabular-nums leading-none">{value >= 0 ? '+' : ''}{value}{unit}</div>
+        <button onClick={inc} aria-label="増やす" className="w-7 h-7 shrink-0 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-blue-50 hover:border-blue-200 font-bold leading-none">→</button>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
     </div>
   )
 }

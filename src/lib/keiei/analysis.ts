@@ -72,8 +72,14 @@ export function rowYtd(row: AccountRow, monthIdx: number): number {
 
 // ===== 変動費 / 固定費 =====
 export type VarFix = 'variable' | 'fixed'
-export interface KeieiSettings { varfix: Record<string, VarFix>; loanExclude: Record<string, boolean>; fcfComments?: Record<string, string>; repayAnnual?: Record<string, number> }
-export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {}, fcfComments: {}, repayAnnual: {} } }
+export interface KeieiSettings {
+  varfix: Record<string, VarFix>
+  loanExclude: Record<string, boolean>
+  fcfComments?: Record<string, string>
+  repayLoanMonthly?: Record<string, number> // 月額元本返済額（期ごと）
+  repayLeaseMonthly?: Record<string, number> // 月額リース債務返済額（期ごと）
+}
+export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {}, fcfComments: {}, repayLoanMonthly: {}, repayLeaseMonthly: {} } }
 
 // 分類対象 = 「売上原価（合計を1ブロック）」＋「販管費の各明細」。
 // ※売上原価は期首/期末棚卸を含むため明細合算では正しくならない。小計(9577)を一括で扱う。
@@ -312,36 +318,31 @@ export function buildFcfComment(r: FcfResult, fmt: (n: number) => string): strin
 }
 
 // ===== 借入返済対応CVP（損益分岐点 × フリーキャッシュフローの統合） =====
-// 「借入の年間返済を賄うには、どれだけ営業利益＝売上・粗利率の改善が必要か」を試算する。
-// 営業CF（年換算）＝（営業利益＋営業外）×(1−税率)＋減価償却−運転資本増加（FCFタブと同一定義）。
+// 「借入の返済を賄うには、どれだけ営業利益＝売上・粗利率の改善が必要か」を、期首〜選択月の累計ベースで試算。
+// 営業CF（累計）＝（営業利益＋営業外）×(1−税率)＋減価償却−運転資本増加（FCFタブと同一定義）。
+// 返済額は「月額元本＋月額リース」×経過月数（期首〜選択月）でユーザー入力から算出する。
 export interface RepayContext {
-  annualFactor: number
+  months: number // 経過月数（期首〜選択月）
   taxRate: number
-  salesAnnual: number; fixedAnnual: number; marginalRate: number; opProfitAnnual: number
-  depAnnual: number; wcIncreaseAnnual: number; nonOpAnnual: number
-  opCfActualAnnual: number
-  loanLeaseBal: number
-  repayActualAnnual: number; defaultRepay: number
+  salesYtd: number; fixedYtd: number; marginalRate: number; opProfitYtd: number
+  depYtd: number; wcIncrease: number; nonOpYtd: number
+  opCfYtd: number
+  loanChg: number; leaseChg: number // 実績の増減（参考）
 }
 
-/** 借入返済対応CVPの前提値（実績ベース・年換算）を算出 */
+/** 借入返済対応CVPの前提値（実績ベース・期首〜選択月の累計）を算出 */
 export function repaymentContext(
   fy: FiscalYearData, prior: FiscalYearData | null, monthIdx: number, settings: KeieiSettings,
 ): RepayContext {
-  const af = 12 / (monthIdx + 1)
   const c = cvp(fy, monthIdx, settings)
   const f = fcfAnalysis(fy, prior, monthIdx)
-  const s = safety(fy, monthIdx, settings)
   const nonOp = f.ordProfit - c.opProfit // 営業外純損益（経常−営業）累計
-  const repayActualAnnual = Math.max(0, -f.financeBalance) * af // 期中の純返済（年換算）
-  const loanLeaseBal = s.loans + s.leases
-  const defaultRepay = repayActualAnnual > 0 ? repayActualAnnual : (loanLeaseBal > 0 ? loanLeaseBal / 7 : 0)
   return {
-    annualFactor: af, taxRate: f.taxRate,
-    salesAnnual: c.sales * af, fixedAnnual: c.fixed * af, marginalRate: c.marginalRate, opProfitAnnual: c.opProfit * af,
-    depAnnual: f.depreciation * af, wcIncreaseAnnual: f.wcIncrease * af, nonOpAnnual: nonOp * af,
-    opCfActualAnnual: f.operatingCf * af,
-    loanLeaseBal, repayActualAnnual, defaultRepay,
+    months: monthIdx + 1, taxRate: f.taxRate,
+    salesYtd: c.sales, fixedYtd: c.fixed, marginalRate: c.marginalRate, opProfitYtd: c.opProfit,
+    depYtd: f.depreciation, wcIncrease: f.wcIncrease, nonOpYtd: nonOp,
+    opCfYtd: f.operatingCf,
+    loanChg: f.loanChg, leaseChg: f.leaseChg,
   }
 }
 
@@ -353,18 +354,18 @@ export interface RepaySolve {
   reachableByMargin: boolean
 }
 
-/** 文脈・年間返済額・シミュレーション後の営業利益(年換算)から、返済充足と必要改善量を解く */
-export function repaymentSolve(ctx: RepayContext, plannedRepay: number, opAnnualSim: number): RepaySolve {
-  const reqAfterTax = plannedRepay - ctx.depAnnual + ctx.wcIncreaseAnnual
-  const reqOp = reqAfterTax / (1 - ctx.taxRate) - ctx.nonOpAnnual
-  const reqMarginal = ctx.fixedAnnual + reqOp // 必要限界利益（年）
+/** 文脈・返済額（累計）・シミュレーション後の営業利益（累計）から、返済充足と必要改善量を解く */
+export function repaymentSolve(ctx: RepayContext, plannedRepay: number, opSim: number): RepaySolve {
+  const reqAfterTax = plannedRepay - ctx.depYtd + ctx.wcIncrease
+  const reqOp = reqAfterTax / (1 - ctx.taxRate) - ctx.nonOpYtd
+  const reqMarginal = ctx.fixedYtd + reqOp // 必要限界利益（累計）
   const reqSales = ctx.marginalRate > 0 ? reqMarginal / ctx.marginalRate : Infinity
-  const salesGap = reqSales - ctx.salesAnnual
-  const salesGapPct = ctx.salesAnnual ? (salesGap / ctx.salesAnnual) * 100 : 0
-  const reqMarginalRate = ctx.salesAnnual > 0 ? reqMarginal / ctx.salesAnnual : 0
+  const salesGap = reqSales - ctx.salesYtd
+  const salesGapPct = ctx.salesYtd ? (salesGap / ctx.salesYtd) * 100 : 0
+  const reqMarginalRate = ctx.salesYtd > 0 ? reqMarginal / ctx.salesYtd : 0
   const marginRateGapPt = (reqMarginalRate - ctx.marginalRate) * 100
-  const afterTaxSim = (opAnnualSim + ctx.nonOpAnnual) * (1 - ctx.taxRate)
-  const cfSim = afterTaxSim + ctx.depAnnual - ctx.wcIncreaseAnnual
+  const afterTaxSim = (opSim + ctx.nonOpYtd) * (1 - ctx.taxRate)
+  const cfSim = afterTaxSim + ctx.depYtd - ctx.wcIncrease
   const covered = cfSim >= plannedRepay
   const shortfall = Math.max(0, plannedRepay - cfSim)
   const surplus = Math.max(0, cfSim - plannedRepay)
