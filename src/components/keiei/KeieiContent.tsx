@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
@@ -85,14 +85,31 @@ export default function KeieiContent() {
   const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]
 
-  const handlePrint = useCallback(() => {
+  // ===== 印刷（タブ選択式） =====
+  const TABS: [View, string][] = [['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']]
+  const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
+  const [printOpen, setPrintOpen] = useState(false)
+  const [printSel, setPrintSel] = useState<View[]>(['overview', 'report', 'detail', 'cvpfcf', 'cash'])
+  const [printViews, setPrintViews] = useState<View[] | null>(null)
+  const printRef = useRef<HTMLDivElement>(null)
+  const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
+  const orderedSel = TABS.map(([v]) => v).filter((v) => printSel.includes(v))
+  const doPrint = (views: View[]) => { if (!views.length) return; setPrintOpen(false); setPrintViews(views) }
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (printRef.current && !printRef.current.contains(e.target as Node)) setPrintOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  useEffect(() => {
+    if (!printViews) return
     const prev = document.title
     const m = fy ? `${fy.fiscalMonths[monthIdx]}月` : ''
     document.title = `月次レポート_${current?.name || ''}_${fy?.label || ''}_${m}`
-    const restore = () => { document.title = prev; window.removeEventListener('afterprint', restore) }
-    window.addEventListener('afterprint', restore)
-    window.print()
-  }, [current, fy, monthIdx])
+    const after = () => { document.title = prev; setPrintViews(null) }
+    window.addEventListener('afterprint', after, { once: true })
+    const t = setTimeout(() => window.print(), 250)
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', after) }
+  }, [printViews, fy, current, monthIdx])
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
   const sorted = useMemo(() => sortedYears(years), [years])
   const comp = useMemo(() => {
@@ -100,6 +117,17 @@ export default function KeieiContent() {
     const idx = sorted.findIndex((y) => y.id === fy.id)
     return sorted.slice(Math.max(0, idx - 2), idx + 1)
   }, [sorted, fy])
+
+  const renderView = (v: View) => {
+    if (!fy) return null
+    switch (v) {
+      case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} />
+      case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
+      case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
+      case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />
+      case 'cash': return <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />
+    }
+  }
 
   // 期末年の推定（ファイル名 R6 / 2024 など）
   const guessYear = (fileName: string, endMonth: number): number => {
@@ -297,37 +325,90 @@ export default function KeieiContent() {
             </div>
             {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
             <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
-              {([['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']] as [View, string][]).map(([v, l]) => (
+              {TABS.map(([v, l]) => (
                 <button key={v} onClick={() => setView(v)}
                   className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
-              <button onClick={handlePrint} className="ml-auto px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷</button>
+              <div ref={printRef} className="ml-auto relative">
+                <button onClick={() => setPrintOpen((o) => !o)} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷 ▾</button>
+                {printOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-3">
+                    <div className="text-xs font-bold text-gray-700 mb-1">印刷するタブを選択</div>
+                    <div className="text-[11px] text-gray-400 mb-2">クリックで選択／解除。選択したタブのみ出力します。</div>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {TABS.map(([v, l]) => { const on = printSel.includes(v); return (
+                        <button key={v} onClick={() => togglePrintSel(v)}
+                          className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{on ? '✓ ' : ''}{l}</button>
+                      ) })}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <button onClick={() => setPrintSel(TABS.map(([v]) => v))} className="text-[11px] text-[#1a73e8] hover:underline">全部選択</button>
+                      <div className="flex gap-2">
+                        <button onClick={() => doPrint(TABS.map(([v]) => v))} className="px-3 py-1.5 text-xs bg-[#C8A24B] text-white rounded-lg font-bold hover:brightness-95">全部出力</button>
+                        <button onClick={() => doPrint(orderedSel)} disabled={!orderedSel.length} className="px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110 disabled:opacity-40">選択を出力</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {fy && (
-            <div id="keiei-print-area" className="space-y-5">
-              <div className="hidden print:block text-base font-bold text-gray-800">
-                月次レポート ｜ {current?.name} ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月
+            <div className="space-y-5">
+              {renderView(view)}
+            </div>
+          )}
+
+          {/* 印刷専用: 選択タブをコンサル報告書調で出力（画面では非表示） */}
+          {fy && printViews && (
+            <div id="keiei-multiprint">
+              <div className="kp-cover">
+                <div className="kp-eyebrow">MONTHLY MANAGEMENT REPORT</div>
+                <h1 className="kp-title">月次経営レポート</h1>
+                <div className="kp-sub"><b>{current?.name}</b> 御中　／　{fy.label}　{fy.fiscalMonths[monthIdx]}月度　／　作成日 {(() => { const d = new Date(); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日` })()}</div>
+                <div className="kp-rule" />
               </div>
-              {view === 'overview' && <Overview fy={fy} prior={prior} monthIdx={monthIdx} />}
-              {view === 'report' && <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />}
-              {view === 'detail' && <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />}
-              {view === 'cvpfcf' && <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />}
-              {view === 'cash' && <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />}
+              {printViews.map((v, i) => (
+                <section key={v} className={i > 0 ? 'kp-section kp-break' : 'kp-section'}>
+                  <div className="kp-sec-title">{TAB_LABEL(v)}</div>
+                  {renderView(v)}
+                </section>
+              ))}
+              <div className="kp-foot">{current?.name} ｜ 月次経営レポート ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月</div>
             </div>
           )}
         </div>
       )}
 
       <style jsx global>{`
+        #keiei-multiprint { display: none; }
         @media print {
           body * { visibility: hidden; }
-          #keiei-print-area, #keiei-print-area * { visibility: visible; }
-          #keiei-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 8px; }
-          #keiei-print-area * { overflow: visible !important; max-height: none !important; }
-          #keiei-print-area .bg-white { break-inside: avoid; border: 1px solid #e5e7eb; }
-          @page { size: A4; margin: 12mm; }
+          #keiei-multiprint, #keiei-multiprint * { visibility: visible; }
+          #keiei-multiprint { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #243042; }
+          #keiei-multiprint * { overflow: visible !important; max-height: none !important; }
+          @page { size: A4; margin: 14mm 12mm; }
+
+          /* コンサル報告書調（ネイビー&ゴールド） */
+          #keiei-multiprint .kp-cover { padding-bottom: 8px; margin-bottom: 18px; }
+          #keiei-multiprint .kp-eyebrow { font-size: 10px; letter-spacing: 4px; color: #c8a24b; font-weight: 700; }
+          #keiei-multiprint .kp-title { font-size: 27px; font-weight: 800; color: #1f3a5f; letter-spacing: 2px; margin: 2px 0; }
+          #keiei-multiprint .kp-sub { font-size: 12px; color: #5b6675; }
+          #keiei-multiprint .kp-rule { height: 3px; margin-top: 10px; background: linear-gradient(90deg,#1f3a5f 0%,#1f3a5f 72%,#c8a24b 72%,#c8a24b 100%); }
+          #keiei-multiprint .kp-break { break-before: page; page-break-before: always; }
+          #keiei-multiprint .kp-sec-title { font-size: 16px; font-weight: 800; color: #1f3a5f; border-left: 5px solid #c8a24b; border-bottom: 2px solid #1f3a5f; padding: 0 0 6px 10px; margin: 4px 0 14px; }
+          #keiei-multiprint .kp-foot { position: fixed; bottom: 6mm; left: 0; right: 0; text-align: center; font-size: 9px; color: #9aa3ad; }
+
+          /* カードは影を消して軽い罫線に。青系の強調はネイビーへ寄せる */
+          #keiei-multiprint .bg-white { box-shadow: none !important; border: 1px solid #d7dde6 !important; border-radius: 6px !important; break-inside: avoid; }
+          #keiei-multiprint .rounded-2xl, #keiei-multiprint .rounded-xl, #keiei-multiprint .rounded-lg { border-radius: 6px !important; }
+          #keiei-multiprint h2 { color: #1f3a5f !important; }
+          #keiei-multiprint .text-blue-700, #keiei-multiprint .text-blue-600 { color: #1f3a5f !important; }
+          #keiei-multiprint .kp-section { break-inside: auto; }
+          /* 操作系（スライダー・ボタン）は報告書では非表示。数値・入力値は残す */
+          #keiei-multiprint input[type='range'], #keiei-multiprint button { display: none !important; }
+          #keiei-multiprint input { border-color: #d7dde6 !important; }
         }
       `}</style>
 

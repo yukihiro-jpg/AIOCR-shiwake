@@ -140,7 +140,10 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
               {bepRate != null && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
                   <span className="text-[11px] text-gray-600">損益分岐点となる限界利益率</span>
-                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">{bepRate.toFixed(1)}%</div>
+                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">
+                    {bepRate.toFixed(1)}%
+                    <span className="text-[12px] font-semibold text-gray-500 ml-1">（現状 {fmtPct(base.marginalRate * 100)} との差は {bepRate - base.marginalRate * 100 >= 0 ? '+' : '−'}{Math.abs(bepRate - base.marginalRate * 100).toFixed(1)}pt）</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -155,7 +158,10 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
               {bepSales != null && (
                 <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
                   <span className="text-[11px] text-gray-600">損益分岐点売上</span>
-                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">{fmtShort(bepSales)}</div>
+                  <div className="text-[20px] font-extrabold text-amber-700 leading-tight">
+                    {fmtShort(bepSales)}
+                    <span className="text-[12px] font-semibold text-gray-500 ml-1">（現状 {fmtShort(base.sales)} との差は {bepSales - base.sales >= 0 ? '+' : '−'}{fmtShort(Math.abs(bepSales - base.sales))}）</span>
+                  </div>
                   <div className="text-[11px] text-gray-500">{fmtYen(bepSales)}</div>
                 </div>
               )}
