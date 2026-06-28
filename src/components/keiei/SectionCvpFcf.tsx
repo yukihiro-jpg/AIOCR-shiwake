@@ -53,7 +53,9 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
     const op = marginal - fixed
     const bep = mr ? fixed / mr : 0
     const safety = sales ? (sales - bep) / sales : 0
-    return { sales, mr: mr * 100, fixed, op, bep, safety: safety * 100 }
+    // 売上総利益（粗利）＝売上高×限界利益率（＝限界利益）。粗利率の変動でここが動く
+    const gross = marginal
+    return { sales, mr: mr * 100, gross, fixed, op, bep, safety: safety * 100 }
   }
   const baseM = compute(1, 0, 1)
   const afterM = compute(1 + salesAdj / 100, (grossAdj - varAdj) / 100, 1 + fixedAdj / 100)
@@ -256,6 +258,7 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
               <AttrRow label="売上高" sel="sales" baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
               <AttrRow label="限界利益率" sel="mr" pct baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
               <AttrRow label="固定費" sel="fixed" baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
+              <AttrRow label="売上総利益" sel="gross" bold baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
               <AttrRow label="営業利益" sel="op" bold baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
               <AttrRow label="損益分岐点売上" sel="bep" bold baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
               <AttrRow label="経営安全率" sel="safety" pct baseM={baseM} afterM={afterM} imp={[impSales, impGross, impVar, impFixed]} />
@@ -474,7 +477,7 @@ function Row({ label, value, bold, sub, indent, plus }: { label: string; value: 
   )
 }
 
-type Metric = { sales: number; mr: number; fixed: number; op: number; bep: number; safety: number }
+type Metric = { sales: number; mr: number; gross: number; fixed: number; op: number; bep: number; safety: number }
 function AttrRow({ label, sel, pct, bold, baseM, afterM, imp }: {
   label: string; sel: keyof Metric; pct?: boolean; bold?: boolean; baseM: Metric; afterM: Metric; imp: Metric[]
 }) {
