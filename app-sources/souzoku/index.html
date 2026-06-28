@@ -3445,9 +3445,9 @@ function paintSec(){
   ['normal','savings'].forEach(k=>{ const t=$('secTab_'+k); if(t)t.className='sec-tab'+(k===_secMode?' active':''); });
   const sp=$('secSavingsPanel'); if(sp) sp.style.display=_secMode==='savings'?'':'none';
   if($('secChartSub')) $('secChartSub').innerHTML=(_secMode==='savings')
-    ? '節税策で支出する現預金を二次相続の課税財産から控除した試算です。折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。'
-    : '折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。';
-  if($('secChart')) $('secChart').innerHTML=secChartSVG(md.samples,md.minIdx);
+    ? '節税策で支出する現預金を二次相続の課税財産から控除した試算です。折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。'
+    : '折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。';
+  if($('secChart')) $('secChart').innerHTML=secChartSVG(md.samples,md.minIdx,null,d.curIdx);
   const best=md.samples[md.minIdx], curS=md.samples[d.curIdx];
   let reco='<div class="sum-box accent"><div class="sl">'+(_secMode==='savings'?'【節税策込み】':'')+'合計税額が最小となる配偶者の取得割合</div><div class="sv" style="font-size:18px;">配偶者 '+Math.round(best.r*100)+'%（子が '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
   if(_secMode==='savings'){ const n=d.normal.samples[d.normal.minIdx]; const gt=d.strat.giftTaxTotal; if(n){ const diff=n.total-best.total; const saved=diff>1, up=diff<-1;
@@ -3504,8 +3504,9 @@ function secScaleTableHTML(samples,minIdx,curIdx){
   return html;
 }
 // 一次相続税(左軸の折れ線)・二次相続税(右軸の折れ線)・合計(棒)を1つのSVGに描画し、最小点を強調
-function secChartSVG(samples,minIdx,theme){
-  const C=Object.assign({grid:'#eee',bar:'#cfe3ff',min:'#34c759',minStroke:'#1a7f37',tickL:'#0071e3',tickR:'#d4820a',minLabel:'#1a7f37',line1:'#0071e3',line2:'#ff9500',titleL:'#0071e3',titleR:'#d4820a'},theme||{});
+function secChartSVG(samples,minIdx,theme,curIdx){
+  const C=Object.assign({grid:'#eee',bar:'#cfe3ff',min:'#34c759',minStroke:'#1a7f37',cur:'#7c3aed',curStroke:'#5b21b6',curLabel:'#5b21b6',tickL:'#0071e3',tickR:'#d4820a',minLabel:'#1a7f37',line1:'#0071e3',line2:'#ff9500',titleL:'#0071e3',titleR:'#d4820a'},theme||{});
+  if(curIdx==null||curIdx<0||curIdx>=samples.length) curIdx=-1;
   const W=1240,H=560,mL=124,mR=130,mT=40,mB=56; const pw=W-mL-mR, ph=H-mT-mB; const n=samples.length;
   const maxL=Math.max(1,...samples.map(s=>s.first));    // 左軸＝一次相続税のみ
   const maxBar=Math.max(1,...samples.map(s=>s.total));  // 棒（合計）の高さスケール。軸目盛りは表示せず、棒の直上に金額を数値表示する
@@ -3522,7 +3523,9 @@ function secChartSVG(samples,minIdx,theme){
   let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="width:100%;font-family:inherit;display:block;">';
   for(let t=0;t<=4;t++){ const v=maxL*t/4, yy=yL(v); s+='<line x1="'+mL+'" y1="'+yy+'" x2="'+(mL+pw)+'" y2="'+yy+'" stroke="'+C.grid+'"/>'; s+='<text x="'+(mL-12)+'" y="'+(yy+5)+'" text-anchor="end" font-size="14" fill="'+C.tickL+'">'+secYenShort(v)+'</text>'; }
   for(let t=0;t<=4;t++){ const v=maxR*t/4, yy=yR(v); s+='<text x="'+(mL+pw+12)+'" y="'+(yy+5)+'" text-anchor="start" font-size="14" fill="'+C.tickR+'">'+secYenShort(v)+'</text>'; }
-  samples.forEach((sm,i)=>{ const bx=x(i)-barW/2, by=yBar(sm.total), bh=Math.max(0,mT+ph-by), isMin=i===minIdx; s+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="2" fill="'+(isMin?C.min:C.bar)+'"'+(isMin?' stroke="'+C.minStroke+'" stroke-width="1.5"':'')+'><title>配偶者'+Math.round(sm.r*100)+'%：合計 '+yen(sm.total)+'</title></rect>'; });
+  samples.forEach((sm,i)=>{ const bx=x(i)-barW/2, by=yBar(sm.total), bh=Math.max(0,mT+ph-by), isMin=i===minIdx, isCur=i===curIdx; const fill=isMin?C.min:(isCur?C.cur:C.bar), stk=isMin?C.minStroke:(isCur?C.curStroke:null); s+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="2" fill="'+fill+'"'+(stk?' stroke="'+stk+'" stroke-width="1.5"':'')+'><title>配偶者'+Math.round(sm.r*100)+'%：合計 '+yen(sm.total)+'</title></rect>'; });
+  // 現案（現在の分割案）の縦線・ラベル。最小と近接する場合はラベル行を1段上げて重なりを回避
+  if(curIdx>=0&&curIdx!==minIdx){ const cx2=x(curIdx); const close=Math.abs(curIdx-minIdx)<=2; s+='<line x1="'+cx2.toFixed(1)+'" y1="'+mT+'" x2="'+cx2.toFixed(1)+'" y2="'+(mT+ph)+'" stroke="'+C.curStroke+'" stroke-dasharray="4 3"/>'; s+='<text x="'+cx2.toFixed(1)+'" y="'+(close?(mT-26):(mT-10))+'" text-anchor="middle" font-size="15" font-weight="700" fill="'+C.curLabel+'">現案 '+Math.round(samples[curIdx].r*100)+'%</text>'; }
   const mx=x(minIdx); s+='<line x1="'+mx.toFixed(1)+'" y1="'+mT+'" x2="'+mx.toFixed(1)+'" y2="'+(mT+ph)+'" stroke="'+C.minStroke+'" stroke-dasharray="4 3"/>'; s+='<text x="'+mx.toFixed(1)+'" y="'+(mT-10)+'" text-anchor="middle" font-size="15" font-weight="700" fill="'+C.minLabel+'">最小 '+Math.round(samples[minIdx].r*100)+'%</text>';
   // 合計（棒）は左軸目盛りを持たないため、最小の箇所を起点に10％刻み（±2サンプル間隔）の全ての棒の直上に合計額を数値表示
   for(let bi=minIdx%2;bi<n;bi+=2){ const bsm=samples[bi], bbx=x(bi), bby=yBar(bsm.total); s+='<text x="'+bbx.toFixed(1)+'" y="'+(bby-9).toFixed(1)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#1F3A5F">'+secYenShort(bsm.total)+'</text>'; }
@@ -3535,7 +3538,7 @@ function secChartSVG(samples,minIdx,theme){
   s+=vtitle(30,'一次相続税(左軸)',C.titleL,14);
   s+=vtitle(W-30,'二次相続税(右軸)',C.titleR,14);
   s+='</svg>';
-  s+='<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:6px;"><span><span style="display:inline-block;width:12px;height:12px;background:'+C.bar+';border-radius:2px;vertical-align:middle;"></span> 一次＋二次 合計(棒・最小±10%に金額表示)</span><span><span style="display:inline-block;width:12px;height:12px;background:'+C.min+';border-radius:2px;vertical-align:middle;"></span> 合計が最小</span><span style="color:'+C.line1+';">― 一次相続税(左軸)</span><span style="color:'+C.line2+';">― 二次相続税(右軸)</span></div>';
+  s+='<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:6px;"><span><span style="display:inline-block;width:12px;height:12px;background:'+C.bar+';border-radius:2px;vertical-align:middle;"></span> 一次＋二次 合計(棒・最小±10%に金額表示)</span><span><span style="display:inline-block;width:12px;height:12px;background:'+C.min+';border-radius:2px;vertical-align:middle;"></span> 合計が最小</span><span><span style="display:inline-block;width:12px;height:12px;background:'+C.cur+';border-radius:2px;vertical-align:middle;"></span> 現在の分割案（現案）</span><span style="color:'+C.line1+';">― 一次相続税(左軸)</span><span style="color:'+C.line2+';">― 二次相続税(右軸)</span></div>';
   return s;
 }
 // ----- 配偶者が相続する財産の選択（財産一覧から金額入力） -----
@@ -3805,7 +3808,7 @@ function applyOfficeSettings(){
   if(settings.officeFax) OFFICE.fax=settings.officeFax;
 }
 // ===== 報告書PDF 共通テーマ（デザインA：ネイビー&ゴールド） =====
-const REPORT_CHART_THEME={grid:'#eef0f4',bar:'#cdd7e6',min:'#C8A24B',minStroke:'#a07d28',tickL:'#1F3A5F',tickR:'#9a7320',minLabel:'#a07d28',line1:'#1F3A5F',line2:'#b88a2e',titleL:'#1F3A5F',titleR:'#9a7320'};
+const REPORT_CHART_THEME={grid:'#eef0f4',bar:'#cdd7e6',min:'#C8A24B',minStroke:'#a07d28',minLabel:'#a07d28',cur:'#2F9E8F',curStroke:'#1f6f64',curLabel:'#1f6f64',tickL:'#1F3A5F',tickR:'#9a7320',line1:'#1F3A5F',line2:'#b88a2e',titleL:'#1F3A5F',titleR:'#9a7320'};
 const REPORT_STYLE=`*{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#243042;font-size:11px;line-height:1.6;background:#fff;}
 .page{padding:18mm 16mm;page-break-after:always;position:relative;}
@@ -4205,7 +4208,7 @@ function downloadSecondaryPDF(mode){
     +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.actualR*100)+'%）の一次・二次相続税の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
     +(mode==='savings'?'<div class="kpi a"><div class="l">節税対策をしない場合とした場合の一次・二次相続税負担額の差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
     +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
-    +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME)+'</div>'
+    +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME, D.curIdx)+'</div>'
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
     +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>';
   if(mode==='savings'){
