@@ -3,7 +3,7 @@ import { CODES, getRow, ytd, singleMonth, sortedYears, findPriorYear } from './c
 import { effectiveTaxRate } from './tax'
 
 // ===== 補助科目を畳んで「科目」単位に集約 =====
-export interface AggRow { statement: Statement; name: string; level: number; isSubtotal: boolean; bracket: '' | 'group' | 'profit'; monthly: number[] }
+export interface AggRow { statement: Statement; name: string; level: number; isSubtotal: boolean; bracket: '' | 'group' | 'profit'; monthly: number[]; annual: number }
 
 /** 科目名から主科目名を取り出す（"普通/常陽" → "普通"）。括弧付き小計はそのまま */
 export function mainAccountName(name: string): string {
@@ -21,14 +21,14 @@ export function aggregateRows(fy: FiscalYearData): AggRow[] {
   for (const r of fy.rows) {
     if (r.isSubtotal) {
       flush()
-      out.push({ statement: r.statement, name: r.name.trim(), level: r.level, isSubtotal: true, bracket: r.bracket, monthly: [...r.monthly] })
+      out.push({ statement: r.statement, name: r.name.trim(), level: r.level, isSubtotal: true, bracket: r.bracket, monthly: [...r.monthly], annual: r.annual })
       continue
     }
     const nm = mainAccountName(r.name)
     const key = r.statement + '|' + nm
     const ex = map.get(key)
-    if (ex) { for (let i = 0; i < 12; i++) ex.monthly[i] = (ex.monthly[i] ?? 0) + (r.monthly[i] ?? 0) }
-    else { map.set(key, { statement: r.statement, name: nm, level: r.level, isSubtotal: false, bracket: '', monthly: [...r.monthly] }); order.push(key) }
+    if (ex) { for (let i = 0; i < 12; i++) ex.monthly[i] = (ex.monthly[i] ?? 0) + (r.monthly[i] ?? 0); ex.annual += r.annual }
+    else { map.set(key, { statement: r.statement, name: nm, level: r.level, isSubtotal: false, bracket: '', monthly: [...r.monthly], annual: r.annual }); order.push(key) }
   }
   flush()
   return out

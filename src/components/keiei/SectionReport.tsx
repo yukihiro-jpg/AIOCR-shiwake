@@ -69,7 +69,7 @@ function NameTd({ r, even }: { r: AggRow; even: boolean }) {
 export default function SectionReport({ fy, comp, monthIdx, company }: {
   fy: FiscalYearData; comp: FiscalYearData[]; monthIdx: number; company: string
 }) {
-  type Tab = 'trialPL' | 'trialBS' | 'cmpPL' | 'cmpBS' | 'trendPL' | 'trendBS'
+  type Tab = 'trialPL' | 'trialBS' | 'cmpPL' | 'cmpBS' | 'trendPL' | 'trendBS' | 'trend3PL'
   const [tab, setTab] = useState<Tab>('trialPL')
   const [cmpMode, setCmpMode] = useState<'single' | 'cum'>('cum')
   const [showDl, setShowDl] = useState(false)
@@ -93,6 +93,7 @@ export default function SectionReport({ fy, comp, monthIdx, company }: {
     ['trialPL', '月次試算表(PL)'], ['trialBS', '月次試算表(BS)'],
     ['cmpPL', '3期比較(PL)'], ['cmpBS', '3期比較(BS)'],
     ['trendPL', '推移表(PL)'], ['trendBS', '推移表(BS)'],
+    ['trend3PL', '3期PL推移表'],
   ]
 
   return (
@@ -175,6 +176,107 @@ export default function SectionReport({ fy, comp, monthIdx, company }: {
           <TrendGrid rows={bsRows} months={months} monthIdx={monthIdx} cumLabel={`${monthLabel}末`} cumMode="single" />
         </Card>
       )}
+      {tab === 'trend3PL' && (
+        <Card title="損益計算書（3期推移）" subtitle={`各科目を当期・前期・前々期で表示 ／ 単月発生額 ／ 合計＝年計・累計＝期首〜${monthLabel}`}>
+          {comp.length < 2 && <div className="text-xs text-amber-600 mb-2">比較できる前期データがありません。前期・前々期のCSVも取り込んでください。</div>}
+          <Trend3View comp={comp} monthIdx={monthIdx} monthLabel={monthLabel} />
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// 3期PL推移表：各科目を当期/前期/前々期の3行で縦に並べ、月次推移＋合計（年計）＋期首〜選択月累計を表示。
+// いずれかの期に存在する科目はすべて表示（他期で未発生でも行を出す）。段階利益・小計は色と罫線で強調。
+export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearData[]; monthIdx: number; monthLabel: string }) {
+  const cur = comp[comp.length - 1]
+  const periods = [comp[comp.length - 1], comp[comp.length - 2] ?? null, comp[comp.length - 3] ?? null]
+  const periodLabels = ['当期', '前期', '前々期']
+  const months = cur.fiscalMonths
+
+  // 期ごとの PL 科目マップ（科目名 → AggRow）
+  const maps = useMemo(() => periods.map((y) => {
+    const m = new Map<string, AggRow>()
+    if (y) for (const r of aggregateRows(y).filter((r) => r.statement === 'PL')) m.set(r.name, r)
+    return m
+  }), [comp]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // いずれかの期に存在する科目を、当期→前期→前々期の順序を尊重して union（欠落科目は直前科目の後ろに挿入）
+  const order = useMemo(() => {
+    const merged: AggRow[] = []
+    const pos = new Map<string, number>()
+    const rebuild = () => { pos.clear(); merged.forEach((r, i) => pos.set(r.name, i)) }
+    const seed = periods.find((y) => y) ? aggregateRows((periods.find((y) => y))!).filter((r) => r.statement === 'PL') : []
+    for (const r of seed) { merged.push(r) }
+    rebuild()
+    const weave = (y: FiscalYearData | null) => {
+      if (!y) return
+      let last = -1
+      for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) {
+        if (pos.has(r.name)) { last = pos.get(r.name)! }
+        else { merged.splice(last + 1, 0, r); rebuild(); last = last + 1 }
+      }
+    }
+    weave(periods[1]); weave(periods[2])
+    return merged
+  }, [comp]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fmtCell = (v: number) => (v ? fmtN(v) : '0')
+  const cum = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
+
+  return (
+    <div className="overflow-x-auto max-h-[640px] border border-gray-100 rounded-lg">
+      <table className="text-[11px] border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
+        <thead className="sticky top-0 z-10 bg-[#1F3A5F] text-white">
+          <tr>
+            <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 180, zIndex: 20 }}>科目</th>
+            <th className="text-center px-2 py-1.5 sticky bg-[#1F3A5F]" style={{ left: 180, width: 56, zIndex: 20 }}>期</th>
+            {months.map((m, i) => <th key={i} className="text-center px-2.5 py-1.5 whitespace-nowrap" style={{ minWidth: 74 }}>{m}月</th>)}
+            <th className="text-center px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 92 }}>合計額<div className="text-[9px] font-normal opacity-80">年計</div></th>
+            <th className="text-center px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 92 }}>累計額<div className="text-[9px] font-normal opacity-80">期首〜{monthLabel}</div></th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.map((base, ai) => {
+            const isProfit = base.bracket === 'profit'
+            const isGroup = base.isSubtotal && base.bracket !== 'profit'
+            const blockBg = isProfit ? '#e8eefc' : isGroup ? '#eef1f5' : (ai % 2 === 1 ? '#f8fafc' : '#ffffff')
+            const nameCls = isProfit ? 'text-[#1F3A5F] font-bold' : isGroup ? 'text-gray-800 font-semibold' : 'text-gray-700 font-medium'
+            return periods.map((y, pi) => {
+              const row = y ? maps[pi].get(base.name) : undefined
+              const isCur = pi === 0
+              const first = pi === 0, lastSub = pi === periods.length - 1
+              // 段階利益・小計はブロックの上下に強い罫線
+              const blkBorder = isProfit ? '#1F3A5F' : isGroup ? '#94a3b8' : ''
+              const topB = first && blkBorder ? `2px solid ${blkBorder}` : undefined
+              const botB = lastSub && blkBorder ? `2px solid ${blkBorder}` : (lastSub ? '1px solid #e5e7eb' : undefined)
+              const numCls = isCur ? 'text-gray-900 font-semibold' : 'text-gray-500'
+              const totalV = row ? row.annual : null
+              const cumV = cum(row)
+              return (
+                <tr key={base.name + pi}>
+                  {first && (
+                    <td rowSpan={periods.length} className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 align-top ${nameCls}`}
+                      style={{ paddingLeft: 10 + base.level * 8, background: blockBg, width: 180, maxWidth: 180, zIndex: 5, borderTop: topB, borderBottom: lastSub && blkBorder ? undefined : undefined }}>
+                      <span className="block truncate" title={base.name} style={{ maxWidth: 168 }}>{base.name}</span>
+                    </td>
+                  )}
+                  <td className={`text-center px-2 py-1 sticky whitespace-nowrap ${isCur ? 'text-[#1F3A5F] font-bold' : 'text-gray-400'}`}
+                    style={{ left: 180, background: blockBg, width: 56, zIndex: 4, borderTop: topB, borderBottom: botB }}>{periodLabels[pi]}</td>
+                  {months.map((_, mi) => (
+                    <td key={mi} className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap ${numCls}`}
+                      style={{ background: blockBg, borderTop: topB, borderBottom: botB }}>{row ? fmtCell(row.monthly[mi] ?? 0) : '—'}</td>
+                  ))}
+                  <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
+                    style={{ background: isProfit ? '#dbe6fb' : isGroup ? '#e6eaf0' : (isCur ? '#eef4ff' : '#f4f7fb'), borderTop: topB, borderBottom: botB }}>{totalV == null ? '—' : fmtN(totalV)}</td>
+                  <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
+                    style={{ background: isProfit ? '#dbe6fb' : isGroup ? '#e6eaf0' : (isCur ? '#eef4ff' : '#f4f7fb'), borderTop: topB, borderBottom: botB }}>{cumV == null ? '—' : fmtN(cumV)}</td>
+                </tr>
+              )
+            })
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
