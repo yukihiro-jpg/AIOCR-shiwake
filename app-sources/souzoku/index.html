@@ -2593,7 +2593,7 @@ const ASSET_COLS={
   retirement:[['subcategory','種類','sel'],['name','支給者','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
   other:[['subcategory','細目','sel'],['name','内容','text'],['location','所在・明細','text'],['quantity','数量','num'],['unitPrice','単価','money'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   debt:[['subcategory','種類','sel'],['location','細目','text'],['name','債権者の氏名','text'],['creditorAddr','債権者住所','text'],['debtStart','債務発生年月日','date'],['debtDue','弁済期限','date'],['_value','金額(円)','value'],['memo','注記','text']],
-  funeral:[['name','支払者の氏名','text'],['payerAddr','支払者住所','text'],['payDate','支払年月日','date'],['claimAmount','請求額(円)','money'],['excludeAmount','葬式費用に含まれない金額(円)','money'],['_value','葬式費用の額(円)','value'],['memo','注記','text']],
+  funeral:[['name','支払者の氏名','text'],['payerAddr','支払者住所','text'],['location','細目','text'],['payDate','支払年月日','date'],['claimAmount','請求額(円)','money'],['excludeAmount','葬式費用に含まれない金額(円)','money'],['_value','葬式費用の額(円)','value'],['memo','注記','text']],
   gift:[['subcategory','区分','selopt',['暦年課税(加算対象)','相続時精算課税']],['name','内容','text'],['location','贈与日','text'],['_value','価額(円)','value'],['giftTax','課された贈与税額','money'],['is4to7','3年超7年','check'],['memo','注記','text']]
 };
 function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNote||'')+'" placeholder="確認する事項" style="min-width:160px;" oninput="updAsset(\''+a.id+'\',\'checkNote\',this.value)"></td>'; }
