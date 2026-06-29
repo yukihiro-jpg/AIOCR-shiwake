@@ -655,6 +655,9 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
             <select id="ag_extraHeir" onchange="onAgreementInput()"></select>
           </div>
         </div>
+        <div class="field" style="margin-top:14px;"><label>記載項目</label>
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="checkbox" id="ag_includeDebt" onchange="onAgreementInput()" checked>債務および葬式費用の承継条項を記載する</label>
+        </div>
         <div class="field" style="margin-top:14px;"><label>特記事項（任意）</label><textarea id="ag_notes" rows="3" placeholder="例：代償金の支払い、債務の負担、その他の取り決め等" oninput="onAgreementInput()"></textarea></div>
         <div class="btn-row" style="margin-top:18px;">
           <button class="btn primary lg" onclick="downloadAgreement()">遺産分割協議書 PDF</button>
@@ -1424,7 +1427,8 @@ function ensureCaseShape(c){
   c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[]; } });
   if(!c.successive||typeof c.successive!=='object') c.successive={enabled:false,A:'',B:'',years:'',prevDate:''};
   if(!Array.isArray(c.compensations)) c.compensations=[];
-  if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:''};
+  if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:'',includeDebt:true};
+  if(c.agreement.includeDebt===undefined) c.agreement.includeDebt=true;
   if(!c.progress||typeof c.progress!=='object') c.progress={};
   if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:'',ownCash:'',insPremium:'',insCount:'',gGenAmt:'',gGenPpl:'',gGenYrs:'',gSpcAmt:'',gSpcPpl:'',gSpcYrs:'',optYears:'',existIns:'',spouseWants:[]};
   if(!Array.isArray(c.secondary.spouseWants)) c.secondary.spouseWants=[];
@@ -1586,7 +1590,7 @@ function newCaseObject(name){
     assets:[],      // {id,category,subcategory,name,location,quantity,unitPrice,value,memo,allocations,kobo:{type,area},giftTax,is4to7}
     successive:{ enabled:false, A:'', B:'', years:'', prevDate:'' }, // 相次相続控除
     compensations:[], // 代償金 {id,from,to,amount}
-    agreement:{ date:'', notes:'', extraHeirId:'' },
+    agreement:{ date:'', notes:'', extraHeirId:'', includeDebt:true },
     progress:{}, // stageKey -> {status,due,done,memo}
     secondary:{ spouseOwn:'', consume:'', years:'', nChildren:'', ownCash:'',insPremium:'',insCount:'',gGenAmt:'',gGenPpl:'',gGenYrs:'',gSpcAmt:'',gSpcPpl:'',gSpcYrs:'',optYears:'',existIns:'', spouseWants:[] }, // 二次相続シミュレーション
     movement:{ rows:[], usage:{} }, // 金融資産異動一覧表（税額計算には不使用）
@@ -2021,6 +2025,7 @@ function syncUIToCase(){
   currentCase.agreement.date=$('ag_date').value;
   currentCase.agreement.notes=$('ag_notes').value;
   currentCase.agreement.extraHeirId=$('ag_extraHeir').value;
+  if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked;
 }
 // 変更があるたびに共有ストアへ反映＋ローカル保存＋Firebaseへ同期（デバウンス）
 function updateSaveStatus(state){
@@ -2058,6 +2063,7 @@ function loadCaseIntoUI(){
   if($('d_meetingMemo')) $('d_meetingMemo').value=currentCase.meetingMemo||'';
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
+  if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
   calcDeadlines();
   renderHeirs();
   renderChecklist();
@@ -3169,7 +3175,7 @@ function calcTax(){
 // ============================================================
 //  Agreement (遺産分割協議書)
 // ============================================================
-function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; renderHeirTotals(); cacheCurrentCase(); }
+function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked; renderHeirTotals(); cacheCurrentCase(); }
 function refreshAcquirerSelects(){ if(document.getElementById('view-agreement').classList.contains('active')) renderAgreement(); }
 function heirSelectHtml(currentId){
   let opts='<option value="">未定 / 共有</option>';
@@ -3223,6 +3229,7 @@ function renderAgreement(){
   $('ag_extraHeir').innerHTML=heirSelectHtml(currentCase.agreement.extraHeirId);
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
+  if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
   renderHeirTotals();
 }
 // 代償金
@@ -4660,8 +4667,8 @@ function buildAgreement(){
   // 金融機関手続権限
   cn++;
   sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（金融機関等における手続権限）</div><p class="agr-lead">前条までにより預貯金・有価証券・投資信託を取得した相続人は、金融機関等における解約、払戻し、名義変更、口座の移管その他必要な手続を単独で行うことを、共同相続人全員が承認し、これに一切異議を述べない。</p></div>';
-  // 債務・葬式費用（負担者ごと）
-  heirs.forEach(h=>{ const ds=currentCase.assets.filter(a=>(a.category==='debt'||a.category==='funeral')&&allocAmt(a,h)!==0); if(!ds.length) return; cn++;
+  // 債務・葬式費用（負担者ごと）。設定で「記載しない」場合はスキップ
+  if(currentCase.agreement.includeDebt!==false) heirs.forEach(h=>{ const ds=currentCase.assets.filter(a=>(a.category==='debt'||a.category==='funeral')&&allocAmt(a,h)!==0); if(!ds.length) return; cn++;
     let lines=''; ds.forEach((a,i)=>{ const who=a.category==='debt'?[a.name,a.creditorAddr,a.location].filter(Boolean).join('　'):[a.name,a.location].filter(Boolean).join('　'); lines+='<div class="agr-sub-b">（'+(i+1)+'）'+esc(who)+'　'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円</div>'; });
     sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（債務および葬式費用の承継）</div><p class="agr-lead">以下の債務を含む、被相続人の負担していた公租公課・未払医療費等の債務、および葬式費用の一切を相続人 '+esc(h.name)+' が負担する。</p>'+lines+'</div>'; });
   // 包括取得条項
