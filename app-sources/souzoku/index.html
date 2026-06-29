@@ -2480,7 +2480,7 @@ function valueCell(a){
   if(editable) return '<td><input type="text" class="num" id="val-'+a.id+'" value="'+(num(a.value)?num(a.value).toLocaleString('ja-JP'):'')+'" placeholder="0" oninput="updAsset(\''+a.id+'\',\'value\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>';
   const v=computeAssetValue(a); return '<td><input type="text" readonly class="num computed" id="val-'+a.id+'" value="'+(v?v.toLocaleString('ja-JP'):'0')+'"></td>';
 }
-function txtCell(a,f,ph){ return '<td><input type="text" value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>'; }
+function txtCell(a,f,ph,w){ const tdSt=w?(' style="min-width:'+w+'px;"'):''; const inSt=w?'style="width:100%;box-sizing:border-box;" ':''; return '<td'+tdSt+'><input type="text" '+inSt+'value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>'; }
 function numCell(a,f,ph){ return '<td><input type="text" class="num" value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>'; }
 function moneyCell(a,f,ph){ return '<td><input type="text" class="num" value="'+(num(a[f])?num(a[f]).toLocaleString('ja-JP'):'')+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>'; }
 function selCell(a,f,opts){ return '<td><select onchange="updAsset(\''+a.id+'\',\''+f+'\',this.value)"><option value="">—</option>'+opts.map(o=>'<option value="'+esc(o)+'"'+(o===a[f]?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select></td>'; }
@@ -2512,6 +2512,7 @@ function landTableHtml(items){
       : '<div class="frac"><input class="num" style="width:110px;" value="'+(num(a.koteiValue)?num(a.koteiValue).toLocaleString('ja-JP'):'')+'" placeholder="固定資産税評価額" oninput="updAsset(\''+a.id+'\',\'koteiValue\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"><span>×</span><input value="'+esc(a.baisu||'')+'" placeholder="倍率" oninput="updAsset(\''+a.id+'\',\'baisu\',this.value)"></div>';
     const luOpts=['自用地','貸宅地','借地権','貸家建付地']; const lu=a.landUse||'自用地';
     rows+='<tr>'
+      +txtCell(a,'location','所在 例：水戸市〇〇町字△△',280)
       +txtCell(a,'chiban','地番')
       +fracCell(a)
       +txtCell(a,'tokiChimoku','登記地目')
@@ -2541,10 +2542,10 @@ function landTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:2780px;"><thead><tr>'
-    +'<th>地番</th><th>持分</th><th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:3060px;"><thead><tr>'
+    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th><th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="8" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="9" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
 }
 function buildingTableHtml(items){
   const t=ASSET_BY_KEY['building'];
@@ -2553,7 +2554,7 @@ function buildingTableHtml(items){
   items.forEach(a=>{
     const buOpts=['自用','貸家']; const bu=a.buildingUse||'自用';
     rows+='<tr>'
-      +txtCell(a,'chiban','地番')
+      +txtCell(a,'chiban','所在 例：水戸市〇〇町字△△',280)
       +txtCell(a,'kaokuNo','家屋番号')
       +fracCell(a)
       +selCell(a,'subcategory',t.subs)
@@ -2571,8 +2572,8 @@ function buildingTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:1720px;"><thead><tr>'
-    +'<th>地番</th><th>家屋番号</th><th>持分</th><th>種類</th><th>構造</th><th>階層</th><th>登記床面積(㎡)</th><th>課税床面積(㎡)</th><th>固定資産税評価額</th><th>自用貸家</th><th>賃貸割合</th><th>相続税評価額(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:2000px;"><thead><tr>'
+    +'<th style="min-width:280px;">所在</th><th>家屋番号</th><th>持分</th><th>種類</th><th>構造</th><th>階層</th><th>登記床面積(㎡)</th><th>課税床面積(㎡)</th><th>固定資産税評価額</th><th>自用貸家</th><th>賃貸割合</th><th>相続税評価額(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
     +'<tfoot><tr><td colspan="11" style="text-align:right;">計</td><td class="num" id="foot-building">'+yen(sub)+'</td><td colspan="3"></td></tr></tfoot></table></div>';
 }
@@ -4615,10 +4616,12 @@ function buildAgreement(){
     // 不動産（土地・建物）
     const lands=heldByCat(h,'land'), blds=heldByCat(h,'building');
     if(lands.length||blds.length){ let b='<div class="re-lead">以下の不動産の一切（当該不動産に関する賃貸借契約に基づく賃貸人としての地位、及びこれに付随する一切の権利義務を含む）。</div>';
-      lands.forEach(a=>{ const area=num(a.kazeiChiseki)||num(a.tokiChiseki)||num(a.quantity);
-        b+=re('<div class="re-h">【土地】</div>'+F('所　在',a.location)+F('地　番',a.chiban)+F('地　目',a.kazeiChimoku||a.tokiChimoku||a.subcategory)+(area?F('地　積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))+F('利用区分',a.landUse||a.riyou)+F('備　考',a.memo)); });
-      blds.forEach(a=>{ const area=num(a.kazeiYuka)||num(a.tokiYuka)||num(a.quantity);
-        b+=re('<div class="re-h">【建物】</div>'+F('所　在',a.location)+F('家屋番号',a.kaokuNo)+F('種　類',a.subcategory)+F('構　造',a.kozo)+F('階　層',a.kaiso)+(area?F('床面積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))+F('利用区分',a.buildingUse||a.riyou)+F('備　考',a.memo)); });
+      // 土地：所在・地番・地目・地積（登記の値を用いる）。持分は分割所有のときのみ表示
+      lands.forEach(a=>{ const area=num(a.tokiChiseki)||num(a.kazeiChiseki)||num(a.quantity);
+        b+=re('<div class="re-h">【土地】</div>'+F('所　在',a.location)+F('地　番',a.chiban)+F('地　目',a.tokiChimoku||a.kazeiChimoku||a.subcategory)+(area?F('地　積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))); });
+      // 建物：所在・家屋番号・種類・構造・床面積（登記床面積）。持分は分割所有のときのみ表示
+      blds.forEach(a=>{ const area=num(a.tokiYuka)||num(a.quantity);
+        b+=re('<div class="re-h">【建物】</div>'+F('所　在',a.location||a.chiban)+F('家屋番号',a.kaokuNo)+F('種　類',a.subcategory)+F('構　造',a.kozo)+(area?F('床面積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))); });
       subs.push({t:'不動産',b}); }
     // 預貯金
     const yokin=heldByCat(h,'cash').filter(a=>!/現金/.test(a.subcategory||''));
@@ -4686,7 +4689,7 @@ function buildAgreement(){
     .cover{display:flex;align-items:center;justify-content:center;min-height:240mm;page-break-after:always;}
     .cover h1{font-size:24pt;letter-spacing:8px;border:none;}
     .intro{text-indent:1em;margin-bottom:14px;}
-    .dec-info{margin:8px 0 16px;}
+    .dec-info{margin:8px 0 16px;padding-left:4em;}
     .dec-info div{display:flex;padding:2px 0;}
     .dec-info .k{width:130px;}
     .agr-sec{margin:14px 0;}
@@ -4705,12 +4708,12 @@ function buildAgreement(){
     .date{margin:16px 0;}
     .sig-table{width:100%;border-collapse:collapse;margin-bottom:16px;page-break-inside:avoid;}
     .sig-table>tbody>tr>td{vertical-align:middle;}
-    .seal-cell{width:72px;border:1px solid #888;text-align:center;padding:8px 2px;}
-    .seal-cap{font-size:9pt;color:#555;margin-bottom:3px;}
-    .seal-mark{font-size:22pt;color:#c0392b;line-height:1;}
+    .seal-cell{width:72px;border:none;text-align:center;padding:8px 2px;}
+    .seal-cap{font-size:9pt;color:#c4c4c4;margin-bottom:3px;}
+    .seal-mark{font-size:22pt;color:#d0d0d0;line-height:1;}
     .sig-cell{padding:2px 18px;}
     .sig-inner{width:100%;border-collapse:collapse;}
-    .sig-inner td{padding:7px 0;font-size:11pt;}
+    .sig-inner td{padding:11px 0;font-size:11pt;}
     .sig-inner .sl{width:74px;white-space:nowrap;}
     .sig-inner .sv{border-bottom:1px solid #000;padding:0 8px;}
     .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
