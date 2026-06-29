@@ -1926,7 +1926,10 @@ function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn
   document.getElementById('mn_sectionInput').value=mnSections[sec]||''; document.getElementById('mn_sectionInput').focus(); }
 function openMinuteModal(id){ if(!data.clients.length){ toast('先に顧問先を登録してください','err'); return; } document.getElementById('minuteModalTitle').textContent=id?'議事録編集':'議事録作成'; const m=id?data.minutes.find(x=>x.id===id):{};
   setVal('mn_id',m.id||''); setVal('mn_client',m.clientId||''); { const ci=document.getElementById('mn_clientInput'); if(ci)ci.value=m.clientId?clientName(m.clientId):''; } setVal('mn_date',m.date||todayISO()); setVal('mn_title',m.title); setVal('mn_attendees',m.attendees); setVal('mn_actions',m.actions);
-  mnSections={tax:m.tax||(m.content&&!m.chat&&!m.todo?m.content:'')||'',chat:m.chat||'',todo:m.todo||''}; mnSection='tax'; switchMnSection('tax');
+  mnSections={tax:m.tax||(m.content&&!m.chat&&!m.todo?m.content:'')||'',chat:m.chat||'',todo:m.todo||''};
+  // mnSection を一旦無効値にしてから切替。switchMnSection 冒頭の「現在のテキストエリアを保存」が、
+  // 読み込んだ mnSections.tax を空のテキストエリアで上書きするのを防ぐ（編集が空白になる不具合の修正）。
+  mnSection=null; switchMnSection('tax');
   document.getElementById('mn_aiHint').textContent='分類ボタンで「税務論点／世間話／TODO」を切替えて記入します。AI校正は選択中の分類を整えます。'; openModal('minuteModal'); }
 function saveMinute(){ if(!val('mn_client')){ toast('顧問先を選択してください','err'); return; } if(!val('mn_date')){ toast('日付を入力してください','err'); return; }
   mnSections[mnSection]=document.getElementById('mn_sectionInput').value;
