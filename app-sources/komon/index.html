@@ -825,16 +825,20 @@ function openValueFilterMenu(ev,table,key,i){ const st=valueFilterStates[key]; c
     const fic=table.tHead.rows[0].cells[i].querySelector('.flt'); if(fic)fic.style.color=st.sel[i]?'var(--blue)':''; }; }
 
 /* ===== 中間申告 計算（現行法・予定申告方式/前期実績基準） =====
-   法人税割系（法人税・地方法人税・住民税法人税割・事業税・特別法人事業税）の予定申告額：
-     前期確定税額 ÷ 前期月数（1円未満切捨）× 6（100円未満切捨）  ← 税務ソフトと一致
-   均等割：年額 × 6 ÷ 月数（100円未満切捨）
+   ★ 国税と地方税で端数処理の順序が異なる（税法・税務ソフトと一致）：
+   ・国税（法人税・地方法人税・消費税国税）：前期確定税額 ÷ 前期月数（1円未満切捨）× 6（最後に100円未満切捨）
+       例）消費税 3,290,800 ÷ 12 = 274,233（切捨）× 6 = 1,645,398 → 100円未満切捨 1,645,300
+   ・地方税（住民税法人税割・事業税・特別法人事業税・均等割）：前期確定税額 × 6 ÷ 前期月数（最後に100円未満切捨）
+       例）市民税法人税割 179,000 × 6 ÷ 12 = 89,500（地方税法53条/321条の8 等は「×6÷月数」）
    消費税(前期国税年額C・地方消費税除く)：48万円以下=なし／48万円超400万円以下=年1回／400万円超4800万円以下=年3回／4800万円超=年11回。
-     1回あたり国税 = C × (中間課税期間月数/前課税期間月数)、地方消費税=中間国税×22/78。
+     1回あたり国税 = C ÷ 前期月数（1円未満切捨）× 中間課税期間月数、地方消費税=中間国税×22/78（100円未満切捨）。
    法人税の予定申告額が10万円以下の場合は中間申告不要。
    申告納付期限：各中間課税期間末日の翌日から2月以内（決算月から逆算）。 */
 function yotei(annual,months,kind){ annual=num(annual); months=months||12; if(annual<=0)return 0;
-  if(kind==='kinto') return floor100(annual*6/months);              // 均等割
-  return floor100(Math.floor(annual/months)*6); }                   // 法人税割系（÷月数を先に1円未満切捨）
+  // 地方税系（均等割・住民税法人税割・事業税・特別法人事業税）は「年額×6÷月数」→最後に100円未満切捨
+  if(kind==='kinto'||kind==='chihou') return floor100(annual*6/months);
+  // 国税系（法人税・地方法人税）は「÷月数(1円未満切捨)×6」→最後に100円未満切捨
+  return floor100(Math.floor(annual/months)*6); }
 function calcInterim(tax){
   const months=(tax.months&&num(tax.months)>0)?num(tax.months):12;
   const corp=num(tax.corp), localCorp=num(tax.localCorp), cons=num(tax.consumption);
@@ -842,17 +846,22 @@ function calcInterim(tax){
   const localCorpMid=corpRequired?yotei(localCorp,months):0;
   const pv=p=>p.kenminTax!=null?p.kenminTax:p.kenmin; // 旧データ互換
   const pref=(tax.pref||[]).map(p=>{ const kenminTax=num(pv(p)),kenminKinto=num(p.kenminKinto),jigyo=num(p.jigyo),tokubetsu=num(p.tokubetsu);
-    const jigyoOnlyMid=corpRequired?yotei(jigyo,months):0, tokubetsuMid=corpRequired?yotei(tokubetsu,months):0;
+    // 事業税・特別法人事業税は地方税 → ×6÷月数
+    const jigyoOnlyMid=corpRequired?yotei(jigyo,months,'chihou'):0, tokubetsuMid=corpRequired?yotei(tokubetsu,months,'chihou'):0;
     return {name:p.name||'',kenminTax,kenminKinto,jigyo,tokubetsu,
-      kenminMid:corpRequired?(yotei(kenminTax,months)+yotei(kenminKinto,months,'kinto')):0,
+      // 県民税法人税割は地方税 → ×6÷月数（均等割と同じ順序）
+      kenminMid:corpRequired?(yotei(kenminTax,months,'chihou')+yotei(kenminKinto,months,'kinto')):0,
       jigyoOnlyMid, tokubetsuMid, jigyoMid:jigyoOnlyMid+tokubetsuMid}; });
   const city=(tax.city||[]).map(c=>{ const shiTax=num(c.shiTax!=null?c.shiTax:c.shi),shiKinto=num(c.shiKinto);
-    return {name:c.name||'',shiTax,shiKinto, shiMid:corpRequired?(yotei(shiTax,months)+yotei(shiKinto,months,'kinto')):0}; });
+    // 市民税法人税割は地方税 → ×6÷月数
+    return {name:c.name||'',shiTax,shiKinto, shiMid:corpRequired?(yotei(shiTax,months,'chihou')+yotei(shiKinto,months,'kinto')):0}; });
   const kenminMid=pref.reduce((s,p)=>s+p.kenminMid,0), jigyoMid=pref.reduce((s,p)=>s+p.jigyoMid,0), shiMid=city.reduce((s,p)=>s+p.shiMid,0);
   let cTimes=0,cNat=0;
-  if(cons>480000&&cons<=4000000){ cTimes=1; cNat=floor100(cons*6/months); }
-  else if(cons>4000000&&cons<=48000000){ cTimes=3; cNat=floor100(cons*3/months); }
-  else if(cons>48000000){ cTimes=11; cNat=floor100(cons*1/months); }
+  // 消費税(国税)は「確定額÷前期月数(1円未満切捨)×中間課税期間月数」→ 100円未満切捨（国税系の端数処理）
+  const cPerMonth=Math.floor(cons/months);
+  if(cons>480000&&cons<=4000000){ cTimes=1; cNat=floor100(cPerMonth*6); }
+  else if(cons>4000000&&cons<=48000000){ cTimes=3; cNat=floor100(cPerMonth*3); }
+  else if(cons>48000000){ cTimes=11; cNat=floor100(cPerMonth*1); }
   const cLoc=floor100(cNat*22/78), cTot=cNat+cLoc;
   let consOffsets=[]; if(cTimes===1)consOffsets=[8]; else if(cTimes===3)consOffsets=[5,8,11]; else if(cTimes===11)consOffsets=[3,4,5,6,7,8,9,10,11,12,13];
   const natTotal=corpRequired?(corpMid+localCorpMid):0;
