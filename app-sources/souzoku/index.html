@@ -3396,8 +3396,10 @@ function renderSecondary(){
   const s=currentCase.secondary||{};
   // 旧データ（二次相続までに減少する額を直接保存）からの移行：1年あたり額へ換算
   if((s.decPerYear==null||s.decPerYear==='') && num(s.consume)>0){ const _y=Math.max(1,Math.floor(num(s.years))); s.decPerYear=String(Math.round(num(s.consume)/_y)); }
-  $('sec_own').value=s.spouseOwn||''; if($('sec_ownCash'))$('sec_ownCash').value=s.ownCash||''; if($('sec_decPerYear'))$('sec_decPerYear').value=s.decPerYear||''; if($('sec_incPerYear'))$('sec_incPerYear').value=s.incPerYear||''; $('sec_years').value=s.years||''; secApplyDerived(s);
-  [['sec_insPremium','insPremium'],['sec_insCount','insCount'],['sec_gGenAmt','gGenAmt'],['sec_gGenPpl','gGenPpl'],['sec_gGenYrs','gGenYrs'],['sec_gSpcAmt','gSpcAmt'],['sec_gSpcPpl','gSpcPpl'],['sec_gSpcYrs','gSpcYrs'],['sec_optYears','optYears'],['sec_existIns','existIns']].forEach(([id,k])=>{ if($(id))$(id).value=s[k]||''; });
+  // 入力中の欄は上書きしない（再描画でカーソルが末尾へ飛び、数字が重複入力される不具合の防止）
+  const _setUV=(id,v)=>{ const el=$(id); if(el && el!==document.activeElement) el.value=v; };
+  _setUV('sec_own',s.spouseOwn||''); _setUV('sec_ownCash',s.ownCash||''); _setUV('sec_decPerYear',s.decPerYear||''); _setUV('sec_incPerYear',s.incPerYear||''); _setUV('sec_years',s.years||''); secApplyDerived(s);
+  [['sec_insPremium','insPremium'],['sec_insCount','insCount'],['sec_gGenAmt','gGenAmt'],['sec_gGenPpl','gGenPpl'],['sec_gGenYrs','gGenYrs'],['sec_gSpcAmt','gSpcAmt'],['sec_gSpcPpl','gSpcPpl'],['sec_gSpcYrs','gSpcYrs'],['sec_optYears','optYears'],['sec_existIns','existIns']].forEach(([id,k])=>{ _setUV(id,s[k]||''); });
   const r=calcTax(); const E1=r.totalTaxable;
   const spouse=currentCase.heirs.find(h=>h.relationType==='spouse');
   const childCount=currentCase.heirs.filter(h=>h.relationType==='child'||h.relationType==='grandchild').length;

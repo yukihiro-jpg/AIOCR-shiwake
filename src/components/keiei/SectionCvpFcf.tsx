@@ -419,9 +419,17 @@ function BepBar({ rows, small }: { rows: { label: string; val: number; color: st
 }
 
 function MoneyInput({ value, onChange, className }: { value: number; onChange: (v: number) => void; className?: string }) {
+  // 編集中は「入力したそのままの文字列」を表示し、カンマ整形は離脱時のみ行う。
+  // （入力毎に toLocaleString でカンマを挿入するとカーソル位置がずれ、数字が重複入力される不具合になる）
+  const [focused, setFocused] = useState(false)
+  const [draft, setDraft] = useState('')
   return (
-    <input type="text" inputMode="numeric" value={value ? value.toLocaleString('ja-JP') : ''}
-      onChange={(e) => onChange(parseNum(e.target.value))} placeholder="0" className={className} />
+    <input type="text" inputMode="numeric"
+      value={focused ? draft : (value ? value.toLocaleString('ja-JP') : '')}
+      onFocus={() => { setDraft(value ? String(value) : ''); setFocused(true) }}
+      onChange={(e) => { setDraft(e.target.value); onChange(parseNum(e.target.value)) }}
+      onBlur={() => setFocused(false)}
+      placeholder="0" className={className} />
   )
 }
 
