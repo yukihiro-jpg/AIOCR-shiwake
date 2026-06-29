@@ -855,6 +855,10 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="btn-row">
           <button class="btn primary" onclick="downloadSavingsPDF()">節税シミュレーション PDF</button>
         </div>
+        <div class="story-ctrl" style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e2e8;">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;font-size:13px;"><input type="checkbox" id="story_on_sav" onchange="storyToggle(this.checked)" checked>報告書に解説文（なぜ？／だからこそ／結論のストーリー）を載せる</label>
+          <div style="margin-top:8px;"><button class="btn" onclick="openStoryAi('savings')">🪄 解説文をAIで仕上げる</button></div>
+        </div>
       </div>
       <div class="card">
         <h2>二次相続シミュレーション報告書</h2>
@@ -863,6 +867,14 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <button class="btn primary" onclick="downloadSecondaryPDF('normal')">通常版 PDF</button>
           <button class="btn primary" onclick="downloadSecondaryPDF('savings')">節税策込み版 PDF</button>
           <button class="btn primary" onclick="downloadOptimalPDF()">最適解版 PDF</button>
+        </div>
+        <div class="story-ctrl" style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e2e8;">
+          <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;font-size:13px;"><input type="checkbox" id="story_on_sec" onchange="storyToggle(this.checked)" checked>報告書に解説文（なぜ？／だからこそ／結論のストーリー）を載せる</label>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:12px;color:#6b7686;">🪄 解説文をAIで仕上げる：</span>
+            <button class="btn" onclick="openStoryAi('sec_normal')">通常版</button>
+            <button class="btn" onclick="openStoryAi('sec_savings')">節税策込み版</button>
+            <button class="btn" onclick="openStoryAi('sec_optimal')">最適解版</button>
+          </div>
         </div>
       </div>
       <div class="card">
@@ -1059,6 +1071,25 @@ function getStock_(symbol){
     <div class="btn-row" style="margin-top:18px;justify-content:flex-end;">
       <button class="btn" onclick="closeModal('szAiModal')">キャンセル</button>
       <button class="btn primary" onclick="szApplyAi()">この内容で反映</button>
+    </div>
+  </div>
+</div>
+
+<!-- レポート解説文 AI仕上げ確認モーダル -->
+<div class="modal-ov" id="storyAiModal">
+  <div class="modal" style="max-width:760px;">
+    <h2>解説文をAIで仕上げる<span id="storyAiKindLabel" style="font-size:13px;font-weight:400;color:#6b7686;margin-left:8px;"></span></h2>
+    <div class="m-sub">実数値を埋め込んだテンプレートをAIが読みやすく整えた案です。金額や【なぜ？】【だからこそ】【結論】の構成は保持されます。確認・修正のうえ「この内容で保存」を押すと、以降このレポートPDFに反映されます。</div>
+    <div class="field" style="margin-top:8px;"><textarea id="storyAiText" rows="16" style="width:100%;font-size:13px;line-height:1.8;"></textarea></div>
+    <div class="btn-row" style="margin-top:14px;justify-content:space-between;">
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="storyAiResetCurrent()">テンプレートに戻す</button>
+        <button class="btn" onclick="storyAiClearSaved()">保存済みを削除</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeModal('storyAiModal')">キャンセル</button>
+        <button class="btn primary" onclick="storyAiApply()">この内容で保存</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3831,7 +3862,7 @@ function renderSecAllocTable(){
   if(colT.sp>0 && Math.abs(overSpouse)>=10000){ note='<div class="muted" style="font-size:11.5px;margin-top:8px;">配偶者の取得 '+yen(colT.sp)+' は、最小税額前提の取得目安 '+yen(Math.round(_secCtx.minRatio*_secCtx.E1))+' を'+(overSpouse>0?'上回って':'下回って')+'います（差 '+yen(Math.abs(overSpouse))+'）。取得額が目安を超えると合計税額が増える可能性があります。</div>'; }
   el.innerHTML=head+body; const wrap=el.parentElement; if(wrap){ const old=wrap.querySelector('.sec-alloc-note'); if(old)old.remove(); if(note){ const d=document.createElement('div'); d.className='sec-alloc-note'; d.innerHTML=note; wrap.appendChild(d); } }
 }
-function renderDocs(){ /* 静的ボタンのみ */ }
+function renderDocs(){ renderStoryControls(); }
 
 // ============================================================
 //  相続税節税シミュレーション
@@ -4116,6 +4147,16 @@ h3.blk{page-break-after:avoid;break-after:avoid;page-break-inside:avoid;break-in
 table.t.nowraph th,table.t.nowraph td{white-space:nowrap;}
 table.t.chead thead th{text-align:center;}
 table.t.nowraph td .pdesc{white-space:normal;}
+/* ===== ストーリー解説文（相続人が読み物として理解するための説明） ===== */
+.story{border:1px solid #e3e7ee;border-left:4px solid #C8A24B;border-radius:6px;background:#fcfbf6;padding:14px 18px 12px;margin:4px 0 16px;page-break-inside:avoid;break-inside:avoid;}
+.story .lead{font-size:14px;font-weight:800;color:#1F3A5F;letter-spacing:.5px;margin-bottom:9px;padding-bottom:7px;border-bottom:1px dashed #d8cfab;}
+.story .para{font-size:11px;line-height:1.95;color:#36404e;margin:8px 0;text-align:justify;}
+.story .para:last-child{margin-bottom:0;}
+.story .tag{display:inline-block;font-size:9.5px;font-weight:700;color:#fff;border-radius:3px;padding:1px 8px;margin-right:7px;letter-spacing:1px;vertical-align:1.5px;}
+.story .tag.why{background:#C8A24B;}
+.story .tag.so{background:#1F3A5F;}
+.story .tag.concl{background:#2f8a5b;}
+.story .para b{color:#1F3A5F;font-weight:800;background:linear-gradient(transparent 58%,#f3e6bf 58%);padding:0 1px;}
 @media print{@page{size:A4;margin:16mm 14mm;}.page{padding:0;}}`;
 function buildReport(){
   const r=calcTax();
@@ -4361,6 +4402,170 @@ async function downloadShindanExcel(){
   const buf=await wb.xlsx.writeBuffer();
   saveAs(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'財産診断書_'+(d.name||'案件')+'_'+todayISO()+'.xlsx');
 }
+// ============================================================
+//  レポート用ストーリー解説文（テンプレート＋AI仕上げ）
+// ============================================================
+function _story(){ if(!currentCase) return {on:true,ai:{}}; if(!currentCase.story) currentCase.story={on:true,ai:{}}; if(!currentCase.story.ai) currentCase.story.ai={}; return currentCase.story; }
+function _storyTagCls(t){ if(/なぜ/.test(t)) return 'why'; if(/だから/.test(t)) return 'so'; if(/結論|まとめ/.test(t)) return 'concl'; return 'so'; }
+function _storyInline(s){ return esc(s).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>'); }
+// テキスト（【なぜ？】等のマーカー付きプレーン文）→ .story HTMLへ変換
+function storyHTML(text){
+  if(!text || !String(text).trim()) return '';
+  const blocks=String(text).replace(/\r/g,'').split(/\n{2,}/).map(s=>s.trim()).filter(Boolean);
+  let out='<div class="story">';
+  blocks.forEach((b,i)=>{
+    if(i===0 && /^#/.test(b)){ out+='<div class="lead">'+_storyInline(b.replace(/^#+\s*/,''))+'</div>'; return; }
+    const m=b.match(/^【([^】]+)】\s*([\s\S]*)$/);
+    if(m){ out+='<p class="para"><span class="tag '+_storyTagCls(m[1])+'">'+esc(m[1])+'</span>'+_storyInline(m[2])+'</p>'; }
+    else { out+='<p class="para">'+_storyInline(b)+'</p>'; }
+  });
+  return out+'</div>';
+}
+// レポート種別ごとのテンプレート解説文（実数値を埋め込んだプレーンテキスト）
+function buildStoryText(kind, A){
+  const Y=yen;
+  if(kind==='savings'){
+    const L=['# この節税策で相続税をどれだけ減らせるか'];
+    L.push('【なぜ？】相続税は、財産の合計である「課税価格」に対して課されます。何も対策をしなければ、'+A.decName+' 様の相続税の総額は **'+Y(A.baseTax)+'** が見込まれます。課税のベースが大きいほど税率も高くなり、負担が膨らみます。');
+    let so='【だからこそ】今回ご提案する節税策では、課税価格そのものを **'+Y(A.dTtotal)+'** 圧縮します。';
+    if(A.dnTotal>0) so+='あわせて法定相続人を '+A.dnTotal+'人 増やし、基礎控除も拡大します。';
+    so+='財産を計画的に減らす・非課税枠を使う・相続人を増やすことで、課税の土台を小さくするという考え方です。';
+    L.push(so);
+    let cc='【結論】その結果、相続税の総額は '+Y(A.baseTax)+' から **'+Y(A.afterTax)+'** へ下がり、'+Y(A.save)+' を削減できます。';
+    if(A.gTaxTotal>0) cc+='贈与税 '+Y(A.gTaxTotal)+' の負担を差し引いても、**実質の節税効果は '+Y(A.netSave)+'** です。';
+    cc+='以下のグラフと表は、この効果の内訳を具体的な金額で示したものです。';
+    L.push(cc);
+    return L.join('\n\n');
+  }
+  if(kind==='sec_normal'){
+    const L=['# なぜ「二次相続」まで考える必要があるのか'];
+    L.push('【なぜ？】配偶者には「配偶者の税額軽減」があり、一次相続（'+A.decName+' 様の相続）では原則1億6千万円まで相続税がかかりません。そのため、'+A.spouseName+' 様が多く取得するほど“今回”の相続税は軽くなります。');
+    L.push('【だからこそ】しかし、'+A.spouseName+' 様が取得した財産は、将来の二次相続（'+A.spouseName+' 様ご自身の相続）で再び課税されます。二次相続では配偶者の税額軽減が使えず、相続人も '+A.nCh+'人 と少ないため基礎控除も小さくなります。一次で軽くした分が、二次で重くのしかかることがあるのです。');
+    let cc='【結論】そこで、一次と二次を合計した税額が最も小さくなる取得割合を試算しました。配偶者の取得割合を **'+A.minRatio+'%** とすると、一次＋二次の合計は **'+Y(A.minTotal)+'** で最小になります。';
+    if(A.curRatio!==A.minRatio){ const diff=A.curTotal-A.minTotal; cc+='現在の分割案（配偶者 '+A.curRatio+'%・合計 '+Y(A.curTotal)+'）と比べると、'+(diff>0?'**'+Y(diff)+' 軽減できる余地**があります。':'すでに最小に近い水準です。'); }
+    else { cc+='現在の分割案（配偶者 '+A.curRatio+'%）は、ちょうどこの最小水準にあります。'; }
+    L.push(cc);
+    return L.join('\n\n');
+  }
+  if(kind==='sec_savings'){
+    const L=['# 節税策で二次相続の負担をどこまで減らせるか'];
+    L.push('【なぜ？】二次相続（'+A.spouseName+' 様の相続）では配偶者の税額軽減が使えないため、一次で取得した財産がそのまま課税対象になります。対策をしなければ、一次＋二次の合計税額は **'+Y(A.normalMinTotal)+'**（配偶者 '+A.minRatio+'%）が見込まれます。');
+    let so='【だからこそ】生命保険の非課税枠（500万円×'+A.nCh+'人）と暦年贈与を使うと、二次相続の課税財産そのものを圧縮できます。本案では';
+    const parts=[]; if(A.insP>0) parts.push('生命保険 '+Y(A.insP)); if(A.giftGiven>0) parts.push('暦年贈与 '+Y(A.giftGiven));
+    so+=(parts.length?parts.join('・'):'各種節税策')+' を実行する想定です。';
+    L.push(so);
+    let cc='【結論】これにより二次相続税が圧縮され、';
+    if(A.giftTaxTotal>0) cc+='贈与税 '+Y(A.giftTaxTotal)+' を考慮しても、';
+    cc+='一次＋二次＋贈与の合計は **'+Y(A.savingsMinTotal)+'** まで下がります。対策をしない場合との差額は **'+Y(Math.max(0,A.normalMinTotal-A.savingsMinTotal))+'** です。';
+    L.push(cc);
+    return L.join('\n\n');
+  }
+  if(kind==='sec_optimal'){
+    const L=['# 「取得割合」と「節税策」を同時に最適化する'];
+    L.push('【なぜ？】一次相続での配偶者の取得割合と、生命保険・暦年贈与といった節税策は、本来セットで考えるべきものです。割合だけ、対策だけを別々に決めても、一次から二次までを通した合計税額が最小になるとは限りません。');
+    L.push('【だからこそ】本シミュレーションでは、'+A.yrs+'年かけて実行できる生命保険（非課税枠 '+Y(A.insLimit)+'）と暦年贈与を、配偶者の取得割合ごとに最適配分し、一次＋二次＋贈与の合計が最小となる組み合わせを自動で探索しました。');
+    let cc='【結論】その結果、配偶者の取得割合を **'+A.bestRatio+'%** とし、'+(A.methods&&A.methods.length?A.methods.join('・'):'最適な節税策')+'を行うプランで、合計税額は **'+Y(A.bestTotal)+'** が最小になります。';
+    if(A.cut>1) cc+='何も対策をしない場合の最小 '+Y(A.nMinTotal)+' と比べ、**'+Y(A.cut)+' を軽減**できます。';
+    L.push(cc);
+    return L.join('\n\n');
+  }
+  return '';
+}
+// レポートに挿入するストーリーHTML（AI仕上げ済みがあれば優先、無ければテンプレート）
+function storyBlock(kind, A){
+  const s=_story(); if(s.on===false) return '';
+  const txt=(s.ai && s.ai[kind] && s.ai[kind].trim()) ? s.ai[kind] : buildStoryText(kind, A);
+  return storyHTML(txt);
+}
+const _STORY_KIND_LABEL={ savings:'節税シミュレーション報告書', sec_normal:'二次相続（通常版）', sec_savings:'二次相続（節税策込み版）', sec_optimal:'二次相続（最適解版）' };
+// レポート種別ごとに、テンプレート生成に必要な実数値（A）を組み立てる
+function storyArgsFor(kind){
+  const d=currentCase.deceased;
+  if(kind==='savings'){
+    if(!(currentCase.savings||[]).length) throw new Error('節税対策が登録されていません。');
+    const R=savingsCompute();
+    return {decName:d.name,baseTax:R.baseTax,afterTax:R.afterTax,save:R.save,dTtotal:R.dTtotal,dnTotal:R.dnTotal,gTaxTotal:R.gTaxTotal,netSave:R.netSave};
+  }
+  const D=secondaryReportData();
+  if(!D||D.noSpouse) throw new Error('配偶者が登録されていないため二次相続の対象外です。');
+  const minRatio=Math.round(D.normal.samples[D.normal.minIdx].r*100);
+  const curRatio=Math.round(D.normal.samples[D.curIdx].r*100);
+  if(kind==='sec_normal'){
+    return {decName:d.name,spouseName:D.spouseName,nCh:D.nCh,minRatio,minTotal:D.normal.samples[D.normal.minIdx].total,curRatio,curTotal:D.normal.samples[D.curIdx].total};
+  }
+  if(kind==='sec_savings'){
+    if(!D.hasSavings) throw new Error('節税策（生命保険・暦年贈与）が未入力です。');
+    const st=D.strat;
+    return {decName:d.name,spouseName:D.spouseName,nCh:D.nCh,minRatio,normalMinTotal:D.normal.samples[D.normal.minIdx].total,savingsMinTotal:D.savings.samples[D.savings.minIdx].total,insP:st.insP,giftGiven:st.giftGiven,giftTaxTotal:st.giftTaxTotal};
+  }
+  if(kind==='sec_optimal'){
+    const s=currentCase.secondary||{};
+    const yi=$('sec_optYears'); let yrs=Math.floor(num((yi&&yi.value)||s.optYears)); if(!yrs) yrs=Math.max(1,Math.floor(D.years)||10);
+    const ei=$('sec_existIns'); D.existIns=num((ei&&ei.value)||s.existIns);
+    const opt=computeOptimal(D,yrs);
+    const best=opt.samples[opt.minIdx], pl=best.plan;
+    const nMin=opt.baseMin||D.normal.samples[D.normal.minIdx];
+    const methods=[];
+    if(pl.insAmount>0) methods.push('生命保険 '+yen(pl.insAmount)+' の活用');
+    if(pl.giftTotal>0) methods.push('暦年贈与 '+yen(pl.giftTotal)+'（'+yrs+'年）');
+    return {decName:d.name,spouseName:D.spouseName,nCh:opt.nCh,yrs,insLimit:opt.insLimit,bestRatio:Math.round(best.r*100),bestTotal:best.total,nMinTotal:nMin.total,cut:nMin.total-best.total,methods};
+  }
+  throw new Error('未知のレポート種別');
+}
+function storyTemplateFor(kind){ return buildStoryText(kind, storyArgsFor(kind)); }
+// AI仕上げ：テンプレートをAIで読みやすく整えてから確認モーダルに表示
+const _STORY_AI_SYS='あなたは相続専門の税理士事務所の文章編集者です。相続人（依頼者の家族）が読む報告書に載せる解説文を、内容を一切変えずに、温かく分かりやすい日本語に整えます。【厳守事項】（1）金額・割合・人数・年数などの数値は一字一句変更しない。（2）【なぜ？】【だからこそ】【結論】という3つのマーカーと、その順序・区分は必ず保持する。（3）先頭の「# 見出し行」は1行だけ残す（より分かりやすい見出しに調整は可）。（4）Markdownの強調は **太字** のみ使用可。箇条書きや表は作らない。（5）事実・専門用語の意味を勝手に足したり削ったりしない。出力は整えた解説文の本文のみ。';
+let _storyAiKind=null;
+async function openStoryAi(kind){
+  if(!currentCase){ toast('案件がありません', true); return; }
+  syncUIToCase();
+  let tmpl;
+  try{ tmpl=storyTemplateFor(kind); }
+  catch(e){ toast(e.message, true); return; }
+  _storyAiKind=kind;
+  $('storyAiKindLabel').textContent=_STORY_KIND_LABEL[kind]||'';
+  $('storyAiText').value='AIで整えています…しばらくお待ちください。';
+  $('storyAiText').disabled=true;
+  openModal('storyAiModal');
+  try{
+    const out=await szCallAI(_STORY_AI_SYS, '次の解説文を、ルールを守って読みやすく整えてください。\n\n'+tmpl, 1600);
+    $('storyAiText').value=(out&&out.trim())||tmpl;
+  }catch(e){
+    $('storyAiText').value=tmpl;
+    toast('AI仕上げに失敗しました（テンプレートを表示）：'+e.message, true);
+  }finally{ $('storyAiText').disabled=false; }
+}
+function storyAiApply(){
+  if(!_storyAiKind) return;
+  const t=($('storyAiText').value||'').trim();
+  _story().ai[_storyAiKind]=t;
+  cacheCurrentCase();
+  closeModal('storyAiModal');
+  toast('AIで仕上げた解説文を保存しました（このレポートに反映されます）');
+}
+function storyAiResetCurrent(){
+  if(!_storyAiKind) return;
+  let tmpl=''; try{ tmpl=storyTemplateFor(_storyAiKind); }catch(e){}
+  $('storyAiText').value=tmpl;
+}
+function storyAiClearSaved(){
+  if(!_storyAiKind) return;
+  delete _story().ai[_storyAiKind];
+  cacheCurrentCase();
+  let tmpl=''; try{ tmpl=storyTemplateFor(_storyAiKind); }catch(e){}
+  $('storyAiText').value=tmpl;
+  toast('テンプレートに戻しました（保存済みのAI文を削除）');
+}
+function storyToggle(on){
+  if(!currentCase){ return; }
+  _story().on=!!on;
+  const a=$('story_on_sav'), b=$('story_on_sec'); if(a)a.checked=!!on; if(b)b.checked=!!on;
+  cacheCurrentCase();
+}
+function renderStoryControls(){
+  const on=_story().on!==false;
+  const a=$('story_on_sav'), b=$('story_on_sec'); if(a)a.checked=on; if(b)b.checked=on;
+}
 function downloadSavingsPDF(){
   if(!currentCase){ toast('案件がありません', true); return; }
   syncUIToCase();
@@ -4381,6 +4586,7 @@ function downloadSavingsPDF(){
     +'<div class="kpi"><div class="l">相続税の削減額</div><div class="v">'+yen(R.save)+'</div></div>'
     +(hasGift?'<div class="kpi"><div class="l">贈与税の発生額</div><div class="v">＋'+yen(R.gTaxTotal)+'</div></div>':'')
     +'<div class="kpi a"><div class="l">'+(hasGift?'実質の節税効果':'節税効果（削減額）')+'</div><div class="v">'+yen(R.netSave)+'</div></div></div>'
+    +storyBlock('savings',{decName:d.name,baseTax:R.baseTax,afterTax:R.afterTax,save:R.save,dTtotal:R.dTtotal,dnTotal:R.dnTotal,gTaxTotal:R.gTaxTotal,netSave:R.netSave})
     +'<div class="keepblk"><div class="sec-title">課税価格の比較</div>'
     +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
     +'<tr><td>課税価格の合計額</td><td class="r">'+yen(R.T0)+'</td><td class="r">'+yen(R.T1)+'</td></tr>'
@@ -4502,6 +4708,7 @@ function downloadSecondaryPDF(mode){
     +'<div class="kpi a"><div class="l">配偶者の取得割合'+Math.round(mb.r*100)+'％の時の一次・二次相続税'+(mode==='savings'?'＋贈与税':'')+'の合計額</div><div class="v">'+yen(mb.total)+'</div></div>'
     +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.normal.samples[D.curIdx].r*100)+'%）の一次・二次相続税の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
     +(mode==='savings'?'<div class="kpi a"><div class="l">節税対策をしない場合とした場合の一次・二次相続税負担額の差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
+    +(function(){ const sk=(mode==='savings')?'sec_savings':'sec_normal'; const minRatio=Math.round(D.normal.samples[D.normal.minIdx].r*100); const curRatio=Math.round(D.normal.samples[D.curIdx].r*100); const A=(mode==='savings')?{decName:d.name,spouseName:D.spouseName,nCh:D.nCh,minRatio,normalMinTotal:D.normal.samples[D.normal.minIdx].total,savingsMinTotal:D.savings.samples[D.savings.minIdx].total,insP:st.insP,giftGiven:st.giftGiven,giftTaxTotal:st.giftTaxTotal}:{decName:d.name,spouseName:D.spouseName,nCh:D.nCh,minRatio,minTotal:D.normal.samples[D.normal.minIdx].total,curRatio,curTotal:D.normal.samples[D.curIdx].total}; return storyBlock(sk,A); })()
     +saveExplain
     +'<div class="sec-title">配偶者の取得割合による税額'+(mode==='savings'?'（節税策込み）':'')+'</div>'
     +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME, D.curIdx)+'</div>'
@@ -4596,6 +4803,7 @@ function downloadOptimalPDF(){
     +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計が最小となる一次相続の配偶者取得割合</div><div class="v">'+r+'%</div></div>'
     +'<div class="kpi a"><div class="l">最適プランの一次＋二次＋贈与税の合計額</div><div class="v">'+yen(best.total)+'</div></div>'
     +(cut>1?'<div class="kpi a"><div class="l">何も対策をしない場合の最小（配偶者 '+Math.round(nMin.r*100)+'%）との差額</div><div class="v">−'+yen(cut)+'</div></div>':'')+'</div>'
+    +(function(){ const methods=[]; if(pl.insAmount>0) methods.push('生命保険 '+yen(pl.insAmount)+' の活用'); if(pl.giftTotal>0) methods.push('暦年贈与 '+yen(pl.giftTotal)+'（'+yrs+'年）'); return storyBlock('sec_optimal',{decName:d.name,spouseName:D.spouseName,nCh:opt.nCh,yrs,insLimit:opt.insLimit,bestRatio:r,bestTotal:best.total,nMinTotal:nMin.total,cut,methods}); })()
     +methodsBlock+planTable
     +cmpTable
     +'<div class="sec-title pbefore">配偶者の取得割合による二次相続シミュレーション（最適解）</div>'
