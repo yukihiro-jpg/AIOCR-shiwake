@@ -50,6 +50,15 @@ export default function LearnPatternDialog({
 
   if (!open || !entry) return null
 
+  // 結果プレビュー：この設定だと元の摘要が最終的にどんな摘要になるか（journal-mapper の変換と一致）
+  const originalDesc = entry.originalDescription || entry.description || ''
+  const cd = convertedDesc.trim()
+  const mt = matchText.trim()
+  // 全体置換：変換後摘要がそのまま全体に。空欄なら元のまま
+  const previewWhole = cd || originalDesc
+  // 部分置換：一致部分(mt)のみ変換後摘要に置換（最初の1か所）。mt未指定/空欄なら元のまま
+  const previewPartial = cd ? (mt ? originalDesc.replace(mt, cd) : cd) : originalDesc
+
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
     const max = amountMax ? parseInt(amountMax.replace(/[^0-9]/g, '')) : null
@@ -146,13 +155,35 @@ export default function LearnPatternDialog({
                 </span>
               </label>
             )}
-            <p className="text-xs text-gray-400 mt-1">
-              {matchType === 'exact'
-                ? '設定すると摘要全体がこのテキストに置換されます'
-                : replaceEntireDescription
-                  ? '一致部分の前後も含めて、摘要全体がこのテキストに置換されます'
-                  : '設定すると一致部分のみがこのテキストに置換されます（残りは保持）'}
-            </p>
+            {/* 結果プレビュー：押す/押さないで摘要がどうなるかを具体的に表示 */}
+            <div className="mt-2 rounded-md border border-blue-100 bg-blue-50/60 p-2 text-xs">
+              <div className="text-gray-500 mb-1">この設定だと、仕訳の摘要はこうなります：</div>
+              <div className="text-gray-600">
+                元の摘要：<span className="font-mono break-all">{originalDesc || '（なし）'}</span>
+              </div>
+              {matchType === 'exact' ? (
+                <div className="mt-1 text-gray-800">
+                  → <b className="font-mono text-blue-700 break-all">{previewWhole || '（空欄）'}</b>
+                  <span className="text-gray-400">（完全一致は摘要全体を置換）</span>
+                </div>
+              ) : !cd ? (
+                <div className="mt-1 text-gray-500">
+                  変換後の摘要が空欄のため、どちらの設定でも<b>元の摘要のまま</b>になります。
+                </div>
+              ) : (
+                <div className="mt-1 space-y-1">
+                  <div className={replaceEntireDescription ? 'font-semibold text-blue-700' : 'text-gray-500'}>
+                    ☑ 全体置換する（チェックON）→ <span className="font-mono break-all">{previewWhole}</span>
+                  </div>
+                  <div className={!replaceEntireDescription ? 'font-semibold text-blue-700' : 'text-gray-500'}>
+                    ☐ 全体置換しない（チェックOFF・部分置換）→ <span className="font-mono break-all">{previewPartial}</span>
+                  </div>
+                  <div className="text-gray-400 pt-0.5 border-t border-blue-100">
+                    いまの選択：<b>{replaceEntireDescription ? '全体置換' : '部分置換'}</b> → この摘要で登録されます
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 金額範囲設定 */}
