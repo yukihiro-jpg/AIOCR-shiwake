@@ -40,7 +40,7 @@ interface Props {
 }
 
 export default function PayrollUploadDialog({ open, onClose, accountMaster, subAccountMaster, accountTaxMaster, onGenerate, onGenerateEntries }: Props) {
-  const [mode, setMode] = useState<'file' | 'paste'>('paste')
+  const [mode, setMode] = useState<'file' | 'paste'>('file')
   const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<PayrollData | null>(null)
   const [error, setError] = useState('')
@@ -58,6 +58,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [dateNextMonth, setDateNextMonth] = useState(false)
   const [incSub, setIncSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
   const [resSub, setResSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
+  const [dragOver, setDragOver] = useState(false)
 
   // ダイアログを開く度にテキストと解析結果をリセット
   useEffect(() => {
@@ -130,10 +131,17 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (file) processFile(file)
+  }
+
+  const processFile = async (file: File) => {
     setError('')
+    const lower = file.name.toLowerCase()
+    if (!(lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv'))) {
+      setError('Excel（.xlsx / .xls）または .csv ファイルを選択してください'); return
+    }
     try {
       const mod = await import('@/lib/bank-statement/payroll-parser')
       // まず「年間・従業員別シート・月列」形式かを判定
@@ -277,7 +285,16 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                   className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">解析</button>
               </>
             ) : (
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="block w-full text-sm border rounded p-2" />
+              <label
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f) }}
+                className={`flex flex-col items-center justify-center gap-2 w-full py-10 px-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}`}>
+                <div className="text-3xl">📥</div>
+                <div className="text-sm text-gray-700 font-medium">ここに賃金台帳ファイルをドラッグ&ドロップ</div>
+                <div className="text-xs text-gray-500">またはクリックして選択（.xlsx / .xls / .csv）</div>
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+              </label>
             )}
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
           </div>
