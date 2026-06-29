@@ -330,6 +330,12 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .detail-head .dsub.minus{color:var(--red);}
 .dtbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;}
 .dtbl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px;min-width:600px;}
+.dtbl .no-col{width:40px;min-width:40px;}
+.dtbl .no-cell{width:40px;min-width:40px;text-align:center;color:#7a7f87;font-size:12px;cursor:grab;user-select:none;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.dtbl .no-cell:active{cursor:grabbing;}
+.dtbl tr.dnd-drag{opacity:.45;}
+.dtbl tr.dnd-over-top>td{box-shadow:inset 0 2px 0 0 #2f6df6;}
+.dtbl tr.dnd-over-bot>td{box-shadow:inset 0 -2px 0 0 #2f6df6;}
 .dtbl th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-size:11px;font-weight:600;color:var(--ink-2);padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
 .mv-table th{position:static;background:#4287f5;color:#fff;border-color:#fff;border-bottom:1px solid #fff;text-align:center;}
 .mv-table th select{color:var(--ink);}
@@ -2426,8 +2432,40 @@ function renderAssetDetail(){
     +'<div class="dsub'+(t.sign<0?' minus':'')+'" id="catSubtotal">'+(t.sign<0?'−':'')+yen(subtotal)+'</div></div>'
     +table
     +'<div class="detail-foot"><button class="btn primary sm" onclick="addAsset(\''+currentAssetCat+'\')">＋ 行を追加</button>'
-    +'<span class="muted" style="font-size:12px;">「複製」で同じ行をコピーできます。</span></div>'
+    +'<span class="muted" style="font-size:12px;">「複製」で同じ行をコピーできます。No.列をドラッグすると並び替えできます。</span></div>'
     +detailNote(currentAssetCat);
+  enhanceAssetDnd();
+}
+// ===== 明細行の自動ナンバリング＋ドラッグ並び替え =====
+let _dndAid=null;
+function _aidOfRow(tr){ const b=tr.querySelector('.rowops .del, .rowops button.del'); const m=b&&(b.getAttribute('onclick')||'').match(/removeAsset\('([^']+)'\)/); return m?m[1]:''; }
+function reorderAsset(dragId,targetId,before){
+  if(!currentCase||!dragId||dragId===targetId) return;
+  const arr=currentCase.assets; const di=arr.findIndex(a=>a.id===dragId); if(di<0) return;
+  const it=arr.splice(di,1)[0];
+  const ti=arr.findIndex(a=>a.id===targetId);
+  if(ti<0) arr.push(it); else arr.splice(before?ti:ti+1,0,it);
+  renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
+}
+function enhanceAssetDnd(){
+  const wrap=$('assetDetail'); if(!wrap) return;
+  wrap.querySelectorAll('table.dtbl').forEach(tbl=>{
+    const htr=tbl.querySelector('thead tr'); if(htr && !htr.querySelector('.no-col')){ const th=document.createElement('th'); th.className='no-col'; th.textContent='No.'; htr.insertBefore(th,htr.firstChild); }
+    tbl.querySelectorAll('tfoot tr').forEach(ftr=>{ if(!ftr.querySelector('.no-foot')){ const td=document.createElement('td'); td.className='no-foot'; ftr.insertBefore(td,ftr.firstChild); } });
+    let n=0;
+    tbl.querySelectorAll('tbody tr').forEach(tr=>{
+      if(tr.querySelector('.no-cell')) return;
+      const aid=_aidOfRow(tr); const td=document.createElement('td'); td.className='no-cell';
+      if(aid){ n++; td.textContent=n; td.setAttribute('draggable','true'); td.title='ドラッグで並び替え';
+        td.addEventListener('dragstart',e=>{ _dndAid=aid; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',aid);}catch(_){} tr.classList.add('dnd-drag'); });
+        td.addEventListener('dragend',()=>{ tr.classList.remove('dnd-drag'); tbl.querySelectorAll('.dnd-over-top,.dnd-over-bot').forEach(x=>x.classList.remove('dnd-over-top','dnd-over-bot')); _dndAid=null; });
+        tr.addEventListener('dragover',e=>{ if(!_dndAid||_dndAid===aid) return; e.preventDefault(); e.dataTransfer.dropEffect='move'; const rc=tr.getBoundingClientRect(); const top=e.clientY<rc.top+rc.height/2; tr.classList.toggle('dnd-over-top',top); tr.classList.toggle('dnd-over-bot',!top); });
+        tr.addEventListener('dragleave',()=>{ tr.classList.remove('dnd-over-top','dnd-over-bot'); });
+        tr.addEventListener('drop',e=>{ if(!_dndAid||_dndAid===aid) return; e.preventDefault(); const rc=tr.getBoundingClientRect(); const before=e.clientY<rc.top+rc.height/2; const d=_dndAid; _dndAid=null; reorderAsset(d,aid,before); });
+      } else { td.innerHTML='&nbsp;'; }
+      tr.insertBefore(td,tr.firstChild);
+    });
+  });
 }
 // 金融資産異動一覧表
 function movementAccounts(){ return currentCase.assets.filter(a=>a.category==='cash' && /普通|通常|当座/.test(a.subcategory||'')); }
