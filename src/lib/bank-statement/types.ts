@@ -256,3 +256,24 @@ export interface PayrollData {
   payHeaders: string[]
   deductHeaders: string[]
 }
+
+// 賃金台帳（年間・従業員別シート・月列形式）— 人別×月別に複合仕訳を作る
+export interface PayrollLedgerMonth {
+  month: number          // 1〜12
+  gross: number          // 総支給額
+  socialInsurance: number // 社会保険料合計（従業員負担分）
+  incomeTax: number      // 源泉所得税
+  residentTax: number    // 住民税
+  netPay: number         // 差引支給額
+}
+export interface PayrollLedgerEmployee {
+  name: string
+  isExecutive: boolean
+  months: PayrollLedgerMonth[]
+}
+export interface PayrollLedger {
+  kind: 'ledger'
+  year: number
+  companyName: string
+  employees: PayrollLedgerEmployee[]
+}

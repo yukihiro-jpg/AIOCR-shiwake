@@ -1,6 +1,7 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
-import type { PayrollData, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
+import type { PayrollData, PayrollLedger, AccountItem, SubAccountItem, JournalEntry, AccountTaxItem } from '@/lib/bank-statement/types'
+import type { LedgerDateRule } from '@/lib/bank-statement/payroll-ledger-mapper'
 
 // 賃金台帳の学習データ（localStorage）
 interface PayrollSettings {
@@ -33,10 +34,12 @@ interface Props {
   onClose: () => void
   accountMaster: AccountItem[]
   subAccountMaster: SubAccountItem[]
+  accountTaxMaster?: AccountTaxItem[]
   onGenerate: (data: PayrollData, bankCode: string, bankName: string, deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>, bankSubCode?: string, bankSubName?: string) => void
+  onGenerateEntries?: (entries: JournalEntry[], info: string) => void
 }
 
-export default function PayrollUploadDialog({ open, onClose, accountMaster, subAccountMaster, onGenerate }: Props) {
+export default function PayrollUploadDialog({ open, onClose, accountMaster, subAccountMaster, accountTaxMaster, onGenerate, onGenerateEntries }: Props) {
   const [mode, setMode] = useState<'file' | 'paste'>('paste')
   const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<PayrollData | null>(null)
@@ -46,12 +49,22 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [bankSubCode, setBankSubCode] = useState('')
   const [bankSubName, setBankSubName] = useState('')
   const [accounts, setAccounts] = useState<Record<string, { code: string; name: string; subCode?: string; subName?: string }>>({})
+  // ===== 年間賃金台帳（従業員別シート・月列）モード =====
+  const [ledger, setLedger] = useState<PayrollLedger | null>(null)
+  const [fromMonth, setFromMonth] = useState(1)
+  const [toMonth, setToMonth] = useState(12)
+  const [dateMode, setDateMode] = useState<'monthEnd' | 'monthStart' | 'day'>('monthEnd')
+  const [dateDay, setDateDay] = useState(25)
+  const [dateNextMonth, setDateNextMonth] = useState(false)
+  const [incSub, setIncSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
+  const [resSub, setResSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
 
   // ダイアログを開く度にテキストと解析結果をリセット
   useEffect(() => {
     if (open) {
       setPasteText('')
       setParsed(null)
+      setLedger(null)
       setError('')
     }
   }, [open])
@@ -122,11 +135,66 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     if (!file) return
     setError('')
     try {
-      const { parsePayrollFile } = await import('@/lib/bank-statement/payroll-parser')
-      const data = await parsePayrollFile(file)
+      const mod = await import('@/lib/bank-statement/payroll-parser')
+      // まず「年間・従業員別シート・月列」形式かを判定
+      if (await mod.detectPayrollLedgerFile(file)) {
+        const led = await mod.parsePayrollLedgerFile(file)
+        if (!led.employees.length) throw new Error('従業員シートが見つかりません')
+        // 学習済みの役員フラグを復元＋科目デフォルトを名称から補完
+        const saved = loadPayrollSettings()
+        const execNames = new Set(saved?.executiveNames || [])
+        led.employees = led.employees.map((emp) => ({ ...emp, isExecutive: execNames.has(emp.name) }))
+        // 解析範囲の初期値＝データのある月の最小〜最大
+        const allMonths = led.employees.flatMap((emp) => emp.months.map((m) => m.month))
+        if (allMonths.length) { setFromMonth(Math.min(...allMonths)); setToMonth(Math.max(...allMonths)) }
+        // 科目デフォルト（学習データ→なければ科目名から自動補完）
+        const findByName = (kw: string) => accountMaster.find((a) => (a.name || '').includes(kw) || (a.shortName || '').includes(kw))
+        const def = (key: string, kw: string) => {
+          const s = saved?.itemAccounts?.[key]
+          if (s?.code) return s
+          const a = findByName(kw); return a ? { code: a.code, name: a.shortName || a.name } : { code: '', name: '' }
+        }
+        setAccounts((prev) => ({ ...prev,
+          '給与手当': def('給与手当', '給与手当'), '役員報酬': def('役員報酬', '役員報酬'),
+          '未払金': def('未払金', '未払金'), '法定福利費': def('法定福利費', '法定福利費'),
+          '預り金': def('預り金', '預り金') }))
+        if (saved?.itemAccounts?.['預り金_源泉所得税']) setIncSub({ code: saved.itemAccounts['預り金_源泉所得税'].subCode || '', name: saved.itemAccounts['預り金_源泉所得税'].subName || '' })
+        if (saved?.itemAccounts?.['預り金_住民税']) setResSub({ code: saved.itemAccounts['預り金_住民税'].subCode || '', name: saved.itemAccounts['預り金_住民税'].subName || '' })
+        setLedger(led)
+        return
+      }
+      const data = await mod.parsePayrollFile(file)
       if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
       setParsed(data)
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
+  }
+
+  const toggleLedgerExec = (idx: number) => {
+    if (!ledger) return
+    setLedger({ ...ledger, employees: ledger.employees.map((emp, i) => i === idx ? { ...emp, isExecutive: !emp.isExecutive } : emp) })
+  }
+
+  const handleGenerateLedger = async () => {
+    if (!ledger || !onGenerateEntries) return
+    const a = (k: string) => accounts[k] || { code: '', name: '' }
+    if (!a('給与手当').code && ledger.employees.some((e) => !e.isExecutive)) { setError('給与手当の科目コードを設定してください'); return }
+    const { payrollLedgerToEntries } = await import('@/lib/bank-statement/payroll-ledger-mapper')
+    const rule: LedgerDateRule = dateMode === 'day' ? { type: 'day', day: dateDay, nextMonth: dateNextMonth } : { type: dateMode }
+    const entries = payrollLedgerToEntries(ledger, fromMonth, toMonth, {
+      salary: a('給与手当'), executive: a('役員報酬'), unpaid: a('未払金'), welfare: a('法定福利費'),
+      withholding: a('預り金'), incomeSub: incSub.code ? incSub : undefined, residentSub: resSub.code ? resSub : undefined,
+    }, rule, accountTaxMaster)
+    if (!entries.length) { setError('対象月に支給データがありません'); return }
+    // 学習データ保存
+    savePayrollSettings({
+      executiveNames: ledger.employees.filter((e) => e.isExecutive).map((e) => e.name),
+      itemAccounts: { ...accounts,
+        '預り金_源泉所得税': { ...a('預り金'), subCode: incSub.code, subName: incSub.name },
+        '預り金_住民税': { ...a('預り金'), subCode: resSub.code, subName: resSub.name } },
+      bankCode, bankName, bankSubCode, bankSubName,
+    })
+    onGenerateEntries(entries, `賃金台帳から${entries.length}件の仕訳を生成しました（${fromMonth}月〜${toMonth}月・${ledger.employees.length}名）`)
+    onClose()
   }
 
   const toggleExecutive = (idx: number) => {
@@ -184,12 +252,21 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
           <h2 className="text-lg font-bold">賃金台帳 → 仕訳データ作成</h2>
         </div>
 
-        {!parsed ? (
+        {ledger ? (
+          <LedgerView
+            ledger={ledger} fromMonth={fromMonth} toMonth={toMonth} setFromMonth={setFromMonth} setToMonth={setToMonth}
+            dateMode={dateMode} setDateMode={setDateMode} dateDay={dateDay} setDateDay={setDateDay} dateNextMonth={dateNextMonth} setDateNextMonth={setDateNextMonth}
+            toggleExec={toggleLedgerExec} renderAccountInput={renderAccountInput} accounts={accounts}
+            subAccountMaster={subAccountMaster} incSub={incSub} setIncSub={setIncSub} resSub={resSub} setResSub={setResSub}
+            error={error} onCancel={() => setLedger(null)} onGenerate={handleGenerateLedger}
+          />
+        ) : !parsed ? (
           <div className="px-6 py-4 space-y-4">
             <div className="flex gap-2">
               <button onClick={() => setMode('paste')} className={`px-3 py-1.5 text-sm rounded ${mode === 'paste' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>テキスト貼り付け</button>
               <button onClick={() => setMode('file')} className={`px-3 py-1.5 text-sm rounded ${mode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>ファイル選択</button>
             </div>
+            <div className="text-[11px] text-gray-500">※ 従業員別シート・月列形式の「年間賃金台帳」Excelを選ぶと、人別×月別の複合仕訳を作成します。</div>
             {mode === 'paste' ? (
               <>
                 <div className="text-xs text-gray-600">Excelの給与明細一覧表をコピーして貼り付けてください</div>
@@ -336,6 +413,116 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
         <div className="px-6 py-2 border-t flex justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">閉じる</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ===== 年間賃金台帳（従業員別シート・月列）モードのUI =====
+function LedgerView(props: {
+  ledger: PayrollLedger
+  fromMonth: number; toMonth: number; setFromMonth: (n: number) => void; setToMonth: (n: number) => void
+  dateMode: 'monthEnd' | 'monthStart' | 'day'; setDateMode: (m: 'monthEnd' | 'monthStart' | 'day') => void
+  dateDay: number; setDateDay: (n: number) => void; dateNextMonth: boolean; setDateNextMonth: (b: boolean) => void
+  toggleExec: (idx: number) => void
+  renderAccountInput: (name: string) => React.ReactNode
+  accounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>
+  subAccountMaster: SubAccountItem[]
+  incSub: { code: string; name: string }; setIncSub: (s: { code: string; name: string }) => void
+  resSub: { code: string; name: string }; setResSub: (s: { code: string; name: string }) => void
+  error: string; onCancel: () => void; onGenerate: () => void
+}) {
+  const { ledger, fromMonth, toMonth, setFromMonth, setToMonth, dateMode, setDateMode, dateDay, setDateDay, dateNextMonth, setDateNextMonth, toggleExec, renderAccountInput, accounts, subAccountMaster, incSub, setIncSub, resSub, setResSub, error, onCancel, onGenerate } = props
+  const inRange = (m: number) => m >= Math.min(fromMonth, toMonth) && m <= Math.max(fromMonth, toMonth)
+  const monthSum = (emp: { months: { month: number; gross: number }[] }) => emp.months.filter((m) => inRange(m.month)).reduce((s, m) => s + m.gross, 0)
+  const months = Array.from({ length: 12 }, (_, i) => i + 1)
+  const whCode = accounts['預り金']?.code || ''
+  const whSubs = whCode ? subAccountMaster.filter((s) => s.parentCode === whCode) : []
+  const subSelect = (cur: { code: string; name: string }, set: (s: { code: string; name: string }) => void) => (
+    <select value={cur.code} onChange={(e) => { const s = whSubs.find((x) => x.subCode === e.target.value); set({ code: e.target.value, name: s?.shortName || s?.name || '' }) }}
+      className="px-1 py-1 text-xs border rounded max-w-[120px]">
+      <option value="">補助科目</option>
+      {whSubs.map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
+    </select>
+  )
+  const targetCount = ledger.employees.reduce((s, e) => s + e.months.filter((m) => inRange(m.month) && m.gross > 0).length, 0)
+  return (
+    <div className="px-6 py-4 space-y-5">
+      <div className="flex gap-6 text-sm flex-wrap">
+        <span><b>形式:</b> 年間賃金台帳（人別シート）</span>
+        <span><b>年:</b> {ledger.year || '—'}年</span>
+        <span><b>会社:</b> {ledger.companyName || '—'}</span>
+        <span><b>人数:</b> {ledger.employees.length}名</span>
+      </div>
+
+      {/* 解析範囲・計上日 */}
+      <div className="flex flex-wrap items-end gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <div>
+          <div className="text-xs font-bold mb-1">解析する月の範囲</div>
+          <div className="flex items-center gap-1 text-sm">
+            <select value={fromMonth} onChange={(e) => setFromMonth(Number(e.target.value))} className="px-2 py-1 border rounded">{months.map((m) => <option key={m} value={m}>{m}月</option>)}</select>
+            <span>〜</span>
+            <select value={toMonth} onChange={(e) => setToMonth(Number(e.target.value))} className="px-2 py-1 border rounded">{months.map((m) => <option key={m} value={m}>{m}月</option>)}</select>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-bold mb-1">計上日（各月の仕訳日付）</div>
+          <div className="flex items-center gap-2 text-sm flex-wrap">
+            <label className="flex items-center gap-1"><input type="radio" checked={dateMode === 'monthEnd'} onChange={() => setDateMode('monthEnd')} />当月末日</label>
+            <label className="flex items-center gap-1"><input type="radio" checked={dateMode === 'monthStart'} onChange={() => setDateMode('monthStart')} />当月1日</label>
+            <label className="flex items-center gap-1"><input type="radio" checked={dateMode === 'day'} onChange={() => setDateMode('day')} />
+              <select disabled={dateMode !== 'day'} value={dateNextMonth ? '1' : '0'} onChange={(e) => setDateNextMonth(e.target.value === '1')} className="px-1 py-1 border rounded text-xs"><option value="0">当月</option><option value="1">翌月</option></select>
+              <input type="number" min={1} max={31} disabled={dateMode !== 'day'} value={dateDay} onChange={(e) => setDateDay(Number(e.target.value))} className="w-14 px-1 py-1 border rounded text-xs" />日
+            </label>
+          </div>
+        </div>
+        <div className="ml-auto text-sm text-blue-800 font-bold self-center">対象: {targetCount}人月分の複合仕訳</div>
+      </div>
+
+      {/* 従業員一覧（役員にチェック→役員報酬） */}
+      <div>
+        <div className="text-sm font-bold mb-1">従業員一覧（役員にチェックすると借方が「役員報酬」になります。既定は「給与手当」）</div>
+        <div className="border rounded max-h-[180px] overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-100 sticky top-0"><tr><th className="px-2 py-1 w-12">役員</th><th className="px-2 py-1 text-left">氏名</th><th className="px-2 py-1 text-right">対象月数</th><th className="px-2 py-1 text-right">範囲内 総支給額計</th></tr></thead>
+            <tbody>
+              {ledger.employees.map((emp, idx) => (
+                <tr key={idx} className={`border-t ${emp.isExecutive ? 'bg-amber-50' : ''}`}>
+                  <td className="px-2 py-0.5 text-center"><input type="checkbox" checked={emp.isExecutive} onChange={() => toggleExec(idx)} /></td>
+                  <td className="px-2 py-0.5">{emp.name} {emp.isExecutive ? <span className="text-amber-700 font-bold">役員報酬</span> : <span className="text-gray-400">給与手当</span>}</td>
+                  <td className="px-2 py-0.5 text-right">{emp.months.filter((m) => inRange(m.month) && m.gross > 0).length}ヶ月</td>
+                  <td className="px-2 py-0.5 text-right">¥{monthSum(emp).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 勘定科目設定 */}
+      <div>
+        <div className="text-sm font-bold mb-3">勘定科目設定（借方＝給与手当/役員報酬、貸方＝未払金・法定福利費・預り金）</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3">
+          <div><div className="text-xs font-bold">給与手当（借方・総支給額）</div>{renderAccountInput('給与手当')}</div>
+          <div><div className="text-xs font-bold text-amber-700">役員報酬（借方・役員のみ）</div>{renderAccountInput('役員報酬')}</div>
+          <div><div className="text-xs font-bold">未払金（貸方・差引支給額）</div>{renderAccountInput('未払金')}</div>
+          <div><div className="text-xs font-bold">法定福利費（貸方・社会保険料）</div>{renderAccountInput('法定福利費')}</div>
+          <div className="col-span-2 md:col-span-3 p-2 bg-gray-50 rounded border">
+            <div className="text-xs font-bold mb-1">預り金（貸方・所得税/住民税）— 補助科目で分けます</div>
+            {renderAccountInput('預り金')}
+            <div className="flex items-center gap-3 mt-2 text-xs">
+              <span className="text-gray-600">源泉所得税:</span>{subSelect(incSub, setIncSub)}
+              <span className="text-gray-600 ml-2">住民税:</span>{subSelect(resSub, setResSub)}
+              {!whCode && <span className="text-gray-400">※ 先に預り金の科目CDを設定すると補助科目を選べます</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
+      <div className="flex gap-2 justify-end">
+        <button onClick={onCancel} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">戻る</button>
+        <button onClick={onGenerate} className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">人別×月別 仕訳を作成</button>
       </div>
     </div>
   )

@@ -1,4 +1,115 @@
-import type { PayrollData, PayrollEmployee } from './types'
+import type { PayrollData, PayrollEmployee, PayrollLedger, PayrollLedgerEmployee, PayrollLedgerMonth } from './types'
+
+// ===== 年間・従業員別シート・月列形式の賃金台帳 =====
+const Z2H = (s: string) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+const norm = (v: unknown) => Z2H(String(v ?? '')).replace(/[\s　]/g, '')
+const toNum = (v: unknown): number => { const n = parseFloat(Z2H(String(v ?? '')).replace(/[,，円]/g, '')); return isFinite(n) ? Math.round(n) : 0 }
+
+/** ワークブックが「年間・従業員別シート・月列形式」かを判定 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isPayrollLedgerWorkbook(wb: { SheetNames: string[]; Sheets: Record<string, unknown> }, X: any): boolean {
+  // どれか1シートに「○月」見出しが複数 ＆ 総支給額/差引支給 行があればその形式とみなす
+  return wb.SheetNames.some((sn) => sheetLooksLikeLedger(wb.Sheets[sn], X))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sheetRows(ws: unknown, X: any): unknown[][] {
+  return X.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false, defval: null }) as unknown[][]
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sheetLooksLikeLedger(ws: unknown, X: any): boolean {
+  const rows = sheetRows(ws, X)
+  let monthHdr = false, totalRow = false
+  for (const r of rows) {
+    if (!r) continue
+    const monthCells = r.filter((c) => /^[０-９0-9]{1,2}月$/.test(norm(c))).length
+    if (monthCells >= 6) monthHdr = true
+    if (r.some((c) => { const n = norm(c); return n === '総支給額' || n === '差引支給金額' || n === '差引支給額' })) totalRow = true
+  }
+  return monthHdr && totalRow
+}
+
+/** ワークブック全体を年間賃金台帳としてパース（従業員別シート×月） */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parsePayrollLedgerWorkbook(wb: { SheetNames: string[]; Sheets: Record<string, unknown> }, X: any): PayrollLedger {
+  let year = 0
+  let companyName = ''
+  const employees: PayrollLedgerEmployee[] = []
+  for (const sn of wb.SheetNames) {
+    const ws = wb.Sheets[sn]
+    if (!sheetLooksLikeLedger(ws, X)) continue   // 原紙・Sheet1 等はスキップ
+    const rows = sheetRows(ws, X)
+    // 年（"2026年 賃金台帳"）
+    for (const r of rows) { const m = norm((r || []).join('')).match(/(\d{4})年/); if (m) { year = year || parseInt(m[1]); break } }
+    // 月見出し行 → 月→列のマップ
+    let monthCol = new Map<number, number>()
+    for (const r of rows) {
+      if (!r) continue
+      const m = new Map<number, number>()
+      r.forEach((c, ci) => { const mm = norm(c).match(/^([０-９0-9]{1,2})月$/); if (mm) m.set(parseInt(Z2H(mm[1])), ci) })
+      if (m.size >= 6) { monthCol = m; break }
+    }
+    if (!monthCol.size) continue
+    // 氏名：基本はシート名（イメージと一致しやすい）。シート名が汎用名なら台帳内の「名前」ラベル直下セルを採用
+    let name = sn.trim()
+    if (/^(sheet\d*|シート\d*|原紙|template)$/i.test(name) || !name) {
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue
+        const li = r.findIndex((c) => norm(c) === '名前')
+        if (li >= 0) {
+          const below = (rows[i + 1] || [])[li]   // ラベルの直下セル＝氏名
+          if (below != null && norm(below).length >= 2 && !/^\d+$/.test(norm(below))) name = String(below).replace(/[\s　]+/g, '').trim()
+          break
+        }
+      }
+    }
+    // 会社名（㈱/㈲/株式会社/有限会社 を含むセル）
+    if (!companyName) { for (const r of rows) { const c = (r || []).find((x) => /㈱|㈲|株式会社|有限会社/.test(String(x ?? ''))); if (c) { companyName = String(c).trim(); break } } }
+    // 各項目行（ラベル一致）の値を月ごとに取得
+    const rowByLabel = (labels: string[]): unknown[] | null => {
+      for (const r of rows) { if (r && r.some((c) => labels.includes(norm(c)))) return r }
+      return null
+    }
+    const grossR = rowByLabel(['総支給額'])
+    const siR = rowByLabel(['社会保険料合計'])
+    const itaxR = rowByLabel(['所得税', '源泉所得税'])
+    const rtaxR = rowByLabel(['住民税'])
+    const netR = rowByLabel(['差引支給金額', '差引支給額'])
+    const months: PayrollLedgerMonth[] = []
+    for (const [mo, col] of Array.from(monthCol.entries()).sort((a, b) => a[0] - b[0])) {
+      const gross = grossR ? toNum(grossR[col]) : 0
+      if (gross <= 0) continue   // 支給のない月は対象外
+      months.push({
+        month: mo,
+        gross,
+        socialInsurance: siR ? toNum(siR[col]) : 0,
+        incomeTax: itaxR ? toNum(itaxR[col]) : 0,
+        residentTax: rtaxR ? toNum(rtaxR[col]) : 0,
+        netPay: netR ? toNum(netR[col]) : 0,
+      })
+    }
+    if (months.length) employees.push({ name, isExecutive: false, months })
+  }
+  return { kind: 'ledger', year, companyName, employees }
+}
+
+/** ファイルを年間賃金台帳としてパース（.xls/.xlsx） */
+export async function parsePayrollLedgerFile(file: File): Promise<PayrollLedger> {
+  const XLSX = await import('xlsx')
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  return parsePayrollLedgerWorkbook(wb as never, XLSX)
+}
+
+/** ファイルが年間賃金台帳形式かを判定（.xls/.xlsx） */
+export async function detectPayrollLedgerFile(file: File): Promise<boolean> {
+  const name = file.name.toLowerCase()
+  if (!(name.endsWith('.xlsx') || name.endsWith('.xls'))) return false
+  const XLSX = await import('xlsx')
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  return wb.SheetNames.some((sn) => sheetLooksLikeLedger(wb.Sheets[sn], XLSX))
+}
 
 export function parsePayrollText(text: string): PayrollData {
   const lines = text.split('\n').map((l) => l.replace(/\r$/, '').split('\t'))
