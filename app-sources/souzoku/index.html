@@ -2369,12 +2369,12 @@ function assetVal(a){ return computeAssetValue(a); }
 // 財産の識別用テキスト（登録した全情報を読みやすく連結）
 function assetDesc(a){
   const t=ASSET_BY_KEY[a.category]; const p=[]; const q=a.quantity?num(a.quantity).toLocaleString('ja-JP'):'';
-  if(a.category==='cash'){ p.push(a.name,a.branch,a.subcategory,a.accountNo?('No.'+a.accountNo):'',a.nominee?('名義:'+a.nominee):''); }
-  else if(a.category==='land'){ const ar=num(a.kazeiChiseki)||num(a.tokiChiseki)||num(a.quantity); p.push(a.chiban,a.kazeiChimoku||a.tokiChimoku||a.subcategory,a.landUse,ar?(ar.toLocaleString('ja-JP')+'㎡'):''); }
+  if(a.category==='cash'){ p.push(a.name,a.branch,a.subcategory,a.accountNo?('No.'+a.accountNo):''); }
+  else if(a.category==='land'){ const ar=num(a.tokiChiseki)||num(a.kazeiChiseki)||num(a.quantity); p.push(a.location,a.chiban,a.tokiChimoku,a.genkyo,ar?(ar.toLocaleString('ja-JP')+'㎡'):''); }
   else if(a.category==='building'){ const ar=num(a.kazeiYuka)||num(a.tokiYuka)||num(a.quantity); p.push(a.chiban,a.kaokuNo?('家屋番号'+a.kaokuNo):'',a.subcategory,a.buildingUse,ar?(ar.toLocaleString('ja-JP')+'㎡'):''); }
   else if(a.category==='securities'){ p.push(a.subcategory,a.name||(isFund(a)?'投資信託':''),a.code,a.assoc,q?(q+(isFund(a)?'口':'株')):''); }
   else if(a.category==='unlisted'){ p.push(a.name,a.subcategory,q?(q+'株'):''); }
-  else if(a.category==='insurance'){ p.push(a.subcategory,a.name,a.insType,a.accountNo?('証券:'+a.accountNo):'',a.nominee?('受取人:'+a.nominee):''); }
+  else if(a.category==='insurance'){ p.push(a.name,a.subcategory,a.accountNo?('証券番号:'+a.accountNo):'',a.insType); }
   else if(a.category==='retirement'){ p.push(a.subcategory,a.name,a.nominee?('受取人:'+a.nominee):''); }
   else if(a.category==='other'){ p.push(a.subcategory,a.name,a.location,q); }
   else if(a.category==='debt'){ p.push(a.subcategory,a.name,a.location,a.creditorAddr); }
