@@ -3375,8 +3375,23 @@ function renderAllocations(){
   const grandEval=divAssets.reduce((s,a)=>s+assetVal(a)*signOf(a.category),0);
   body+='<tr class="total-row"><td class="l">合計（純財産）</td><td>'+yen(grandEval)+'</td>'
     +heirs.map(h=>'<td id="gt-'+h.id+'">'+fmtAlloc(divAssets.reduce((s,a)=>s+amtOf(a,h.id)*signOf(a.category),0))+'</td>').join('')+'</tr>';
+  // 生前贈与（相続税の課税価格に加算）：受贈者が固定のため分割対象外だが、参考として表示し、税額計算に反映される加算額の小計を示す
+  const gifts=currentCase.assets.filter(a=>a.category==='gift');
+  if(gifts.length){
+    const gt=ASSET_TYPES.find(t=>t.key==='gift')||{color:'#a2845e'};
+    let r=null; try{ r=calcTax(); }catch(e){}
+    body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:'+gt.color+'"></i>生前贈与（相続税の課税価格に加算）</td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
+    gifts.forEach(a=>{
+      const label=esc(assetDesc(a)||'生前贈与');
+      let row='<tr><td class="l" style="padding-left:26px;">'+label+'</td><td class="evalcol">'+yen(assetVal(a))+'</td>';
+      heirs.forEach(h=>{ row+='<td style="text-align:right;color:#555;">'+(h.id===a.giftRecipient?fmtAlloc(assetVal(a)):'')+'</td>'; });
+      body+=row+'</tr>';
+    });
+    body+='<tr class="sub-row"><td class="l">生前贈与加算（税額計算に反映される額）</td><td></td>'
+      +heirs.map(h=>{ const p=r&&r.ph?r.ph[h.id]:null; const add=p?((p.giftKeiAdd||0)+(p.giftSeisan||0)):0; return '<td>'+fmtAlloc(add)+'</td>'; }).join('')+'</tr>';
+  }
   c.innerHTML='<div class="dtbl-wrap"><table class="alloc-grid">'+head+body+'</table></div>'
-    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用・生前贈与もここで負担者・取得者を指定でき、相続税試算に反映されます。</div>';
+    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 生前贈与は受贈者が決まっているため遺産分割の対象外ですが、参考として各受贈者の列に表示しています。「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額で、相続税試算に反映されています（贈与額そのものとは一致しないことがあります）。</div>';
   renderHeirTotals();
 }
 function heirAcquiredTotals(){
