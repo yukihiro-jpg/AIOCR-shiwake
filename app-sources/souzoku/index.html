@@ -4594,15 +4594,18 @@ function downloadSavingsPDF(){
     +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
     +'<tr><td>課税価格の合計額</td><td class="r">'+yen(R.T0)+'</td><td class="r">'+yen(R.T1)+'</td></tr>'
     +'<tr><td>課税価格の削減額</td><td class="r">-</td><td class="r">−'+yen(R.dTtotal)+'</td></tr>'
-    +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(R.baseTax)+'</td><td class="r">'+yen(R.afterTax)+'</td></tr></tbody></table></div>'
+    +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(R.baseTax)+'</td><td class="r">'+yen(R.afterTax)+'</td></tr></tbody></table>'
+    +savCompareNote(R)+'</div>'
     +'<div class="keepblk"><div class="sec-title">実施する節税対策</div>'
     +'<table class="t chead nowraph"><thead><tr><th>対策・条件</th><th class="r">課税価格の削減</th><th class="r">法定相続人の増加</th>'+(hasGift?'<th class="r">贈与税の発生</th>':'')+'</tr></thead><tbody>'+mrows
-    +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></tbody></table></div>'
+    +'<tr class="tot"><td>合計</td><td class="r">−'+yen(R.dTtotal)+'</td><td class="r">'+(R.dnTotal?'＋'+R.dnTotal+'人':'-')+'</td>'+(hasGift?'<td class="r">＋'+yen(R.gTaxTotal)+'</td>':'')+'</tr></tbody></table>'
+    +savMeasuresNote(R)+'</div>'
     +'<div class="keepblk"><div class="sec-title">節税策による現金預金の増減</div>'
     +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">金額</th></tr></thead><tbody>'
     +'<tr><td>現金預金の合計額（財産一覧）</td><td class="r">'+yen(cash.estate)+'</td></tr>'
     +'<tr><td>− 節税策による資金支出（保険料・贈与・購入等）</td><td class="r">'+(cash.out?'−'+yen(cash.out):yen(0))+'</td></tr>'
-    +'<tr class="tot"><td>＝ 対策後に残る現金預金</td><td class="r">'+yen(cash.after)+'</td></tr></tbody></table></div>'
+    +'<tr class="tot"><td>＝ 対策後に残る現金預金</td><td class="r">'+yen(cash.after)+'</td></tr></tbody></table>'
+    +savCashNote(cash)+'</div>'
     +(cash.over?'<div class="note" style="color:#b00020;">※ 資金支出が現金預金の合計額を超えています。現金預金を上回る贈与・保険加入はできないため、各対策の金額をご確認ください。</div>':'<div class="note">※ 上表は、生命保険の加入・暦年贈与・不動産購入等で支出した現金を、財産一覧の現金預金合計から差し引いた残額です。</div>')
     +(hasGift?'<div class="note">※ 相続税の削減額 '+yen(R.save)+' から贈与税の発生額 '+yen(R.gTaxTotal)+' を差し引いた<b>実質の節税効果は '+yen(R.netSave)+'</b>です（年110万円超の暦年贈与に特例税率で課税）。</div>':'')
     +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。実行可否は必ず税理士にご相談ください。</div>'
@@ -4694,6 +4697,51 @@ function secCashNote(D,st){
   let s='ここでは、節税策を実行したあとに配偶者の手元へどれだけ現金預金が残るかを確認します。配偶者ご自身の現金預金 '+yen(D.ownCash)+' に、一次相続で取得する現金預金 '+yen(D.allocCash)+' を加えると '+yen(inAll)+' です。ここから、一次相続で '+esc(D.spouseName)+' 様が納める相続税 '+yen(D.firstTaxActual)+'、生命保険の保険料 '+yen(st.insP)+'、暦年贈与で渡すお金 '+yen(st.giftGiven)+' を差し引くと、手元には <b>'+yen(remain)+'</b> が残る見込みです。';
   if(remain<0) s+='この残額がマイナスになっているため、現状の現金預金では予定した保険料・贈与をまかなえません。保険金額や贈与額を見直す必要があります。';
   else s+='節税は大切ですが、配偶者ご自身の生活資金を十分に残すことも同じくらい重要です。手元資金が不足しないよう、保険料や贈与額のバランスにご注意ください。';
+  return secCap('この表の見方', s);
+}
+// ===== 最適解版の解説キャプション =====
+function optPremiseNote(D,d,opt,yrs){
+  const sp=esc(D.spouseName), dn=esc(d.name);
+  let s='この最適解は、次の前提で試算しています。'+dn+' 様の相続（一次相続）で課税対象となる財産の合計は <b>'+yen(D.E1)+'</b>、配偶者の '+sp+' 様がご自身名義でお持ちの財産は '+yen(D.own)+'（うち現金預金 '+yen(D.ownCash)+'）と想定しています。二次相続（'+sp+' 様の相続）は約 '+D.years+' 年後に起こると仮定し、相続人はお子様 '+D.nCh+' 人としています。節税策（生命保険・暦年贈与）は '+yrs+' 年かけて実行する前提です。';
+  if(opt.existIns>0) s+='なお、'+sp+' 様には既に死亡保険金 '+yen(opt.existIns)+' の生命保険があるため、その分も非課税枠の計算に織り込んでいます。';
+  s+='これらの前提のもとで、配偶者の取得割合と保険・贈与の金額を変えながら、一次・二次・贈与を合わせた税額が最も小さくなる組み合わせを自動で探しています。';
+  return secCap('前提条件の説明', s);
+}
+function optPlanNote(opt,pl,best,yrs,r){
+  let s='最も税負担が小さくなるのは、一次相続で配偶者が <b>'+r+'%</b>（お子様 '+(100-r)+'%）を取得し、次の節税策を組み合わせたプランです。';
+  const items=[];
+  if(opt.existIns>0){ items.push('既加入の生命保険 '+yen(opt.existIns)+'（非課税枠 '+yen(opt.insLimit)+' のうち '+yen(opt.usedByExist)+' を充当'+(opt.overIns>0?'、枠を超える '+yen(opt.overIns)+' は二次相続の課税対象に加算':'')+'）');
+    if(pl.insAmount>0) items.push('残りの非課税枠 '+yen(opt.availLimit)+' を使って新たに '+yen(pl.insAmount)+' を一時払いで加入');
+    else items.push('非課税枠は既加入分で使い切るため、新規の保険加入は行いません');
+  } else if(pl.insAmount>0){ items.push('生命保険の非課税枠 '+yen(opt.insLimit)+' を使い、'+yen(pl.insAmount)+' を一時払いで加入'); }
+  if(pl.giftTotal>0) items.push('暦年贈与を 年 '+yen(pl.ga)+' ずつ お子様 '+opt.nCh+' 人へ '+yrs+' 年間（合計 '+yen(pl.giftTotal)+'・贈与税 '+yen(pl.giftTax)+'）');
+  if(items.length) s+='具体的には、'+items.join('。さらに、')+'。';
+  s+='これらにより節税策で現預金を '+yen(pl.insAmount+pl.giftTotal)+' 支出し、一次相続税 '+yen(best.first)+'・二次相続税 '+yen(best.second)+'・贈与税 '+yen(pl.giftTax)+' を合わせた合計は <b>'+yen(best.total)+'</b> になります。';
+  return secCap('この表の見方', s);
+}
+function optCompareNote(nMin,curOpt,best,r){
+  let s='この表は、最適解と他の案を合計税額（一次＋二次＋贈与税）で比べたものです。何も対策をしない場合に最も軽くなる配偶者 '+Math.round(nMin.r*100)+'% のプランでは合計 '+yen(nMin.total)+' ですが、最適解（配偶者 '+r+'%＋最適な節税）では <b>'+yen(best.total)+'</b> となり、'+(nMin.total-best.total>0?'<b>'+yen(nMin.total-best.total)+' 軽く</b>なります':'ほぼ同額です')+'。';
+  const cd=curOpt.total-best.total;
+  s+='また、現在の分割案（配偶者 '+Math.round(curOpt.r*100)+'%）に同じ節税策を講じた場合は合計 '+yen(curOpt.total)+' で、'+(cd>1?'最適解より '+yen(cd)+' 高くなります（取得割合を見直す余地があります）':'最適解とほぼ同じ水準です')+'。';
+  return secCap('この表の見方', s);
+}
+// ===== 節税シミュレーション報告書の解説キャプション =====
+function savCompareNote(R){
+  let s='この表は、節税対策を行う前と後で、課税価格（相続税の対象となる財産の合計）と相続税の総額がどう変わるかを示しています。対策前の課税価格 '+yen(R.T0)+' は、今回の節税策によって '+yen(R.dTtotal)+' 圧縮され、対策後は '+yen(R.T1)+' になります。その結果、相続税の総額は '+yen(R.baseTax)+' から <b>'+yen(R.afterTax)+'</b> へと '+yen(R.save)+' 軽くなります。';
+  if(R.gTaxTotal>0) s+='ただし暦年贈与には贈与税 '+yen(R.gTaxTotal)+' がかかるため、これを差し引いた実質の節税効果は <b>'+yen(R.netSave)+'</b> です。';
+  return secCap('この表の見方', s);
+}
+function savMeasuresNote(R){
+  let s='ここでは、実施する一つひとつの節税対策が、課税価格をいくら下げ、法定相続人を何人増やし、贈与税をいくら発生させるかを示しています。';
+  const items=(R.rows||[]).map(x=>{ const parts=[]; if(x.dT)parts.push('課税価格を '+yen(x.dT)+' 圧縮'); if(x.dn)parts.push('法定相続人を '+x.dn+' 人増加'); if(x.gTax)parts.push('贈与税 '+yen(x.gTax)+' が発生'); return '「'+esc(x.name)+'」は'+(parts.length?parts.join('・'):'効果の登録なし'); });
+  if(items.length) s+=items.join('。')+'。';
+  s+='これらを合計すると、課税価格は <b>'+yen(R.dTtotal)+'</b> 圧縮'+(R.dnTotal?'、法定相続人は '+R.dnTotal+' 人増加':'')+(R.gTaxTotal>0?'、贈与税は '+yen(R.gTaxTotal)+' 発生':'')+'します。課税価格を圧縮し、相続人を増やすほど相続税の総額は軽くなります。';
+  return secCap('この表の見方', s);
+}
+function savCashNote(cash){
+  let s='この表は、節税策で実際に使う現金の流れを示しています。財産一覧にある現金預金の合計 '+yen(cash.estate)+' から、保険料・贈与・不動産購入などで支出する '+yen(cash.out||0)+' を差し引くと、対策後に残る現金預金は <b>'+yen(cash.after)+'</b> です。';
+  if(cash.over) s+='今回は支出が現金預金の合計を上回っているため、このままでは実行できません。各対策の金額を見直してください。';
+  else s+='節税を進めても、納税資金や生活資金として十分な現金を残せるかを必ずご確認ください。';
   return secCap('この表の見方', s);
 }
 function downloadSecondaryPDF(mode){
@@ -4858,15 +4906,17 @@ function downloadOptimalPDF(){
     +'<tr><td>節税策を実行する年数</td><td class="r">'+yrs+' 年</td></tr>'
     +(opt.existIns>0?'<tr><td>既に加入済みの生命保険金（死亡保険金額）</td><td class="r">'+yen(opt.existIns)+'</td></tr>':'')
     +'</tbody></table></div>'
+    +optPremiseNote(D,d,opt,yrs)
     +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計が最小となる一次相続の配偶者取得割合</div><div class="v">'+r+'%</div></div>'
     +'<div class="kpi a"><div class="l">最適プランの一次＋二次＋贈与税の合計額</div><div class="v">'+yen(best.total)+'</div></div>'
     +(cut>1?'<div class="kpi a"><div class="l">何も対策をしない場合の最小（配偶者 '+Math.round(nMin.r*100)+'%）との差額</div><div class="v">−'+yen(cut)+'</div></div>':'')+'</div>'
     +(function(){ const methods=[]; if(pl.insAmount>0) methods.push('生命保険 '+yen(pl.insAmount)+' の活用'); if(pl.giftTotal>0) methods.push('暦年贈与 '+yen(pl.giftTotal)+'（'+yrs+'年）'); return storyBlock('sec_optimal',{decName:d.name,spouseName:D.spouseName,nCh:opt.nCh,yrs,insLimit:opt.insLimit,bestRatio:r,bestTotal:best.total,nMinTotal:nMin.total,cut,methods}); })()
-    +methodsBlock+planTable
-    +cmpTable
+    +methodsBlock+planTable+optPlanNote(opt,pl,best,yrs,r)
+    +cmpTable+optCompareNote(nMin,curOpt,best,r)
     +'<div class="sec-title pbefore">配偶者の取得割合による二次相続シミュレーション（最適解）</div>'
     +'<div class="note" style="margin:0 0 8px;">各取得割合で「生命保険（非課税枠）＋暦年贈与」を最適化し、一次＋二次＋贈与税の合計が最小となる組み合わせを探索しています。緑＝最適な取得割合、紫＝現在の分割案。</div>'
     +'<div class="chartbox">'+secChartSVG(opt.samples, opt.minIdx, REPORT_CHART_THEME, D.curIdx)+'</div>'
+    +secChartNote(opt.samples, opt.minIdx, D.curIdx, 'savings')
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">二次相続税</th><th class="r">暦年贈与額</th><th class="r">贈与税</th><th class="r">一次＋二次＋贈与 合計</th></tr></thead><tbody>'
     +scaleRows+'</tbody></table>'
     +'<div class="note">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、相続開始前の持ち戻しは考慮していません。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。実際の有利判定・実行可否は税理士にご確認ください。</div>'
