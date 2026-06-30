@@ -1177,12 +1177,16 @@ function openKessanMemo(cid,year){ year=Number(year)||filingYear; const c=client
   _kmRows=(m.rows&&m.rows.length)?JSON.parse(JSON.stringify(m.rows)):[{q:'',a:''}];
   document.getElementById('kessanMemoTitle').textContent='決算メモ — '+(c.name||'')+'（'+wareki(year)+'）';
   renderKessanRows(); openModal('kessanMemoModal'); }
+// 入力欄を内容に合わせて自動で縦に伸ばす（見切れ防止）
+function kmGrow(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; }
 function renderKessanRows(){ const tb=document.getElementById('kessanMemoBody'); if(!tb)return;
+  const ta=(i,f,val,extra)=>`<textarea rows="1" style="width:100%;box-sizing:border-box;resize:none;overflow:hidden;font:inherit;line-height:1.5;padding:5px 7px;vertical-align:top${extra||''}" oninput="_kmRows[${i}].${f}=this.value;kmGrow(this)">${esc(val||'')}</textarea>`;
   tb.innerHTML=_kmRows.map((r,i)=>{ const unans=String(r.q||'').trim()&&!String(r.a||'').trim();
-    return `<tr><td style="text-align:center;color:#6b7280">${i+1}</td>`
-      +`<td><input style="width:100%;box-sizing:border-box" value="${esc(r.q||'')}" oninput="_kmRows[${i}].q=this.value"></td>`
-      +`<td><input style="width:100%;box-sizing:border-box${unans?';background:#fff5f5':''}" value="${esc(r.a||'')}" oninput="_kmRows[${i}].a=this.value"></td>`
-      +`<td><button class="icon" title="この行を削除" onclick="removeKessanRow(${i})">🗑</button></td></tr>`; }).join(''); }
+    return `<tr><td style="text-align:center;color:#6b7280;vertical-align:top;padding-top:9px">${i+1}</td>`
+      +`<td>${ta(i,'q',r.q,'')}</td>`
+      +`<td>${ta(i,'a',r.a,unans?';background:#fff5f5':'')}</td>`
+      +`<td style="vertical-align:top"><button class="icon" title="この行を削除" onclick="removeKessanRow(${i})">🗑</button></td></tr>`; }).join('');
+  tb.querySelectorAll('textarea').forEach(kmGrow); }
 function addKessanRow(){ _kmRows.push({q:'',a:''}); renderKessanRows(); }
 function removeKessanRow(i){ _kmRows.splice(i,1); if(!_kmRows.length)_kmRows.push({q:'',a:''}); renderKessanRows(); }
 function saveKessanMemo(){ if(!data.kessanMemos)data.kessanMemos={}; const rows=_kmRows.map(r=>({q:String(r.q||'').trim(),a:String(r.a||'').trim()})).filter(r=>r.q||r.a);
