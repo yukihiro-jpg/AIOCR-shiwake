@@ -2544,7 +2544,7 @@ function movementTableHtml(){
   if(!accs.length) return '<div class="center-msg">「現金・預貯金」で普通預金・通常貯金・当座預金 等（現金・定期預金・貯蓄預金を除く）を登録すると、その口座がここに表示されます。</div>';
   const usageOpts=['','未利用','日常利用','その他'];
   let head='<thead>'
-    +'<tr><th rowspan="4" class="mv-frozen" style="vertical-align:middle;">日付</th>'+accs.map(a=>'<th colspan="2" style="border-left:2px solid #fff;">'+esc((a.name||'')+' '+(a.branch||''))+'</th>').join('')+'<th rowspan="4" style="vertical-align:middle;border-left:2px solid #fff;">相続財産<br>計上額</th><th rowspan="4" style="vertical-align:middle;min-width:240px;border-left:2px solid #fff;">確認したい点</th></tr>'
+    +'<tr><th rowspan="4" class="mv-frozen" style="vertical-align:middle;">日付</th>'+accs.map(a=>'<th colspan="2" style="border-left:2px solid #fff;">'+esc((a.name||'')+' '+(a.branch||''))+'</th>').join('')+'<th rowspan="4" style="vertical-align:middle;border-left:2px solid #fff;">相続財産<br>計上額</th><th rowspan="4" style="vertical-align:middle;min-width:200px;border-left:2px solid #fff;">内容</th><th rowspan="4" style="vertical-align:middle;min-width:240px;border-left:2px solid #fff;">確認したい点</th></tr>'
     +'<tr>'+accs.map(a=>'<th colspan="2" style="border-left:2px solid #fff;">'+esc((a.subcategory||'')+(a.accountNo?(' No.'+a.accountNo):''))+'</th>').join('')+'</tr>'
     +'<tr>'+accs.map(a=>'<th colspan="2" style="border-left:2px solid #fff;"><select style="font-size:11px;padding:3px 6px;" onchange="updMovementUsage(\''+a.id+'\',this.value)">'+usageOpts.map(o=>'<option'+((mv.usage[a.id]||'')===o?' selected':'')+'>'+(o||'利用状況')+'</option>').join('')+'</select></th>').join('')+'</tr>'
     +'<tr>'+accs.map(a=>'<th style="border-left:2px solid #fff;">入金</th><th style="border-left:1px solid #fff;">出金</th>').join('')+'</tr>'
@@ -2556,13 +2556,14 @@ function movementTableHtml(){
         return '<td style="border-left:2px solid var(--line-2);"><input type="text" class="num" inputmode="numeric" value="'+(num(cell.i)?num(cell.i).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'i\',this)"></td>'
           +'<td><input type="text" class="num" inputmode="numeric" value="'+(num(cell.o)?num(cell.o).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'o\',this)"></td>'; }).join('')
       +'<td class="num"><span id="mvconcl-'+row.id+'" class="mv-concl'+(row.concl<0?' neg':row.concl>0?' pos':'')+'">'+mvConclDisp(row.concl)+'</span></td>'
+      +'<td><input type="text" value="'+esc(row.content||'')+'" style="min-width:200px;" placeholder="内容（例：生前贈与・口座解約 等）" oninput="updMovementField(\''+row.id+'\',\'content\',this.value)"></td>'
       +'<td><input type="text" value="'+esc(row.note||'')+'" style="min-width:230px;" oninput="updMovementField(\''+row.id+'\',\'note\',this.value)"></td>'
       +'<td class="rowops"><button class="del" onclick="removeMovementRow(\''+row.id+'\')">削除</button></td></tr>';
   });
-  if(!(mv.rows||[]).length) body='<tr><td colspan="'+(accs.length*2+4)+'" class="muted" style="text-align:center;padding:14px;">「＋ 行を追加」で入出金を記録してください。</td></tr>';
+  if(!(mv.rows||[]).length) body='<tr><td colspan="'+(accs.length*2+5)+'" class="muted" style="text-align:center;padding:14px;">「＋ 行を追加」で入出金を記録してください。</td></tr>';
   const conclTotal=(mv.rows||[]).reduce((s,r)=>s+num(r.concl),0);
-  let foot='<tfoot><tr><td class="mv-frozen" style="text-align:right;">計上額 合計</td>'+accs.map(()=>'<td colspan="2"></td>').join('')+'<td class="num mv-concl'+(conclTotal<0?' neg':conclTotal>0?' pos':'')+'" id="mvConclTotal">'+mvConclDisp(conclTotal)+'</td><td colspan="2"></td></tr></tfoot>';
-  return '<div class="dtbl-wrap"><table class="dtbl mv-table" style="min-width:'+(420+accs.length*220)+'px;">'+head+'<tbody>'+body+'</tbody>'+foot+'</table></div>'
+  let foot='<tfoot><tr><td class="mv-frozen" style="text-align:right;">計上額 合計</td>'+accs.map(()=>'<td colspan="2"></td>').join('')+'<td class="num mv-concl'+(conclTotal<0?' neg':conclTotal>0?' pos':'')+'" id="mvConclTotal">'+mvConclDisp(conclTotal)+'</td><td colspan="3"></td></tr></tfoot>';
+  return '<div class="dtbl-wrap"><table class="dtbl mv-table" style="min-width:'+(620+accs.length*220)+'px;">'+head+'<tbody>'+body+'</tbody>'+foot+'</table></div>'
     +'<div class="detail-foot"><button class="btn primary sm" onclick="addMovementRow()">＋ 行を追加</button></div>';
 }
 function addMovementRow(){ if(!currentCase.movement) currentCase.movement={rows:[],usage:{}}; currentCase.movement.rows.push({id:uid(),date:'',cells:{},concl:'',note:''}); renderAssetDetail(); cacheCurrentCase(); }
