@@ -959,7 +959,9 @@ function onSouzokuSpotToggle(){ const on=document.getElementById('cl_souzokuSpot
 function openClientModal(id){ document.getElementById('clientModalTitle').textContent=id?'顧問先編集':'顧問先登録'; const c=id?clientById(id):{};
   CL_FIELDS.forEach(k=>setVal('cl_'+k,c[k])); setVal('cl_id',c.id||''); if(!c.type)setVal('cl_type','法人'); if(!c.status)setVal('cl_status','契約中'); if(!c.payMethod)setVal('cl_payMethod','紙納付書'); if(!c.gensenStatus)setVal('cl_gensenStatus','毎月納付'); if(!c.gensenProcessor)setVal('cl_gensenProcessor','税理士'); if(!c.useShiwake)setVal('cl_useShiwake','未利用'); if(!c.useSouzoku)setVal('cl_useSouzoku','未利用'); if(!c.useNenmatsu)setVal('cl_useNenmatsu','未利用'); if(!c.useKeiei)setVal('cl_useKeiei','未利用'); ['useProgMonthly','useProgHotei','useProgShokyaku','useProgNencho'].forEach(k=>{ if(!c[k])setVal('cl_'+k,'利用'); });
   document.getElementById('cl_souzokuSpot').checked=(c.souzokuSpot===true); applySouzokuSpotUI(c.souzokuSpot===true); recalcFilingDeadline();
-  _rewardByYear=migrateRewardMap(c); _rewardYear=rewardYearDefault(); loadRewardYearIntoForm(); openModal('clientModal'); }
+  _rewardByYear=migrateRewardMap(c); _rewardYear=rewardYearDefault(); loadRewardYearIntoForm(); openModal('clientModal');
+  // 相続管理側で入力された死亡日を読み戻して反映（編集中はモーダルの入力欄も更新）
+  if(id){ const cc=clientById(id); if(cc && cc.useSouzoku==='利用'){ pullSouzokuDeathDate(cc).then(ch=>{ if(ch){ if(val('cl_id')===id){ setVal('cl_deathDate',cc.deathDate||''); recalcFilingDeadline(); } persist(); renderClients(); } }).catch(()=>{}); } } }
 function saveClient(){ if(!val('cl_name')){ toast('顧問先名を入力してください','err'); return; } const id=val('cl_id'); const o={}; CL_FIELDS.forEach(k=>o[k]=val('cl_'+k)); o.zip=formatZip(o.zip);
   o.souzokuSpot=document.getElementById('cl_souzokuSpot').checked; o.filingDeadline=souzokuDeadline(o.deathDate);
   saveRewardYearFromForm(); o.rewardByYear=cleanRewardMap(_rewardByYear);
@@ -1919,9 +1921,9 @@ function _core(){ return window.__komonCore||null; }
 function _szEnc(k){ return '_'+String(k).replace(/[.#$\/\[\]~]/g,c=>'~'+c.charCodeAt(0).toString(16)); }
 function _szEncTree(o){ if(Array.isArray(o))return o.map(_szEncTree); if(o&&typeof o==='object'){ const r={}; for(const k in o)r[_szEnc(k)]=_szEncTree(o[k]); return r; } return o; }
 function _szCaseId(clientId){ return 'komon-'+clientId; }
-function _newSouzokuCase(name,caseId,code,clientId){ const now=new Date().toISOString(); return {
+function _newSouzokuCase(name,caseId,code,clientId,deathDate){ const now=new Date().toISOString(); return {
   version:2, caseId:caseId, createdAt:now, savedAt:now, clientId:clientId||'',
-  deceased:{ code:code||'', name:name||'', kana:'', birth:'', deathDate:'', address:'', honseki:'' },
+  deceased:{ code:code||'', name:name||'', kana:'', birth:'', deathDate:deathDate||'', address:'', honseki:'' },
   collectionDeadline:'', meetingMemo:'',
   heirs:[{ id:'h'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), name:'', kana:'', relationLabel:'長男', relationType:'child', isAdopted:false, adoptedAsReal:false, grandAdopted:false, isDaishu:false, daishuGroup:'', isRenounced:false, address:'', tel:'', job:'', birth:'', age:'', disabled:false, disabilityType:'general', isRepresentative:false, hideFromContract:false }],
   checklist:{}, assets:[], successive:{enabled:false,A:'',B:'',years:'',prevDate:''}, compensations:[],
@@ -1952,9 +1954,25 @@ async function syncClientToSouzoku(c){
   const caseId=_szCaseId(c.id); const ePath='_cases/'+_szEnc(caseId); const tPath='_tomb/'+_szEnc(caseId);
   if(c.useSouzoku==='利用'){
     const snap=await F.get(F.ref(db, base+'/'+ePath));
-    if(!snap||!snap.exists()){ await F.update(baseRef,{[ePath]:_szEncTree(_newSouzokuCase(c.name,caseId,c.code,c.id)),[tPath]:null}); }
-    else { await F.update(baseRef,{[tPath]:null}); }
+    if(!snap||!snap.exists()){ await F.update(baseRef,{[ePath]:_szEncTree(_newSouzokuCase(c.name,caseId,c.code,c.id,c.deathDate)),[tPath]:null}); }
+    else {
+      // 既存案件は上書きしないが、死亡日は連動（顧問先情報で入力された死亡日を相続管理へ反映。空欄では上書きしない）
+      const up={[tPath]:null};
+      if(c.deathDate) up[ePath+'/'+_szEnc('deceased')+'/'+_szEnc('deathDate')]=c.deathDate;
+      await F.update(baseRef,up);
+    }
   } else { await F.update(baseRef,{[ePath]:null,[tPath]:true}); }
+}
+// 相続管理（souzoku案件）の死亡日を読み戻して顧問先情報に連動する。変更があれば true。
+async function pullSouzokuDeathDate(c){
+  const core=_core(); if(!core||!core.hasRoom()||!c||c.useSouzoku!=='利用')return false;
+  try{
+    const db=await core.getDb(); const F=core.dbfns; const base=await core.modulePath('souzoku');
+    const path=base+'/_cases/'+_szEnc(_szCaseId(c.id))+'/'+_szEnc('deceased')+'/'+_szEnc('deathDate');
+    const snap=await F.get(F.ref(db,path)); const dd=(snap&&snap.exists())?String(snap.val()||''):'';
+    if(dd && dd!==(c.deathDate||'')){ c.deathDate=dd; c.filingDeadline=souzokuDeadline(dd); return true; }
+  }catch(e){ console.warn('[komon] souzoku死亡日取得',e); }
+  return false;
 }
 async function syncClientToNenmatsu(c){ const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns; const r=F.ref(db, await core.modulePath('nenmatsu','_clients', c.id)); if(c.useNenmatsu==='利用'){ const o={id:c.id,name:c.name||''}; if(c.code)o.code=String(c.code).trim(); await F.set(r,o); } else { await F.set(r,null); } }
 async function syncClientToKeiei(c){ const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns; const r=F.ref(db, await core.modulePath('keiei','_clients', c.id)); if(c.useKeiei==='利用'){ const o={id:c.id,name:c.name||''}; if(c.code)o.code=String(c.code).trim(); await F.set(r,o); } else { await F.set(r,null); } }
@@ -1984,7 +2002,7 @@ async function importClientsFromShiwake(){
   }catch(e){ toast('取り込み失敗: '+e.message,'err'); }
 }
 // 接続後に、利用設定済みの顧問先を各モジュールへ反映（端末間の整合）
-async function reconcileExternalModules(){ const core=_core(); if(!core||!core.hasRoom())return; for(const c of (data.clients||[])){ if(c.useShiwake==='利用'){ try{ await syncClientToShiwake(c); }catch(e){} } if(c.useSouzoku==='利用'){ try{ await syncClientToSouzoku(c); }catch(e){} } if(c.useNenmatsu==='利用'){ try{ await syncClientToNenmatsu(c); }catch(e){} } if(c.useKeiei==='利用'){ try{ await syncClientToKeiei(c); }catch(e){} } } }
+async function reconcileExternalModules(){ const core=_core(); if(!core||!core.hasRoom())return; let changed=false; for(const c of (data.clients||[])){ if(c.useShiwake==='利用'){ try{ await syncClientToShiwake(c); }catch(e){} } if(c.useSouzoku==='利用'){ try{ await syncClientToSouzoku(c); }catch(e){} try{ if(await pullSouzokuDeathDate(c)) changed=true; }catch(e){} } if(c.useNenmatsu==='利用'){ try{ await syncClientToNenmatsu(c); }catch(e){} } if(c.useKeiei==='利用'){ try{ await syncClientToKeiei(c); }catch(e){} } } if(changed){ persist(); renderClients(); renderDashboard(); } }
 const MN_SECTIONS={tax:'税務論点',chat:'世間話',todo:'TODO'};
 let mnSection='tax', mnSections={tax:'',chat:'',todo:''};
 function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn_sectionInput').value; mnSection=sec;
