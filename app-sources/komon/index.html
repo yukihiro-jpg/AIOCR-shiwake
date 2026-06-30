@@ -1176,9 +1176,9 @@ function openKessanMemo(cid,year){ year=Number(year)||filingYear; const c=client
   _kmCtx={cid:cid,year:year}; const m=getKessanMemo(year,cid);
   _kmRows=(m.rows&&m.rows.length)?JSON.parse(JSON.stringify(m.rows)):[{q:'',a:''}];
   document.getElementById('kessanMemoTitle').textContent='決算メモ — '+(c.name||'')+'（'+wareki(year)+'）';
-  renderKessanRows(); openModal('kessanMemoModal'); }
+  openModal('kessanMemoModal'); renderKessanRows(); }
 // 入力欄を内容に合わせて自動で縦に伸ばす（見切れ防止）
-function kmGrow(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; }
+function kmGrow(el){ el.style.height='auto'; const h=el.scrollHeight; if(h>0) el.style.height=(h+2)+'px'; }
 function renderKessanRows(){ const tb=document.getElementById('kessanMemoBody'); if(!tb)return;
   const ta=(i,f,val,extra)=>`<textarea rows="1" style="width:100%;box-sizing:border-box;resize:none;overflow:hidden;font:inherit;line-height:1.5;padding:5px 7px;vertical-align:top${extra||''}" oninput="_kmRows[${i}].${f}=this.value;kmGrow(this)">${esc(val||'')}</textarea>`;
   tb.innerHTML=_kmRows.map((r,i)=>{ const unans=String(r.q||'').trim()&&!String(r.a||'').trim();
