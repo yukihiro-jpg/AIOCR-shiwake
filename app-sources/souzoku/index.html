@@ -1680,10 +1680,16 @@ function stageStatus(c, key){
 // 利用者識別番号（相続人ごと）。method: ''|'agent'(税理士代理取得)|'self'(本人取得済み)
 function riyoState(c,id){ if(!c.progress.riyousha) c.progress.riyousha={}; if(!c.progress.riyousha[id]) c.progress.riyousha[id]={p1:'',p2:'',p3:'',p4:'',method:''}; return c.progress.riyousha[id]; }
 function riyoHeirDone(v){ return ['p1','p2','p3','p4'].every(p=>(v[p]||'').length===4); }
-function updRiyoDigit(id,field,idx,el){
-  const v=el.value.replace(/[^0-9]/g,'').slice(0,4); const s=riyoState(currentCase,id); s[field]=v;
-  const advance=(v.length===4 && idx<3); cacheCurrentCase(); renderProgress();
-  const nx=$('riyo-'+id+'-'+(advance?(idx+1):idx)); if(nx){ nx.focus(); const L=nx.value.length; try{nx.setSelectionRange(L,L);}catch(e){} }
+// 相続人ごとの利用者識別番号は1本の入力欄で受ける（16桁をまとめて入力・貼り付け可）。
+// 内部は従来どおり p1〜p4（各4桁）に分割保存し、PDF・完了判定との互換を保つ。
+function riyoNumOf(s){ return ['p1','p2','p3','p4'].map(p=>s[p]||'').join(''); }
+function riyoFmt(num){ const d=String(num||'').replace(/[^0-9]/g,'').slice(0,16); return d.replace(/(\d{4})(?=\d)/g,'$1-'); }
+function updRiyo(id,el){
+  const d=el.value.replace(/[^0-9]/g,'').slice(0,16); const s=riyoState(currentCase,id);
+  s.p1=d.slice(0,4); s.p2=d.slice(4,8); s.p3=d.slice(8,12); s.p4=d.slice(12,16);
+  cacheCurrentCase();
+  // 入力中は欄を再描画しない（カーソルを維持）。状態バッジのみ即時更新
+  const badge=$('riyo-st-'+id); if(badge){ const done=riyoHeirDone(s); badge.textContent=done?'登録済':'未登録'; badge.className='est'+(done?' done':''); }
 }
 function setRiyoMethod(id,method,checked){ const s=riyoState(currentCase,id); s.method=checked?method:''; cacheCurrentCase(); renderProgress(); }
 function progressSummary(c){
@@ -1756,15 +1762,15 @@ function riyoSubHtml(){
   let html='<div class="eval-sub"><div class="es-title">利用者識別番号（相続人ごと）</div>';
   heirs.forEach(h=>{
     const s=riyoState(currentCase,h.id);
-    const cells=['p1','p2','p3','p4'].map((p,i)=>'<input id="riyo-'+h.id+'-'+i+'" class="riyo-cell" type="text" inputmode="numeric" maxlength="4" value="'+esc(s[p]||'')+'" oninput="updRiyoDigit(\''+h.id+'\',\''+p+'\','+i+',this)" placeholder="0000">').join('<span class="riyo-sep">-</span>');
+    const disp=riyoFmt(riyoNumOf(s));
     const done=riyoHeirDone(s);
     html+='<div class="eval-row"><span class="en">'+esc(h.name||'(氏名未入力)')+'<span class="sub" style="margin-left:8px;">'+esc(relDisp(h))+'</span></span>'
-      +'<span class="riyo-input">'+cells+'</span>'
+      +'<span class="riyo-input"><input id="riyo-'+h.id+'" class="riyo-full" type="text" inputmode="numeric" value="'+esc(disp)+'" oninput="updRiyo(\''+h.id+'\',this)" placeholder="利用者識別番号（半角数字16桁）" style="width:230px;letter-spacing:1px;"></span>'
       +'<span class="riyo-method">'
       +'<label class="riyo-skip"><input type="checkbox" '+(s.method==='agent'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'agent\',this.checked)">税理士代理取得</label>'
       +'<label class="riyo-skip"><input type="checkbox" '+(s.method==='self'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'self\',this.checked)">本人取得済み</label>'
       +'</span>'
-      +'<span class="est '+(done?'done':'')+'">'+(done?'登録済':'未登録')+'</span></div>';
+      +'<span class="est '+(done?'done':'')+'" id="riyo-st-'+h.id+'">'+(done?'登録済':'未登録')+'</span></div>';
   });
   html+='</div>';
   return html;
