@@ -3425,7 +3425,7 @@ function renderSimulation(){
   }
   $('simDisclaimer').innerHTML='※ 各人の課税価格は、まず純資産価額（取得財産＋みなし財産−非課税−債務・葬式費用＋相続時精算課税財産±代償金）を求め、マイナスのときは0（控除しきれない債務は他の相続人に及びません）とした上で、暦年課税分の生前贈与加算を加えて算出しています（相続税法13条・申告書第1表）。'
     +'法定相続人の数は養子の数の制限・相続放棄を放棄なかったものとして算入し、代襲相続（株分け）を反映。配偶者の税額軽減（1.6億円／法定相続分の上限調整）・未成年者控除・障害者控除（引ききれない額は扶養義務者へ移転）・贈与税額控除（暦年／精算課税）・相次相続控除・小規模宅地等の特例を反映します。'
-    +'納税猶予、外国税額控除、半血兄弟姉妹の相続分調整、小規模宅地の限度面積の最適自動選択、特定の特例要件判定は対象外です。最終的な申告は必ず税理士がご確認ください。';
+    +'納税猶予、外国税額控除、半血兄弟姉妹の相続分調整、小規模宅地の限度面積の最適自動選択、特定の特例要件判定は対象外です。';
 }
 function simStep(no,t,v,sub){ return '<div class="sim-step"><div class="no">'+no+'</div><div class="body"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="sub">'+sub+'</div></div></div>'; }
 
@@ -3515,7 +3515,7 @@ function renderSecondary(){
   _secCtx={E1,minRatio:normal.samples[normal.minIdx].r,nCh,minTotal:normal.samples[normal.minIdx].total};
   if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
   renderSecWants(); renderSecAllocTable();
-  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険の活用は（保険料×契約数）の現預金が減少し、二次相続では非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されるものとしています（圧縮額＝min(支払保険料, 非課税枠)）。暦年贈与は（毎年の贈与額×人数×年数）が二次相続の課税財産から外れ、現行の贈与税速算表（一般／特例、基礎控除110万円／人・年）で計算した贈与税を一次＋二次の合計に加算しています。生前贈与加算（相続開始前3〜7年）・贈与税の配偶者控除・各種特例等は考慮していません。実際の有利判定は税理士にご確認ください。';
+  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険の活用は（保険料×契約数）の現預金が減少し、二次相続では非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されるものとしています（圧縮額＝min(支払保険料, 非課税枠)）。暦年贈与は（毎年の贈与額×人数×年数）が二次相続の課税財産から外れ、現行の贈与税速算表（一般／特例、基礎控除110万円／人・年）で計算した贈与税を一次＋二次の合計に加算しています。生前贈与加算（相続開始前3〜7年）・贈与税の配偶者控除・各種特例等は考慮していません。';
 }
 let _secCtx=null;
 let _secData=null;     // {normal,savings,...} 通常／節税策込みの試算データ
@@ -3699,7 +3699,7 @@ function secOptimalPlanHTML(opt,d,best,yrs){
     +'<tr><td style="text-align:left;">現在の分割案＋最適な節税</td><td>'+Math.round(curOpt.r*100)+'%</td><td>'+yen(curOpt.total)+'</td><td>'+(curOpt.total-best.total>1?'＋'+yen(curOpt.total-best.total):'—')+'</td></tr>'
     +'<tr style="font-weight:700;background:#eafaf0;"><td style="text-align:left;">最適解</td><td>'+r+'%</td><td>'+yen(best.total)+'</td><td>—</td></tr>'
     +'</tbody></table></div>'
-    +'<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.7;">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年、相続開始前の持ち戻しは考慮せず）。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。実行可否は税理士にご確認ください。</div></div>';
+    +'<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.7;">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年、相続開始前の持ち戻しは考慮せず）。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。</div></div>';
   return h;
 }
 function secOptimalTableHTML(opt){
@@ -3967,7 +3967,7 @@ function renderSavings(){
     }).join('');
   }
   refreshSavingsResult();
-  $('savDisclaimer').innerHTML='※ 本シミュレーションは「相続税の総額」（課税価格の合計額・基礎控除・法定相続分による速算表）ベースの概算です。配偶者の税額軽減等の個別の税額控除は対策前後で同様に作用するため比較から除いています。各対策には適用要件・否認リスク・贈与税等の別途コストがあり、実行可否は必ず税理士にご相談ください。';
+  $('savDisclaimer').innerHTML='※ 本シミュレーションは「相続税の総額」（課税価格の合計額・基礎控除・法定相続分による速算表）ベースの概算です。配偶者の税額軽減等の個別の税額控除は対策前後で同様に作用するため比較から除いています。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。';
 }
 // 対策を上から順に適用したときの相続税の総額の推移（各対策の税額削減を分解。合計＝総削減額）
 function savingsWaterfall(list){
@@ -4608,7 +4608,7 @@ function downloadSavingsPDF(){
     +savCashNote(cash)+'</div>'
     +(cash.over?'<div class="note" style="color:#b00020;">※ 資金支出が現金預金の合計額を超えています。現金預金を上回る贈与・保険加入はできないため、各対策の金額をご確認ください。</div>':'<div class="note">※ 上表は、生命保険の加入・暦年贈与・不動産購入等で支出した現金を、財産一覧の現金預金合計から差し引いた残額です。</div>')
     +(hasGift?'<div class="note">※ 相続税の削減額 '+yen(R.save)+' から贈与税の発生額 '+yen(R.gTaxTotal)+' を差し引いた<b>実質の節税効果は '+yen(R.netSave)+'</b>です（年110万円超の暦年贈与に特例税率で課税）。</div>':'')
-    +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。実行可否は必ず税理士にご相談ください。</div>'
+    +'<div class="note">※ 本書は「相続税の総額」ベースの概算です。各対策には適用要件・否認リスク・贈与税等の別途コストがあります。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('節税シミュレーション_'+d.name, body, styles);
@@ -4837,7 +4837,7 @@ function downloadSecondaryPDF(mode){
       +secCashNote(D,st)+'</div>'
       +'<div class="note">※ 合計税額は「一次＋二次＋贈与税」です。生命保険は非課税枠（500万円×二次の法定相続人数）の範囲で課税財産を圧縮、暦年贈与は贈与額が課税財産から外れる前提の簡易モデルです。贈与税は受贈者負担のため手元現預金には含めていません。</div>';
   }
-  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。実際の有利判定は税理士にご確認ください。</div>'
+  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('二次相続シミュレーション_'+(mode==='savings'?'節税策込み':'通常')+'_'+d.name, body, styles);
@@ -4919,7 +4919,7 @@ function downloadOptimalPDF(){
     +secChartNote(opt.samples, opt.minIdx, D.curIdx, 'savings')
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">二次相続税</th><th class="r">暦年贈与額</th><th class="r">贈与税</th><th class="r">一次＋二次＋贈与 合計</th></tr></thead><tbody>'
     +scaleRows+'</tbody></table>'
-    +'<div class="note">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、相続開始前の持ち戻しは考慮していません。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。実際の有利判定・実行可否は税理士にご確認ください。</div>'
+    +'<div class="note">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、相続開始前の持ち戻しは考慮していません。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('二次相続最適解_'+d.name, body, styles);
