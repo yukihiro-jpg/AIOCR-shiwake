@@ -2429,7 +2429,7 @@ function assetDesc(a){
   else if(a.category==='unlisted'){ p.push(a.name,a.subcategory,q?(q+'株'):''); }
   else if(a.category==='insurance'){ p.push(a.name,a.subcategory,a.accountNo?('証券番号:'+a.accountNo):'',a.insType); }
   else if(a.category==='retirement'){ p.push(a.subcategory,a.name,a.nominee?('受取人:'+a.nominee):''); }
-  else if(a.category==='other'){ p.push(a.subcategory,a.name,a.location,q); }
+  else if(a.category==='other'){ const up=num(a.unitPrice), qn=num(a.quantity); const calc=(up&&qn)?('単価¥'+up.toLocaleString('ja-JP')+'×'+qn.toLocaleString('ja-JP')):(up?('単価¥'+up.toLocaleString('ja-JP')):q); p.push(a.subcategory,a.name,a.location,calc); }
   else if(a.category==='debt'){ p.push(a.subcategory,a.name,a.location,a.creditorAddr); }
   else if(a.category==='funeral'){ p.push(a.name,a.payerAddr,a.location); }
   else if(a.category==='gift'){ p.push((a.regime==='seisan'?'相続時精算課税':'暦年課税'),a.gKind,a.gDetail,a.giftDate); }
@@ -4248,7 +4248,9 @@ function downloadShindanPDF(){
   divBody+='<tr class="tot"><td>純財産 合計</td>'+heirs.map(h=>'<td class="r">'+yen(totals[h.id])+'</td>').join('')+'</tr>';
   divBody+='<tr><td>納付すべき相続税額</td>'+heirs.map(h=>'<td class="r">△'+yen(Math.max(0,r.ph[h.id].final))+'</td>').join('')+'</tr>';
 
-  const styles=REPORT_STYLE;
+  const styles=REPORT_STYLE
+    +'\n.report-shindan table.t th,.report-shindan table.t th.r{text-align:center;}'
+    +'\n.report-shindan table.t.hd th:nth-child(1),.report-shindan table.t.hd td:nth-child(1),.report-shindan table.t.hd th:nth-child(3),.report-shindan table.t.hd td:nth-child(3){white-space:nowrap;}';
   const TOTAL_PAGES=8;
   const foot=(n)=>'<div class="pgfoot"><span>'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</span><span>'+n+' / '+TOTAL_PAGES+'</span></div>';
   // 財産明細（財産一覧の入力内容をそのまま）
@@ -4257,7 +4259,9 @@ function downloadShindanPDF(){
     const items=currentCase.assets.filter(a=>a.category===t.key);
     if(!items.length) return;
     const sg=t.sign<0?-1:1; let sub=0;
-    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; return '<tr><td>'+esc(assetDesc(a))+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
+    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; let desc=assetDesc(a);
+      if(t.key==='gift' && a.giftRecipient){ const rh=currentCase.heirs.find(x=>x.id===a.giftRecipient); if(rh) desc+='　'+(rh.name||'')+' 様へ贈与'; }
+      return '<tr><td>'+esc(desc)+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
     detailBody+='<h3 class="blk">'+t.name+'（'+items.length+'件）</h3>'
       +'<table class="t"><thead><tr><th>明細</th><th class="r">'+(t.key==='gift'?'贈与時の価額':'評価額')+'</th></tr></thead><tbody>'+rows
       +'<tr class="tot"><td>小計</td><td class="r">'+(sg<0?'△'+yen(sub):yen(sub))+'</td></tr></tbody></table>';
@@ -4271,10 +4275,11 @@ function downloadShindanPDF(){
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
     heirDetail+='<h3 class="blk">'+esc(h.name||'')+' 様（'+relDisp(h)+'）　純財産合計：'+yen(totals[h.id])+'</h3>'
-      +'<table class="t"><thead><tr><th>種類</th><th>明細</th><th class="r">取得額</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      +'<table class="t hd"><thead><tr><th>種類</th><th>明細</th><th class="r">取得額</th></tr></thead><tbody>'+rows+'</tbody></table>';
   });
   const body=
-    '<div class="page"><div class="cover"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">財産診断書</div><div class="sub">相続税 試算レポート</div><div class="goldline"></div>'
+    '<div class="report-shindan">'
+    +'<div class="page"><div class="cover"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">財産診断書</div><div class="sub">相続税 試算レポート</div><div class="goldline"></div>'
       +'<div class="nmlbl">被相続人</div><div class="nm">'+esc(d.name)+' 様</div>'
       +'<div class="nmlbl" style="margin-top:14px;">基準日（相続開始日）</div><div style="font-size:15px;">'+esc(baseDateStr())+'</div>'
       +'<div class="ofc">'+esc(OFFICE.name)+'<br>'+esc(OFFICE.addr)+'<br>TEL '+OFFICE.tel+'　FAX '+OFFICE.fax+'<br>作成日：'+formatJDate(todayISO())+'</div></div></div>'
@@ -4313,7 +4318,8 @@ function downloadShindanPDF(){
       +'4. 配偶者の税額軽減・未成年者控除・障害者控除・相次相続控除・贈与税額控除を反映しています。納税猶予・外国税額控除等は含みません。<br>'
       +'5. 二次相続を考慮した分割のご提案も可能です。詳しくは担当者までお問い合わせください。</p>'
       +'<div class="ofc" style="margin-top:30px;font-size:12px;line-height:1.9;">'+esc(OFFICE.name)+'<br>'+esc(OFFICE.addr)+'<br>TEL '+OFFICE.tel+'　FAX '+OFFICE.fax+'</div>'
-      +foot(8)+'</div>';
+      +foot(8)+'</div>'
+    +'</div>';
   openPrintWindow('財産診断書_'+d.name, body, styles);
 }
 async function downloadShindanExcel(){
