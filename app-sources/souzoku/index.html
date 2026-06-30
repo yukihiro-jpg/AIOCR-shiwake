@@ -2325,7 +2325,11 @@ function toHalfDigits(s){ return String(s==null?'':s).replace(/[０-９]/g,c=>St
 function num(x){ return Number(toHalfDigits(x).replace(/[^0-9.\-]/g,''))||0; }
 // 金額・単価・面積などの入力を入力時も入力後も #,### 形式に整形（小数は保持）
 function fmtNumLive(el){
-  const s=toHalfDigits(String(el.value)); const neg=s.trim().charAt(0)==='-';
+  // 入力前のキャレット位置（左側にある「数字」の個数）を記録しておく
+  let caret=null; try{ caret=el.selectionStart; }catch(e){}
+  const orig=String(el.value);
+  const digitsLeft=(caret==null)?null:toHalfDigits(orig.slice(0,caret)).replace(/[^0-9]/g,'').length;
+  const s=toHalfDigits(orig); const neg=s.trim().charAt(0)==='-';
   const raw=s.replace(/[^0-9.]/g,''); if(raw===''){ el.value=neg?'-':''; return; }
   const di=raw.indexOf('.'); let ip, dp=null;
   if(di>=0){ ip=raw.slice(0,di).replace(/\./g,''); dp=raw.slice(di+1).replace(/\./g,''); } else { ip=raw; }
@@ -2333,7 +2337,9 @@ function fmtNumLive(el){
   let out = (ip==='') ? (dp!==null?'0':'') : Number(ip).toLocaleString('ja-JP');
   if(dp!==null) out += '.'+dp;
   if(neg && out!=='') out='-'+out;
-  el.value=out; try{ const L=el.value.length; el.setSelectionRange(L,L); }catch(e){}
+  if(el.value!==out) el.value=out;
+  // キャレットを末尾固定せず、左側の数字の個数に合わせて復元（カンマ挿入による桁ずれ・重複入力を防止）
+  if(digitsLeft!=null){ let pos=0, seen=0; while(pos<out.length){ if(seen>=digitsLeft) break; if(out.charCodeAt(pos)>=48 && out.charCodeAt(pos)<=57) seen++; pos++; } try{ el.setSelectionRange(pos,pos); }catch(e){} }
 }
 const MANUAL_VAL=['cash','insurance','retirement','debt']; // 価額を直接入力する種別（葬式費用は請求額−含まれない金額で自動）
 const HAS_CALC=['land','building','securities','unlisted','other','gift'];   // 自動計算（計算チェック）あり
