@@ -2474,7 +2474,7 @@ function renderAssetDetail(){
   if(currentAssetCat==='movement'){
     c.innerHTML='<div class="detail-head"><div class="ic" style="background:'+MOVEMENT_META.color+'"></div><h2>'+MOVEMENT_META.name+'</h2></div>'
       +movementTableHtml()
-      +'<div class="detail-note">この表は資金移動の確認用で、財産分割や税額計算には反映されません。現金預貯金で登録した「普通預金・通常貯金」の口座が自動で列に表示されます。各口座の入出金を記録し、口座間の資金移動や、相続財産に計上すべき過去の入出金（名義預金・生前贈与・直前引出し等）が無いかをご確認ください。日付は「R3.1.6」のように自由入力できます。</div>';
+      +'<div class="detail-note">この表は資金移動の確認用で、財産分割や税額計算には反映されません。現金預貯金で登録した「現金」以外の口座（普通預金・定期預金・貯蓄預金・通常貯金 等）が自動で列に表示されます。各口座の入出金を記録し、口座間の資金移動や、相続財産に計上すべき過去の入出金（名義預金・生前贈与・直前引出し等）が無いかをご確認ください。日付は「R3.1.6」のように自由入力できます。</div>';
     return;
   }
   const t=ASSET_BY_KEY[currentAssetCat];
@@ -2521,7 +2521,8 @@ function enhanceAssetDnd(){
   });
 }
 // 金融資産異動一覧表
-function movementAccounts(){ return currentCase.assets.filter(a=>a.category==='cash' && /普通|通常|当座/.test(a.subcategory||'')); }
+// 金融資産異動一覧表に表示する口座：現金・預貯金のうち「現金」以外で、内容（金融機関名・口座番号・残高のいずれか）が登録されているもの
+function movementAccounts(){ return currentCase.assets.filter(a=>a.category==='cash' && (a.subcategory||'')!=='現金' && ((a.name||'').trim() || (a.accountNo||'').trim() || num(a.value)>0)); }
 function mvFmt(el){ const raw=el.value.replace(/[^0-9]/g,''); el.value=raw?Number(raw).toLocaleString('ja-JP'):''; try{ const L=el.value.length; el.setSelectionRange(L,L); }catch(e){} return raw; }
 // 相続財産計上額 ＝ Σ出金 − Σ入金（出金はプラス、入金はマイナス）
 function mvRowConcl(r,accs){ let inS=0,outS=0; (accs||[]).forEach(a=>{ const c=(r.cells||{})[a.id]||{}; inS+=num(c.i); outS+=num(c.o); }); return outS-inS; }
@@ -2540,7 +2541,7 @@ function onMvCellInput(rowId, accId, field, el){
 function movementTableHtml(){
   const accs=movementAccounts();
   const mv=currentCase.movement||(currentCase.movement={rows:[],usage:{}});
-  if(!accs.length) return '<div class="center-msg">「現金・預貯金」で普通預金・通常貯金（または当座預金）を登録すると、その口座がここに表示されます。</div>';
+  if(!accs.length) return '<div class="center-msg">「現金・預貯金」で現金以外の口座（普通・定期・貯蓄・通常貯金 等）を登録すると、その口座がここに表示されます。</div>';
   const usageOpts=['','未利用','日常利用','その他'];
   let head='<thead>'
     +'<tr><th rowspan="4" class="mv-frozen" style="vertical-align:middle;">日付</th>'+accs.map(a=>'<th colspan="2" style="border-left:2px solid #fff;">'+esc((a.name||'')+' '+(a.branch||''))+'</th>').join('')+'<th rowspan="4" style="vertical-align:middle;border-left:2px solid #fff;">相続財産<br>計上額</th><th rowspan="4" style="vertical-align:middle;min-width:240px;border-left:2px solid #fff;">確認したい点</th></tr>'
