@@ -8,13 +8,18 @@
 import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from '@google/generative-ai'
 
 export const GEMINI_API_KEY_STORAGE = 'bs-gemini-api-key'
+/** スイート共通のGeminiキー（ホーム画面の共通設定で登録）。モジュール個別キーが空のときに使う */
+export const SUITE_GEMINI_API_KEY_STORAGE = 'suite-gemini-api-key'
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
-/** localStorage から Gemini API キーを取得（未設定なら分かりやすいエラー） */
+/** Gemini API キーを取得（仕訳作成の個別キー → スイート共通キー の順。未設定ならエラー） */
 function getApiKey(): string {
-  const key = typeof window !== 'undefined' ? localStorage.getItem(GEMINI_API_KEY_STORAGE) : null
+  if (typeof window === 'undefined') throw new Error('ブラウザ以外では利用できません')
+  const own = (localStorage.getItem(GEMINI_API_KEY_STORAGE) || '').trim()
+  const suite = (localStorage.getItem(SUITE_GEMINI_API_KEY_STORAGE) || '').trim()
+  const key = own || suite
   if (!key) {
-    throw new Error('Gemini APIキーが未設定です。画面右上のメニュー →「Gemini APIキー設定」から入力してください。')
+    throw new Error('Gemini APIキーが未設定です。ホーム画面の「共通設定」または画面右上のメニュー →「Gemini APIキー設定」から入力してください。')
   }
   return key
 }
@@ -50,10 +55,12 @@ export async function geminiUpload(blob: Blob, displayName: string, mimeType?: s
 
   // 1) 再開可能アップロードを開始
   const startRes = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+    // APIキーはURLに載せず（履歴・ログへの残留防止）、ヘッダで渡す
+    `https://generativelanguage.googleapis.com/upload/v1beta/files`,
     {
       method: 'POST',
       headers: {
+        'x-goog-api-key': apiKey,
         'X-Goog-Upload-Protocol': 'resumable',
         'X-Goog-Upload-Command': 'start',
         'X-Goog-Upload-Header-Content-Length': String(numBytes),
@@ -96,11 +103,11 @@ export async function geminiUpload(blob: Blob, displayName: string, mimeType?: s
 }
 
 async function waitForActive(apiKey: string, name: string): Promise<GeminiFileRef> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${apiKey}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}`
   const maxAttempts = 60
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, 1000))
-    const r = await fetch(url)
+    const r = await fetch(url, { headers: { 'x-goog-api-key': apiKey } })
     if (!r.ok) {
       const t = await r.text().catch(() => '')
       throw new Error(`file status HTTP ${r.status}: ${t.slice(0, 200)}`)

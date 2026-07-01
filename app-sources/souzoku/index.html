@@ -508,7 +508,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       <div class="nav-section">その他</div>
       <button class="nav-item" data-view="settings"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.2 2.2M16.8 16.8L19 19M19 5l-2.2 2.2M7.2 16.8L5 19"/></svg></span>設定</button>
     </nav>
-    <div class="sidebar-foot">データはGoogleドライブの<br>指定フォルダに保存されます。</div>
+    <div class="sidebar-foot">データは事務所共通の合言葉で<br>全端末にリアルタイム同期されます。</div>
   </aside>
 
   <!-- Topbar -->
@@ -961,42 +961,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 
     <!-- ===== Settings ===== -->
     <section class="view" id="view-settings">
-      <div class="view-head"><h1>設定</h1><p>データ同期（Firebase）の設定を行います。同じ firebaseConfig とルーム名を入力した端末どうしで、案件データがリアルタイムに共有されます。</p></div>
+      <div class="view-head"><h1>設定</h1><p>事務所情報・財産一覧の選択肢・バックアップなどの設定を行います。データ同期は総合アプリ（ホスト）の共通の合言葉で自動的に行われます。</p></div>
 
       <div class="card">
-        <h2>データ同期（Firebase）</h2>
-        <div class="card-sub">同じ <b>firebaseConfig</b> と同じ <b>ルーム名</b> を入力した全PCで、案件がリアルタイムに共有・同期されます（追加・編集・削除が全端末に反映）。設定はこの端末だけに保存され、同期はされません。</div>
-        <div class="setting-row">
-          <div class="sr-info"><div class="t">firebaseConfig</div><div class="d">Firebaseコンソールで発行された <code>{ apiKey: …, databaseURL: … }</code> をそのまま貼り付けてください。</div></div>
-          <div class="sr-control">
-            <textarea id="set_fbConfig" rows="7" placeholder="{&#10;  apiKey: '…',&#10;  authDomain: '….firebaseapp.com',&#10;  databaseURL: 'https://….firebaseio.com',&#10;  projectId: '…',&#10;  appId: '…'&#10;}" style="font-family:ui-monospace,monospace;font-size:12px;" oninput="onFbInput()"></textarea>
-          </div>
-        </div>
-        <div class="setting-row">
-          <div class="sr-info"><div class="t">ルーム名</div><div class="d">事務所で共通の合言葉（例：komonと同じ名前）。同じ名前の端末だけがデータを共有します。</div></div>
-          <div class="sr-control"><input type="text" id="set_fbRoom" placeholder="例：jimusho-1" oninput="onFbInput()"></div>
-        </div>
-        <div class="setting-row">
-          <div class="sr-info"><div class="t">接続</div><div class="d">入力後に接続します（次回からは起動時に自動接続）。</div></div>
-          <div class="sr-control"><button class="btn primary" onclick="connectFirebase()">接続する／再接続</button><span class="muted" id="fbStatus" style="font-size:12px;margin-left:10px;">未接続</span></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Googleドライブからの移行（1回のみ）</h2>
-        <div class="card-sub">以前にGoogleドライブへ保存した案件を、まとめてFirebaseへ取り込みます。移行が済めば以降は不要です（通常の保存はFirebaseで自動同期されます）。</div>
-        <div class="setting-row">
-          <div class="sr-info"><div class="t">保存先フォルダのURL</div><div class="d">以前データを保存していたGoogleドライブのフォルダURLを貼り付けてください。</div></div>
-          <div class="sr-control">
-            <input type="text" id="set_folderUrl" placeholder="https://drive.google.com/drive/folders/XXXXXXXXXXXX" oninput="onFolderUrlInput()">
-            <div class="muted" id="folderIdStatus" style="font-size:12px;margin-top:6px;">フォルダ未設定</div>
-            <input type="text" id="set_clientId" placeholder="OAuth クライアントID（初期値あり）" oninput="onClientIdInput()" style="margin-top:8px;">
-          </div>
-        </div>
-        <div class="setting-row">
-          <div class="sr-info"><div class="t">取り込み</div><div class="d">Googleでログインし、フォルダ内の全案件をFirebaseへ登録します。</div></div>
-          <div class="sr-control"><button class="btn" onclick="migrateFromDrive()">Driveから一括取り込み</button></div>
-        </div>
+        <h2>データ同期</h2>
+        <div class="card-sub">このアプリは総合アプリ（ホスト）の共通の合言葉で Firebase Realtime Database に接続し、複数端末・複数人でリアルタイムに共同編集します。個別の設定は不要です。合言葉の設定・変更はホーム画面（共通設定）で行います。<span class="muted" id="fbStatus" style="margin-left:8px;">未接続</span></div>
       </div>
 
       <div class="card">
@@ -1060,21 +1029,10 @@ function getStock_(symbol){
 
       <div class="card">
         <h2>ローカルバックアップ</h2>
-        <div class="card-sub">現在の案件をJSONファイルとして書き出し／取り込みできます（Drive未接続時のバックアップにも利用できます）。</div>
+        <div class="card-sub">現在の案件をJSONファイルとして書き出し／取り込みできます（手元バックアップや案件の受け渡しに利用できます）。</div>
         <div class="btn-row">
           <button class="btn needs-case" onclick="exportLocalJson()">現在の案件をJSON出力</button>
           <button class="btn" onclick="importLocalJson()">JSONを取り込み（複数可）</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>使い方</h2>
-        <div class="muted" style="font-size:13.5px;line-height:1.9;">
-          1. このHTMLは <b>http://localhost</b> 経由で開いてください（Googleログインの仕様上 file:// では認証できません）。<br>
-          　例：フォルダ内で <code>python -m http.server 8000</code> を実行し、<code>http://localhost:8000</code> を開く。<br>
-          2. 「設定」で保存先フォルダURLを入力 →「Googleでログイン」。<br>
-          3. 「案件一覧」で新規案件を作成 → 各ステップを入力 → 「保存」でDriveに保存。<br>
-          4. 次回はログイン後「Driveから一覧取得」で案件を読み込み、続きから作業できます。
         </div>
       </div>
     </section>
@@ -1161,16 +1119,6 @@ function getStock_(symbol){
         <button class="btn primary" onclick="storyAiApply()">この内容で保存</button>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- Load modal -->
-<div class="modal-ov" id="loadModal">
-  <div class="modal">
-    <h2>Driveの案件を読み込む</h2>
-    <div class="m-sub">保存先フォルダ内の案件データ一覧です。</div>
-    <ul class="file-list" id="loadFileList"></ul>
-    <div class="btn-row" style="justify-content:flex-end;"><button class="btn" onclick="closeModal('loadModal')">閉じる</button></div>
   </div>
 </div>
 
@@ -1434,7 +1382,7 @@ function onFolderUrlInput(){
 }
 function onClientIdInput(){ settings.clientId=$('set_clientId').value.trim()||DEFAULT_CLIENT_ID; saveSettings(); gisReady=false; initGis(); }
 function updateFolderStatus(){
-  const el=$('folderIdStatus');
+  const el=$('folderIdStatus'); if(!el) return;
   if(settings.folderId){ el.textContent='✓ フォルダID: '+settings.folderId; el.style.color='var(--green)'; }
   else { el.textContent='フォルダ未設定（URLを貼り付けてください）'; el.style.color='var(--ink-2)'; }
 }
@@ -1680,19 +1628,7 @@ function applyCloudToUI(){
 function connectFirebase(){ onFbInput(); Realtime.connect(); }
 function onFbInput(){ const c=$('set_fbConfig'), r=$('set_fbRoom'); if(c) settings.fbConfig=c.value; if(r) settings.fbRoom=r.value.trim(); saveSettings(); }
 // Googleドライブから既存案件を一括取り込み（移行・1回のみ）
-function migrateFromDrive(){
-  if(!settings.folderId){ toast('保存先フォルダURLを入力してください', true); return; }
-  ensureLogin(async()=>{
-    try{
-      const files=await driveListCases();
-      if(!files.length){ toast('フォルダ内に案件データが見つかりませんでした', true); return; }
-      let n=0;
-      for(const f of files){ try{ const data=await driveDownloadJson(f.id); const c=migrateCase(data); if(!c.caseId) c.caseId=uid(); cloud.cases[c.caseId]=c; if(cloud.tomb) delete cloud.tomb[c.caseId]; n++; }catch(e){ console.warn('取込失敗',f.name,e); } }
-      saveCloudLocal(); if(typeof Realtime!=='undefined') Realtime.push(); renderCasesList();
-      toast(n+' 件をFirebaseへ取り込みました'+(Realtime.ready?'（全端末に同期されます）':'（設定でFirebaseに接続すると同期されます）'));
-    }catch(e){ toast('取り込み失敗：'+e.message, true); }
-  });
-}
+// （旧batアプリ時代のGoogleドライブ移行機能は廃止済み。同期はホスト共通の合言葉によるFirebaseで行う）
 
 // ============================================================
 //  Case model
@@ -5545,10 +5481,11 @@ async function szSaveMinute(){
 async function szDeleteMinute(id){ if(!confirm('この議事録を削除しますか？'))return; try{ const all=await _szFetchAllMinutes(); await _szWriteAllMinutes(all.filter(x=>x&&x.id!==id)); }catch(e){ toast('削除に失敗：'+e.message, true); return; } toast('削除しました'); szRenderMinutes(); }
 const _SZ_POLISH_SYS='あなたは税理士事務所のアシスタントです。会議の議事メモを、内容を一切省略・要約・削除せずに、誤字脱字の修正と読みやすい体裁への整形のみ行います。入力に含まれる事実・固有名詞・数値・日付・発言のニュアンスはすべて漏らさず保持してください。情報を勝手に削る・まとめて短くする・推測で足すことは禁止です。【出力規則】Markdown記号（#, *, -, **, _, |, --- など）は一切使用しないこと。見出しは「■」、箇条書きは全角中黒「・」、番号付けは「1. 2. 3.」を用い、日本語のプレーンテキストのみで出力します。表は使わず箇条書きにします。';
 const _SZ_SEC={ szmn_tax:'これは「税務論点」の議事メモです。税務・評価・分割上の論点、判断、根拠、検討事項が明確になるように整理してください。', szmn_chat:'これは「世間話・近況」の議事メモです。関係構築に役立つ雑談・近況・人柄に関する情報を、要点が分かるよう簡潔に整理してください。', szmn_todo:'これは「TODO」の議事メモです。やるべきこと・宿題・期限・担当を、実行しやすいタスクの箇条書きに整理してください。' };
+function _suiteGeminiKey(){ try{ return (localStorage.getItem('suite-gemini-api-key')||'').trim(); }catch(e){ return ''; } }
 async function szCallAI(system,user,maxTokens){
   const s=_komonSettings(); const provider=s.aiProvider||'gemini';
-  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
-    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{maxOutputTokens:maxTokens||1500}})});
+  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim()||_suiteGeminiKey(); if(!key)throw new Error('AIキーが未設定です（ホーム画面の共通設定または顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{maxOutputTokens:maxTokens||1500}})});
     if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); const c=j.candidates&&j.candidates[0]; return(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim(); }
   const key=(s.claudeApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.claudeModel||'claude-opus-4-8';
   const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:maxTokens||1500,system,messages:[{role:'user',content:user}]})});
@@ -5598,9 +5535,9 @@ function pbReadB64(file){ return new Promise((res,rej)=>{ const r=new FileReader
 const _PB_SYS='あなたは相続税申告の実務に精通した税理士アシスタントです。被相続人の預金通帳の明細を分析し、相続財産の計上漏れ・名義預金・生前贈与・未収債権・債務控除・簿外資産の手がかりを洗い出します。支払状況から契約している保険会社や貸金庫の有無なども推定します。\n【最重要】出力は指定のJSONオブジェクトのみ。前後の説明文やコードフェンスは付けない。日本語で記述。金額は数値（カンマ・記号なし）。日付はYYYY-MM-DD（不明ならそのままの表記）。\n【JSONスキーマ】\n{"summary":{"usage":"この口座の用途分析（1〜3文）","counts":{"high":整数,"mid":整数,"low":整数},"note":"全体の重要所見（未収債権・簿外資産・名義預金の示唆等。無ければ空文字）"},"flags":[{"date":"YYYY-MM-DD","amount":数値,"dir":"in または out","desc":"摘要","risk":"high|mid|low","tags":["高額入金/死亡後取引/財産関連取引/生前贈与/名義預金/その他 等"],"reason":"確認対象とした理由","questions":["確認事項1","確認事項2"],"action":"推奨対応"}],"patterns":[{"risk":"high|mid|low","name":"反復入金/定期出金 等","detail":"検出内容","reason":"確認が必要な理由","questions":["確認事項"]}],"leads":[{"category":"insurance|securities|land|building|unlisted|cash|other|debt|funeral|gift|retirement のいずれか","categoryLabel":"財産の種類の日本語","title":"推定される財産・契約（例：日本生命の保険契約の可能性）","confidence":"high|mid|low","evidence":"根拠となる通帳の動き","prefillName":"財産一覧に入れる名称（例：日本生命）","prefillSub":"区分・種類（あれば。無ければ空文字）","docHint":"取り寄せるべき資料（例：保険証券・支払通知書）"}]}\n【観点の例】保険会社・共済への口座振替→生命保険/損害保険の契約(insurance)。貸金庫使用料→貸金庫(other/中身の確認)。証券会社入出金・配当/分配金→有価証券(securities)。家賃・地代入金や固定資産税引落→不動産(land/building)。借入返済・カード引落→債務(debt)。死亡後の入金→未収債権(other)。定期的な高額出金や孫の学費→生前贈与(gift)。年金/税還付入金→未収金(other)。老人ホーム利用料→小規模宅地の要件確認・未払費用。該当が無ければ空配列。あくまで通帳から読み取れる範囲の推定であり、確度は confidence で示す。';
 async function pbCallAI(user, file, maxTokens){
   const s=(typeof _komonSettings==='function')?_komonSettings():{}; const provider=s.aiProvider||'gemini';
-  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
+  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim()||_suiteGeminiKey(); if(!key)throw new Error('AIキーが未設定です（ホーム画面の共通設定または顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
     const parts=[{text:user}]; if(file) parts.push({inlineData:{mimeType:file.mime,data:file.b64}});
-    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:_PB_SYS}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:maxTokens||8000,temperature:0.2,responseMimeType:'application/json'}})});
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:_PB_SYS}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:maxTokens||8000,temperature:0.2,responseMimeType:'application/json'}})});
     if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); const c=j.candidates&&j.candidates[0]; return(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim(); }
   const key=(s.claudeApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.claudeModel||'claude-opus-4-8';
   const content=[]; if(file&&file.mime==='application/pdf') content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:file.b64}}); content.push({type:'text',text:user});

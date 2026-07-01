@@ -608,6 +608,8 @@
 /* ===== データ ===== */
 const LS_KEY='komonManagerData_v3';
 const AI_DEFAULTS={folderUrl:'',clientId:'',aiProvider:'gemini',claudeApiKey:'',claudeModel:'claude-opus-4-8',geminiApiKey:'',geminiModel:'gemini-2.5-flash',fbConfig:'',fbRoom:''};
+// スイート共通のGemini APIキー（ホーム画面で登録）。モジュール個別キーが空のときに使う
+function suiteGeminiKey(){ try{ return (localStorage.getItem('suite-gemini-api-key')||'').trim(); }catch(e){ return ''; } }
 let data={ clients:[], filings:{}, filingSteps:{}, interimDone:{}, interimCells:{}, interimSteps:null, gensenSteps:null, monthly:{}, monthlyTargets:null, modules:{}, gensen:{monthly:{},special:{}}, gensenMonthly:{}, gensenSpecial:{}, nencho:{}, sonotaTables:[], docTables:[], docTemplate:{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}, clientSummaries:{}, minutes:[], clientTombstones:{}, gensenMethods:['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問'], settings:Object.assign({},AI_DEFAULTS) };
 let filingYear=new Date().getFullYear(), filingMonth=null;     // 確定申告：決算年・選択中の決算月
 let interimYear=new Date().getFullYear(), interimMonth=null;   // 中間申告：暦年・選択中の月
@@ -1667,11 +1669,11 @@ function clientAnnual(c,year){ return clientMonthly(c,year)*12 + clientSpots(c,y
 async function callAI(system,user,maxTokens){
   const provider=data.settings.aiProvider||'gemini';
   if(provider==='gemini'){
-    const key=(data.settings.geminiApiKey||'').trim();
-    if(!key) throw new Error('設定でGemini APIキーを登録してください');
+    const key=(data.settings.geminiApiKey||'').trim()||suiteGeminiKey();
+    if(!key) throw new Error('設定でGemini APIキーを登録してください（ホーム画面の共通キーでも可）');
     const model=data.settings.geminiModel||'gemini-2.5-flash';
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{ method:'POST',
-      headers:{'content-type':'application/json'},
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{ method:'POST',
+      headers:{'content-type':'application/json','x-goog-api-key':key},
       body:JSON.stringify({ systemInstruction:{parts:[{text:system}]}, contents:[{role:'user',parts:[{text:user}]}], generationConfig:{maxOutputTokens:maxTokens||1500} }) });
     if(!res.ok){ let msg=res.status+''; try{ const j=await res.json(); msg=(j.error&&j.error.message)||msg; }catch(_){ } throw new Error('AI呼び出し失敗: '+msg); }
     const j=await res.json();
@@ -2051,7 +2053,10 @@ function onProviderChange(){ const p=val('setAiProvider')||'gemini';
   renderAiKeyState(); }
 function _aiKeyMask(k){ k=String(k||'').trim(); return k?('設定済み（末尾 '+k.slice(-4)+'・'+k.length+'文字）'):'未設定'; }
 function renderAiKeyState(){ const el=document.getElementById('aiKeyState'); if(!el)return;
-  el.innerHTML='現在この端末に保存されているキー … Gemini：<b>'+_aiKeyMask(data.settings.geminiApiKey)+'</b>　／　Claude：<b>'+_aiKeyMask(data.settings.claudeApiKey)+'</b>'; }
+  const sk=suiteGeminiKey();
+  el.innerHTML='現在この端末に保存されているキー … Gemini：<b>'+_aiKeyMask(data.settings.geminiApiKey)+'</b>　／　Claude：<b>'+_aiKeyMask(data.settings.claudeApiKey)+'</b>'
+    +'<br>共通キー（ホーム画面で登録・全機能で使用）：<b>'+_aiKeyMask(sk)+'</b>'
+    +'<br><span style="color:#6b7280">この画面のGeminiキーが空欄の場合は共通キーを使用します。</span>'; }
 function toggleAiKeyView(){ const el=document.getElementById('setAiKey'), b=document.getElementById('aiKeyShowBtn'); if(!el)return; const show=(el.type==='password'); el.type=show?'text':'password'; if(b)b.textContent=show?'🙈 隠す':'🔎 表示'; }
 function copyAiKey(){ const el=document.getElementById('setAiKey'); if(!el)return; const v=(el.value||'').trim(); if(!v){ toast('キーが未設定です','err'); return; }
   const done=()=>toast('APIキーをコピーしました','ok');

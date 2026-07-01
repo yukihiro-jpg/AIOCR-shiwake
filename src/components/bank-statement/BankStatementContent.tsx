@@ -1392,6 +1392,9 @@ export default function BankStatementContent() {
                     </div>
                     <p className="text-[11px] mt-1 px-2 py-1 bg-gray-50 rounded text-gray-600">
                       現在この端末に保存されているキー：<b>{geminiApiKey ? `設定済み（末尾 ${geminiApiKey.slice(-4)}・${geminiApiKey.length}文字）` : '未設定'}</b>
+                      {!geminiApiKey && typeof window !== 'undefined' && (localStorage.getItem('suite-gemini-api-key') || '').trim() && (
+                        <>　→ ホーム画面の<b>共通キー</b>を使用します（末尾 {(localStorage.getItem('suite-gemini-api-key') || '').trim().slice(-4)}）</>
+                      )}
                     </p>
                     <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">
                       OCRに必要。<a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-500 underline">Google AI Studio</a> で取得し各自で入力してください。

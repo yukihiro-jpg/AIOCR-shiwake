@@ -79,6 +79,8 @@ export async function registerCompany(
     registeredAt: new Date().toISOString(),
   }
   await set(ref(db, path), company)
+  // 公開名簿の枠を作成（名簿は従業員CSV取込時・リンク発行時に更新される）
+  try { await publishRoster(yearId, company, await loadEmployees(yearId, client.id)) } catch { /* ignore */ }
   return company
 }
 
@@ -94,13 +96,16 @@ export async function saveEmployees(
   clientId: string,
   employees: NenmatsuEmployee[],
 ): Promise<void> {
-  const { db, ref, set, update } = await dbfns()
+  const { db, ref, set, update, get } = await dbfns()
   const map: Record<string, NenmatsuEmployee> = {}
   employees.forEach((e) => (map[e.id] = e))
   const empPath = await modulePath(NENMATSU_KEY, yearId, 'employees', clientId)
   await set(ref(db, empPath), map)
   const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
   await update(ref(db, compPath), { employeeCount: employees.length })
+  // 従業員向け公開データ（token配下）にも名簿を反映
+  const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+  if (comp && comp.token) await publishRoster(yearId, comp, employees)
 }
 
 export async function loadEmployees(
@@ -114,13 +119,39 @@ export async function loadEmployees(
   return Object.values(val)
 }
 
-/** 従業員向けアップロードURL（合言葉そのものは含めず roomKey ハッシュのみ） */
+/** 従業員向けアップロードURL。
+ *  【重要】roomKey(rk) は絶対に含めない。rk はルーム全データ（顧問先・相続等）への鍵になるため、
+ *  外部（顧問先の従業員）に渡るURLには、会社ごとのランダムトークン(t)のみを載せる。
+ *  従業員側は nenmatsu-public/{token} 配下だけを読み書きする。 */
 export async function buildUploadUrl(yearId: string, company: NenmatsuCompany): Promise<string> {
-  const rk = await roomKey()
+  // リンク発行時に公開名簿を最新化しておく（従業員側はこの公開データを参照する）
+  try { await publishRoster(yearId, company, await loadEmployees(yearId, company.clientId)) } catch { /* ignore */ }
   const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const q = new URLSearchParams({ rk, y: yearId, c: company.clientId, t: company.token })
+  const q = new URLSearchParams({ y: yearId, t: company.token })
   return `${origin}${base}/nenmatsu-upload/?${q.toString()}`
+}
+
+/** 公開領域（従業員がアクセスする場所）のRTDBパス。token はルームとは独立の128bit乱数 */
+function publicPath(token: string, ...seg: string[]): string {
+  return `nenmatsu-public/${token}${seg.length ? '/' + seg.join('/') : ''}`
+}
+
+/** 会社の名簿を公開領域へ書き出す（roomKey・clientId等の内部情報は含めない） */
+export async function publishRoster(
+  yearId: string,
+  company: NenmatsuCompany,
+  employees: NenmatsuEmployee[],
+): Promise<void> {
+  if (!company.token) return
+  const { db, ref, set } = await dbfns()
+  const map: Record<string, NenmatsuEmployee> = {}
+  employees.forEach((e) => (map[e.id] = e))
+  await set(ref(db, publicPath(company.token, 'roster')), {
+    name: company.name,
+    yearId,
+    employees: map,
+  })
 }
 
 function randomToken(): string {
@@ -131,24 +162,24 @@ function randomToken(): string {
     .join('')
 }
 
-// ===== 従業員側（公開ページ）：roomKey を直接受け取って読み書きする =====
+// ===== 従業員側（公開ページ）：トークンのみで nenmatsu-public/{token} を読み書きする =====
+// roomKey は受け取らない（外部に渡るURLへ載せないため）。
 
-/** トークン検証つきで会社情報を取得（従業員ページ用） */
+/** 会社名と名簿を取得（従業員ページ用）。token が無効なら null */
 export async function loadCompanyPublic(
-  rk: string,
-  yearId: string,
-  clientId: string,
   token: string,
-): Promise<{ company: NenmatsuCompany; employees: NenmatsuEmployee[] } | null> {
+): Promise<{ companyName: string; yearId: string; employees: NenmatsuEmployee[] } | null> {
+  if (!token) return null
   const { db, ref, get } = await dbfns()
-  const comp = (
-    await get(ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/companies/${clientId}`))
-  ).val() as NenmatsuCompany | null
-  if (!comp || comp.token !== token) return null
-  const empVal =
-    (await get(ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/employees/${clientId}`))).val() ||
-    {}
-  return { company: comp, employees: Object.values(empVal) as NenmatsuEmployee[] }
+  const roster = (await get(ref(db, publicPath(token, 'roster')))).val() as
+    | { name: string; yearId: string; employees?: Record<string, NenmatsuEmployee> }
+    | null
+  if (!roster || !roster.name) return null
+  return {
+    companyName: roster.name,
+    yearId: roster.yearId || '',
+    employees: Object.values(roster.employees || {}),
+  }
 }
 
 // ===== 顧問先情報（komon）で「年末調整＝利用」にした会社だけを読む =====
@@ -183,11 +214,9 @@ async function storageFns() {
   return { st: s.getStorage(app), ...s }
 }
 
-/** 従業員側：撮影済み画像（docKey -> Blob[]）をアップロードし、提出記録を書く */
+/** 従業員側：撮影済み画像（docKey -> Blob[]）をアップロードし、提出記録を書く（token 配下のみ） */
 export async function submitDocsPublic(
-  rk: string,
-  yearId: string,
-  clientId: string,
+  token: string,
   emp: NenmatsuEmployee,
   docs: Record<string, Blob[]>,
   declaration?: import('./declaration').Declaration,
@@ -200,7 +229,7 @@ export async function submitDocsPublic(
     if (!blobs || !blobs.length) continue
     counts[docKey] = blobs.length
     for (let i = 0; i < blobs.length; i++) {
-      const path = `nenmatsu/${rk}/${yearId}/${clientId}/${emp.id}/${docKey}_${i + 1}.jpg`
+      const path = `nenmatsu-public/${token}/${emp.id}/${docKey}_${i + 1}.jpg`
       await uploadBytes(sref(st, path), blobs[i], { contentType: 'image/jpeg' })
       paths.push(path)
     }
@@ -215,35 +244,38 @@ export async function submitDocsPublic(
     paths,
   }
   if (declaration) rec.declaration = declaration
-  await set(
-    ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/submissions/${clientId}/${emp.id}`),
-    rec,
-  )
+  await set(ref(db, publicPath(token, 'submissions', emp.id)), rec)
 }
 
 /** 従業員側：既に提出済みか確認（二重提出チェック用） */
 export async function getSubmissionPublic(
-  rk: string,
-  yearId: string,
-  clientId: string,
+  token: string,
   empId: string,
 ): Promise<SubmissionRecord | null> {
   const { db, ref, get } = await dbfns()
-  const snap = await get(
-    ref(db, `rooms/${rk}/${NENMATSU_KEY}/${yearId}/submissions/${clientId}/${empId}`),
-  )
+  const snap = await get(ref(db, publicPath(token, 'submissions', empId)))
   return (snap.val() as SubmissionRecord) || null
 }
 
-/** 事務所側：会社の提出記録一覧 */
+/** 事務所側：会社の提出記録一覧（公開領域＋旧・内部パスの両方を統合） */
 export async function loadSubmissions(
   yearId: string,
   clientId: string,
 ): Promise<Record<string, SubmissionRecord>> {
   const { db, ref, get } = await dbfns()
-  const path = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
-  const snap = await get(ref(db, path))
-  return (snap.val() as Record<string, SubmissionRecord>) || {}
+  // 旧形式（rooms/{rk}/nenmatsu/.../submissions）に残っている過去分
+  const legacyPath = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
+  const legacy = ((await get(ref(db, legacyPath))).val() as Record<string, SubmissionRecord>) || {}
+  // 新形式（nenmatsu-public/{token}/submissions）
+  let pub: Record<string, SubmissionRecord> = {}
+  try {
+    const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+    const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+    if (comp && comp.token) {
+      pub = ((await get(ref(db, publicPath(comp.token, 'submissions')))).val() as Record<string, SubmissionRecord>) || {}
+    }
+  } catch { /* ignore */ }
+  return { ...legacy, ...pub }
 }
 
 /** 事務所側：保存パスのファイル群をBlobで取得（ZIP一括DL用） */
@@ -259,19 +291,36 @@ export async function getFileBlobs(
   return out
 }
 
-/** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用） */
+/** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用）
+ *  新形式（nenmatsu-public/{token}/{empId}）と旧形式（nenmatsu/{rk}/...）の両方を確認する */
 export async function listEmployeeFiles(
   yearId: string,
   clientId: string,
   empId: string,
 ): Promise<{ name: string; url: string }[]> {
-  const rk = await roomKey()
   const { st, ref: sref, listAll, getDownloadURL } = await storageFns()
-  const dir = sref(st, `nenmatsu/${rk}/${yearId}/${clientId}/${empId}`)
-  const res = await listAll(dir)
+  const dirs: string[] = []
+  try {
+    const { db, ref, get } = await dbfns()
+    const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+    const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+    if (comp && comp.token) dirs.push(`nenmatsu-public/${comp.token}/${empId}`)
+  } catch { /* ignore */ }
+  try {
+    const rk = await roomKey()
+    dirs.push(`nenmatsu/${rk}/${yearId}/${clientId}/${empId}`)
+  } catch { /* ignore */ }
   const out: { name: string; url: string }[] = []
-  for (const item of res.items) {
-    out.push({ name: item.name, url: await getDownloadURL(item) })
+  const seen = new Set<string>()
+  for (const d of dirs) {
+    try {
+      const res = await listAll(sref(st, d))
+      for (const item of res.items) {
+        if (seen.has(item.name)) continue
+        seen.add(item.name)
+        out.push({ name: item.name, url: await getDownloadURL(item) })
+      }
+    } catch { /* ignore */ }
   }
   out.sort((a, b) => a.name.localeCompare(b.name))
   return out

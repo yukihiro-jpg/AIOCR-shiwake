@@ -5,7 +5,6 @@ import {
   loadCompanyPublic,
   submitDocsPublic,
   getSubmissionPublic,
-  type NenmatsuCompany,
   type NenmatsuEmployee,
 } from '@/lib/nenmatsu/store'
 import { normalizeBirth } from '@/lib/nenmatsu/jdl-csv'
@@ -17,16 +16,15 @@ import DeclarationForm from './DeclarationForm'
 
 type Phase = 'loading' | 'error' | 'select' | 'verify' | 'declare' | 'docs' | 'done'
 interface Params {
-  rk: string
+  t: string
   y: string
-  c: string
 }
 
 export default function NenmatsuUpload() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [errMsg, setErrMsg] = useState('')
   const [params, setParams] = useState<Params | null>(null)
-  const [company, setCompany] = useState<NenmatsuCompany | null>(null)
+  const [companyName, setCompanyName] = useState('')
   const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
   const [empId, setEmpId] = useState('')
   const [by, setBy] = useState('')
@@ -47,23 +45,26 @@ export default function NenmatsuUpload() {
     ;(async () => {
       try {
         const q = new URLSearchParams(window.location.search)
-        const rk = q.get('rk') || ''
-        const y = q.get('y') || ''
-        const c = q.get('c') || ''
         const t = q.get('t') || ''
-        if (!rk || !y || !c || !t) {
+        const yParam = q.get('y') || ''
+        const isLegacyLink = !!q.get('rk') // 旧形式（roomKey入りURL）
+        if (!t) {
           setErrMsg('URLが正しくありません。配布されたQRコード／リンクから開いてください。')
           setPhase('error')
           return
         }
-        const res = await loadCompanyPublic(rk, y, c, t)
+        const res = await loadCompanyPublic(t)
         if (!res) {
-          setErrMsg('このリンクは無効か期限切れです。事務所へお問い合わせください。')
+          setErrMsg(
+            isLegacyLink
+              ? 'このリンクは新しい形式に更新されました。お手数ですが、会社のご担当者様へ新しいリンクの再送をご依頼ください。'
+              : 'このリンクは無効か期限切れです。事務所へお問い合わせください。',
+          )
           setPhase('error')
           return
         }
-        setParams({ rk, y, c })
-        setCompany(res.company)
+        setParams({ t, y: res.yearId || yParam })
+        setCompanyName(res.companyName)
         setEmployees(res.employees)
         setPhase('select')
       } catch {
@@ -156,7 +157,7 @@ export default function NenmatsuUpload() {
       if (!confirm('撮影した書類がありません。「該当する書類なし」として提出しますか？')) return
     }
     try {
-      const existing = await getSubmissionPublic(params.rk, params.y, params.c, emp.id)
+      const existing = await getSubmissionPublic(params.t, emp.id)
       if (existing) {
         if (!confirm(`${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n上書きして提出しますか？`)) return
       }
@@ -181,7 +182,7 @@ export default function NenmatsuUpload() {
         docs[key] = blobs
       }
       setProgress('送信しています...')
-      await submitDocsPublic(params.rk, params.y, params.c, emp, docs, decl)
+      await submitDocsPublic(params.t, emp, docs, decl)
       setPhase('done')
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
@@ -218,7 +219,7 @@ export default function NenmatsuUpload() {
       <header className="bg-blue-600 text-white px-4 py-3">
         <div className="max-w-md mx-auto">
           <div className="text-xs opacity-80">年末調整 書類アップロード</div>
-          <div className="font-bold">{company?.name}</div>
+          <div className="font-bold">{companyName}</div>
         </div>
       </header>
 
