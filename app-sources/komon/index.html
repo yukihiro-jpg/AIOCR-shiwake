@@ -238,7 +238,7 @@
 <main>
   <section id="page-dashboard" class="page active">
     <div class="page-head"><h2>ダッシュボード</h2></div>
-    <div class="stat-row" id="statRow"></div>
+    <div class="card pad"><h3 style="margin:0 0 14px;font-weight:500">申告書チェック待ち<span style="font-weight:400;font-size:12px;color:#6b7280;margin-left:8px">「申告書作成」は完了（日付あり）だが「申告書チェック」が未完了のもの</span></h3><div id="dashCheckPending"></div></div>
     <div class="card pad"><h3 style="margin:0 0 14px;font-weight:500">期限が近い工程</h3><div id="dashUpcoming"></div></div>
     <div class="card pad"><h3 style="margin:0 0 14px;font-weight:500">要確認リスト<span style="font-weight:400;font-size:12px;color:#6b7280;margin-left:8px">決算メモで「質問」はあるが「確認結果」が未入力のもの</span></h3><div id="dashKessan"></div></div>
   </section>
@@ -902,11 +902,20 @@ function interimEvents(tax, M, Y){
 
 /* ===== ダッシュボード ===== */
 function renderDashboard(){
-  const interimCnt=(()=>{ let n=0; for(let m=1;m<=12;m++)n+=interimRows(interimYear,m).length; return n; })();
-  const docCnt=cStore('docs').length; const mp=monthlyPending();
-  const monthlyCard=`<div class="stat" style="cursor:pointer" onclick="showPage('monthly')"><div class="n">${mp.total}</div><div class="l">月次 未処理（${monthlyYear}年）</div><div class="muted" style="font-size:12px;margin-top:4px">入力待ち ${mp.waitInput} ／ 報告待ち ${mp.waitReport}</div></div>`;
-  document.getElementById('statRow').innerHTML=monthlyCard+[[interimYear+'年の中間申告',interimCnt],['資料回収リスト',docCnt],['議事録',data.minutes.length]]
-    .map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`).join('');
+  // 申告書作成は完了（日付あり）だが、申告書チェックが未完了の案件
+  const checkPend=[];
+  activeClients().forEach(c=>{ if(c.souzokuSpot) return; const M=fiscalMonthNum(c.fiscal); if(!M) return;
+    const steps=getSteps(M); const f=getFiling(filingYear,c.id); const cells=(f&&f.cells)||{};
+    const madeStep=steps.find(s=>s.name==='申告書作成')||steps.find(s=>/申告.*作成/.test(s.name));
+    const chkStep=steps.find(s=>s.name==='申告書チェック')||steps.find(s=>/チェック/.test(s.name));
+    if(!madeStep||!chkStep) return; const made=cells[madeStep.name], chk=cells[chkStep.name];
+    if(made && made!=='対象外' && !chk) checkPend.push({client:c.name,cid:c.id,m:M,made:made}); });
+  checkPend.sort((a,b)=>a.m-b.m);
+  const cpEl=document.getElementById('dashCheckPending');
+  if(cpEl) cpEl.innerHTML=checkPend.length?
+    `<table><thead><tr><th>顧問先</th><th>決算</th><th>申告書作成 完了日</th></tr></thead><tbody>`+
+    checkPend.map(u=>`<tr style="cursor:pointer" onclick="gotoFiling(${u.m})"><td><span class="link">${esc(u.client)}</span></td><td>${u.m}月決算</td><td>${esc(fmtMD(u.made))}</td></tr>`).join('')+`</tbody></table>`
+    :`<div class="empty">申告書チェック待ちの案件はありません。</div>`;
   const today=new Date(); today.setHours(0,0,0,0); const ups=[];
   activeClients().forEach(c=>{ if(c.souzokuSpot){ if(c.filingDeadline)ups.push({client:c.name,step:'相続税申告期限',due:c.filingDeadline,fm:'相続',cid:c.id,souzoku:true}); return; }
     const M=fiscalMonthNum(c.fiscal); if(!M)return; const f=getFiling(filingYear,c.id);
