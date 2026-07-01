@@ -500,6 +500,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       <button class="nav-item needs-case" data-view="checklist"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8.5 12l2.2 2.2L16 9"/></svg></span>必要資料<span class="step-no">2</span></button>
       <button class="nav-item needs-case" data-view="assets" id="navAssets"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 9l3 4 3-4M12 13v4M9.5 14.5h5"/></svg></span>財産一覧<span class="step-no">3</span></button>
       <div class="nav-sub" id="assetSubNav"></div>
+      <button class="nav-item needs-case" data-view="passbook"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 8h6M8 12h8M8 16h5"/><circle cx="17.5" cy="16.5" r="3"/><path d="M19.6 18.6L22 21"/></svg></span>AI通帳分析</button>
       <button class="nav-item needs-case" data-view="plan"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M5 8h14M7 8l-2 5a3 3 0 0 0 6 0zM17 8l-2 5a3 3 0 0 0 6 0z"/></svg></span>遺産分割＆相続税試算<span class="step-no">4</span></button>
       <button class="nav-item needs-case" data-view="secondary"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0 1 13-3l3 3M20 15a8 8 0 0 1-13 3l-3-3"/><path d="M20 4v5h-5M4 20v-5h5"/></svg></span>二次相続シミュレーション<span class="step-no">5</span></button>
       <button class="nav-item needs-case" data-view="savings"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-7 7-4-4-6 6"/><path d="M15 8h6v6"/></svg></span>相続税節税シミュレーション<span class="step-no">6</span></button>
@@ -612,6 +613,55 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         </div>
       </div>
       <div id="checklistContainer"></div>
+    </section>
+
+    <!-- ===== AI通帳分析 ===== -->
+    <section class="view" id="view-passbook">
+      <style>
+      .pb-note{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:12px;border-radius:8px;padding:8px 12px;margin:8px 0 12px;}
+      .pb-form{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+      .pb-tabs{display:flex;gap:6px;}
+      .pb-tab{padding:6px 12px;border:1px solid var(--line-2);background:#fff;border-radius:8px;cursor:pointer;font-size:13px;}
+      .pb-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+      .pb-in{margin-top:10px;}
+      .pb-in textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line-2);border-radius:8px;font:inherit;}
+      .pb-card{margin-top:14px;}
+      .pb-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+      .pb-summary{background:#f4f7fb;border-radius:8px;padding:10px 12px;margin-bottom:10px;}
+      .pb-usage{font-size:13px;line-height:1.7;}
+      .pb-counts{font-size:12px;margin-top:6px;}
+      .pb-note2{font-size:12.5px;color:#8a4b00;margin-top:6px;line-height:1.7;}
+      .pb-sub{font-size:13px;font-weight:700;color:#1f3a5f;margin:14px 0 6px;border-left:4px solid var(--accent);padding-left:8px;}
+      .pb-flag{border:1px solid #e5e9f0;border-radius:8px;padding:8px 10px;margin-bottom:8px;}
+      .pb-flag.done{opacity:.55;}
+      .pb-flag-top{font-size:13px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+      .pb-famt.out{color:#c0392b;} .pb-famt.in{color:#1f6feb;}
+      .pb-fdesc{font-weight:600;}
+      .pb-tag{font-size:10.5px;background:#eef2f7;color:#556;border-radius:3px;padding:1px 6px;}
+      .pb-resolved{color:#2f8a5b;font-size:11px;font-weight:700;}
+      .pb-flag-body{font-size:12.5px;color:#333;margin-top:6px;line-height:1.75;}
+      .pb-line{margin:2px 0;}
+      .pb-lead{border:1px solid #e5e9f0;border-left:4px solid #C8A24B;border-radius:8px;padding:8px 10px;margin-bottom:8px;}
+      .pb-lead-top{font-size:13px;}
+      .pb-cat{display:inline-block;font-size:11px;background:#1F3A5F;color:#fff;border-radius:4px;padding:1px 8px;margin-right:6px;}
+      .pb-added{color:#2f8a5b;font-size:12px;font-weight:700;}
+      </style>
+      <div class="view-head"><h1>AI通帳分析</h1><p>通帳明細（CSV・貼り付け・PDF）をAIが分析し、要確認取引や資金移動の論点、支払状況から推定される財産・契約（保険会社・貸金庫・未収債権 等）を洗い出します。結果は「金融資産異動一覧表」や「財産一覧」に反映できます。</p></div>
+      <div class="card">
+        <h2>通帳を取り込んで分析</h2>
+        <div class="pb-note">⚠ 分析では通帳明細を、設定中のAI（Gemini／Anthropic・顧問先管理のAPIキー）へ送信します。結果は確認の参考用で、最終判断は担当者が行ってください。</div>
+        <div class="pb-form">
+          <div class="field" style="flex:1;min-width:260px;"><label>口座名（任意）</label><input id="pb_label" placeholder="例：三菱UFJ銀行 京橋支店 普通 2423939"></div>
+          <div class="field"><label>取込方法</label>
+            <div class="pb-tabs"><button type="button" class="pb-tab active" data-m="paste" onclick="pbTab('paste')">テキスト貼り付け</button><button type="button" class="pb-tab" data-m="csv" onclick="pbTab('csv')">CSVファイル</button><button type="button" class="pb-tab" data-m="pdf" onclick="pbTab('pdf')">PDF（AIが読取）</button></div>
+          </div>
+        </div>
+        <div id="pb_paste" class="pb-in"><textarea id="pb_text" rows="8" placeholder="通帳明細を貼り付け（日付・摘要・出金・入金・残高 など。Excelからのコピペ可）"></textarea></div>
+        <div id="pb_csv" class="pb-in" style="display:none;"><input type="file" id="pb_csvfile" accept=".csv,.txt"><div class="muted" style="font-size:12px;margin-top:6px;">銀行や会計ソフトからの明細CSV。文字コードは自動判定します。</div></div>
+        <div id="pb_pdf" class="pb-in" style="display:none;"><input type="file" id="pb_pdffile" accept="application/pdf,.pdf"><div class="muted" style="font-size:12px;margin-top:6px;">通帳PDFをそのままAIが読み取って分析します（テキストPDF・画像PDFいずれも可）。</div></div>
+        <div class="btn-row" style="margin-top:12px;"><button class="btn primary" id="pb_analyzeBtn" onclick="pbAnalyze()">🔍 AIで分析</button></div>
+      </div>
+      <div id="pbResults"></div>
     </section>
 
     <!-- ===== Assets ===== -->
@@ -1929,6 +1979,7 @@ function switchView(view){
   if(view==='savings'){ renderSavings(); }
   if(view==='docs'){ renderDocs(); }
   if(view==='checklist'){ renderChecklist(); }
+  if(view==='passbook'){ renderPassbook(); }
   if(view==='progress'){ renderProgress(); renderCheckList(); }
   if(view==='minutes'){ szRenderMinutes(); }
   if(view==='cases'){ renderCasesList(); }
@@ -5498,6 +5549,96 @@ async function szAiPolish(){
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
 }
 function szApplyAi(){ ['szmn_tax','szmn_chat','szmn_todo'].forEach(k=>{ const el=$('szai_'+k); if(el)$(k).value=el.value; }); closeModal('szAiModal'); toast('AI校正を反映しました'); }
+
+// ============================================================
+//  AI通帳分析（通帳明細 → 要確認取引・検出パターン・推定財産/契約）
+// ============================================================
+function _pb(){ if(!currentCase) return {analyses:[]}; if(!currentCase.passbook||typeof currentCase.passbook!=='object') currentCase.passbook={analyses:[]}; if(!Array.isArray(currentCase.passbook.analyses)) currentCase.passbook.analyses=[]; return currentCase.passbook; }
+let _pbMode='paste';
+function pbTab(m){ _pbMode=m; ['paste','csv','pdf'].forEach(x=>{ const b=document.querySelector('.pb-tab[data-m="'+x+'"]'); if(b)b.classList.toggle('active',x===m); const el=$('pb_'+x); if(el)el.style.display=(x===m)?'':'none'; }); }
+function pbDecode(buf){ try{ const u=new TextDecoder('utf-8',{fatal:false}).decode(buf); if(!/�/.test(u)) return u; }catch(e){} try{ return new TextDecoder('shift_jis').decode(buf); }catch(e){} try{ return new TextDecoder('utf-8').decode(buf); }catch(e){ return ''; } }
+function pbReadText(file){ return file.arrayBuffer().then(b=>pbDecode(b)); }
+function pbReadB64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); res(s.slice(s.indexOf(',')+1)); }; r.onerror=()=>rej(new Error('読込エラー')); r.readAsDataURL(file); }); }
+const _PB_SYS='あなたは相続税申告の実務に精通した税理士アシスタントです。被相続人の預金通帳の明細を分析し、相続財産の計上漏れ・名義預金・生前贈与・未収債権・債務控除・簿外資産の手がかりを洗い出します。支払状況から契約している保険会社や貸金庫の有無なども推定します。\n【最重要】出力は指定のJSONオブジェクトのみ。前後の説明文やコードフェンスは付けない。日本語で記述。金額は数値（カンマ・記号なし）。日付はYYYY-MM-DD（不明ならそのままの表記）。\n【JSONスキーマ】\n{"summary":{"usage":"この口座の用途分析（1〜3文）","counts":{"high":整数,"mid":整数,"low":整数},"note":"全体の重要所見（未収債権・簿外資産・名義預金の示唆等。無ければ空文字）"},"flags":[{"date":"YYYY-MM-DD","amount":数値,"dir":"in または out","desc":"摘要","risk":"high|mid|low","tags":["高額入金/死亡後取引/財産関連取引/生前贈与/名義預金/その他 等"],"reason":"確認対象とした理由","questions":["確認事項1","確認事項2"],"action":"推奨対応"}],"patterns":[{"risk":"high|mid|low","name":"反復入金/定期出金 等","detail":"検出内容","reason":"確認が必要な理由","questions":["確認事項"]}],"leads":[{"category":"insurance|securities|land|building|unlisted|cash|other|debt|funeral|gift|retirement のいずれか","categoryLabel":"財産の種類の日本語","title":"推定される財産・契約（例：日本生命の保険契約の可能性）","confidence":"high|mid|low","evidence":"根拠となる通帳の動き","prefillName":"財産一覧に入れる名称（例：日本生命）","prefillSub":"区分・種類（あれば。無ければ空文字）","docHint":"取り寄せるべき資料（例：保険証券・支払通知書）"}]}\n【観点の例】保険会社・共済への口座振替→生命保険/損害保険の契約(insurance)。貸金庫使用料→貸金庫(other/中身の確認)。証券会社入出金・配当/分配金→有価証券(securities)。家賃・地代入金や固定資産税引落→不動産(land/building)。借入返済・カード引落→債務(debt)。死亡後の入金→未収債権(other)。定期的な高額出金や孫の学費→生前贈与(gift)。年金/税還付入金→未収金(other)。老人ホーム利用料→小規模宅地の要件確認・未払費用。該当が無ければ空配列。あくまで通帳から読み取れる範囲の推定であり、確度は confidence で示す。';
+async function pbCallAI(user, file, maxTokens){
+  const s=(typeof _komonSettings==='function')?_komonSettings():{}; const provider=s.aiProvider||'gemini';
+  if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
+    const parts=[{text:user}]; if(file) parts.push({inlineData:{mimeType:file.mime,data:file.b64}});
+    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:_PB_SYS}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:maxTokens||8000,temperature:0.2,responseMimeType:'application/json'}})});
+    if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); const c=j.candidates&&j.candidates[0]; return(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim(); }
+  const key=(s.claudeApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.claudeModel||'claude-opus-4-8';
+  const content=[]; if(file&&file.mime==='application/pdf') content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:file.b64}}); content.push({type:'text',text:user});
+  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:maxTokens||8000,system:_PB_SYS,messages:[{role:'user',content:content}]})});
+  if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); return(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+}
+function pbParseJSON(txt){ let t=String(txt||'').trim(); t=t.replace(/^```(json)?/i,'').replace(/```$/,'').trim(); const a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a>=0&&b>a) t=t.slice(a,b+1); return JSON.parse(t); }
+async function pbAnalyze(){
+  if(!currentCase){ toast('案件がありません', true); return; }
+  const label=($('pb_label').value||'').trim();
+  let user='', file=null;
+  try{
+    if(_pbMode==='paste'){ const t=($('pb_text').value||'').trim(); if(!t){ toast('明細を貼り付けてください', true); return; } user='次の通帳明細を分析してください。口座名：'+(label||'(未指定)')+'\n\n'+t; }
+    else if(_pbMode==='csv'){ const f=($('pb_csvfile').files||[])[0]; if(!f){ toast('CSVファイルを選択してください', true); return; } const txt=await pbReadText(f); if(!txt.trim()){ toast('CSVを読み取れませんでした', true); return; } user='次の通帳明細CSVを分析してください。口座名：'+(label||'(未指定)')+'\n\n'+txt; }
+    else { const f=($('pb_pdffile').files||[])[0]; if(!f){ toast('PDFファイルを選択してください', true); return; } const b64=await pbReadB64(f); file={b64:b64,mime:'application/pdf',name:f.name}; user='添付の通帳PDFを読み取り、明細を分析してください。口座名：'+(label||'(未指定)'); }
+  }catch(e){ toast('ファイル読込に失敗：'+e.message, true); return; }
+  const btn=$('pb_analyzeBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='AI分析中…（数分かかることがあります）'; }
+  try{
+    const out=await pbCallAI(user, file, 8000);
+    let data; try{ data=pbParseJSON(out); }catch(pe){ throw new Error('AIの応答をJSONとして解析できませんでした。もう一度お試しください。'); }
+    data.summary=data.summary||{}; data.flags=Array.isArray(data.flags)?data.flags:[]; data.patterns=Array.isArray(data.patterns)?data.patterns:[]; data.leads=Array.isArray(data.leads)?data.leads:[];
+    _pb().analyses.unshift({ id:uid(), label:label||'(口座名未指定)', at:todayISO(), data:data });
+    cacheCurrentCase(); renderPassbook(); toast('分析が完了しました');
+  }catch(e){ toast('分析に失敗：'+e.message, true); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
+}
+function pbRiskChip(r){ const m={high:['高','#c0392b','#fdecea'],mid:['中','#b7791f','#fdf3e2'],low:['低','#2f8a5b','#e9f7ef']}; const x=m[r]||m.low; return '<span style="display:inline-block;font-size:11px;font-weight:700;color:'+x[1]+';background:'+x[2]+';border-radius:4px;padding:1px 8px;">リスク'+x[0]+'</span>'; }
+function pbConf(c){ const m={high:'確度：高',mid:'確度：中',low:'確度：低'}; return m[c]?'<span class="muted" style="font-size:11px;">（'+m[c]+'）</span>':''; }
+function pbFind(id){ return _pb().analyses.find(x=>x.id===id); }
+function pbAnalysisHtml(it){
+  const d=it.data||{}; const s=d.summary||{}; const cn=s.counts||{};
+  let h='<div class="card pb-card"><div class="pb-head"><div><b>'+esc(it.label)+'</b> <span class="muted" style="font-size:12px;">'+esc(it.at)+'</span></div><button class="btn sm" onclick="pbDeleteAnalysis(\''+it.id+'\')">削除</button></div>';
+  h+='<div class="pb-summary"><div class="pb-usage">'+esc(s.usage||'（用途分析なし）')+'</div>'
+    +'<div class="pb-counts">要確認：<b style="color:#c0392b;">高 '+num(cn.high)+'</b>／<b style="color:#b7791f;">中 '+num(cn.mid)+'</b>／<b style="color:#2f8a5b;">低 '+num(cn.low)+'</b></div>'
+    +(s.note?'<div class="pb-note2">'+esc(s.note)+'</div>':'')+'</div>';
+  const flags=d.flags||[];
+  if(flags.length){ h+='<h3 class="pb-sub">要確認取引（'+flags.length+'件）</h3>';
+    flags.forEach((f,i)=>{ h+='<div class="pb-flag'+(f.resolved?' done':'')+'"><div class="pb-flag-top">'+pbRiskChip(f.risk)+' <span class="muted">'+esc(f.date||'')+'</span> <span class="pb-famt '+(f.dir==='out'?'out':'in')+'">'+(f.dir==='out'?'出金 ':'入金 ')+yen(f.amount)+'</span> <span class="pb-fdesc">'+esc(f.desc||'')+'</span>'+((f.tags&&f.tags.length)?' '+f.tags.map(t=>'<span class="pb-tag">'+esc(t)+'</span>').join(''):'')+(f.resolved?' <span class="pb-resolved">✓解決済み</span>':'')+'</div>'
+      +'<div class="pb-flag-body">'+(f.reason?'<div class="pb-line"><b>理由：</b>'+esc(f.reason)+'</div>':'')
+      +((f.questions&&f.questions.length)?'<div class="pb-line"><b>確認事項：</b>'+f.questions.map(q=>esc(q)).join(' ／ ')+'</div>':'')
+      +(f.action?'<div class="pb-line"><b>推奨：</b>'+esc(f.action)+'</div>':'')
+      +'<div class="btn-row" style="margin-top:6px;"><button class="btn sm" onclick="pbAddMovement(\''+it.id+'\','+i+')">異動一覧表に追加</button><button class="btn sm" onclick="pbToggleResolve(\''+it.id+'\','+i+')">'+(f.resolved?'未解決に戻す':'解決済みにする')+'</button></div></div></div>'; });
+  }
+  const pat=d.patterns||[];
+  if(pat.length){ h+='<h3 class="pb-sub">検出パターン（'+pat.length+'件）</h3>';
+    pat.forEach(p=>{ h+='<div class="pb-flag"><div class="pb-flag-top">'+pbRiskChip(p.risk)+' <b>'+esc(p.name||'')+'</b></div><div class="pb-flag-body">'+(p.detail?'<div class="pb-line">'+esc(p.detail)+'</div>':'')+(p.reason?'<div class="pb-line"><b>理由：</b>'+esc(p.reason)+'</div>':'')+((p.questions&&p.questions.length)?'<div class="pb-line"><b>確認事項：</b>'+p.questions.map(q=>esc(q)).join(' ／ ')+'</div>':'')+'</div></div>'; });
+  }
+  const leads=d.leads||[];
+  if(leads.length){ h+='<h3 class="pb-sub">見つかりそうな財産・契約（'+leads.length+'件）</h3>';
+    leads.forEach((L,i)=>{ h+='<div class="pb-lead"><div class="pb-lead-top"><span class="pb-cat">'+esc(L.categoryLabel||'')+'</span><b>'+esc(L.title||'')+'</b> '+pbConf(L.confidence)+'</div>'
+      +(L.evidence?'<div class="pb-line" style="font-size:12.5px;"><b>根拠：</b>'+esc(L.evidence)+'</div>':'')
+      +(L.docHint?'<div class="pb-line" style="font-size:12.5px;"><b>取り寄せ資料：</b>'+esc(L.docHint)+'</div>':'')
+      +'<div class="btn-row" style="margin-top:6px;">'+(L.added?'<span class="pb-added">✓ 財産一覧に追加済み</span>':'<button class="btn sm primary" onclick="pbAddLead(\''+it.id+'\','+i+')">財産一覧に追加</button>')+'</div></div>'; });
+  }
+  if(!flags.length&&!pat.length&&!leads.length) h+='<div class="muted" style="font-size:13px;">特筆すべき点は検出されませんでした。</div>';
+  return h+'</div>';
+}
+function renderPassbook(){ const c=$('pbResults'); if(!c) return; const pb=_pb();
+  if(!pb.analyses.length){ c.innerHTML='<div class="card"><div class="muted" style="font-size:13px;">まだ分析結果はありません。上で通帳を取り込んで「AIで分析」を押してください。</div></div>'; return; }
+  c.innerHTML=pb.analyses.map(pbAnalysisHtml).join(''); }
+function pbAddMovement(id,i){ const it=pbFind(id); if(!it||!it.data.flags[i])return; const f=it.data.flags[i];
+  if(!currentCase.movement||typeof currentCase.movement!=='object')currentCase.movement={rows:[],usage:{}}; if(!Array.isArray(currentCase.movement.rows))currentCase.movement.rows=[];
+  const note=(f.reason||'')+((f.questions&&f.questions.length)?'（確認：'+f.questions.join(' / ')+'）':'');
+  currentCase.movement.rows.push({id:uid(),date:(f.date||''),cells:{},concl:'',content:(f.desc||''),note:note});
+  cacheCurrentCase(); toast('金融資産異動一覧表に追加しました'); }
+function pbToggleResolve(id,i){ const it=pbFind(id); if(!it||!it.data.flags[i])return; it.data.flags[i].resolved=!it.data.flags[i].resolved; cacheCurrentCase(); renderPassbook(); }
+function pbAddLead(id,i){ const it=pbFind(id); if(!it||!it.data.leads[i])return; const L=it.data.leads[i];
+  const cat=(L.category&&typeof ASSET_BY_KEY!=='undefined'&&ASSET_BY_KEY[L.category])?L.category:'other';
+  const a=newAsset(cat); a.name=L.prefillName||L.title||''; if(L.prefillSub)a.subcategory=L.prefillSub;
+  a.memo=(L.title||'')+(L.evidence?('\n根拠：'+L.evidence):''); if(L.docHint) a.checkNote='資料：'+L.docHint;
+  currentCase.assets.push(a); L.added=true; cacheCurrentCase();
+  if(typeof renderAssetNav==='function')renderAssetNav(); if(typeof renderSummary==='function')renderSummary();
+  toast((ASSET_BY_KEY[cat]?ASSET_BY_KEY[cat].name:'財産一覧')+'に追加しました'); renderPassbook(); }
+function pbDeleteAnalysis(id){ if(!confirm('この分析結果を削除しますか？'))return; _pb().analyses=_pb().analyses.filter(x=>x.id!==id); cacheCurrentCase(); renderPassbook(); }
 
 // ============================================================
 //  Init
