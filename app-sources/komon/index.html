@@ -327,7 +327,8 @@
         </select></div>
       <div class="field full" style="margin-bottom:14px"><label id="aiKeyLabel">APIキー</label>
         <input id="setAiKey" type="password" placeholder="">
-        <span class="hint" id="aiKeyHint"></span></div>
+        <span class="hint" id="aiKeyHint"></span>
+        <div id="aiKeyState" class="hint" style="margin-top:6px;font-size:12px;background:#f4f7fb;border-radius:6px;padding:6px 9px;"></div></div>
       <div class="field full" style="margin-bottom:14px"><label>モデル</label>
         <select id="setAiModel"></select></div>
       <div class="row-flex" style="margin-bottom:24px"><button class="primary" onclick="saveSettings()">💾 設定を保存</button></div>
@@ -2045,13 +2046,17 @@ function onProviderChange(){ const p=val('setAiProvider')||'gemini';
     setVal('setAiKey',data.settings.geminiApiKey||''); setVal('setAiModel',data.settings.geminiModel||'gemini-2.5-flash'); }
   else { document.getElementById('aiKeyLabel').textContent='Claude APIキー'; document.getElementById('setAiKey').placeholder='sk-ant-...';
     document.getElementById('aiKeyHint').innerHTML='<a class="link" href="https://console.anthropic.com/" target="_blank">Anthropic Console</a> で取得。キーはこの端末内にのみ保存されます。';
-    setVal('setAiKey',data.settings.claudeApiKey||''); setVal('setAiModel',data.settings.claudeModel||'claude-opus-4-8'); } }
+    setVal('setAiKey',data.settings.claudeApiKey||''); setVal('setAiModel',data.settings.claudeModel||'claude-opus-4-8'); }
+  renderAiKeyState(); }
+function _aiKeyMask(k){ k=String(k||'').trim(); return k?('設定済み（末尾 '+k.slice(-4)+'・'+k.length+'文字）'):'未設定'; }
+function renderAiKeyState(){ const el=document.getElementById('aiKeyState'); if(!el)return;
+  el.innerHTML='現在この端末に保存されているキー … Gemini：<b>'+_aiKeyMask(data.settings.geminiApiKey)+'</b>　／　Claude：<b>'+_aiKeyMask(data.settings.claudeApiKey)+'</b>'; }
 function saveSettings(){ data.settings.folderUrl=val('setFolderUrl'); data.settings.clientId=val('setClientId');
   const p=val('setAiProvider')||'gemini'; data.settings.aiProvider=p;
   if(p==='gemini'){ data.settings.geminiApiKey=val('setAiKey'); data.settings.geminiModel=val('setAiModel')||'gemini-2.5-flash'; }
   else { data.settings.claudeApiKey=val('setAiKey'); data.settings.claudeModel=val('setAiModel')||'claude-opus-4-8'; }
   data.settings.fbConfig=document.getElementById('setFbConfig').value; data.settings.fbRoom=val('setFbRoom');
-  saveLocal(); toast('設定を保存しました','ok'); }
+  saveLocal(); renderAiKeyState(); toast('設定を保存しました','ok'); }
 function openDriveFolder(){ const url=val('setFolderUrl')||data.settings.folderUrl; if(!url){ toast('フォルダURLを入力してください','err'); return; } window.open(url,'_blank'); }
 function exportBackup(){ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='komon-manager-data.json'; a.click(); URL.revokeObjectURL(a.href); toast('データを書き出しました','ok'); }
 function importBackup(ev){ const f=ev.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{ try{ applyImportedData(JSON.parse(e.target.result)); toast('データを取り込みました','ok'); }catch(err){ toast('読み込み失敗: '+err.message,'err'); } ev.target.value=''; }; r.readAsText(f); }
