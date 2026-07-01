@@ -327,6 +327,7 @@
         </select></div>
       <div class="field full" style="margin-bottom:14px"><label id="aiKeyLabel">APIキー</label>
         <input id="setAiKey" type="password" placeholder="">
+        <div style="margin-top:6px;display:flex;gap:6px;"><button type="button" class="sm" id="aiKeyShowBtn" onclick="toggleAiKeyView()">🔎 表示</button><button type="button" class="sm" onclick="copyAiKey()">📋 コピー</button></div>
         <span class="hint" id="aiKeyHint"></span>
         <div id="aiKeyState" class="hint" style="margin-top:6px;font-size:12px;background:#f4f7fb;border-radius:6px;padding:6px 9px;"></div></div>
       <div class="field full" style="margin-bottom:14px"><label>モデル</label>
@@ -2051,6 +2052,11 @@ function onProviderChange(){ const p=val('setAiProvider')||'gemini';
 function _aiKeyMask(k){ k=String(k||'').trim(); return k?('設定済み（末尾 '+k.slice(-4)+'・'+k.length+'文字）'):'未設定'; }
 function renderAiKeyState(){ const el=document.getElementById('aiKeyState'); if(!el)return;
   el.innerHTML='現在この端末に保存されているキー … Gemini：<b>'+_aiKeyMask(data.settings.geminiApiKey)+'</b>　／　Claude：<b>'+_aiKeyMask(data.settings.claudeApiKey)+'</b>'; }
+function toggleAiKeyView(){ const el=document.getElementById('setAiKey'), b=document.getElementById('aiKeyShowBtn'); if(!el)return; const show=(el.type==='password'); el.type=show?'text':'password'; if(b)b.textContent=show?'🙈 隠す':'🔎 表示'; }
+function copyAiKey(){ const el=document.getElementById('setAiKey'); if(!el)return; const v=(el.value||'').trim(); if(!v){ toast('キーが未設定です','err'); return; }
+  const done=()=>toast('APIキーをコピーしました','ok');
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(v).then(done).catch(()=>{ el.type='text'; el.select(); try{document.execCommand('copy');done();}catch(e){toast('コピーできませんでした。「表示」で表示して手動でコピーしてください','err');} }); }
+  else { el.type='text'; el.select(); try{document.execCommand('copy');done();}catch(e){toast('コピーできませんでした','err');} } }
 function saveSettings(){ data.settings.folderUrl=val('setFolderUrl'); data.settings.clientId=val('setClientId');
   const p=val('setAiProvider')||'gemini'; data.settings.aiProvider=p;
   if(p==='gemini'){ data.settings.geminiApiKey=val('setAiKey'); data.settings.geminiModel=val('setAiModel')||'gemini-2.5-flash'; }

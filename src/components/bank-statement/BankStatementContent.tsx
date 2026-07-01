@@ -99,6 +99,7 @@ export default function BankStatementContent() {
     if (typeof window === 'undefined') return ''
     return localStorage.getItem('bs-gemini-api-key') || ''
   })
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [showQuestionList, setShowQuestionList] = useState(false)
   const [showTempData, setShowTempData] = useState(false)
   const [tempCount, setTempCount] = useState(() => getTempEntryCount())
@@ -1374,7 +1375,7 @@ export default function BankStatementContent() {
                   <div>
                     <label className="block text-[10px] text-gray-500 mb-0.5">Gemini APIキー（この端末に保存）</label>
                     <input
-                      type="password"
+                      type={showGeminiKey ? 'text' : 'password'}
                       value={geminiApiKey}
                       placeholder="AIza... を貼り付け"
                       onChange={(e) => {
@@ -1385,6 +1386,10 @@ export default function BankStatementContent() {
                       }}
                       className="w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono"
                     />
+                    <div className="flex gap-2 mt-1.5">
+                      <button type="button" onClick={() => setShowGeminiKey((s) => !s)} className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">{showGeminiKey ? '🙈 隠す' : '🔎 表示'}</button>
+                      <button type="button" onClick={() => { if (!geminiApiKey) return; navigator.clipboard?.writeText(geminiApiKey).then(() => alert('APIキーをコピーしました')).catch(() => setShowGeminiKey(true)) }} className="text-xs px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50">📋 コピー</button>
+                    </div>
                     <p className="text-[11px] mt-1 px-2 py-1 bg-gray-50 rounded text-gray-600">
                       現在この端末に保存されているキー：<b>{geminiApiKey ? `設定済み（末尾 ${geminiApiKey.slice(-4)}・${geminiApiKey.length}文字）` : '未設定'}</b>
                     </p>
