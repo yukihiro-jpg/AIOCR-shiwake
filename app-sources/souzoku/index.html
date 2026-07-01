@@ -625,6 +625,11 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       .pb-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
       .pb-in{margin-top:10px;}
       .pb-in textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line-2);border-radius:8px;font:inherit;}
+      #pb_account{padding:7px 9px;border:1px solid var(--line-2);border-radius:8px;font:inherit;width:100%;box-sizing:border-box;}
+      #pb_labelWrap input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line-2);border-radius:8px;font:inherit;}
+      .pb-drop{border:2px dashed var(--line-2);border-radius:10px;padding:20px;text-align:center;cursor:pointer;background:#fafbfc;transition:.12s;}
+      .pb-drop.over{border-color:var(--accent);background:#eef4ff;}
+      .pb-drop-in{font-size:13px;color:#556;}
       .pb-card{margin-top:14px;}
       .pb-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
       .pb-summary{background:#f4f7fb;border-radius:8px;padding:10px 12px;margin-bottom:10px;}
@@ -651,14 +656,29 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <h2>通帳を取り込んで分析</h2>
         <div class="pb-note">⚠ 分析では通帳明細を、設定中のAI（Gemini／Anthropic・顧問先管理のAPIキー）へ送信します。結果は確認の参考用で、最終判断は担当者が行ってください。</div>
         <div class="pb-form">
-          <div class="field" style="flex:1;min-width:260px;"><label>口座名（任意）</label><input id="pb_label" placeholder="例：三菱UFJ銀行 京橋支店 普通 2423939"></div>
+          <div class="field" style="flex:1;min-width:280px;"><label>口座（財産一覧の「現金・預貯金」から選択）</label>
+            <select id="pb_account" onchange="pbAccountPick()"></select>
+            <div id="pb_labelWrap" style="display:none;margin-top:6px;"><input id="pb_label" placeholder="口座名を入力（例：三菱UFJ銀行 京橋支店 普通 2423939）"></div>
+          </div>
           <div class="field"><label>取込方法</label>
             <div class="pb-tabs"><button type="button" class="pb-tab active" data-m="paste" onclick="pbTab('paste')">テキスト貼り付け</button><button type="button" class="pb-tab" data-m="csv" onclick="pbTab('csv')">CSVファイル</button><button type="button" class="pb-tab" data-m="pdf" onclick="pbTab('pdf')">PDF（AIが読取）</button></div>
           </div>
         </div>
         <div id="pb_paste" class="pb-in"><textarea id="pb_text" rows="8" placeholder="通帳明細を貼り付け（日付・摘要・出金・入金・残高 など。Excelからのコピペ可）"></textarea></div>
-        <div id="pb_csv" class="pb-in" style="display:none;"><input type="file" id="pb_csvfile" accept=".csv,.txt"><div class="muted" style="font-size:12px;margin-top:6px;">銀行や会計ソフトからの明細CSV。文字コードは自動判定します。</div></div>
-        <div id="pb_pdf" class="pb-in" style="display:none;"><input type="file" id="pb_pdffile" accept="application/pdf,.pdf"><div class="muted" style="font-size:12px;margin-top:6px;">通帳PDFをそのままAIが読み取って分析します（テキストPDF・画像PDFいずれも可）。</div></div>
+        <div id="pb_csv" class="pb-in" style="display:none;">
+          <div class="pb-drop" id="pb_csvdrop" ondragover="pbDragOver(event,'csv')" ondragleave="pbDragLeave('csv')" ondrop="pbDrop(event,'csv')" onclick="document.getElementById('pb_csvfile').click()">
+            <input type="file" id="pb_csvfile" accept=".csv,.txt" style="display:none;" onchange="pbFilePick('csv')">
+            <div class="pb-drop-in"><b>クリック</b>、または<b>ドラッグ＆ドロップ</b>でCSVを選択<div class="muted" id="pb_csvname" style="font-size:12px;margin-top:4px;">未選択</div></div>
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">銀行や会計ソフトからの明細CSV。文字コードは自動判定します。</div>
+        </div>
+        <div id="pb_pdf" class="pb-in" style="display:none;">
+          <div class="pb-drop" id="pb_pdfdrop" ondragover="pbDragOver(event,'pdf')" ondragleave="pbDragLeave('pdf')" ondrop="pbDrop(event,'pdf')" onclick="document.getElementById('pb_pdffile').click()">
+            <input type="file" id="pb_pdffile" accept="application/pdf,.pdf" style="display:none;" onchange="pbFilePick('pdf')">
+            <div class="pb-drop-in"><b>クリック</b>、または<b>ドラッグ＆ドロップ</b>でPDFを選択<div class="muted" id="pb_pdfname" style="font-size:12px;margin-top:4px;">未選択</div></div>
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">通帳PDFをそのままAIが読み取って分析します（テキストPDF・画像PDFいずれも可）。</div>
+        </div>
         <div class="btn-row" style="margin-top:12px;"><button class="btn primary" id="pb_analyzeBtn" onclick="pbAnalyze()">🔍 AIで分析</button></div>
       </div>
       <div id="pbResults"></div>
@@ -1979,7 +1999,7 @@ function switchView(view){
   if(view==='savings'){ renderSavings(); }
   if(view==='docs'){ renderDocs(); }
   if(view==='checklist'){ renderChecklist(); }
-  if(view==='passbook'){ renderPassbook(); }
+  if(view==='passbook'){ pbRenderAccounts(); renderPassbook(); }
   if(view==='progress'){ renderProgress(); renderCheckList(); }
   if(view==='minutes'){ szRenderMinutes(); }
   if(view==='cases'){ renderCasesList(); }
@@ -5555,7 +5575,23 @@ function szApplyAi(){ ['szmn_tax','szmn_chat','szmn_todo'].forEach(k=>{ const el
 // ============================================================
 function _pb(){ if(!currentCase) return {analyses:[]}; if(!currentCase.passbook||typeof currentCase.passbook!=='object') currentCase.passbook={analyses:[]}; if(!Array.isArray(currentCase.passbook.analyses)) currentCase.passbook.analyses=[]; return currentCase.passbook; }
 let _pbMode='paste';
+let _pbFiles={csv:null,pdf:null};
 function pbTab(m){ _pbMode=m; ['paste','csv','pdf'].forEach(x=>{ const b=document.querySelector('.pb-tab[data-m="'+x+'"]'); if(b)b.classList.toggle('active',x===m); const el=$('pb_'+x); if(el)el.style.display=(x===m)?'':'none'; }); }
+// 口座選択：財産一覧の「現金・預貯金」（現金を除く）から一覧化
+function pbRenderAccounts(){ const sel=$('pb_account'); if(!sel||!currentCase)return; const prev=sel.value;
+  const accts=(currentCase.assets||[]).filter(a=>a&&a.category==='cash'&&(a.subcategory||'')!=='現金');
+  sel.innerHTML='<option value="">（口座を選択）</option>'+accts.map(a=>{ const l=esc(assetDesc(a)); return '<option value="'+l+'">'+l+'</option>'; }).join('')+'<option value="__manual">（一覧にない・手入力）</option>';
+  if(prev && Array.from(sel.options).some(o=>o.value===prev)) sel.value=prev;
+  pbAccountPick(); }
+function pbAccountPick(){ const sel=$('pb_account'); if(!sel)return; const v=sel.value; const wrap=$('pb_labelWrap');
+  if(v==='__manual'){ if(wrap)wrap.style.display=''; } else { if(wrap)wrap.style.display='none'; if($('pb_label'))$('pb_label').value=(v==='__manual'||v==='')?'':v; } }
+function pbCurrentLabel(){ const sel=$('pb_account'); const v=sel?sel.value:''; if(v && v!=='__manual') return v; return ($('pb_label')&&$('pb_label').value||'').trim(); }
+// ファイル選択／ドラッグ＆ドロップ
+function pbFilePick(k){ const inp=$('pb_'+k+'file'); _pbFiles[k]=(inp&&inp.files||[])[0]||null; pbShowName(k); }
+function pbShowName(k){ const el=$('pb_'+k+'name'); if(el) el.textContent=_pbFiles[k]?_pbFiles[k].name:'未選択'; }
+function pbDragOver(e,k){ e.preventDefault(); const z=$('pb_'+k+'drop'); if(z)z.classList.add('over'); }
+function pbDragLeave(k){ const z=$('pb_'+k+'drop'); if(z)z.classList.remove('over'); }
+function pbDrop(e,k){ e.preventDefault(); const z=$('pb_'+k+'drop'); if(z)z.classList.remove('over'); const f=((e.dataTransfer&&e.dataTransfer.files)||[])[0]; if(f){ _pbFiles[k]=f; pbShowName(k); } }
 function pbDecode(buf){ try{ const u=new TextDecoder('utf-8',{fatal:false}).decode(buf); if(!/�/.test(u)) return u; }catch(e){} try{ return new TextDecoder('shift_jis').decode(buf); }catch(e){} try{ return new TextDecoder('utf-8').decode(buf); }catch(e){ return ''; } }
 function pbReadText(file){ return file.arrayBuffer().then(b=>pbDecode(b)); }
 function pbReadB64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); res(s.slice(s.indexOf(',')+1)); }; r.onerror=()=>rej(new Error('読込エラー')); r.readAsDataURL(file); }); }
@@ -5574,12 +5610,12 @@ async function pbCallAI(user, file, maxTokens){
 function pbParseJSON(txt){ let t=String(txt||'').trim(); t=t.replace(/^```(json)?/i,'').replace(/```$/,'').trim(); const a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a>=0&&b>a) t=t.slice(a,b+1); return JSON.parse(t); }
 async function pbAnalyze(){
   if(!currentCase){ toast('案件がありません', true); return; }
-  const label=($('pb_label').value||'').trim();
+  const label=pbCurrentLabel();
   let user='', file=null;
   try{
     if(_pbMode==='paste'){ const t=($('pb_text').value||'').trim(); if(!t){ toast('明細を貼り付けてください', true); return; } user='次の通帳明細を分析してください。口座名：'+(label||'(未指定)')+'\n\n'+t; }
-    else if(_pbMode==='csv'){ const f=($('pb_csvfile').files||[])[0]; if(!f){ toast('CSVファイルを選択してください', true); return; } const txt=await pbReadText(f); if(!txt.trim()){ toast('CSVを読み取れませんでした', true); return; } user='次の通帳明細CSVを分析してください。口座名：'+(label||'(未指定)')+'\n\n'+txt; }
-    else { const f=($('pb_pdffile').files||[])[0]; if(!f){ toast('PDFファイルを選択してください', true); return; } const b64=await pbReadB64(f); file={b64:b64,mime:'application/pdf',name:f.name}; user='添付の通帳PDFを読み取り、明細を分析してください。口座名：'+(label||'(未指定)'); }
+    else if(_pbMode==='csv'){ const f=_pbFiles.csv; if(!f){ toast('CSVファイルを選択してください', true); return; } const txt=await pbReadText(f); if(!txt.trim()){ toast('CSVを読み取れませんでした', true); return; } user='次の通帳明細CSVを分析してください。口座名：'+(label||'(未指定)')+'\n\n'+txt; }
+    else { const f=_pbFiles.pdf; if(!f){ toast('PDFファイルを選択してください', true); return; } const b64=await pbReadB64(f); file={b64:b64,mime:'application/pdf',name:f.name}; user='添付の通帳PDFを読み取り、明細を分析してください。口座名：'+(label||'(未指定)'); }
   }catch(e){ toast('ファイル読込に失敗：'+e.message, true); return; }
   const btn=$('pb_analyzeBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='AI分析中…（数分かかることがあります）'; }
   try{
