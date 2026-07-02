@@ -640,7 +640,9 @@ export async function receiptOcrParallel(
 ): Promise<{ receipts: any[]; errors: string[] }> {
   const total = images.length
   if (!total) throw new Error('画像データがありません')
-  const concurrency = Math.max(1, Math.min(opts?.concurrency ?? 6, 12))
+  // 既定は「アップロード枚数ぶん」＝全部同時。ただしTPM超過・メモリ対策で上限16本にキャップ。
+  const HARD_CAP = 16
+  const concurrency = Math.max(1, Math.min(opts?.concurrency ?? total, HARD_CAP))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const perImage: any[][] = new Array(total)
   const errors: string[] = []

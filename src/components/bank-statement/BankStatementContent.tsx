@@ -551,7 +551,7 @@ export default function BankStatementContent() {
           const rcptTotal = imageDataUrls.length
           setInfo(`${rcptTotal}枚を並列解析しています…`)
           const data = await receiptOcrParallel(imageDataUrls, geminiModel, {
-            concurrency: 6,
+            concurrency: rcptTotal, // アップロード枚数ぶん並列（関数側で上限16本にキャップ）
             onProgress: (d, t) => {
               // OCR: 40→95%
               setLoadingProgress(Math.round(40 + 55 * d / t))
