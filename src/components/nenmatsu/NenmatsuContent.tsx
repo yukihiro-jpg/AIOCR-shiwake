@@ -22,6 +22,7 @@ import {
 } from '@/lib/nenmatsu/store'
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
+import { openGuidePrint } from '@/lib/nenmatsu/guide'
 import { spouseCategory, dependentCategory, type Declaration } from '@/lib/nenmatsu/declaration'
 
 interface Row {
@@ -62,6 +63,7 @@ export default function NenmatsuContent() {
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
   const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
   const [importCheck, setImportCheck] = useState<{ company: NenmatsuCompany } | null>(null)
+  const [guide, setGuide] = useState<{ company: NenmatsuCompany } | null>(null)
 
   useEffect(() => {
     setReady(hasRoom())
@@ -257,6 +259,12 @@ export default function NenmatsuContent() {
                           QR表示
                         </button>
                         <button
+                          onClick={() => setGuide({ company })}
+                          className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50"
+                        >
+                          案内PDF
+                        </button>
+                        <button
                           onClick={() => setImportCheck({ company })}
                           className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
                         >
@@ -307,7 +315,124 @@ export default function NenmatsuContent() {
           onClose={() => setImportCheck(null)}
         />
       )}
+
+      {guide && (
+        <GuideModal
+          yearId={yearId}
+          company={guide.company}
+          onClose={() => setGuide(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/** 従業員向け「年末調整のご案内」PDF（印刷）を作成するモーダル。
+ *  QR・URLを用意し、提出期限を設定して A4 の案内を印刷（PDF保存）できる。 */
+function GuideModal({
+  yearId,
+  company,
+  onClose,
+}: {
+  yearId: string
+  company: NenmatsuCompany
+  onClose: () => void
+}) {
+  const fy = FY_BY_ID[yearId]
+  const gregorian = fy?.gregorian || new Date().getFullYear()
+  const defaultDeadline = `${gregorian}-${fy?.deadlineMMDD || '11-30'}`
+  const [deadline, setDeadline] = useState(defaultDeadline)
+  const [url, setUrl] = useState('')
+  const [qr, setQr] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    ;(async () => {
+      setLoading(true)
+      setErr('')
+      try {
+        const u = await buildUploadUrl(yearId, company)
+        const QRCode = (await import('qrcode')).default
+        const dataUrl = await QRCode.toDataURL(u, { width: 340, margin: 1 })
+        setUrl(u)
+        setQr(dataUrl)
+      } catch (e) {
+        setErr('QRの生成に失敗しました：' + (e instanceof Error ? e.message : ''))
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [yearId, company])
+
+  function fmtDeadline(iso: string): string {
+    const d = new Date(iso + 'T00:00:00')
+    if (isNaN(d.getTime())) return iso
+    const w = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()]
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${w}）`
+  }
+
+  function make() {
+    if (!qr || !url) return
+    const ok = openGuidePrint({
+      companyName: company.name,
+      yearLabel: fy?.label || `${gregorian}年`,
+      url,
+      qrDataUrl: qr,
+      deadlineText: fmtDeadline(deadline),
+    })
+    if (!ok) {
+      alert('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度「案内PDFを作成」を押してください。')
+    }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h2 className="font-bold text-gray-800 mb-1">{company.name} — 年末調整のご案内（従業員配布用）</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        QRコード・使い方・提出期限を1枚にまとめたA4の案内を作成します。ボタンを押すと印刷画面が開くので、
+        送信先を「<b>PDFに保存</b>」にすればPDFとしてダウンロードできます（印刷して配布も可）。
+      </p>
+
+      {err && (
+        <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">{err}</div>
+      )}
+
+      <div className="flex gap-4 items-start mb-4 flex-wrap">
+        <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 text-center">
+          {loading ? (
+            <div className="w-[160px] h-[160px] flex items-center justify-center text-xs text-gray-400">生成中...</div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qr} alt="QR" className="w-[160px] h-[160px]" />
+          )}
+          <div className="text-[10px] text-gray-500 break-all mt-2 max-w-[160px]">{url}</div>
+        </div>
+        <div className="flex-1 min-w-[220px]">
+          <label className="block text-sm font-medium text-gray-700 mb-1">提出期限</label>
+          <input
+            type="date"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded text-sm mb-2"
+          />
+          <p className="text-xs text-gray-500 mb-3">
+            案内には「{fmtDeadline(deadline)}」と、<b className="text-red-600">期限を過ぎると会社で年末調整ができない</b>旨を明記します。
+          </p>
+          <button
+            onClick={make}
+            disabled={loading || !qr}
+            className="px-4 py-2 text-sm bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700 disabled:opacity-50"
+          >
+            📄 案内PDFを作成（印刷 / PDF保存）
+          </button>
+        </div>
+      </div>
+
+      <p className="text-[11px] text-gray-400">
+        ※ 文字は Noto Sans JP で表示されます。従業員は iPhone / Android / PC の Chrome・Safari で利用できます。
+      </p>
+    </Overlay>
   )
 }
 

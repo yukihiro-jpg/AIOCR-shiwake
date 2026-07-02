@@ -305,7 +305,10 @@ export default function NenmatsuUpload() {
             <h1 className="font-bold text-gray-800 mb-1">
               {decl.lastName} {decl.firstName} 様
             </h1>
-            <p className="text-xs text-gray-500 mb-4">該当する書類を撮影してください（複数ページは続けて撮影できます）。</p>
+            <p className="text-xs text-gray-500 mb-2">該当する書類を撮影してください（複数ページは続けて撮影できます）。スマホ内に保存済みの写真も選べます。</p>
+            <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-4">
+              📷 カメラが開かない・撮影できないときは、LINE等のアプリ内ではなく <b>Safari / Chrome で開き直す</b>とご利用いただけます（右上メニューの「ブラウザで開く」）。
+            </p>
             <ul className="space-y-3">
               {NENMATSU_DOC_TYPES.map((dt) => {
                 const list = photos[dt.key] || []
@@ -317,11 +320,10 @@ export default function NenmatsuUpload() {
                         {dt.note && <span className="text-[11px] text-gray-400 ml-1">（{dt.note}）</span>}
                       </span>
                       <label className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded cursor-pointer whitespace-nowrap">
-                        ＋撮影
+                        ＋撮影・写真を追加
                         <input
                           type="file"
                           accept="image/*"
-                          capture="environment"
                           multiple
                           className="hidden"
                           onChange={(e) => {
