@@ -2022,7 +2022,9 @@ function switchMnSection(sec){ mnSections[mnSection]=document.getElementById('mn
   document.querySelectorAll('#minuteModal .seg-btn').forEach(b=>b.classList.toggle('on',b.dataset.sec===sec));
   document.getElementById('mn_sectionInput').value=mnSections[sec]||''; document.getElementById('mn_sectionInput').focus(); }
 function openMinuteModal(id){ if(!data.clients.length){ toast('先に顧問先を登録してください','err'); return; } document.getElementById('minuteModalTitle').textContent=id?'議事録編集':'議事録作成'; const m=id?data.minutes.find(x=>x.id===id):{};
-  setVal('mn_id',m.id||''); setVal('mn_client',m.clientId||''); { const ci=document.getElementById('mn_clientInput'); if(ci)ci.value=m.clientId?clientName(m.clientId):''; } setVal('mn_date',m.date||todayISO()); setVal('mn_title',m.title); setVal('mn_attendees',m.attendees); setVal('mn_actions',m.actions);
+  // 新規作成時は、議事録一覧が特定の顧問先で絞り込まれていれば（顧問先一覧の「📝議事録」から来た場合など）その顧問先を初期選択にする
+  const defClient = m.clientId || (id ? '' : ((document.getElementById('minFilterClient')||{}).value || ''));
+  setVal('mn_id',m.id||''); setVal('mn_client',defClient); { const ci=document.getElementById('mn_clientInput'); if(ci)ci.value=defClient?clientName(defClient):''; } setVal('mn_date',m.date||todayISO()); setVal('mn_title',m.title); setVal('mn_attendees',m.attendees); setVal('mn_actions',m.actions);
   mnSections={tax:m.tax||(m.content&&!m.chat&&!m.todo?m.content:'')||'',chat:m.chat||'',todo:m.todo||''};
   // mnSection を一旦無効値にしてから切替。switchMnSection 冒頭の「現在のテキストエリアを保存」が、
   // 読み込んだ mnSections.tax を空のテキストエリアで上書きするのを防ぐ（編集が空白になる不具合の修正）。
