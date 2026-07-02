@@ -70,6 +70,25 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
     }
     if (allFiles.length === 0) return
     const period = { periodFrom: periodFrom || undefined, periodTo: periodTo || undefined }
+
+    // レシートで複数の画像ファイル（JPEG/PNG等）をまとめて選んだ場合は、
+    // 1ジョブとして全画像を並列解析する（1枚ずつ順番に処理するより速い）
+    if (
+      docType === 'receipt' && creditCode && creditName && allFiles.length > 1 &&
+      allFiles.every((f) => /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name) || f.type.startsWith('image/'))
+    ) {
+      onUpload({
+        documentType: docType,
+        accountCode: creditCode, accountName: creditName,
+        creditCode, creditName, creditSubCode: creditSubCode || undefined, creditSubName: creditSubName || undefined,
+        file: allFiles[0], extraImages: allFiles.slice(1), ...period,
+      })
+      setIsOpen(false)
+      setSelectedFile(null)
+      setSelectedFiles([])
+      return
+    }
+
     // 複数ファイルを順番にアップロード（呼び出し元で追記処理）
     for (const file of allFiles) {
       if (docType === 'bank-statement' || docType === 'cash-book' || docType === 'yucho') {
@@ -124,7 +143,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
       )
   )
 
-  const acceptFiles = isCreditCard ? '.pdf,.csv,.xlsx,.xls' : isReceipt ? '.pdf,.xlsx,.xls,.csv' : isInvoice ? '.pdf,.xlsx,.xls,.csv' : '.pdf,.xlsx,.xls,.csv'
+  const acceptFiles = isCreditCard ? '.pdf,.csv,.xlsx,.xls' : isReceipt ? '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv' : isInvoice ? '.pdf,.xlsx,.xls,.csv' : '.pdf,.xlsx,.xls,.csv'
 
   const renderAccountSelector = (
     label: string, code: string, onCodeChange: (c: string) => void, name: string, onNameChange: (n: string) => void,

@@ -600,6 +600,80 @@ export async function receiptOcr(images: string[], geminiModel?: string): Promis
   return { receipts: parsed.receipts || [] }
 }
 
+/** 1画像（1ページ＝レシート1枚想定）だけをOCR。並列実行の1ワーカー分。
+ *  一時的なレート制限(429)・サーバエラー・JSON崩れはリトライする。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function receiptOcrOneImage(image: string, geminiModel?: string): Promise<any[]> {
+  const model = genAI().getGenerativeModel({ model: resolveModel(geminiModel), generationConfig: { temperature: 0 } })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = [PROMPT_RECEIPT, ...imagesToParts([image])]
+  const maxAttempts = 3
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await model.generateContent(parts)
+      const text = result.response.text()
+      const m = text.match(/\{[\s\S]*"receipts"[\s\S]*\}/)
+      if (!m) return []
+      return JSON.parse(m[0]).receipts || []
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const retriable = /429|rate|quota|resource|exhaust|500|502|503|overload|timeout|network|fetch|ECONN/i.test(msg)
+      if (attempt < maxAttempts) {
+        // レート制限は長めに（指数）、それ以外は短めに待って再試行
+        await new Promise((r) => setTimeout(r, retriable ? 1500 * attempt * attempt : 700 * attempt))
+        continue
+      }
+      throw e
+    }
+  }
+  return []
+}
+
+/** 複数画像を「1画像=1リクエスト」で並列にOCRする（同時実行数を制限）。
+ *  巨大な単一リクエストより高速で、途中の1枚が失敗しても全体は継続する。
+ *  返す receipts は pageIndex（元ページ）付き・receiptIndex を通し番号で再採番。 */
+export async function receiptOcrParallel(
+  images: string[],
+  geminiModel?: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  opts?: { concurrency?: number; onProgress?: (done: number, total: number) => void },
+): Promise<{ receipts: any[]; errors: string[] }> {
+  const total = images.length
+  if (!total) throw new Error('画像データがありません')
+  const concurrency = Math.max(1, Math.min(opts?.concurrency ?? 6, 12))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const perImage: any[][] = new Array(total)
+  const errors: string[] = []
+  let done = 0
+  let next = 0
+  const worker = async () => {
+    for (;;) {
+      const i = next++
+      if (i >= total) break
+      try {
+        const rs = await receiptOcrOneImage(images[i], geminiModel)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        perImage[i] = (rs || []).map((r: any) => ({ ...r, pageIndex: i }))
+      } catch (e) {
+        perImage[i] = []
+        errors.push(`${i + 1}枚目: ${e instanceof Error ? e.message : String(e)}`)
+      }
+      done++
+      opts?.onProgress?.(done, total)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, total) }, () => worker()))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const receipts: any[] = []
+  for (let i = 0; i < total; i++) {
+    for (const r of perImage[i] || []) receipts.push({ ...r, receiptIndex: receipts.length })
+  }
+  if (!receipts.length && errors.length) {
+    throw new Error('レシート解析に失敗しました：' + errors[0])
+  }
+  return { receipts, errors }
+}
+
 // ============================================================
 // 請求書 OCR … 旧 /api/bank-statement/invoice
 // ============================================================

@@ -39,7 +39,7 @@ import type {
   ColumnMapping,
 } from '@/lib/bank-statement/types'
 import { parseFile, applyColumnMapping } from '@/lib/bank-statement/transaction-extractor'
-import { creditCardOcr, receiptOcr, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
+import { creditCardOcr, receiptOcrParallel, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode } from '@/lib/bank-statement/account-master'
@@ -53,6 +53,16 @@ import { getSelectedClientId, setSelectedClientId, recordCsvExport } from '@/lib
 let pageIdCounter = 0
 function genPageId(i = 0): string {
   return `pg-${Date.now()}-${i}-${++pageIdCounter}`
+}
+
+// 画像ファイル（JPEG/PNG等）を data URL に変換
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result))
+    r.onerror = () => reject(new Error('画像の読み込みに失敗しました'))
+    r.readAsDataURL(file)
+  })
 }
 
 export default function BankStatementContent() {
@@ -484,48 +494,70 @@ export default function BankStatementContent() {
             return
           }
 
-          // レシート・領収書処理: まずテキストPDF解析を試行（無料・高速）
-          const { parseReceiptTextPdf } = await import('@/lib/bank-statement/receipt-parser')
-          const textResult = await parseReceiptTextPdf(config.file, (receipt, pageIdx, totalPages) => {
-            setLoadingProgress(Math.round(15 + 80 * (pageIdx + 1) / totalPages))
+          // 画像ファイル（JPEG/PNG等）か、PDFかを判定
+          const rcptName = config.file.name.toLowerCase()
+          const isImageFile =
+            /\.(jpe?g|png|webp|heic|heif)$/.test(rcptName) || config.file.type.startsWith('image/')
+
+          // PDFのみ：まずテキストPDF解析を試行（無料・高速。画像PDF/画像ファイルはスキップ）
+          if (!isImageFile) {
+            const { parseReceiptTextPdf } = await import('@/lib/bank-statement/receipt-parser')
+            const textResult = await parseReceiptTextPdf(config.file, (receipt, pageIdx, totalPages) => {
+              setLoadingProgress(Math.round(15 + 25 * (pageIdx + 1) / totalPages))
+            })
+
+            if (textResult.isTextPdf && textResult.receipts.length > 0) {
+              // テキストPDF: スクリプトのみで解析完了
+              clearInterval(progressTimer)
+              setLoadingProgress(100)
+              const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1)
+              setParseElapsed(`${elapsedSec}秒`)
+              const idPages = textResult.pages.map((p, i) => ({ ...p, id: p.id || genPageId(i) }))
+              setPages((prev) => [...prev, ...idPages])
+              setCurrentPageIndex(0)
+              const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
+              const entries = receiptToEntries(textResult.receipts.map((r) => ({
+                receiptIndex: r.pageIndex,
+                storeName: r.storeName,
+                receiptDate: r.date,
+                mainContent: r.description,
+                invoiceNumber: r.invoiceNumber,
+                taxLines: [{ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
+                pageIndex: r.pageIndex,
+              })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName, undefined,
+              (rcp) => idPages[rcp.pageIndex]?.id)
+              setJournalEntries((prev) => [...prev, ...entries])
+              setInfo(`${textResult.receipts.length}件のレシートをテキスト解析しました（${elapsedSec}秒）`)
+              setIsLoading(false)
+              setLoadingProgress(0)
+              return
+            }
+          }
+
+          // 画像PDF / 画像ファイル: Gemini APIで解析（1枚=1リクエストで並列処理 → 最短時間）
+          let imageDataUrls: string[]
+          if (isImageFile) {
+            const imgFiles = [config.file, ...(config.extraImages || [])]
+            imageDataUrls = await Promise.all(imgFiles.map(fileToDataUrl))
+          } else {
+            // PDFは一度だけ開いて全ページ画像化（ページ毎の再パースを避ける）
+            const { renderAllPdfPages } = await import('@/lib/bank-statement/pdf-text-parser')
+            imageDataUrls = await renderAllPdfPages(config.file, 2, (idx, _url, total) => {
+              // 画像化: 15→40%
+              setLoadingProgress(Math.round(15 + 25 * (idx + 1) / total))
+            })
+          }
+
+          const rcptTotal = imageDataUrls.length
+          setInfo(`${rcptTotal}枚を並列解析しています…`)
+          const data = await receiptOcrParallel(imageDataUrls, geminiModel, {
+            concurrency: 6,
+            onProgress: (d, t) => {
+              // OCR: 40→95%
+              setLoadingProgress(Math.round(40 + 55 * d / t))
+              setInfo(`レシートを解析中… ${d}/${t} 枚`)
+            },
           })
-
-          if (textResult.isTextPdf && textResult.receipts.length > 0) {
-            // テキストPDF: スクリプトのみで解析完了
-            clearInterval(progressTimer)
-            setLoadingProgress(100)
-            const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1)
-            setParseElapsed(`${elapsedSec}秒`)
-            const idPages = textResult.pages.map((p, i) => ({ ...p, id: p.id || genPageId(i) }))
-            setPages((prev) => [...prev, ...idPages])
-            setCurrentPageIndex(0)
-            const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
-            const entries = receiptToEntries(textResult.receipts.map((r) => ({
-              receiptIndex: r.pageIndex,
-              storeName: r.storeName,
-              receiptDate: r.date,
-              mainContent: r.description,
-              invoiceNumber: r.invoiceNumber,
-              taxLines: [{ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
-              pageIndex: r.pageIndex,
-            })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName, undefined,
-            (rcp) => idPages[rcp.pageIndex]?.id)
-            setJournalEntries((prev) => [...prev, ...entries])
-            setInfo(`${textResult.receipts.length}件のレシートをテキスト解析しました（${elapsedSec}秒）`)
-            setIsLoading(false)
-            setLoadingProgress(0)
-            return
-          }
-
-          // 画像PDF: Gemini APIにフォールバック
-          const { renderPdfPageToImage, getPdfPageCount } = await import('@/lib/bank-statement/pdf-text-parser')
-          const pageCount = await getPdfPageCount(config.file)
-          const imageDataUrls: string[] = []
-          for (let i = 0; i < pageCount; i++) {
-            imageDataUrls.push(await renderPdfPageToImage(config.file, i + 1, 2))
-          }
-
-          const data = await receiptOcr(imageDataUrls, geminiModel)
           clearInterval(progressTimer)
           setLoadingProgress(100)
 

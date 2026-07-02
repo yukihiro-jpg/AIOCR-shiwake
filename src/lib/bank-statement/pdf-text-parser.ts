@@ -173,6 +173,40 @@ export async function renderPdfPageToImage(
   return canvas.toDataURL('image/jpeg', 0.8)
 }
 
+/**
+ * PDFを一度だけ開いて全ページを画像化する（renderPdfPageToImage をページ数ぶん呼ぶと
+ * 毎回PDF全体を再パースして遅いため、大量ページ用にドキュメントを使い回す）。
+ * onPage で1ページごとに進捗を通知できる。
+ */
+export async function renderAllPdfPages(
+  file: File,
+  scale: number = 2,
+  onPage?: (index: number, dataUrl: string, total: number) => void,
+): Promise<string[]> {
+  const pdfjsLib = await getPdfjsLib()
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), ...PDF_DOC_OPTIONS }).promise
+  const total = pdf.numPages
+  const out: string[] = new Array(total)
+  for (let n = 1; n <= total; n++) {
+    const page = await pdf.getPage(n)
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d')!
+    await page.render({ canvasContext: ctx, viewport }).promise
+    const url = canvas.toDataURL('image/jpeg', 0.8)
+    out[n - 1] = url
+    onPage?.(n - 1, url, total)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { (page as any).cleanup?.() } catch { /* ignore */ }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  try { (pdf as any).cleanup?.(); (pdf as any).destroy?.() } catch { /* ignore */ }
+  return out
+}
+
 export async function getPdfPageCount(file: File): Promise<number> {
   const pdfjsLib = await getPdfjsLib()
   const arrayBuffer = await file.arrayBuffer()

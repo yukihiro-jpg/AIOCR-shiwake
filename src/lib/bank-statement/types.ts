@@ -199,6 +199,7 @@ export interface UploadConfig {
   creditSubCode?: string
   creditSubName?: string
   file: File
+  extraImages?: File[] // レシート等で複数の画像ファイルをまとめて1ジョブとして並列解析する場合の追加画像
   periodFrom?: string  // 処理対象期間（開始）YYYY-MM-DD
   periodTo?: string    // 処理対象期間（終了）YYYY-MM-DD
 }
