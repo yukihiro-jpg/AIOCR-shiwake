@@ -65,4 +65,12 @@ export const MODULES: ModuleDef[] = [
     icon: '📈',
     status: 'ready',
   },
+  {
+    key: 'scan',
+    label: '書類スキャン受信',
+    desc: '顧問先がスマホで撮影した書類を受信・AI解析・Excel/CSV出力',
+    path: '/scan',
+    icon: '📥',
+    status: 'ready',
+  },
 ]
