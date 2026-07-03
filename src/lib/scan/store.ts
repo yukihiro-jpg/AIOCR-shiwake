@@ -300,6 +300,19 @@ export interface ScanAnalysis {
   analyzedAt: string
 }
 
+/** 自動解析の多端末ロック。取得できた端末だけが解析する（5分で失効＝処理中断時も別端末が引き継げる） */
+export async function acquireAnalysisLock(token: string, batchId: string): Promise<boolean> {
+  const { db, ref } = await dbfns()
+  const { runTransaction } = await import('firebase/database')
+  const r = ref(db, publicPath(token, 'locks', batchId))
+  const res = await runTransaction(r, (cur: unknown) => {
+    const now = Date.now()
+    if (typeof cur === 'number' && now - cur < 5 * 60_000) return // 他端末が処理中 → 取得失敗
+    return now
+  })
+  return res.committed
+}
+
 /** 解析結果を保存（編集内容も同じ場所に上書き保存） */
 export async function saveAnalysis(token: string, batchId: string, rows: ScanAnalysisRow[]): Promise<void> {
   const { db, ref, set } = await dbfns()

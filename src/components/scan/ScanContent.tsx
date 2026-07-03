@@ -10,12 +10,10 @@ import {
   buildScanUrl,
   type ScanClient,
   loadBatches,
-  subscribeBatches,
   loadCashEntries,
   setBatchStatus,
   setCashStatus,
   getBatchImageUrls,
-  getBatchImageDataUrls,
   getBatchImageBlobs,
   sweepOldScanData,
   deleteBatch,
@@ -23,64 +21,19 @@ import {
   loadAnalysis,
   loadAnalyses,
   type ScanAnalysis,
+  type ScanAnalysisRow,
   type ScanCompany,
   type ScanBatch,
   type ScanCashEntry,
   type ScanStatus,
 } from '@/lib/scan/store'
-import { receiptOcrParallel } from '@/lib/bank-statement/gemini-client'
+import { analyzeBatchAndSave, subscribeEngineStatus } from '@/lib/scan/auto-analyzer'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 
 type SharedClient = ScanClient
 
-interface ReceiptRow {
-  date: string
-  storeName: string
-  mainContent: string
-  invoiceNumber: string
-  taxRate: string
-  totalAmount: number
-  pageIndex?: number | null // 元になった画像（0始まり）
-}
-
-// AI解析結果（税率ごとに1行へ展開。元画像の pageIndex を保持）
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function receiptsToRows(receipts: any[]): ReceiptRow[] {
-  const rows: ReceiptRow[] = []
-  for (const r of receipts) {
-    const taxLines = Array.isArray(r.taxLines) && r.taxLines.length ? r.taxLines : [{ taxRate: '', totalAmount: 0 }]
-    for (const tl of taxLines) {
-      rows.push({
-        date: r.receiptDate || '',
-        storeName: r.storeName || '',
-        mainContent: r.mainContent || '',
-        invoiceNumber: r.invoiceNumber || '',
-        taxRate: tl.taxRate || '',
-        totalAmount: Number(tl.totalAmount) || 0,
-        pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex : null,
-      })
-    }
-  }
-  return rows
-}
-
-// バッチをAI解析して結果を保存（受信箱の自動解析・詳細画面の手動解析で共用）
-async function analyzeBatchAndSave(
-  token: string,
-  batch: ScanBatch,
-  onProgress?: (msg: string) => void,
-): Promise<{ rows: ReceiptRow[]; errors: string[] }> {
-  onProgress?.('画像を取得しています...')
-  const dataUrls = await getBatchImageDataUrls(token, batch)
-  onProgress?.('AIで解析しています...')
-  const { receipts, errors } = await receiptOcrParallel(dataUrls, undefined, {
-    onProgress: (done, total) => onProgress?.(`AIで解析しています... (${done}/${total})`),
-  })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = receiptsToRows(receipts as any[])
-  await saveAnalysis(token, batch.id, rows)
-  return { rows, errors }
-}
+// AI解析結果の行（保存形式と同一）
+type ReceiptRow = ScanAnalysisRow
 
 function safe(name: string): string {
   return (name || '').replace(/[\\/:*?"<>|]/g, '_')
@@ -97,96 +50,15 @@ export default function ScanContent() {
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
   const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
 
-  // ===== 自動AI解析エンジン =====
-  // 画面を開いた時点の未解析バッチ＋開いている間に届いた新着バッチを、順番に自動解析する。
+  // 常駐の自動AI解析エンジン（layout.tsx で全ページ起動）の状態を表示に反映
   const [engineMsg, setEngineMsg] = useState('')
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set())
-  const queueRef = useRef<{ token: string; batch: ScanBatch }[]>([])
-  const seenRef = useRef<Set<string>>(new Set()) // 二重解析防止（キュー投入済みID）
-  const pumpingRef = useRef(false)
-  const keyErrorRef = useRef(false)
-
-  const pump = useCallback(async () => {
-    if (pumpingRef.current) return
-    pumpingRef.current = true
-    while (queueRef.current.length) {
-      const item = queueRef.current.shift()!
-      setAnalyzingIds((s) => new Set(s).add(item.batch.id))
-      setEngineMsg(`🤖 新着バッチをAI解析中…（残り ${queueRef.current.length + 1} 件）`)
-      try {
-        await analyzeBatchAndSave(item.token, item.batch)
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e)
-        if (/API\s*キー|apiKey|API_KEY/i.test(m)) {
-          // キー未設定なら以降も全滅するため打ち切り
-          keyErrorRef.current = true
-          queueRef.current = []
-          setEngineMsg('')
-          setMsg('⚠️ 自動AI解析を実行できません：Gemini APIキーが未設定です。ホーム右上の⚙️共通設定で登録してください。')
-        }
-        /* 個別の失敗は受信箱の手動「AI解析」で再試行できる */
-      }
-      setAnalyzingIds((s) => {
-        const n = new Set(s)
-        n.delete(item.batch.id)
-        return n
-      })
-    }
-    pumpingRef.current = false
-    setEngineMsg('')
-  }, [])
-
-  const enqueueUnanalyzed = useCallback(
-    async (token: string, batches: Record<string, ScanBatch>) => {
-      if (keyErrorRef.current) return
-      const candidates = Object.values(batches).filter((b) => b.status !== 'done' && !seenRef.current.has(b.id))
-      if (!candidates.length) return
-      let analyses: Record<string, ScanAnalysis> = {}
-      try {
-        analyses = await loadAnalyses(token)
-      } catch {
-        return
-      }
-      let added = false
-      for (const b of candidates.sort((x, y) => x.submittedAt.localeCompare(y.submittedAt))) {
-        if (analyses[b.id]) {
-          seenRef.current.add(b.id) // 解析済みは対象外として記憶
-          continue
-        }
-        seenRef.current.add(b.id)
-        queueRef.current.push({ token, batch: b })
-        added = true
-      }
-      if (added) pump()
-    },
-    [pump],
-  )
-
-  // 登録会社ぶんのバッチをリアルタイム購読（開始時に現在の未解析分が即届く＝起動時の自動解析）
   useEffect(() => {
-    if (!ready) return
-    const tokens = Object.values(companies).map((c) => c.token)
-    if (!tokens.length) return
-    const unsubs: (() => void)[] = []
-    let cancelled = false
-    ;(async () => {
-      for (const token of tokens) {
-        try {
-          const unsub = await subscribeBatches(token, (batches) => {
-            enqueueUnanalyzed(token, batches)
-          })
-          if (cancelled) unsub()
-          else unsubs.push(unsub)
-        } catch {
-          /* ignore */
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-      unsubs.forEach((u) => u())
-    }
-  }, [ready, companies, enqueueUnanalyzed])
+    return subscribeEngineStatus((s) => {
+      setEngineMsg(s.message)
+      setAnalyzingIds(new Set(s.analyzingIds))
+    })
+  }, [])
 
   useEffect(() => {
     setReady(hasRoom())
