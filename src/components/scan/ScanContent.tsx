@@ -10,6 +10,7 @@ import {
   buildScanUrl,
   type ScanClient,
   loadBatches,
+  subscribeBatches,
   loadCashEntries,
   setBatchStatus,
   setCashStatus,
@@ -95,6 +96,97 @@ export default function ScanContent() {
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
   const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
+
+  // ===== 自動AI解析エンジン =====
+  // 画面を開いた時点の未解析バッチ＋開いている間に届いた新着バッチを、順番に自動解析する。
+  const [engineMsg, setEngineMsg] = useState('')
+  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set())
+  const queueRef = useRef<{ token: string; batch: ScanBatch }[]>([])
+  const seenRef = useRef<Set<string>>(new Set()) // 二重解析防止（キュー投入済みID）
+  const pumpingRef = useRef(false)
+  const keyErrorRef = useRef(false)
+
+  const pump = useCallback(async () => {
+    if (pumpingRef.current) return
+    pumpingRef.current = true
+    while (queueRef.current.length) {
+      const item = queueRef.current.shift()!
+      setAnalyzingIds((s) => new Set(s).add(item.batch.id))
+      setEngineMsg(`🤖 新着バッチをAI解析中…（残り ${queueRef.current.length + 1} 件）`)
+      try {
+        await analyzeBatchAndSave(item.token, item.batch)
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e)
+        if (/API\s*キー|apiKey|API_KEY/i.test(m)) {
+          // キー未設定なら以降も全滅するため打ち切り
+          keyErrorRef.current = true
+          queueRef.current = []
+          setEngineMsg('')
+          setMsg('⚠️ 自動AI解析を実行できません：Gemini APIキーが未設定です。ホーム右上の⚙️共通設定で登録してください。')
+        }
+        /* 個別の失敗は受信箱の手動「AI解析」で再試行できる */
+      }
+      setAnalyzingIds((s) => {
+        const n = new Set(s)
+        n.delete(item.batch.id)
+        return n
+      })
+    }
+    pumpingRef.current = false
+    setEngineMsg('')
+  }, [])
+
+  const enqueueUnanalyzed = useCallback(
+    async (token: string, batches: Record<string, ScanBatch>) => {
+      if (keyErrorRef.current) return
+      const candidates = Object.values(batches).filter((b) => b.status !== 'done' && !seenRef.current.has(b.id))
+      if (!candidates.length) return
+      let analyses: Record<string, ScanAnalysis> = {}
+      try {
+        analyses = await loadAnalyses(token)
+      } catch {
+        return
+      }
+      let added = false
+      for (const b of candidates.sort((x, y) => x.submittedAt.localeCompare(y.submittedAt))) {
+        if (analyses[b.id]) {
+          seenRef.current.add(b.id) // 解析済みは対象外として記憶
+          continue
+        }
+        seenRef.current.add(b.id)
+        queueRef.current.push({ token, batch: b })
+        added = true
+      }
+      if (added) pump()
+    },
+    [pump],
+  )
+
+  // 登録会社ぶんのバッチをリアルタイム購読（開始時に現在の未解析分が即届く＝起動時の自動解析）
+  useEffect(() => {
+    if (!ready) return
+    const tokens = Object.values(companies).map((c) => c.token)
+    if (!tokens.length) return
+    const unsubs: (() => void)[] = []
+    let cancelled = false
+    ;(async () => {
+      for (const token of tokens) {
+        try {
+          const unsub = await subscribeBatches(token, (batches) => {
+            enqueueUnanalyzed(token, batches)
+          })
+          if (cancelled) unsub()
+          else unsubs.push(unsub)
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+      unsubs.forEach((u) => u())
+    }
+  }, [ready, companies, enqueueUnanalyzed])
 
   useEffect(() => {
     setReady(hasRoom())
@@ -215,6 +307,11 @@ export default function ScanContent() {
         </div>
 
         {msg && <div className="mb-4 text-sm bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2">{msg}</div>}
+        {engineMsg && (
+          <div className="mb-4 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded px-3 py-2 animate-pulse">
+            {engineMsg}
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
@@ -282,7 +379,15 @@ export default function ScanContent() {
         </Overlay>
       )}
 
-      {inbox && <InboxModal client={inbox.client} company={inbox.company} onClose={() => setInbox(null)} onChanged={reload} />}
+      {inbox && (
+        <InboxModal
+          client={inbox.client}
+          company={inbox.company}
+          analyzingIds={analyzingIds}
+          onClose={() => setInbox(null)}
+          onChanged={reload}
+        />
+      )}
     </div>
   )
 }
@@ -308,11 +413,13 @@ function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClo
 function InboxModal({
   client,
   company,
+  analyzingIds,
   onClose,
   onChanged,
 }: {
   client: SharedClient
   company: ScanCompany
+  analyzingIds: Set<string> // 画面全体の自動解析エンジンが処理中のバッチID
   onClose: () => void
   onChanged: () => void
 }) {
@@ -324,7 +431,6 @@ function InboxModal({
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
-  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -338,39 +444,28 @@ function InboxModal({
       setBatches(b)
       setCash(c)
       setAnalyses(a)
-      return { b, a }
     } catch (e) {
       setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
-      return null
     } finally {
       setLoading(false)
     }
   }, [company.token])
 
   useEffect(() => {
-    ;(async () => {
-      const res = await load()
-      if (!res) return
-      // 未解析の新着バッチを自動でAI解析（順番に。結果は保存され全端末で共有）
-      const targets = Object.values(res.b)
-        .filter((bt) => bt.status !== 'done' && !res.a[bt.id])
-        .sort((x, y) => x.submittedAt.localeCompare(y.submittedAt))
-      for (const bt of targets) {
-        setAnalyzingIds((prev) => new Set(prev).add(bt.id))
-        try {
-          const { rows } = await analyzeBatchAndSave(company.token, bt)
-          setAnalyses((prev) => ({ ...prev, [bt.id]: { rows, analyzedAt: new Date().toISOString() } }))
-        } catch {
-          /* キー未設定・一時エラー等。詳細画面から手動解析できる */
-        }
-        setAnalyzingIds((prev) => {
-          const next = new Set(prev)
-          next.delete(bt.id)
-          return next
-        })
-      }
-    })()
-  }, [load, company.token])
+    load()
+  }, [load])
+
+  // 自動解析エンジン（親）の進行に合わせて、一覧の解析済み表示・新着バッチを更新
+  useEffect(() => {
+    if (loading) return
+    Promise.all([loadAnalyses(company.token), loadBatches(company.token)])
+      .then(([a, b]) => {
+        setAnalyses(a)
+        setBatches(b)
+      })
+      .catch(() => { /* ignore */ })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyzingIds, company.token])
 
   async function toggleBatchDone(b: ScanBatch) {
     const next: ScanStatus = b.status === 'done' ? 'new' : 'done'

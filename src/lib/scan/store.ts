@@ -222,6 +222,21 @@ export async function loadBatches(token: string): Promise<Record<string, ScanBat
   return (snap.val() as Record<string, ScanBatch>) || {}
 }
 
+/** バッチのリアルタイム購読。購読開始時に現在の全バッチが即時1回届き、以後は追加・変更のたびに届く。
+ *  戻り値の関数で購読解除。 */
+export async function subscribeBatches(
+  token: string,
+  cb: (batches: Record<string, ScanBatch>) => void,
+): Promise<() => void> {
+  const { db, ref } = await dbfns()
+  const { onValue } = await import('firebase/database')
+  return onValue(
+    ref(db, publicPath(token, 'batches')),
+    (snap) => cb((snap.val() as Record<string, ScanBatch>) || {}),
+    () => { /* 権限エラー等は無視（画面側の読み込みエラー表示に任せる） */ },
+  )
+}
+
 export async function loadCashEntries(token: string): Promise<Record<string, ScanCashEntry>> {
   const { db, ref, get } = await dbfns()
   const snap = await get(ref(db, publicPath(token, 'cash')))
