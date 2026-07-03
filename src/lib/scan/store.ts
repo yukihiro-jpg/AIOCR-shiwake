@@ -34,6 +34,7 @@ export interface ScanBatch {
   paths: string[]
   submittedAt: string
   status: ScanStatus
+  transferredAt?: string // 仕訳作成へ転送した日時（二重取込防止の目印）
 }
 
 export type CashEntryType = '現金引出' | '現金預入'
@@ -246,6 +247,39 @@ export async function loadCashEntries(token: string): Promise<Record<string, Sca
 export async function setBatchStatus(token: string, id: string, status: ScanStatus): Promise<void> {
   const { db, ref, update } = await dbfns()
   await update(ref(db, publicPath(token, 'batches', id)), { status })
+}
+
+/** 仕訳作成へ転送済みの目印を付ける */
+export async function markBatchTransferred(token: string, id: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'batches', id)), { transferredAt: new Date().toISOString() })
+}
+
+// ===== 仕訳作成への転送設定（顧問先ごと・全端末共有） =====
+
+export interface ScanCreditAccount {
+  code: string
+  name: string
+  subCode?: string
+  subName?: string
+}
+
+/** 「それ以外」で過去に選ばれた貸方科目の履歴（新しい順） */
+export async function loadScanCreditHistory(clientId: string): Promise<ScanCreditAccount[]> {
+  const { db, ref, get } = await dbfns()
+  const path = await modulePath(SCAN_KEY, 'prefs', clientId, 'creditHistory')
+  const v = (await get(ref(db, path))).val()
+  return Array.isArray(v) ? (v as ScanCreditAccount[]) : []
+}
+
+/** 貸方科目の選択を履歴の先頭に記録（重複は除去・最大10件） */
+export async function pushScanCreditHistory(clientId: string, acc: ScanCreditAccount): Promise<void> {
+  const cur = await loadScanCreditHistory(clientId)
+  const key = (a: ScanCreditAccount) => `${a.code}|${a.subCode || ''}`
+  const next = [acc, ...cur.filter((a) => key(a) !== key(acc))].slice(0, 10)
+  const { db, ref, set } = await dbfns()
+  const path = await modulePath(SCAN_KEY, 'prefs', clientId, 'creditHistory')
+  await set(ref(db, path), JSON.parse(JSON.stringify(next)))
 }
 
 export async function setCashStatus(token: string, id: string, status: ScanStatus): Promise<void> {

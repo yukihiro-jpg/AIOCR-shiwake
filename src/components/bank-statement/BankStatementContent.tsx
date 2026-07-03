@@ -47,7 +47,7 @@ import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
 import type { Client } from '@/lib/bank-statement/client-store'
-import { getSelectedClientId, setSelectedClientId, recordCsvExport } from '@/lib/bank-statement/client-store'
+import { getClients, getSelectedClientId, setSelectedClientId, recordCsvExport } from '@/lib/bank-statement/client-store'
 
 // レシート・請求書等「1書類=1画像」ページの一意ID生成（行クリックでの画像表示／行削除での画像削除に使用）
 let pageIdCounter = 0
@@ -146,6 +146,89 @@ export default function BankStatementContent() {
     setPages([])
     setJournalEntries([])
   }, [])
+
+  // 書類スキャン受信からの転送（bs-scan-import）を取り込む。
+  // 顧問先はID直結（転送側で解決済み）なので取り違えが起きない。
+  const scanImportDone = useRef(false)
+  useEffect(() => {
+    if (scanImportDone.current) return
+    scanImportDone.current = true
+    let payload: {
+      clientId: string
+      clientName: string
+      docType: string
+      submittedAt: string
+      credit: { code: string; name: string; subCode?: string; subName?: string }
+      rows: { date: string; storeName: string; mainContent: string; invoiceNumber: string; taxRate: string; totalAmount: number; pageIndex?: number | null }[]
+      images: string[]
+    } | null = null
+    try {
+      const raw = localStorage.getItem('bs-scan-import')
+      if (!raw) return
+      localStorage.removeItem('bs-scan-import') // 二重取込防止（先に消す）
+      payload = JSON.parse(raw)
+    } catch {
+      return
+    }
+    if (!payload || !payload.rows?.length) return
+    const client = getClients().find((c) => c.id === payload!.clientId)
+    if (!client) {
+      alert(`書類スキャン受信からの転送データがありますが、顧問先「${payload.clientName}」が見つかりませんでした。`)
+      return
+    }
+    ;(async () => {
+      setSelectedClientId(client.id)
+      await handleClientSelect(client)
+      // 画像ページ（元レシート表示用）
+      const idPages = (payload!.images || []).map((url, i) => ({
+        pageIndex: i,
+        transactions: [],
+        openingBalance: 0,
+        closingBalance: 0,
+        isBalanceValid: true,
+        balanceDifference: 0,
+        imageDataUrl: url,
+        id: genPageId(i),
+      }))
+      setPages(idPages)
+      setCurrentPageIndex(0)
+      // 解析行 → 仕訳（1行=1レシート扱い。貸方は転送時に選択した科目）
+      const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
+      const receipts = payload!.rows.map((r, i) => ({
+        receiptIndex: i,
+        storeName: r.storeName,
+        receiptDate: r.date,
+        mainContent: r.mainContent,
+        invoiceNumber: r.invoiceNumber || undefined,
+        taxLines: [{ taxRate: r.taxRate || '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
+        pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex : 0,
+      }))
+      const entries = receiptToEntries(
+        receipts,
+        payload!.credit.code,
+        payload!.credit.name,
+        payload!.credit.subCode,
+        payload!.credit.subName,
+        undefined,
+        (rcp) => idPages[rcp.pageIndex]?.id,
+      )
+      const cfg: UploadConfig = {
+        documentType: 'receipt',
+        accountCode: payload!.credit.code,
+        accountName: payload!.credit.name,
+        creditCode: payload!.credit.code,
+        creditName: payload!.credit.name,
+        creditSubCode: payload!.credit.subCode,
+        creditSubName: payload!.credit.subName,
+        file: new File([], 'scan-import'),
+      }
+      setUploadConfig(cfg)
+      uploadConfigRef.current = cfg
+      setJournalEntries(entries)
+      setInfo(`書類スキャン受信（${payload!.docType}・${new Date(payload!.submittedAt).toLocaleDateString('ja-JP')}受信）から ${entries.length} 件の仕訳を取り込みました。借方科目を設定してください。`)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleClientSelect])
 
   const handleExitApp = useCallback(async () => {
     if (!window.confirm('アプリを終了してブラウザのタブを閉じます。よろしいですか？\n（データはFirebaseとこのPCに保存済みです）')) return

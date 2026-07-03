@@ -20,14 +20,19 @@ import {
   saveAnalysis,
   loadAnalysis,
   loadAnalyses,
+  markBatchTransferred,
+  loadScanCreditHistory,
+  pushScanCreditHistory,
   type ScanAnalysis,
   type ScanAnalysisRow,
+  type ScanCreditAccount,
   type ScanCompany,
   type ScanBatch,
   type ScanCashEntry,
   type ScanStatus,
 } from '@/lib/scan/store'
 import { analyzeBatchAndSave, subscribeEngineStatus } from '@/lib/scan/auto-analyzer'
+import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 
 type SharedClient = ScanClient
@@ -584,6 +589,7 @@ function BatchDetail({
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [analyzeErr, setAnalyzeErr] = useState('')
   const [driveOpen, setDriveOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [loadedSaved, setLoadedSaved] = useState(false) // 保存済み解析の読込完了（自動保存の暴発防止）
   const [activeImg, setActiveImg] = useState<number | null>(null)
   const imgRefs = useRef<(HTMLImageElement | null)[]>([])
@@ -687,6 +693,19 @@ function BatchDetail({
             {batch.docType} — {new Date(batch.submittedAt).toLocaleString('ja-JP')}（{batch.pageCount}枚）
           </h3>
           <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!rows.length) {
+                  alert('先にAI解析（または行の追加）を行ってから転送してください。')
+                  return
+                }
+                if (batch.transferredAt && !confirm(`このバッチは ${new Date(batch.transferredAt).toLocaleString('ja-JP')} に仕訳作成へ転送済みです。\nもう一度転送しますか？（二重取込にご注意ください）`)) return
+                setTransferOpen(true)
+              }}
+              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              📒 仕訳作成へ送る{batch.transferredAt ? '（転送済み）' : ''}
+            </button>
             <button onClick={() => setDriveOpen(true)} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50">
               📁 Driveへ保存
             </button>
@@ -698,6 +717,16 @@ function BatchDetail({
             </button>
           </div>
         </div>
+
+        {transferOpen && (
+          <TransferDialog
+            client={client}
+            company={company}
+            batch={batch}
+            rows={rows}
+            onClose={() => setTransferOpen(false)}
+          />
+        )}
 
         {driveOpen && (
           <DriveSaveDialog
@@ -834,6 +863,206 @@ function BatchDetail({
           <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">
             閉じる
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 仕訳作成への転送ダイアログ。
+ *  貸方＝「現金」か「それ以外（顧問先の科目リストから選択）」を確認してから転送する。
+ *  「それ以外」で選んだ科目は履歴（全端末共有）に記録し、次回から優先表示する。 */
+function TransferDialog({
+  client,
+  company,
+  batch,
+  rows,
+  onClose,
+}: {
+  client: SharedClient
+  company: ScanCompany
+  batch: ScanBatch
+  rows: ReceiptRow[]
+  onClose: () => void
+}) {
+  const [step, setStep] = useState<'cash' | 'other'>('cash')
+  const [history, setHistory] = useState<ScanCreditAccount[]>([])
+  const [master, setMaster] = useState<{ code: string; name: string }[]>([])
+  const [selCode, setSelCode] = useState('')
+  const [selName, setSelName] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // 仕訳作成側の顧問先を解決（ID直結 → 予備としてコード一致）
+  const bsClient = (() => {
+    const list = getBsClients()
+    return list.find((c) => c.id === client.id) || (client.code ? list.find((c) => (c.code || '').trim() === String(client.code).trim()) : undefined) || null
+  })()
+
+  useEffect(() => {
+    loadScanCreditHistory(client.id).then(setHistory).catch(() => { /* ignore */ })
+    // 顧問先の科目マスタ（仕訳作成が同期している端末ローカルデータ）を読む
+    if (bsClient) {
+      try {
+        const raw = localStorage.getItem(`bs-accounts-${bsClient.id}`)
+        if (raw) {
+          const arr = JSON.parse(raw) as { code: string; name: string; shortName?: string }[]
+          setMaster(arr.map((a) => ({ code: a.code, name: a.shortName || a.name })))
+        }
+      } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.id])
+
+  // 現金の科目コードは顧問先の科目マスタから探す（無ければ会計大将標準の100）
+  function cashAccount(): ScanCreditAccount {
+    const hit = master.find((m) => m.name === '現金') || master.find((m) => m.name.includes('現金') && !m.name.includes('過不足'))
+    return hit ? { code: hit.code, name: hit.name } : { code: '100', name: '現金' }
+  }
+
+  async function send(credit: ScanCreditAccount, remember: boolean) {
+    if (!bsClient) return
+    setBusy(true)
+    setErr('')
+    try {
+      const images = await getBatchImageUrls(company.token, batch)
+      const payload = {
+        v: 1,
+        clientId: bsClient.id,
+        clientName: bsClient.name,
+        scanClientName: client.name,
+        batchId: batch.id,
+        docType: batch.docType,
+        submittedAt: batch.submittedAt,
+        credit,
+        rows,
+        images,
+      }
+      localStorage.setItem('bs-scan-import', JSON.stringify(payload))
+      if (remember) {
+        try { await pushScanCreditHistory(client.id, credit) } catch { /* ignore */ }
+      }
+      try { await markBatchTransferred(company.token, batch.id) } catch { /* ignore */ }
+      setSelectedClientId(bsClient.id)
+      const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
+      window.location.assign(`${base}/bank-statement/`)
+    } catch (e) {
+      setErr('転送の準備に失敗しました：' + (e instanceof Error ? e.message : ''))
+      setBusy(false)
+    }
+  }
+
+  const historyKeys = new Set(history.map((h) => h.code))
+  const restMaster = master.filter((m) => !historyKeys.has(m.code))
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-bold text-gray-800 mb-1">📒 仕訳作成へ送る</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          {client.name}／{batch.docType}・{rows.length}行を仕訳作成に取り込みます。
+        </p>
+
+        {!bsClient ? (
+          <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2">
+            仕訳作成にこの顧問先が見つかりません。「顧問先情報登録」でこの顧問先の<b>仕訳作成＝利用</b>にしてから、
+            一度仕訳作成を開いて顧問先が表示されることを確認してください。
+          </div>
+        ) : step === 'cash' ? (
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-3">貸方（支払い方法）は「現金」ですか？</p>
+            <button
+              onClick={() => send(cashAccount(), false)}
+              disabled={busy}
+              className="w-full py-3 mb-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
+            >
+              {busy ? '転送中...' : '💴 現金で送る'}
+            </button>
+            <button
+              onClick={() => setStep('other')}
+              disabled={busy}
+              className="w-full py-3 border border-blue-600 text-blue-700 rounded-lg font-semibold hover:bg-blue-50 disabled:opacity-60"
+            >
+              それ以外の科目から選ぶ
+            </button>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-2">貸方科目を選んでください</p>
+
+            {history.length > 0 && (
+              <div className="mb-3">
+                <div className="text-[11px] text-gray-400 mb-1">よく使う（過去に選択した科目）</div>
+                <div className="flex flex-wrap gap-2">
+                  {history.map((h) => (
+                    <button
+                      key={h.code + (h.subCode || '')}
+                      onClick={() => send(h, true)}
+                      disabled={busy}
+                      className="px-3 py-2 text-sm border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-60"
+                    >
+                      {h.code} {h.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {master.length > 0 ? (
+              <div className="mb-3">
+                <div className="text-[11px] text-gray-400 mb-1">科目リストから選択</div>
+                <select
+                  value={selCode}
+                  onChange={(e) => {
+                    setSelCode(e.target.value)
+                    const m = master.find((x) => x.code === e.target.value)
+                    setSelName(m?.name || '')
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                >
+                  <option value="">-- 科目を選択 --</option>
+                  {restMaster.map((m) => (
+                    <option key={m.code} value={m.code}>
+                      {m.code} - {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="mb-3">
+                <div className="text-[11px] text-amber-600 mb-1">
+                  この端末に科目マスタがありません（仕訳作成でこの顧問先を一度開くと同期されます）。コードと科目名を直接入力できます。
+                </div>
+                <div className="flex gap-2">
+                  <input value={selCode} onChange={(e) => setSelCode(e.target.value)} placeholder="コード" className="w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg" />
+                  <input value={selName} onChange={(e) => setSelName(e.target.value)} placeholder="科目名（例：役員借入金）" className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg" />
+                </div>
+              </div>
+            )}
+
+            {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+
+            <button
+              onClick={() => {
+                if (!selCode || !selName) {
+                  setErr('科目を選択（入力）してください。')
+                  return
+                }
+                send({ code: selCode, name: selName }, true)
+              }}
+              disabled={busy}
+              className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
+            >
+              {busy ? '転送中...' : 'この科目で送る'}
+            </button>
+            <button onClick={() => setStep('cash')} disabled={busy} className="w-full py-2 mt-2 text-sm text-gray-500 hover:text-gray-700">
+              ← 戻る
+            </button>
+          </div>
+        )}
+
+        <div className="text-right mt-4">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">閉じる</button>
         </div>
       </div>
     </div>
