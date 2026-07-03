@@ -145,7 +145,11 @@ export default function ScanUpload() {
       setUserName('')
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
-      setSubmitErr(`送信に失敗しました：${m}。通信環境をご確認ください`)
+      setSubmitErr(
+        /unauthorized|permission/i.test(m)
+          ? '送信できませんでした。お手数ですが、会計事務所のご担当者に「サーバ設定（Storageルール）の確認」とお伝えください。'
+          : `送信に失敗しました：${m}。通信環境をご確認ください`,
+      )
     }
     setSubmitting(false)
     setProgress('')
