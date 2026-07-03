@@ -3,12 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
-import { loadSharedClients, type SharedClient } from '@/lib/nenmatsu/store'
 import {
+  loadScanClients,
   loadScanCompanies,
   registerScanCompany,
-  unregisterScanCompany,
   buildScanUrl,
+  type ScanClient,
   loadBatches,
   loadCashEntries,
   setBatchStatus,
@@ -23,12 +23,7 @@ import {
 } from '@/lib/scan/store'
 import { receiptOcrParallel } from '@/lib/bank-statement/gemini-client'
 
-interface Row {
-  client: SharedClient
-  company: ScanCompany | null
-  newCount: number
-  newCash: number
-}
+type SharedClient = ScanClient
 
 interface ReceiptRow {
   date: string
@@ -63,7 +58,10 @@ export default function ScanContent() {
     setBusy(true)
     setMsg('')
     try {
-      const [cl, comps] = await Promise.all([loadSharedClients(), loadScanCompanies()])
+      // 顧問先情報で「書類スキャン受信＝利用」にした会社のみ対象。トークン未発行なら自動発行
+      const cl = await loadScanClients()
+      await Promise.all(cl.map((c) => registerScanCompany(c)))
+      const comps = await loadScanCompanies()
       setClients(cl)
       setCompanies(comps)
       const nextCounts: Record<string, { batch: number; cash: number }> = {}
@@ -91,30 +89,6 @@ export default function ScanContent() {
     if (!pass.trim()) return
     setRoomPassphrase(pass.trim())
     setReady(true)
-  }
-
-  async function register(client: SharedClient) {
-    setBusy(true)
-    setMsg('')
-    try {
-      await registerScanCompany(client)
-      await reload()
-    } catch (e) {
-      setMsg('登録に失敗しました：' + (e instanceof Error ? e.message : ''))
-    }
-    setBusy(false)
-  }
-
-  async function unregister(clientId: string, name: string) {
-    if (!confirm(`${name} のスキャン利用登録を解除しますか？（受信済みデータは残ります）`)) return
-    setBusy(true)
-    try {
-      await unregisterScanCompany(clientId)
-      await reload()
-    } catch (e) {
-      setMsg('解除に失敗しました：' + (e instanceof Error ? e.message : ''))
-    }
-    setBusy(false)
   }
 
   async function copyUrl(company: ScanCompany) {
@@ -160,9 +134,6 @@ export default function ScanContent() {
     )
   }
 
-  const registeredIds = new Set(Object.keys(companies))
-  const unregisteredClients = clients.filter((c) => !registeredIds.has(c.id))
-
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="scan" />
@@ -176,14 +147,19 @@ export default function ScanContent() {
 
         {msg && <div className="mb-4 text-sm bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2">{msg}</div>}
 
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-6">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">登録済みの顧問先。受信箱を開いて画像確認・AI解析・Excel/CSV出力ができます。</div>
-          {Object.keys(companies).length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-500">まだ登録がありません。下の一覧から顧問先を選んで登録してください。</div>
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
+            「顧問先情報登録」の「アプリ利用」で<strong>書類スキャン受信＝利用</strong>にした会社が表示されます。URL/QRを配布し、受信箱で画像確認・AI解析・Excel/CSV出力ができます。
+          </div>
+          {clients.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              対象会社がありません。「顧問先情報登録」の「アプリ利用」で対象会社の<strong>書類スキャン受信</strong>を<strong>利用</strong>に設定してください。
+            </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
+                  <th className="text-left px-4 py-2 font-semibold">コード</th>
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
                   <th className="text-left px-4 py-2 font-semibold">未処理バッチ</th>
                   <th className="text-left px-4 py-2 font-semibold">未処理現金登録</th>
@@ -191,72 +167,36 @@ export default function ScanContent() {
                 </tr>
               </thead>
               <tbody>
-                {clients
-                  .filter((c) => registeredIds.has(c.id))
-                  .map((client) => {
-                    const company = companies[client.id]
-                    const cnt = counts[client.id] || { batch: 0, cash: 0 }
-                    return (
-                      <tr key={client.id} className="border-t border-gray-100">
-                        <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-blue-700">{cnt.batch}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-blue-700">{cnt.cash}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 justify-end flex-wrap">
-                            <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                              URLコピー
-                            </button>
-                            <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                              QR表示
-                            </button>
-                            <button onClick={() => setInbox({ client, company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-                              受信箱を開く
-                            </button>
-                            <button
-                              onClick={() => unregister(client.id, client.name)}
-                              className="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50"
-                            >
-                              登録解除
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">未登録の顧問先。「スキャン利用に登録」を押すと専用URL/QRを発行できます。</div>
-          {unregisteredClients.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-500">未登録の顧問先はありません。</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-gray-500">
-                  <th className="text-left px-4 py-2 font-semibold">コード</th>
-                  <th className="text-left px-4 py-2 font-semibold">会社名</th>
-                  <th className="text-right px-4 py-2 font-semibold">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unregisteredClients.map((c) => (
-                  <tr key={c.id} className="border-t border-gray-100">
-                    <td className="px-4 py-3 text-gray-700">{c.code || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800">{c.name}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button onClick={() => register(c)} disabled={busy} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
-                        スキャン利用に登録
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {clients.map((client) => {
+                  const company = companies[client.id]
+                  if (!company) return null
+                  const cnt = counts[client.id] || { batch: 0, cash: 0 }
+                  return (
+                    <tr key={client.id} className="border-t border-gray-100">
+                      <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-blue-700">{cnt.batch}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-blue-700">{cnt.cash}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 justify-end flex-wrap">
+                          <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            URLコピー
+                          </button>
+                          <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            QR表示
+                          </button>
+                          <button onClick={() => setInbox({ client, company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+                            受信箱を開く
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}

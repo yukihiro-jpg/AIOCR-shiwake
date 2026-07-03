@@ -50,14 +50,6 @@ export const MODULES: ModuleDef[] = [
     status: 'ready',
   },
   {
-    key: 'nenmatsu',
-    label: '年調データ受信',
-    desc: '従業員の控除証明書・申告データをスマホ撮影で回収・管理',
-    path: '/nenmatsu',
-    icon: '📋',
-    status: 'ready',
-  },
-  {
     key: 'keiei',
     label: '月次レポート',
     desc: '月次推移BS/PLから経営の数字をグラフで可視化（経営会議ツール）',
@@ -71,6 +63,14 @@ export const MODULES: ModuleDef[] = [
     desc: '顧問先がスマホで撮影した書類を受信・AI解析・Excel/CSV出力',
     path: '/scan',
     icon: '📥',
+    status: 'ready',
+  },
+  {
+    key: 'nenmatsu',
+    label: '年調データ受信',
+    desc: '従業員の控除証明書・申告データをスマホ撮影で回収・管理',
+    path: '/nenmatsu',
+    icon: '📋',
     status: 'ready',
   },
 ]

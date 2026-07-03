@@ -78,6 +78,19 @@ function publicPath(token: string, ...seg: string[]): string {
   return `scan-public/${token}${seg.length ? '/' + seg.join('/') : ''}`
 }
 
+// ===== 顧問先情報（komon）で「書類スキャン受信＝利用」にした会社だけを読む =====
+export async function loadScanClients(): Promise<ScanClient[]> {
+  const { db, ref, get } = await dbfns()
+  const path = await modulePath(SCAN_KEY, '_clients')
+  const snap = await get(ref(db, path))
+  const val = snap.val() || {}
+  return Object.values(val)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((c: any) => ({ id: c.id, name: c.name, code: c.code }))
+    .filter((c: ScanClient) => c && c.id && c.name)
+    .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'ja', { numeric: true }))
+}
+
 // ===== 事務所側：登録会社管理（合言葉ルーム内） =====
 
 /** 登録会社一覧 */
