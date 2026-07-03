@@ -101,7 +101,10 @@ export default function ScanUpload() {
 
   function onCapture(list: FileList | null) {
     if (!list || !list.length) return
-    setPhotos((prev) => [...prev, ...Array.from(list)])
+    // FileList は入力欄と連動する「生きた」リストのため、先に配列へコピーしてから
+    // setState する（入力欄クリア後に遅延実行される更新関数内で読むと空になる）
+    const arr = Array.from(list)
+    setPhotos((prev) => [...prev, ...arr])
   }
   function removePhoto(idx: number) {
     setPhotos((prev) => prev.filter((_, i) => i !== idx))
