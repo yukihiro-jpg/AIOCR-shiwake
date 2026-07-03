@@ -23,7 +23,7 @@ const DOC_TYPES = [
   'リース契約の支払予定表',
 ] as const
 
-type Phase = 'loading' | 'invalid' | 'ready'
+type Phase = 'loading' | 'invalid' | 'error' | 'ready'
 
 interface HistoryItem {
   at: string
@@ -77,14 +77,19 @@ export default function ScanUpload() {
           setPhase('invalid')
           return
         }
-        const info = await loadScanInfoPublic(t)
-        if (!info) {
-          setPhase('invalid')
-          return
+        try {
+          const info = await loadScanInfoPublic(t)
+          if (!info) {
+            setPhase('invalid')
+            return
+          }
+          setToken(t)
+          setCompanyName(info.name)
+          setPhase('ready')
+        } catch {
+          // 通信エラー・サーバ設定エラー等（リンク自体は正しい可能性がある）
+          setPhase('error')
         }
-        setToken(t)
-        setCompanyName(info.name)
-        setPhase('ready')
       } catch {
         setPhase('invalid')
       }
@@ -180,6 +185,18 @@ export default function ScanUpload() {
   const photoPreviews = useMemo(() => photos.map((f) => URL.createObjectURL(f)), [photos])
 
   if (phase === 'loading') return <Center>読み込み中...</Center>
+  if (phase === 'error')
+    return (
+      <Center>
+        <div className="text-center max-w-sm">
+          <div className="text-3xl mb-2">📡</div>
+          <p className="text-gray-700 mb-3">読み込みに失敗しました。通信環境をご確認のうえ、再度お試しください。</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold">
+            再読み込み
+          </button>
+        </div>
+      </Center>
+    )
   if (phase === 'invalid')
     return (
       <Center>

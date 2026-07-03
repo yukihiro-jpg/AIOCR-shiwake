@@ -58,23 +58,43 @@ export default function ScanContent() {
     setBusy(true)
     setMsg('')
     try {
-      // 顧問先情報で「書類スキャン受信＝利用」にした会社のみ対象。トークン未発行なら自動発行
+      // 顧問先情報で「書類スキャン受信＝利用」にした会社のみ対象。トークン未発行なら自動発行。
+      // 公開領域(scan-public)の会社名も毎回書き直す（ルール不備からの自己修復）
       const cl = await loadScanClients()
-      await Promise.all(cl.map((c) => registerScanCompany(c)))
+      const errors: string[] = []
+      await Promise.all(
+        cl.map((c) =>
+          registerScanCompany(c).catch((e) => {
+            errors.push(e instanceof Error ? e.message : String(e))
+          }),
+        ),
+      )
       const comps = await loadScanCompanies()
       setClients(cl)
       setCompanies(comps)
       const nextCounts: Record<string, { batch: number; cash: number }> = {}
       await Promise.all(
         Object.values(comps).map(async (c) => {
-          const [batches, cash] = await Promise.all([loadBatches(c.token), loadCashEntries(c.token)])
-          nextCounts[c.clientId] = {
-            batch: Object.values(batches).filter((b) => b.status !== 'done').length,
-            cash: Object.values(cash).filter((c2) => c2.status !== 'done').length,
+          try {
+            const [batches, cash] = await Promise.all([loadBatches(c.token), loadCashEntries(c.token)])
+            nextCounts[c.clientId] = {
+              batch: Object.values(batches).filter((b) => b.status !== 'done').length,
+              cash: Object.values(cash).filter((c2) => c2.status !== 'done').length,
+            }
+          } catch (e) {
+            errors.push(e instanceof Error ? e.message : String(e))
           }
         }),
       )
       setCounts(nextCounts)
+      if (errors.length) {
+        const isPerm = errors.some((m) => /permission/i.test(m))
+        setMsg(
+          isPerm
+            ? '⚠️ Firebaseのセキュリティルールに scan-public の許可がありません。Firebaseコンソールのルールに scan-public ブロックを追加してください（追加するまで顧問先の送信もエラーになります）。詳細：' + errors[0]
+            : '一部の読み込みに失敗しました：' + errors[0],
+        )
+      }
     } catch (e) {
       setMsg('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     }

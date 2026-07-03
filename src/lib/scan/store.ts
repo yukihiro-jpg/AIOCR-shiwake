@@ -101,19 +101,22 @@ export async function loadScanCompanies(): Promise<Record<string, ScanCompany>> 
   return (snap.val() as Record<string, ScanCompany>) || {}
 }
 
-/** 会社をスキャン利用に登録（トークンを発行）。既存ならそれを返す */
+/** 会社をスキャン利用に登録（トークンを発行）。既存ならそれを返す。
+ *  公開領域の会社名(info)は毎回書き直す（過去にルール不備等で書けていなくても自己修復される） */
 export async function registerScanCompany(client: ScanClient): Promise<ScanCompany> {
   const { db, ref, get, set } = await dbfns()
   const path = await modulePath(SCAN_KEY, 'companies', client.id)
   const existing = (await get(ref(db, path))).val() as ScanCompany | null
-  if (existing && existing.token) return existing
-  const company: ScanCompany = {
-    clientId: client.id,
-    code: client.code || '',
-    name: client.name,
-    token: randomToken(),
-    registeredAt: new Date().toISOString(),
-  }
+  const company: ScanCompany =
+    existing && existing.token
+      ? { ...existing, name: client.name || existing.name, code: client.code || existing.code || '' }
+      : {
+          clientId: client.id,
+          code: client.code || '',
+          name: client.name,
+          token: randomToken(),
+          registeredAt: new Date().toISOString(),
+        }
   await set(ref(db, path), company)
   await set(ref(db, publicPath(company.token, 'info')), { name: company.name })
   return company
