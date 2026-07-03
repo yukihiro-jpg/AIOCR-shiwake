@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { MODULES } from '@/core/registry'
 
 const SUITE_GEMINI_KEY = 'suite-gemini-api-key'
+const GOOGLE_CLIENT_ID_KEY = 'suite-google-client-id'
 const OFFICE_NAME = '日下部税理士事務所'
 
 // 共通設定モーダル：Gemini APIキーを1か所で登録（各モジュールはこのキーを自動で使う）
@@ -14,12 +15,24 @@ function CommonSettingsModal({ onClose }: { onClose: () => void }) {
     return localStorage.getItem(SUITE_GEMINI_KEY) || ''
   })
   const [show, setShow] = useState(false)
+  const [gClientId, setGClientId] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return localStorage.getItem(GOOGLE_CLIENT_ID_KEY) || ''
+  })
   const save = (v: string) => {
     const t = v.trim()
     setKey(t)
     try {
       if (t) localStorage.setItem(SUITE_GEMINI_KEY, t)
       else localStorage.removeItem(SUITE_GEMINI_KEY)
+    } catch { /* ignore */ }
+  }
+  const saveGClientId = (v: string) => {
+    const t = v.trim()
+    setGClientId(t)
+    try {
+      if (t) localStorage.setItem(GOOGLE_CLIENT_ID_KEY, t)
+      else localStorage.removeItem(GOOGLE_CLIENT_ID_KEY)
     } catch { /* ignore */ }
   }
   return (
@@ -85,6 +98,24 @@ function CommonSettingsModal({ onClose }: { onClose: () => void }) {
         <p className="text-[11px] text-gray-400 mt-1">
           ※ キーはこの端末（ブラウザ）内にのみ保存され、同期はされません。各PCで一度だけ入力してください。
           取得は <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-blue-500 underline">Google AI Studio</a>。
+        </p>
+
+        <div className="flex items-center gap-2 mt-5 mb-1 pt-4 border-t border-gray-100">
+          <span className="text-lg">📁</span>
+          <h3 className="font-semibold text-gray-800 text-sm">GoogleクライアントID（共有ドライブ保存用）</h3>
+        </div>
+        <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+          書類スキャン受信・年調データ受信の「Driveへ保存」で使います。Google Cloudで発行したOAuthクライアントIDを貼り付けてください（この端末に保存）。
+        </p>
+        <input
+          type="text"
+          value={gClientId}
+          placeholder="xxxxx.apps.googleusercontent.com"
+          onChange={(e) => saveGClientId(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
+        />
+        <p className="text-[11px] mt-1 px-2 py-1 bg-gray-50 rounded text-gray-600 inline-block">
+          現在：<b>{gClientId ? '設定済み' : '未設定'}</b>
         </p>
         <div className="mt-5 text-right">
           <button

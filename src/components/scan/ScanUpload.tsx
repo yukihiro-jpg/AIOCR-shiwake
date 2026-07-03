@@ -431,7 +431,8 @@ export default function ScanUpload() {
         </div>
 
         <p className="text-[11px] text-gray-400 text-center">
-          カメラが開かないときは LINE 等ではなく Safari / Chrome で開き直してください（アルバムからの選択はどのアプリでも使えます）。
+          カメラが開かないときは LINE 等ではなく Safari / Chrome で開き直してください（アルバムからの選択はどのアプリでも使えます）。<br />
+          送信された画像は、送信から1年後に自動削除されます。
         </p>
       </div>
     </div>

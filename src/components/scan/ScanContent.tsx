@@ -15,6 +15,8 @@ import {
   setCashStatus,
   getBatchImageUrls,
   getBatchImageDataUrls,
+  getBatchImageBlobs,
+  sweepOldScanData,
   deleteBatch,
   type ScanCompany,
   type ScanBatch,
@@ -22,6 +24,7 @@ import {
   type ScanStatus,
 } from '@/lib/scan/store'
 import { receiptOcrParallel } from '@/lib/bank-statement/gemini-client'
+import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 
 type SharedClient = ScanClient
 
@@ -76,6 +79,8 @@ export default function ScanContent() {
       await Promise.all(
         Object.values(comps).map(async (c) => {
           try {
+            // 保存期間（送信から1年）を過ぎたデータを自動削除してから件数を数える
+            try { await sweepOldScanData(c.token) } catch { /* 権限エラー等は下で表示される */ }
             const [batches, cash] = await Promise.all([loadBatches(c.token), loadCashEntries(c.token)])
             nextCounts[c.clientId] = {
               batch: Object.values(batches).filter((b) => b.status !== 'done').length,
@@ -523,6 +528,7 @@ function BatchDetail({
   const [progress, setProgress] = useState('')
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [analyzeErr, setAnalyzeErr] = useState('')
+  const [driveOpen, setDriveOpen] = useState(false)
 
   useEffect(() => {
     ;(async () => {
@@ -618,6 +624,9 @@ function BatchDetail({
             {batch.docType} — {new Date(batch.submittedAt).toLocaleString('ja-JP')}（{batch.pageCount}枚）
           </h3>
           <div className="flex gap-2">
+            <button onClick={() => setDriveOpen(true)} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50">
+              📁 Driveへ保存
+            </button>
             <button onClick={onToggleDone} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
               {batch.status === 'done' ? '未処理に戻す' : '処理済みにする'}
             </button>
@@ -626,6 +635,19 @@ function BatchDetail({
             </button>
           </div>
         </div>
+
+        {driveOpen && (
+          <DriveSaveDialog
+            title={`${client.name}／${batch.docType}（${batch.pageCount}枚）の画像を共有ドライブに保存します`}
+            getFiles={async (onProgress) => {
+              onProgress('画像を取得しています...')
+              const blobs = await getBatchImageBlobs(company.token, batch)
+              const base = `${safe(client.name)}_${safe(batch.docType)}_${batch.submittedAt.slice(0, 10)}`
+              return blobs.map((b, i) => ({ name: `${base}_${i + 1}.jpg`, blob: b.blob }))
+            }}
+            onClose={() => setDriveOpen(false)}
+          />
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border border-gray-200 rounded-lg p-2 max-h-[70vh] overflow-auto space-y-2 bg-gray-50">

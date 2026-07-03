@@ -268,6 +268,44 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+/** 事務所側：バッチ画像を {name, blob} で取得（Google Drive保存・ZIP用） */
+export async function getBatchImageBlobs(
+  token: string,
+  batch: ScanBatch,
+): Promise<{ name: string; blob: Blob }[]> {
+  const { st, ref: sref, getBlob } = await storageFns()
+  const out: { name: string; blob: Blob }[] = []
+  for (let i = 0; i < (batch.paths || []).length; i++) {
+    const blob = await getBlob(sref(st, batch.paths[i]))
+    out.push({ name: `p${i + 1}.jpg`, blob })
+  }
+  return out
+}
+
+/** 保存期間（送信から1年）を過ぎたバッチ・現金登録を自動削除する。
+ *  事務所側の画面表示時に呼ばれる（顧問先側からは呼ばない） */
+export const SCAN_RETENTION_DAYS = 365
+export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_RETENTION_DAYS): Promise<number> {
+  const cutoff = Date.now() - maxAgeDays * 24 * 3600 * 1000
+  let removed = 0
+  const batches = await loadBatches(token)
+  for (const b of Object.values(batches)) {
+    const t = Date.parse(b.submittedAt || '')
+    if (t && t < cutoff) {
+      try { await deleteBatch(token, b); removed++ } catch { /* 次回に再試行 */ }
+    }
+  }
+  const cash = await loadCashEntries(token)
+  const { db, ref, remove } = await dbfns()
+  for (const c of Object.values(cash)) {
+    const t = Date.parse(c.submittedAt || '')
+    if (t && t < cutoff) {
+      try { await remove(ref(db, publicPath(token, 'cash', c.id))); removed++ } catch { /* 次回に再試行 */ }
+    }
+  }
+  return removed
+}
+
 /** 事務所側：バッチを削除（Storageファイルも削除） */
 export async function deleteBatch(token: string, batch: ScanBatch): Promise<void> {
   const { st, ref: sref, deleteObject } = await storageFns()

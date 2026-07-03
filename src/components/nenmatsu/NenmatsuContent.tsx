@@ -14,6 +14,7 @@ import {
   loadSubmissions,
   listEmployeeFiles,
   getFileBlobs,
+  sweepOldSubmissions,
   buildUploadUrl,
   type SharedClient,
   type NenmatsuCompany,
@@ -23,6 +24,7 @@ import {
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint } from '@/lib/nenmatsu/guide'
+import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, type Declaration } from '@/lib/nenmatsu/declaration'
 
 interface Row {
@@ -83,6 +85,8 @@ export default function NenmatsuContent() {
       for (const c of clients) {
         const company = comps[c.id]
         if (!company) continue
+        // 保存期間（アップロードから1年6か月）を過ぎた提出データを自動削除
+        try { await sweepOldSubmissions(yearId, c.id) } catch { /* 次回に再試行 */ }
         const subs = await loadSubmissions(yearId, c.id)
         next.push({ client: c, company, submitted: Object.keys(subs).length })
       }
@@ -634,6 +638,7 @@ function CompanyDetail({
   }, [yearId, company.clientId])
 
   const [zipMsg, setZipMsg] = useState('')
+  const [driveOpen, setDriveOpen] = useState(false)
 
   async function viewFiles(emp: NenmatsuEmployee) {
     try {
@@ -693,14 +698,46 @@ function CompanyDetail({
         <p className="text-xs text-gray-500">
           提出済みの従業員はファイルをアプリ内で閲覧・人別/全員一括でダウンロードできます。
         </p>
-        <button
-          onClick={downloadAll}
-          disabled={!!zipMsg}
-          className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
-        >
-          全員のファイルを一括DL（ZIP）
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDriveOpen(true)}
+            disabled={!!zipMsg}
+            className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            📁 Driveへ一括保存
+          </button>
+          <button
+            onClick={downloadAll}
+            disabled={!!zipMsg}
+            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            全員のファイルを一括DL（ZIP）
+          </button>
+        </div>
       </div>
+
+      {driveOpen && (
+        <DriveSaveDialog
+          title={`${company.name}／年末調整（${yearId}）の提出ファイルを、従業員ごとのフォルダに分けて保存します`}
+          getFiles={async (onProgress) => {
+            const targets = employees
+              .map((e) => ({ e, rec: subs[e.id] }))
+              .filter((x) => x.rec && (x.rec.paths || []).length > 0)
+            if (!targets.length) throw new Error('保存できるファイルがありません（提出済みの従業員がいません）')
+            const out: { name: string; blob: Blob; folder?: string }[] = []
+            let i = 0
+            for (const { e, rec } of targets) {
+              onProgress(`ファイルを取得しています... (${++i}/${targets.length}) ${e.lastName}${e.firstName}`)
+              const blobs = await getFileBlobs(rec.paths || [])
+              for (const b of blobs) {
+                out.push({ name: niceFileName(b.name), blob: b.blob, folder: safe(`${e.lastName}${e.firstName}`) })
+              }
+            }
+            return out
+          }}
+          onClose={() => setDriveOpen(false)}
+        />
+      )}
       {zipMsg && (
         <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">
           {zipMsg}

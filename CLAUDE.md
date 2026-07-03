@@ -55,6 +55,15 @@
 - 設定系（APIキー・表示設定・選択中顧問先など）は端末ローカルが正しい（同期しない）。
 - インボイス登録番号簿（仕訳作成）はIndexedDBに端末ローカル保存（公表データの取込想定のため同期しない・各PCで取込）。
 
+## 画像の保存期間（自動削除）と Google ドライブ連携
+
+- 書類スキャン受信の画像・現金登録：**送信から1年**で自動削除（`SCAN_RETENTION_DAYS`）
+- 年調の提出画像：**提出から1年6か月**で自動削除（`NENMATSU_RETENTION_DAYS`）
+- 削除は事務所側の各画面を開いたときに実行（サーバレス）。長期保管が必要なものは削除前に
+  ZIP一括DL または「📁 Driveへ保存」（Google共有ドライブへ一括アップロード）で退避する運用。
+- Drive連携は GIS(OAuth) のブラウザ直叩き（`src/lib/google-drive.ts`＋`src/core/ui/DriveSaveDialog.tsx`）。
+  クライアントIDは共通設定の `localStorage['suite-google-client-id']`（端末ローカル・同期しない）。
+
 ## APIキーの扱い
 
 - **Gemini共通キー**：ホーム画面の共通設定で登録（`localStorage['suite-gemini-api-key']`）。仕訳作成・komon/shinchoku・souzoku のAIはこれを共通で使う。

@@ -210,6 +210,7 @@ export default function NenmatsuUpload() {
           <div className="text-4xl mb-3">✅</div>
           <p className="text-lg font-bold text-gray-800 mb-1">提出が完了しました</p>
           <p className="text-sm text-gray-500">ありがとうございました。この画面は閉じて構いません。</p>
+          <p className="text-[11px] text-gray-400 mt-2">提出された画像は、提出から1年6か月後に自動削除されます。</p>
         </div>
       </Center>
     )

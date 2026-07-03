@@ -278,6 +278,42 @@ export async function loadSubmissions(
   return { ...legacy, ...pub }
 }
 
+/** 保存期間（アップロードから1年6か月）を過ぎた提出データ・画像を自動削除する。
+ *  事務所側の画面表示時に呼ばれる */
+export const NENMATSU_RETENTION_DAYS = 548 // 約1年6か月
+export async function sweepOldSubmissions(
+  yearId: string,
+  clientId: string,
+  maxAgeDays: number = NENMATSU_RETENTION_DAYS,
+): Promise<number> {
+  const cutoff = Date.now() - maxAgeDays * 24 * 3600 * 1000
+  const subs = await loadSubmissions(yearId, clientId)
+  const old = Object.values(subs).filter((r) => {
+    const t = Date.parse(r.submittedAt || '')
+    return t && t < cutoff
+  })
+  if (!old.length) return 0
+  const { st, ref: sref, deleteObject } = await storageFns()
+  const { db, ref, get, remove } = await dbfns()
+  const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+  const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+  let removed = 0
+  for (const rec of old) {
+    try {
+      for (const p of rec.paths || []) {
+        try { await deleteObject(sref(st, p)) } catch { /* 既に無い等は無視 */ }
+      }
+      if (comp && comp.token) {
+        try { await remove(ref(db, publicPath(comp.token, 'submissions', rec.empId))) } catch { /* ignore */ }
+      }
+      const legacyPath = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId, rec.empId)
+      try { await remove(ref(db, legacyPath)) } catch { /* ignore */ }
+      removed++
+    } catch { /* 次回に再試行 */ }
+  }
+  return removed
+}
+
 /** 事務所側：保存パスのファイル群をBlobで取得（ZIP一括DL用） */
 export async function getFileBlobs(
   paths: string[],
