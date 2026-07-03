@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
@@ -18,6 +18,10 @@ import {
   getBatchImageBlobs,
   sweepOldScanData,
   deleteBatch,
+  saveAnalysis,
+  loadAnalysis,
+  loadAnalyses,
+  type ScanAnalysis,
   type ScanCompany,
   type ScanBatch,
   type ScanCashEntry,
@@ -35,6 +39,46 @@ interface ReceiptRow {
   invoiceNumber: string
   taxRate: string
   totalAmount: number
+  pageIndex?: number | null // 元になった画像（0始まり）
+}
+
+// AI解析結果（税率ごとに1行へ展開。元画像の pageIndex を保持）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function receiptsToRows(receipts: any[]): ReceiptRow[] {
+  const rows: ReceiptRow[] = []
+  for (const r of receipts) {
+    const taxLines = Array.isArray(r.taxLines) && r.taxLines.length ? r.taxLines : [{ taxRate: '', totalAmount: 0 }]
+    for (const tl of taxLines) {
+      rows.push({
+        date: r.receiptDate || '',
+        storeName: r.storeName || '',
+        mainContent: r.mainContent || '',
+        invoiceNumber: r.invoiceNumber || '',
+        taxRate: tl.taxRate || '',
+        totalAmount: Number(tl.totalAmount) || 0,
+        pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex : null,
+      })
+    }
+  }
+  return rows
+}
+
+// バッチをAI解析して結果を保存（受信箱の自動解析・詳細画面の手動解析で共用）
+async function analyzeBatchAndSave(
+  token: string,
+  batch: ScanBatch,
+  onProgress?: (msg: string) => void,
+): Promise<{ rows: ReceiptRow[]; errors: string[] }> {
+  onProgress?.('画像を取得しています...')
+  const dataUrls = await getBatchImageDataUrls(token, batch)
+  onProgress?.('AIで解析しています...')
+  const { receipts, errors } = await receiptOcrParallel(dataUrls, undefined, {
+    onProgress: (done, total) => onProgress?.(`AIで解析しています... (${done}/${total})`),
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = receiptsToRows(receipts as any[])
+  await saveAnalysis(token, batch.id, rows)
+  return { rows, errors }
 }
 
 function safe(name: string): string {
@@ -279,24 +323,54 @@ function InboxModal({
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
   const [showDone, setShowDone] = useState(false)
+  const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
+  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     try {
-      const [b, c] = await Promise.all([loadBatches(company.token), loadCashEntries(company.token)])
+      const [b, c, a] = await Promise.all([
+        loadBatches(company.token),
+        loadCashEntries(company.token),
+        loadAnalyses(company.token),
+      ])
       setBatches(b)
       setCash(c)
+      setAnalyses(a)
+      return { b, a }
     } catch (e) {
       setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
+      return null
     } finally {
       setLoading(false)
     }
   }, [company.token])
 
   useEffect(() => {
-    load()
-  }, [load])
+    ;(async () => {
+      const res = await load()
+      if (!res) return
+      // 未解析の新着バッチを自動でAI解析（順番に。結果は保存され全端末で共有）
+      const targets = Object.values(res.b)
+        .filter((bt) => bt.status !== 'done' && !res.a[bt.id])
+        .sort((x, y) => x.submittedAt.localeCompare(y.submittedAt))
+      for (const bt of targets) {
+        setAnalyzingIds((prev) => new Set(prev).add(bt.id))
+        try {
+          const { rows } = await analyzeBatchAndSave(company.token, bt)
+          setAnalyses((prev) => ({ ...prev, [bt.id]: { rows, analyzedAt: new Date().toISOString() } }))
+        } catch {
+          /* キー未設定・一時エラー等。詳細画面から手動解析できる */
+        }
+        setAnalyzingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(bt.id)
+          return next
+        })
+      }
+    })()
+  }, [load, company.token])
 
   async function toggleBatchDone(b: ScanBatch) {
     const next: ScanStatus = b.status === 'done' ? 'new' : 'done'
@@ -400,6 +474,7 @@ function InboxModal({
                 <th className="text-left px-3 py-2">日時</th>
                 <th className="text-left px-3 py-2">書類種類</th>
                 <th className="text-left px-3 py-2">ページ数</th>
+                <th className="text-left px-3 py-2">AI解析</th>
                 <th className="text-left px-3 py-2">状態</th>
                 <th className="text-right px-3 py-2"></th>
               </tr>
@@ -414,6 +489,15 @@ function InboxModal({
                     {b.userName ? `（${b.userName}）` : ''}
                   </td>
                   <td className="px-3 py-2 text-gray-600">{b.pageCount}枚</td>
+                  <td className="px-3 py-2">
+                    {analyzingIds.has(b.id) ? (
+                      <span className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-0.5 animate-pulse">解析中…</span>
+                    ) : analyses[b.id] ? (
+                      <span className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-0.5">解析済み（{(analyses[b.id].rows || []).length}行）</span>
+                    ) : (
+                      <span className="text-xs text-gray-400">未解析</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {b.status === 'done' ? (
                       <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
@@ -487,7 +571,11 @@ function InboxModal({
           client={client}
           company={company}
           batch={openBatch}
-          onClose={() => setOpenBatch(null)}
+          onClose={() => {
+            setOpenBatch(null)
+            // 詳細画面での解析・編集を一覧の「解析済み」表示に反映
+            loadAnalyses(company.token).then(setAnalyses).catch(() => { /* ignore */ })
+          }}
           onToggleDone={() => toggleBatchDone(openBatch)}
           onDelete={() => removeBatch(openBatch)}
         />
@@ -529,6 +617,9 @@ function BatchDetail({
   const [rows, setRows] = useState<ReceiptRow[]>([])
   const [analyzeErr, setAnalyzeErr] = useState('')
   const [driveOpen, setDriveOpen] = useState(false)
+  const [loadedSaved, setLoadedSaved] = useState(false) // 保存済み解析の読込完了（自動保存の暴発防止）
+  const [activeImg, setActiveImg] = useState<number | null>(null)
+  const imgRefs = useRef<(HTMLImageElement | null)[]>([])
 
   useEffect(() => {
     ;(async () => {
@@ -540,34 +631,39 @@ function BatchDetail({
       } finally {
         setLoadingImgs(false)
       }
+      // 保存済みの解析結果があれば復元（閉じても消えない）
+      try {
+        const saved = await loadAnalysis(company.token, batch.id)
+        if (saved && Array.isArray(saved.rows) && saved.rows.length) setRows(saved.rows as ReceiptRow[])
+      } catch {
+        /* ignore */
+      }
+      setLoadedSaved(true)
     })()
   }, [company.token, batch])
+
+  // 編集内容の自動保存（0.8秒デバウンス・全端末共有）
+  useEffect(() => {
+    if (!loadedSaved) return
+    const t = setTimeout(() => {
+      saveAnalysis(company.token, batch.id, rows).catch(() => { /* 次の編集時に再試行 */ })
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, loadedSaved])
+
+  // 行クリック → 元になった画像へスクロール＆ハイライト
+  function focusImage(pageIndex: number | null | undefined) {
+    if (pageIndex == null || pageIndex < 0) return
+    setActiveImg(pageIndex)
+    imgRefs.current[pageIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   async function analyze() {
     setAnalyzing(true)
     setAnalyzeErr('')
-    setProgress('画像を取得しています...')
     try {
-      const dataUrls = await getBatchImageDataUrls(company.token, batch)
-      setProgress('AIで解析しています...')
-      const { receipts, errors } = await receiptOcrParallel(dataUrls, undefined, {
-        onProgress: (done, total) => setProgress(`AIで解析しています... (${done}/${total})`),
-      })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const next: ReceiptRow[] = []
-      for (const r of receipts as any[]) {
-        const taxLines = Array.isArray(r.taxLines) && r.taxLines.length ? r.taxLines : [{ taxRate: '', totalAmount: 0 }]
-        for (const tl of taxLines) {
-          next.push({
-            date: r.receiptDate || '',
-            storeName: r.storeName || '',
-            mainContent: r.mainContent || '',
-            invoiceNumber: r.invoiceNumber || '',
-            taxRate: tl.taxRate || '',
-            totalAmount: Number(tl.totalAmount) || 0,
-          })
-        }
-      }
+      const { rows: next, errors } = await analyzeBatchAndSave(company.token, batch, (m) => setProgress(m))
       setRows(next)
       if (errors.length) setAnalyzeErr(`一部の画像で解析に失敗しました：${errors.join('、')}`)
     } catch (e) {
@@ -658,7 +754,14 @@ function BatchDetail({
             ) : (
               images.map((src, i) => (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={i} src={src} alt={`page ${i + 1}`} className="w-full rounded border border-gray-200" />
+                <img
+                  key={i}
+                  ref={(el) => { imgRefs.current[i] = el }}
+                  src={src}
+                  alt={`page ${i + 1}`}
+                  onClick={() => setActiveImg(i)}
+                  className={`w-full rounded border-2 transition-colors ${activeImg === i ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
+                />
               ))
             )}
           </div>
@@ -715,7 +818,15 @@ function BatchDetail({
                   </thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={i} className="border-t border-gray-100">
+                      <tr
+                        key={i}
+                        onClick={(e) => {
+                          const tag = (e.target as HTMLElement).tagName
+                          if (tag !== 'INPUT' && tag !== 'BUTTON') focusImage(r.pageIndex)
+                        }}
+                        title={r.pageIndex != null ? `クリックで元画像（${(r.pageIndex ?? 0) + 1}枚目）を表示` : undefined}
+                        className={`border-t border-gray-100 ${r.pageIndex != null ? 'cursor-pointer hover:bg-blue-50/40' : ''} ${activeImg != null && r.pageIndex === activeImg ? 'bg-blue-50' : ''}`}
+                      >
                         <td className="px-1 py-1">
                           <input value={r.date} onChange={(e) => updateRow(i, { date: e.target.value })} className="w-24 px-1 py-1 border border-gray-200 rounded" />
                         </td>

@@ -43,6 +43,7 @@ export default function ScanUpload() {
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState('')
   const [submitErr, setSubmitErr] = useState('')
+  const [submitDone, setSubmitDone] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
 
   const [cashTab, setCashTab] = useState<CashEntryType>('現金引出')
@@ -118,6 +119,7 @@ export default function ScanUpload() {
     }
     setSubmitting(true)
     setSubmitErr('')
+    setSubmitDone('')
     try {
       const blobs: Blob[] = []
       for (let i = 0; i < photos.length; i++) {
@@ -135,6 +137,7 @@ export default function ScanUpload() {
         },
         blobs,
       )
+      setSubmitDone(`✅ 送信が完了しました（${docType}・${photos.length}枚）。ありがとうございました。`)
       setHistory((prev) => [
         { at: new Date().toLocaleString('ja-JP'), label: `${docType}（${photos.length}枚）` },
         ...prev,
@@ -325,6 +328,11 @@ export default function ScanUpload() {
           )}
 
           {submitErr && <div className="text-xs text-red-600 mb-2 break-words">{submitErr}</div>}
+          {submitDone && (
+            <div className="text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 mb-2">
+              {submitDone}
+            </div>
+          )}
 
           <button
             onClick={submitBatch}

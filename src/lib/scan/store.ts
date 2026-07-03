@@ -268,6 +268,44 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+// ===== AI解析結果の保存（バッチごと・全端末共有） =====
+
+export interface ScanAnalysisRow {
+  date: string
+  storeName: string
+  mainContent: string
+  invoiceNumber: string
+  taxRate: string
+  totalAmount: number
+  pageIndex?: number | null // 元になった画像（0始まり）
+}
+
+export interface ScanAnalysis {
+  rows: ScanAnalysisRow[]
+  analyzedAt: string
+}
+
+/** 解析結果を保存（編集内容も同じ場所に上書き保存） */
+export async function saveAnalysis(token: string, batchId: string, rows: ScanAnalysisRow[]): Promise<void> {
+  const { db, ref, set } = await dbfns()
+  // undefined を含むと RTDB がエラーになるため JSON 経由で除去
+  const clean = JSON.parse(JSON.stringify({ rows, analyzedAt: new Date().toISOString() }))
+  await set(ref(db, publicPath(token, 'analysis', batchId)), clean)
+}
+
+export async function loadAnalysis(token: string, batchId: string): Promise<ScanAnalysis | null> {
+  const { db, ref, get } = await dbfns()
+  const v = (await get(ref(db, publicPath(token, 'analysis', batchId)))).val() as ScanAnalysis | null
+  if (!v || !Array.isArray(v.rows)) return v && v.analyzedAt ? { rows: [], analyzedAt: v.analyzedAt } : null
+  return v
+}
+
+/** 受信箱一覧用：解析済みバッチの一覧（batchId → analyzedAt） */
+export async function loadAnalyses(token: string): Promise<Record<string, ScanAnalysis>> {
+  const { db, ref, get } = await dbfns()
+  return ((await get(ref(db, publicPath(token, 'analysis')))).val() as Record<string, ScanAnalysis>) || {}
+}
+
 /** 事務所側：バッチ画像を {name, blob} で取得（Google Drive保存・ZIP用） */
 export async function getBatchImageBlobs(
   token: string,
@@ -318,4 +356,5 @@ export async function deleteBatch(token: string, batch: ScanBatch): Promise<void
   }
   const { db, ref, remove } = await dbfns()
   await remove(ref(db, publicPath(token, 'batches', batch.id)))
+  try { await remove(ref(db, publicPath(token, 'analysis', batch.id))) } catch { /* ignore */ }
 }
