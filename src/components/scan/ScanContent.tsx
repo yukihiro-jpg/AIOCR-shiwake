@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
@@ -15,6 +15,9 @@ import {
   setFileStatus,
   deleteScanFile,
   getScanFileBlob,
+  markFileDownloaded,
+  markFileDriveSaved,
+  SCAN_FILE_RETENTION_DAYS,
   type ScanFile,
   setBatchStatus,
   setCashStatus,
@@ -1236,11 +1239,32 @@ function FilesTab({
 
   const list = Object.values(files)
     .filter((f) => showDone || f.status !== 'done')
-    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+    .sort((a, b) => (a.folder || '').localeCompare(b.folder || '', 'ja') || b.submittedAt.localeCompare(a.submittedAt))
+
+  // フォルダごとにグループ化（顧問先が付けたサブフォルダ。無しは末尾）
+  const groups: { folder: string; items: ScanFile[] }[] = []
+  for (const f of list) {
+    const key = f.folder || ''
+    const g = groups.find((x) => x.folder === key)
+    if (g) g.items.push(f)
+    else groups.push({ folder: key, items: [f] })
+  }
+  groups.sort((a, b) => (a.folder === '' ? 1 : b.folder === '' ? -1 : a.folder.localeCompare(b.folder, 'ja')))
 
   function fmtSize(bytes: number): string {
     if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
     return Math.max(1, Math.round(bytes / 1024)) + 'KB'
+  }
+
+  // 削除までの残り日数（90日保存）
+  function daysLeft(f: ScanFile): number {
+    const t = Date.parse(f.submittedAt || '')
+    if (!t) return 999
+    return Math.ceil((t + SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000 - Date.now()) / (24 * 3600 * 1000))
+  }
+
+  function isNew(f: ScanFile): boolean {
+    return !f.downloadedAt && !f.driveSavedAt && f.status !== 'done'
   }
 
   async function downloadOne(f: ScanFile) {
@@ -1249,6 +1273,8 @@ function FilesTab({
     try {
       const blob = await getScanFileBlob(f)
       downloadBlob(blob, f.name)
+      try { await markFileDownloaded(company.token, f.id) } catch { /* ignore */ }
+      await onChanged()
     } catch (e) {
       setMsg('ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
     }
@@ -1265,12 +1291,18 @@ function FilesTab({
       for (let i = 0; i < list.length; i++) {
         setMsg(`まとめています... (${i + 1}/${list.length})`)
         const blob = await getScanFileBlob(list[i])
-        zip.file(list[i].name, blob)
+        if (list[i].folder) zip.folder(safe(list[i].folder!))?.file(list[i].name, blob)
+        else zip.file(list[i].name, blob)
       }
       setMsg('ZIPを作成中...')
       const out = await zip.generateAsync({ type: 'blob' })
       downloadBlob(out, `${safe(client.name)}_ファイル便_${new Date().toISOString().slice(0, 10)}.zip`)
       setMsg('')
+      // 含まれた全ファイルにDL済みマーク
+      for (const f of list) {
+        try { await markFileDownloaded(company.token, f.id) } catch { /* ignore */ }
+      }
+      await onChanged()
     } catch (e) {
       setMsg('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
     }
@@ -1334,32 +1366,64 @@ function FilesTab({
             </tr>
           </thead>
           <tbody>
-            {list.map((f) => (
-              <tr key={f.id} className="border-t border-gray-100">
-                <td className="px-3 py-2 text-gray-800">📄 {f.name}</td>
-                <td className="px-3 py-2 text-right text-gray-600">{fmtSize(f.size)}</td>
-                <td className="px-3 py-2 text-gray-600">{new Date(f.submittedAt).toLocaleString('ja-JP')}</td>
-                <td className="px-3 py-2">
-                  {f.status === 'done' ? (
-                    <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
-                  ) : (
-                    <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <span className="inline-flex gap-1.5">
-                    <button onClick={() => downloadOne(f)} disabled={busy} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
-                      DL
-                    </button>
-                    <button onClick={() => toggleDone(f)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                      {f.status === 'done' ? '未処理に戻す' : '処理済みにする'}
-                    </button>
-                    <button onClick={() => removeOne(f)} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
-                      削除
-                    </button>
-                  </span>
-                </td>
-              </tr>
+            {groups.map((g) => (
+              <Fragment key={g.folder || '_none'}>
+                {g.folder && (
+                  <tr className="bg-gray-50/70 border-t border-gray-200">
+                    <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold text-gray-600">📂 {g.folder}</td>
+                  </tr>
+                )}
+                {g.items.map((f) => {
+                  const left = daysLeft(f)
+                  return (
+                    <tr key={f.id} className="border-t border-gray-100">
+                      <td className="px-3 py-2 text-gray-800">
+                        {g.folder ? <span className="text-gray-300 mr-1">└</span> : null}📄 {f.name}
+                        <span className="inline-flex gap-1 ml-2 align-middle">
+                          {isNew(f) && <span className="text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">新着</span>}
+                          {f.downloadedAt && (
+                            <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5" title={`DL: ${new Date(f.downloadedAt).toLocaleString('ja-JP')}`}>
+                              ⬇ DL済
+                            </span>
+                          )}
+                          {f.driveSavedAt && (
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5" title={`Drive保存: ${new Date(f.driveSavedAt).toLocaleString('ja-JP')}`}>
+                              📁 Drive済
+                            </span>
+                          )}
+                          {left <= 10 && (
+                            <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-300 rounded px-1.5 py-0.5">
+                              🗑 あと{Math.max(0, left)}日で削除
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-600">{fmtSize(f.size)}</td>
+                      <td className="px-3 py-2 text-gray-600">{new Date(f.submittedAt).toLocaleString('ja-JP')}</td>
+                      <td className="px-3 py-2">
+                        {f.status === 'done' ? (
+                          <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
+                        ) : (
+                          <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <span className="inline-flex gap-1.5">
+                          <button onClick={() => downloadOne(f)} disabled={busy} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
+                            DL
+                          </button>
+                          <button onClick={() => toggleDone(f)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            {f.status === 'done' ? '未処理に戻す' : '処理済みにする'}
+                          </button>
+                          <button onClick={() => removeOne(f)} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                            削除
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -1367,14 +1431,21 @@ function FilesTab({
 
       {driveOpen && (
         <DriveSaveDialog
-          title={`${client.name}／ファイル便の${list.length}件を共有ドライブに保存します`}
+          title={`${client.name}／ファイル便の${list.length}件を共有ドライブに保存します（フォルダ付きはサブフォルダに振り分け）`}
           getFiles={async (onProgress) => {
-            const out: { name: string; blob: Blob }[] = []
+            const out: { name: string; blob: Blob; folder?: string }[] = []
             for (let i = 0; i < list.length; i++) {
               onProgress(`ファイルを取得しています... (${i + 1}/${list.length}) ${list[i].name}`)
-              out.push({ name: list[i].name, blob: await getScanFileBlob(list[i]) })
+              out.push({ name: list[i].name, blob: await getScanFileBlob(list[i]), folder: list[i].folder })
             }
             return out
+          }}
+          onSaved={async () => {
+            // 保存に成功した全ファイルへDrive保存済みマーク
+            for (const f of list) {
+              try { await markFileDriveSaved(company.token, f.id) } catch { /* ignore */ }
+            }
+            await onChanged()
           }}
           onClose={() => setDriveOpen(false)}
         />

@@ -225,8 +225,11 @@ export interface ScanFile {
   size: number
   mimeType: string
   path: string // Storage 上のパス
+  folder?: string // 顧問先が付けたフォルダ名（任意・整理用）
   submittedAt: string
   status: ScanStatus
+  downloadedAt?: string // 事務所がDL（個別/ZIP）した日時
+  driveSavedAt?: string // 事務所がGoogleドライブへ保存した日時
 }
 
 export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
@@ -241,10 +244,12 @@ function safeFileName(name: string): string {
 export async function submitFilesPublic(
   token: string,
   files: File[],
+  folder?: string,
   onProgress?: (done: number, total: number, name: string) => void,
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
   if (!files.length) throw new Error('ファイルがありません')
+  const folderName = safeFileName((folder || '').trim()).slice(0, 40)
   const { st, ref: sref, uploadBytes } = await storageFns()
   const { db, ref, set } = await dbfns()
   for (let i = 0; i < files.length; i++) {
@@ -260,12 +265,25 @@ export async function submitFilesPublic(
       size: f.size,
       mimeType: f.type || '',
       path,
+      ...(folderName ? { folder: folderName } : {}),
       submittedAt: new Date().toISOString(),
       status: 'new',
     }
     await set(ref(db, publicPath(token, 'files', id)), rec)
     onProgress?.(i + 1, files.length, f.name)
   }
+}
+
+/** 事務所がDLした印を付ける */
+export async function markFileDownloaded(token: string, id: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'files', id)), { downloadedAt: new Date().toISOString() })
+}
+
+/** 事務所がGoogleドライブへ保存した印を付ける */
+export async function markFileDriveSaved(token: string, id: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'files', id)), { driveSavedAt: new Date().toISOString() })
 }
 
 export async function loadFiles(token: string): Promise<Record<string, ScanFile>> {

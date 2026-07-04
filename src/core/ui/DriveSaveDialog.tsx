@@ -26,11 +26,13 @@ interface Props {
   // 保存実行時に呼ばれる（画像のダウンロード等の重い処理はここで行う）
   getFiles: (onProgress: (msg: string) => void) => Promise<DriveFile[]>
   onClose: () => void
+  // 全件の保存が成功したときに呼ばれる（保存済みマーク付け等）
+  onSaved?: () => void
 }
 
 type Crumb = { id: string; name: string }
 
-export default function DriveSaveDialog({ title, getFiles, onClose }: Props) {
+export default function DriveSaveDialog({ title, getFiles, onClose, onSaved }: Props) {
   const [connected, setConnected] = useState(false)
   const [drives, setDrives] = useState<DriveItem[]>([])
   const [drive, setDrive] = useState<DriveItem | null>(null)
@@ -147,6 +149,7 @@ export default function DriveSaveDialog({ title, getFiles, onClose }: Props) {
       }
       const place = [drive.name, ...crumbs.map((c) => c.name)].join(' / ')
       setDone(`${files.length}件を「${place}」に保存しました。`)
+      onSaved?.()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     }

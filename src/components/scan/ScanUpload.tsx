@@ -61,6 +61,7 @@ export default function ScanUpload() {
 
   // ファイル便
   const [sendFiles, setSendFiles] = useState<File[]>([])
+  const [sendFolder, setSendFolder] = useState('')
   const [fileDrag, setFileDrag] = useState(false)
   const [fileSubmitting, setFileSubmitting] = useState(false)
   const [fileProgress, setFileProgress] = useState('')
@@ -238,12 +239,12 @@ export default function ScanUpload() {
     setFileErr('')
     setFileDone('')
     try {
-      await submitFilesPublic(token, sendFiles, (done, total, name) => {
+      await submitFilesPublic(token, sendFiles, sendFolder, (done, total, name) => {
         setFileProgress(`送信中... (${Math.min(done + 1, total)}/${total}) ${name}`)
       })
-      setFileDone(`✅ ${sendFiles.length}件のファイルを送信しました。ありがとうございました。`)
+      setFileDone(`✅ ${sendFiles.length}件のファイルを送信しました${sendFolder.trim() ? `（フォルダ：${sendFolder.trim()}）` : ''}。ありがとうございました。`)
       setHistory((prev) => [
-        { at: new Date().toLocaleString('ja-JP'), label: `ファイル（${sendFiles.length}件）` },
+        { at: new Date().toLocaleString('ja-JP'), label: `ファイル（${sendFiles.length}件${sendFolder.trim() ? `・${sendFolder.trim()}` : ''}）` },
         ...prev,
       ])
       setSendFiles([])
@@ -512,6 +513,14 @@ export default function ScanUpload() {
           <p className="text-xs text-gray-500 mb-3">
             PDF・Excel・Word などのファイルを事務所へ送れます（お手元の元ファイルはそのまま残ります）。
           </p>
+
+          <label className="block text-xs text-gray-500 mb-1">📂 フォルダ名（任意・まとめて整理したいとき）</label>
+          <input
+            value={sendFolder}
+            onChange={(e) => setSendFolder(e.target.value)}
+            placeholder="例：2026年3月分、決算資料 など"
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3"
+          />
 
           <div
             onDragOver={(e) => { e.preventDefault(); setFileDrag(true) }}
