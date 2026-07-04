@@ -215,6 +215,81 @@ export async function submitCashEntryPublic(
   await set(ref(db, publicPath(token, 'cash', id)), rec)
 }
 
+// ===== ファイル便（PDF・Excel等のファイル受け渡し） =====
+// 「同期」ではなく一方通行のコピー送付。削除は受け渡し箱（Firebase上のコピー）のみで、
+// 顧問先の手元の元ファイルには一切影響しない。
+
+export interface ScanFile {
+  id: string
+  name: string
+  size: number
+  mimeType: string
+  path: string // Storage 上のパス
+  submittedAt: string
+  status: ScanStatus
+}
+
+export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
+export const SCAN_FILE_MAX_BYTES = 50 * 1024 * 1024 // 1ファイル上限 50MB
+export const SCAN_FILE_MAX_TOTAL = 200 * 1024 * 1024 // 1回の送信上限 200MB
+
+function safeFileName(name: string): string {
+  return (name || 'file').replace(/[\\/:*?"<>|#\[\]]/g, '_').slice(0, 120)
+}
+
+/** 顧問先側：ファイルを送信（1件ずつStorageへ・RTDBに記録）。実際の成否を返す */
+export async function submitFilesPublic(
+  token: string,
+  files: File[],
+  onProgress?: (done: number, total: number, name: string) => void,
+): Promise<void> {
+  if (!token) throw new Error('トークンがありません')
+  if (!files.length) throw new Error('ファイルがありません')
+  const { st, ref: sref, uploadBytes } = await storageFns()
+  const { db, ref, set } = await dbfns()
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]
+    onProgress?.(i, files.length, f.name)
+    const id = genId()
+    const name = safeFileName(f.name)
+    const path = `scan-public/${token}/files/${id}/${name}`
+    await uploadBytes(sref(st, path), f, { contentType: f.type || 'application/octet-stream' })
+    const rec: ScanFile = {
+      id,
+      name,
+      size: f.size,
+      mimeType: f.type || '',
+      path,
+      submittedAt: new Date().toISOString(),
+      status: 'new',
+    }
+    await set(ref(db, publicPath(token, 'files', id)), rec)
+    onProgress?.(i + 1, files.length, f.name)
+  }
+}
+
+export async function loadFiles(token: string): Promise<Record<string, ScanFile>> {
+  const { db, ref, get } = await dbfns()
+  return ((await get(ref(db, publicPath(token, 'files')))).val() as Record<string, ScanFile>) || {}
+}
+
+export async function setFileStatus(token: string, id: string, status: ScanStatus): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'files', id)), { status })
+}
+
+export async function deleteScanFile(token: string, file: ScanFile): Promise<void> {
+  const { st, ref: sref, deleteObject } = await storageFns()
+  try { await deleteObject(sref(st, file.path)) } catch { /* 既に無い等は無視 */ }
+  const { db, ref, remove } = await dbfns()
+  await remove(ref(db, publicPath(token, 'files', file.id)))
+}
+
+export async function getScanFileBlob(file: ScanFile): Promise<Blob> {
+  const { st, ref: sref, getBlob } = await storageFns()
+  return getBlob(sref(st, file.path))
+}
+
 // ===== 事務所側：受信箱の閲覧・操作 =====
 
 export async function loadBatches(token: string): Promise<Record<string, ScanBatch>> {
@@ -437,6 +512,17 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
       try { await remove(ref(db, publicPath(token, 'cash', c.id))); removed++ } catch { /* 次回に再試行 */ }
     }
   }
+  // ファイル便は送信から90日で削除（受け渡しの箱の掃除。顧問先の元ファイルには影響しない）
+  const fileCutoff = Date.now() - SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000
+  try {
+    const files = await loadFiles(token)
+    for (const f of Object.values(files)) {
+      const t = Date.parse(f.submittedAt || '')
+      if (t && t < fileCutoff) {
+        try { await deleteScanFile(token, f); removed++ } catch { /* 次回に再試行 */ }
+      }
+    }
+  } catch { /* ignore */ }
   return removed
 }
 

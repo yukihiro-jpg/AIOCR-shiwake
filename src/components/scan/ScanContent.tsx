@@ -11,6 +11,11 @@ import {
   type ScanClient,
   loadBatches,
   loadCashEntries,
+  loadFiles,
+  setFileStatus,
+  deleteScanFile,
+  getScanFileBlob,
+  type ScanFile,
   setBatchStatus,
   setCashStatus,
   getBatchImageUrls,
@@ -51,7 +56,7 @@ export default function ScanContent() {
   const [pass, setPass] = useState('')
   const [clients, setClients] = useState<SharedClient[]>([])
   const [companies, setCompanies] = useState<Record<string, ScanCompany>>({})
-  const [counts, setCounts] = useState<Record<string, { batch: number; cash: number }>>({})
+  const [counts, setCounts] = useState<Record<string, { batch: number; cash: number; file: number }>>({})
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
@@ -90,16 +95,21 @@ export default function ScanContent() {
       const comps = await loadScanCompanies()
       setClients(cl)
       setCompanies(comps)
-      const nextCounts: Record<string, { batch: number; cash: number }> = {}
+      const nextCounts: Record<string, { batch: number; cash: number; file: number }> = {}
       await Promise.all(
         Object.values(comps).map(async (c) => {
           try {
-            // 保存期間（送信から1年）を過ぎたデータを自動削除してから件数を数える
+            // 保存期間（画像1年・ファイル90日）を過ぎたデータを自動削除してから件数を数える
             try { await sweepOldScanData(c.token) } catch { /* 権限エラー等は下で表示される */ }
-            const [batches, cash] = await Promise.all([loadBatches(c.token), loadCashEntries(c.token)])
+            const [batches, cash, files] = await Promise.all([
+              loadBatches(c.token),
+              loadCashEntries(c.token),
+              loadFiles(c.token),
+            ])
             nextCounts[c.clientId] = {
               batch: Object.values(batches).filter((b) => b.status !== 'done').length,
               cash: Object.values(cash).filter((c2) => c2.status !== 'done').length,
+              file: Object.values(files).filter((f) => f.status !== 'done').length,
             }
           } catch (e) {
             errors.push(e instanceof Error ? e.message : String(e))
@@ -208,6 +218,7 @@ export default function ScanContent() {
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
                   <th className="text-left px-4 py-2 font-semibold">未処理バッチ</th>
                   <th className="text-left px-4 py-2 font-semibold">未処理現金登録</th>
+                  <th className="text-left px-4 py-2 font-semibold">未処理ファイル</th>
                   <th className="text-right px-4 py-2 font-semibold">操作</th>
                 </tr>
               </thead>
@@ -215,7 +226,7 @@ export default function ScanContent() {
                 {clients.map((client) => {
                   const company = companies[client.id]
                   if (!company) return null
-                  const cnt = counts[client.id] || { batch: 0, cash: 0 }
+                  const cnt = counts[client.id] || { batch: 0, cash: 0, file: 0 }
                   return (
                     <tr key={client.id} className="border-t border-gray-100">
                       <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
@@ -225,6 +236,9 @@ export default function ScanContent() {
                       </td>
                       <td className="px-4 py-3">
                         <span className="font-semibold text-blue-700">{cnt.cash}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-blue-700">{cnt.file}</span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 justify-end flex-wrap">
@@ -302,9 +316,12 @@ function InboxModal({
   onClose: () => void
   onChanged: () => void
 }) {
-  const [tab, setTab] = useState<'batches' | 'cash'>('batches')
+  const [tab, setTab] = useState<'batches' | 'cash' | 'files'>('batches')
   const [batches, setBatches] = useState<Record<string, ScanBatch>>({})
   const [cash, setCash] = useState<Record<string, ScanCashEntry>>({})
+  const [files, setFiles] = useState<Record<string, ScanFile>>({})
+  const [fileDriveOpen, setFileDriveOpen] = useState(false)
+  const [fileMsg, setFileMsg] = useState('')
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
@@ -315,14 +332,16 @@ function InboxModal({
     setLoading(true)
     setErr('')
     try {
-      const [b, c, a] = await Promise.all([
+      const [b, c, a, f] = await Promise.all([
         loadBatches(company.token),
         loadCashEntries(company.token),
         loadAnalyses(company.token),
+        loadFiles(company.token),
       ])
       setBatches(b)
       setCash(c)
       setAnalyses(a)
+      setFiles(f)
     } catch (e) {
       setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     } finally {
@@ -428,6 +447,12 @@ function InboxModal({
           >
             現金引出・預入
           </button>
+          <button
+            onClick={() => setTab('files')}
+            className={`px-3 py-1.5 text-sm rounded ${tab === 'files' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
+          >
+            📎 ファイル
+          </button>
         </div>
         <label className="flex items-center gap-1.5 text-xs text-gray-500">
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
@@ -491,6 +516,21 @@ function InboxModal({
             </tbody>
           </table>
         )
+      ) : tab === 'files' ? (
+        <FilesTab
+          client={client}
+          company={company}
+          files={files}
+          showDone={showDone}
+          msg={fileMsg}
+          setMsg={setFileMsg}
+          driveOpen={fileDriveOpen}
+          setDriveOpen={setFileDriveOpen}
+          onChanged={async () => {
+            await load()
+            onChanged()
+          }}
+        />
       ) : cashList.length === 0 ? (
         <p className="text-sm text-gray-500 py-6 text-center">現金の登録がありません。</p>
       ) : (
@@ -1165,6 +1205,180 @@ function TransferDialog({
           <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">閉じる</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** 受信箱の「📎 ファイル」タブ（ファイル便）。DL・ZIP一括DL・Drive保存・処理済み管理・削除。
+ *  削除は受け渡し箱（Firebase上のコピー）のみで、顧問先の元ファイルには影響しない。 */
+function FilesTab({
+  client,
+  company,
+  files,
+  showDone,
+  msg,
+  setMsg,
+  driveOpen,
+  setDriveOpen,
+  onChanged,
+}: {
+  client: SharedClient
+  company: ScanCompany
+  files: Record<string, ScanFile>
+  showDone: boolean
+  msg: string
+  setMsg: (m: string) => void
+  driveOpen: boolean
+  setDriveOpen: (v: boolean) => void
+  onChanged: () => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+
+  const list = Object.values(files)
+    .filter((f) => showDone || f.status !== 'done')
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+
+  function fmtSize(bytes: number): string {
+    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
+    return Math.max(1, Math.round(bytes / 1024)) + 'KB'
+  }
+
+  async function downloadOne(f: ScanFile) {
+    setBusy(true)
+    setMsg('')
+    try {
+      const blob = await getScanFileBlob(f)
+      downloadBlob(blob, f.name)
+    } catch (e) {
+      setMsg('ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
+  async function downloadZip() {
+    if (!list.length) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      for (let i = 0; i < list.length; i++) {
+        setMsg(`まとめています... (${i + 1}/${list.length})`)
+        const blob = await getScanFileBlob(list[i])
+        zip.file(list[i].name, blob)
+      }
+      setMsg('ZIPを作成中...')
+      const out = await zip.generateAsync({ type: 'blob' })
+      downloadBlob(out, `${safe(client.name)}_ファイル便_${new Date().toISOString().slice(0, 10)}.zip`)
+      setMsg('')
+    } catch (e) {
+      setMsg('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
+  async function toggleDone(f: ScanFile) {
+    try {
+      await setFileStatus(company.token, f.id, f.status === 'done' ? 'new' : 'done')
+      await onChanged()
+    } catch (e) {
+      alert('更新に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  async function removeOne(f: ScanFile) {
+    if (!confirm(`「${f.name}」を削除しますか？\n（受け渡し箱のコピーが消えるだけで、顧問先の元ファイルには影響しません）`)) return
+    try {
+      await deleteScanFile(company.token, f)
+      await onChanged()
+    } catch (e) {
+      alert('削除に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <p className="text-xs text-gray-500">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDriveOpen(true)}
+            disabled={busy || list.length === 0}
+            className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
+          >
+            📁 Driveへ保存
+          </button>
+          <button
+            onClick={downloadZip}
+            disabled={busy || list.length === 0}
+            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+          >
+            一括DL（ZIP）
+          </button>
+        </div>
+      </div>
+
+      {msg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{msg}</div>}
+
+      {list.length === 0 ? (
+        <p className="text-sm text-gray-500 py-6 text-center">ファイルがありません。</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500">
+              <th className="text-left px-3 py-2">ファイル名</th>
+              <th className="text-right px-3 py-2">サイズ</th>
+              <th className="text-left px-3 py-2">送信日時</th>
+              <th className="text-left px-3 py-2">状態</th>
+              <th className="text-right px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((f) => (
+              <tr key={f.id} className="border-t border-gray-100">
+                <td className="px-3 py-2 text-gray-800">📄 {f.name}</td>
+                <td className="px-3 py-2 text-right text-gray-600">{fmtSize(f.size)}</td>
+                <td className="px-3 py-2 text-gray-600">{new Date(f.submittedAt).toLocaleString('ja-JP')}</td>
+                <td className="px-3 py-2">
+                  {f.status === 'done' ? (
+                    <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
+                  ) : (
+                    <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <span className="inline-flex gap-1.5">
+                    <button onClick={() => downloadOne(f)} disabled={busy} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
+                      DL
+                    </button>
+                    <button onClick={() => toggleDone(f)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                      {f.status === 'done' ? '未処理に戻す' : '処理済みにする'}
+                    </button>
+                    <button onClick={() => removeOne(f)} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
+                      削除
+                    </button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {driveOpen && (
+        <DriveSaveDialog
+          title={`${client.name}／ファイル便の${list.length}件を共有ドライブに保存します`}
+          getFiles={async (onProgress) => {
+            const out: { name: string; blob: Blob }[] = []
+            for (let i = 0; i < list.length; i++) {
+              onProgress(`ファイルを取得しています... (${i + 1}/${list.length}) ${list[i].name}`)
+              out.push({ name: list[i].name, blob: await getScanFileBlob(list[i]) })
+            }
+            return out
+          }}
+          onClose={() => setDriveOpen(false)}
+        />
+      )}
     </div>
   )
 }
