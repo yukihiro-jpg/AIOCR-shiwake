@@ -18,7 +18,17 @@ import {
   markFileDownloaded,
   markFileDriveSaved,
   SCAN_FILE_RETENTION_DAYS,
+  SCAN_FILE_MAX_BYTES,
+  SCAN_FILE_MAX_TOTAL,
   type ScanFile,
+  addScanMember,
+  removeScanMember,
+  buildScanUrlFromToken,
+  sendInboxFile,
+  loadInbox,
+  deleteInboxFile,
+  type ScanMember,
+  type ScanInboxFile,
   setBatchStatus,
   setCashStatus,
   getBatchImageUrls,
@@ -64,6 +74,7 @@ export default function ScanContent() {
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
   const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
+  const [membersFor, setMembersFor] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
 
   // 常駐の自動AI解析エンジン（layout.tsx で全ページ起動）の状態を表示に反映
   const [engineMsg, setEngineMsg] = useState('')
@@ -104,6 +115,9 @@ export default function ScanContent() {
           try {
             // 保存期間（画像1年・ファイル90日）を過ぎたデータを自動削除してから件数を数える
             try { await sweepOldScanData(c.token) } catch { /* 権限エラー等は下で表示される */ }
+            for (const m of Object.values(c.members || {})) {
+              try { await sweepOldScanData(m.token) } catch { /* ignore */ }
+            }
             const [batches, cash, files] = await Promise.all([
               loadBatches(c.token),
               loadCashEntries(c.token),
@@ -251,6 +265,9 @@ export default function ScanContent() {
                           <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             QR表示
                           </button>
+                          <button onClick={() => setMembersFor({ client, company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            👥 メンバー{company.members && Object.keys(company.members).length ? `（${Object.keys(company.members).length}）` : ''}
+                          </button>
                           <button onClick={() => setInbox({ client, company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
                             受信箱を開く
                           </button>
@@ -281,6 +298,15 @@ export default function ScanContent() {
           company={inbox.company}
           analyzingIds={analyzingIds}
           onClose={() => setInbox(null)}
+          onChanged={reload}
+        />
+      )}
+
+      {membersFor && (
+        <MembersDialog
+          client={membersFor.client}
+          company={membersFor.company}
+          onClose={() => setMembersFor(null)}
           onChanged={reload}
         />
       )}
@@ -489,6 +515,7 @@ function InboxModal({
                     {b.docType}
                     {b.bankName ? `（${b.bankName} ${b.accountNumber || ''}）` : ''}
                     {b.userName ? `（${b.userName}）` : ''}
+                    {b.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{b.member}</span>}
                   </td>
                   <td className="px-3 py-2 text-gray-600">{b.pageCount}枚</td>
                   <td className="px-3 py-2">
@@ -561,6 +588,7 @@ function InboxModal({
                   <td className="px-3 py-2 text-gray-800">
                     {c.entryType}
                     {c.depositType ? `（${c.depositType}）` : ''}
+                    {c.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{c.member}</span>}
                   </td>
                   <td className="px-3 py-2 text-gray-600">
                     {c.bankName} {c.accountNumber || ''}
@@ -1236,6 +1264,8 @@ function FilesTab({
   onChanged: () => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sentRefresh, setSentRefresh] = useState(0)
 
   const list = Object.values(files)
     .filter((f) => showDone || f.status !== 'done')
@@ -1334,6 +1364,12 @@ function FilesTab({
         <p className="text-xs text-gray-500">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
         <div className="flex gap-2">
           <button
+            onClick={() => setSendOpen(true)}
+            className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            📤 顧問先へ送る
+          </button>
+          <button
             onClick={() => setDriveOpen(true)}
             disabled={busy || list.length === 0}
             className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
@@ -1380,6 +1416,7 @@ function FilesTab({
                       <td className="px-3 py-2 text-gray-800">
                         {g.folder ? <span className="text-gray-300 mr-1">└</span> : null}📄 {f.name}
                         <span className="inline-flex gap-1 ml-2 align-middle">
+                          {f.member && <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{f.member}</span>}
                           {isNew(f) && <span className="text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">新着</span>}
                           {f.downloadedAt && (
                             <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5" title={`DL: ${new Date(f.downloadedAt).toLocaleString('ja-JP')}`}>
@@ -1429,6 +1466,17 @@ function FilesTab({
         </table>
       )}
 
+      <SentFilesSection company={company} refresh={sentRefresh} />
+
+      {sendOpen && (
+        <SendFilesDialog
+          client={client}
+          company={company}
+          onClose={() => setSendOpen(false)}
+          onSent={() => setSentRefresh((v) => v + 1)}
+        />
+      )}
+
       {driveOpen && (
         <DriveSaveDialog
           title={`${client.name}／ファイル便の${list.length}件を共有ドライブに保存します（フォルダ付きはサブフォルダに振り分け）`}
@@ -1450,6 +1498,363 @@ function FilesTab({
           onClose={() => setDriveOpen(false)}
         />
       )}
+    </div>
+  )
+}
+
+/** メンバー別URLの管理（宛先制御用）。追加・URLコピー・QR・削除 */
+function MembersDialog({
+  client,
+  company,
+  onClose,
+  onChanged,
+}: {
+  client: SharedClient
+  company: ScanCompany
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [members, setMembers] = useState<ScanMember[]>(Object.values(company.members || {}))
+  const [newName, setNewName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
+
+  async function add() {
+    const name = newName.trim()
+    if (!name) return
+    if (members.some((m) => m.name === name)) {
+      setMsg('同じ名前のメンバーが既にいます。')
+      return
+    }
+    setBusy(true)
+    setMsg('')
+    try {
+      const m = await addScanMember(company, name)
+      setMembers((prev) => [...prev, m])
+      setNewName('')
+      onChanged()
+    } catch (e) {
+      setMsg('追加に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
+  async function remove(m: ScanMember) {
+    if (!confirm(`メンバー「${m.name}」を削除しますか？\n・このメンバーのURLは使えなくなります\n・このメンバー宛の未受領ファイルも削除されます`)) return
+    setBusy(true)
+    try {
+      await removeScanMember(client.id, m)
+      setMembers((prev) => prev.filter((x) => x.id !== m.id))
+      onChanged()
+    } catch (e) {
+      setMsg('削除に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
+  async function copyUrl(m: ScanMember) {
+    const url = buildScanUrlFromToken(m.token)
+    try {
+      await navigator.clipboard.writeText(url)
+      setMsg(`${m.name} さんのURLをコピーしました。`)
+    } catch {
+      window.prompt('URLをコピーしてください', url)
+    }
+  }
+
+  async function showQr(m: ScanMember) {
+    const url = buildScanUrlFromToken(m.token)
+    const QRCode = (await import('qrcode')).default
+    const dataUrl = await QRCode.toDataURL(url, { width: 280, margin: 1 })
+    setQr({ name: `${client.name}／${m.name}`, url, dataUrl })
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h2 className="font-bold text-gray-800 mb-1">{client.name} — メンバー別URL</h2>
+      <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+        メンバーごとに専用URLを発行できます。ファイル送信時に宛先を選ぶと、<b>その人のURLでしか見られません</b>（全員宛は会社URL・全メンバーで閲覧可）。
+        誰が送信・受領したかも名前で表示されます。
+      </p>
+
+      {msg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-3">{msg}</div>}
+
+      <div className="flex gap-2 mb-4">
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') add() }}
+          placeholder="メンバー名（例：社長、経理担当）"
+          className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg"
+        />
+        <button onClick={add} disabled={busy || !newName.trim()} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+          ＋ 追加
+        </button>
+      </div>
+
+      {members.length === 0 ? (
+        <p className="text-sm text-gray-500 py-4 text-center">メンバーがいません（会社URLのみの運用）。</p>
+      ) : (
+        <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+          {members.map((m) => (
+            <li key={m.id} className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-sm font-medium text-gray-800">👤 {m.name}</span>
+              <span className="inline-flex gap-1.5">
+                <button onClick={() => copyUrl(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">URLコピー</button>
+                <button onClick={() => showQr(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">QR表示</button>
+                <button onClick={() => remove(m)} disabled={busy} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50">削除</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {qr && (
+        <div className="mt-4 border-t border-gray-200 pt-3 text-center">
+          <div className="text-sm font-semibold text-gray-800 mb-2">{qr.name}</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr.dataUrl} alt="QR" className="mx-auto mb-2" />
+          <div className="text-[11px] text-gray-500 break-all bg-gray-50 rounded p-2">{qr.url}</div>
+          <button onClick={() => setQr(null)} className="mt-2 text-xs text-gray-500">QRを閉じる</button>
+        </div>
+      )}
+    </Overlay>
+  )
+}
+
+/** 事務所→顧問先のファイル送信ダイアログ（宛先選択つき） */
+function SendFilesDialog({
+  client,
+  company,
+  onClose,
+  onSent,
+}: {
+  client: SharedClient
+  company: ScanCompany
+  onClose: () => void
+  onSent: () => void
+}) {
+  const members = Object.values(company.members || {})
+  const [files, setFiles] = useState<File[]>([])
+  const [drag, setDrag] = useState(false)
+  const [folder, setFolder] = useState('')
+  const [toAll, setToAll] = useState(true)
+  const [toMembers, setToMembers] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState('')
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState('')
+
+  function addFiles(list: FileList | File[] | null) {
+    if (!list || !list.length) return
+    const arr = Array.from(list)
+    setErr('')
+    const tooBig = arr.filter((f) => f.size > SCAN_FILE_MAX_BYTES)
+    if (tooBig.length) {
+      setErr(`${tooBig.map((f) => f.name).join('、')} は大きすぎます（1ファイル50MBまで）。`)
+      return
+    }
+    setFiles((prev) => {
+      const next = [...prev, ...arr]
+      if (next.reduce((s, f) => s + f.size, 0) > SCAN_FILE_MAX_TOTAL) {
+        setErr('1回の送信は合計200MBまでです。分けて送信してください。')
+        return prev
+      }
+      return next
+    })
+  }
+
+  async function send() {
+    const recipients: { name: string; token: string }[] = []
+    if (toAll) recipients.push({ name: '全員', token: company.token })
+    for (const m of members) if (toMembers.has(m.id)) recipients.push({ name: m.name, token: m.token })
+    if (!recipients.length) {
+      setErr('宛先を選択してください。')
+      return
+    }
+    if (!files.length) {
+      setErr('ファイルを追加してください。')
+      return
+    }
+    setBusy(true)
+    setErr('')
+    setDone('')
+    try {
+      let n = 0
+      const total = files.length * recipients.length
+      for (const r of recipients) {
+        for (const f of files) {
+          setProgress(`送信中... (${++n}/${total}) ${r.name}宛：${f.name}`)
+          await sendInboxFile(r.token, f, f.name, folder)
+        }
+      }
+      setDone(`✅ ${files.length}件を ${recipients.map((r) => r.name).join('・')} 宛に送信しました。`)
+      setFiles([])
+      onSent()
+    } catch (e) {
+      setErr('送信に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+    setProgress('')
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-bold text-gray-800 mb-1">📤 {client.name} へファイルを送る</h3>
+        <p className="text-xs text-gray-500 mb-3">送信から90日で自動削除されます。顧問先の受け取り（DL）状況は送信済み一覧で確認できます。</p>
+
+        <div className="mb-3">
+          <div className="text-xs font-semibold text-gray-600 mb-1">宛先</div>
+          <label className="flex items-center gap-2 text-sm mb-1">
+            <input type="checkbox" checked={toAll} onChange={(e) => setToAll(e.target.checked)} />
+            全員宛（会社URLと全メンバーが閲覧可）
+          </label>
+          {members.map((m) => (
+            <label key={m.id} className="flex items-center gap-2 text-sm mb-1">
+              <input
+                type="checkbox"
+                checked={toMembers.has(m.id)}
+                onChange={(e) => {
+                  setToMembers((prev) => {
+                    const next = new Set(prev)
+                    if (e.target.checked) next.add(m.id)
+                    else next.delete(m.id)
+                    return next
+                  })
+                }}
+              />
+              👤 {m.name} 宛（この人のURLでのみ閲覧可）
+            </label>
+          ))}
+          {members.length === 0 && (
+            <p className="text-[11px] text-gray-400">※ メンバー宛にしたい場合は、先に「👥 メンバー」からメンバーURLを発行してください。</p>
+          )}
+        </div>
+
+        <label className="block text-xs text-gray-500 mb-1">📂 フォルダ名（任意）</label>
+        <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="例：2026年3月 月次報告" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3" />
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer?.files || null) }}
+          className={`border-2 border-dashed rounded-xl p-5 text-center mb-3 ${drag ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}`}
+        >
+          <p className="text-sm text-gray-600 mb-2">ここにファイルをドラッグ＆ドロップ</p>
+          <label className="inline-block px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold cursor-pointer">
+            ファイルを選択
+            <input type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
+          </label>
+        </div>
+
+        {files.length > 0 && (
+          <ul className="mb-3 space-y-1">
+            {files.map((f, i) => (
+              <li key={i} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1.5">
+                <span className="truncate mr-2">📄 {f.name}</span>
+                <button onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))} className="text-red-500 shrink-0">×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {err && <div className="text-xs text-red-600 mb-2 break-words">{err}</div>}
+        {done && <div className="text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-2">{done}</div>}
+
+        <button onClick={send} disabled={busy || files.length === 0} className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-60">
+          {busy ? progress || '送信中...' : '送信する'}
+        </button>
+
+        <div className="text-right mt-4">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm">閉じる</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 事務所→顧問先の送信済み一覧（受領確認・削除） */
+function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh: number }) {
+  const [rows, setRows] = useState<{ recipient: string; token: string; file: ScanInboxFile }[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const out: { recipient: string; token: string; file: ScanInboxFile }[] = []
+    try {
+      const shared = await loadInbox(company.token)
+      for (const f of Object.values(shared)) out.push({ recipient: '全員', token: company.token, file: f })
+      for (const m of Object.values(company.members || {})) {
+        try {
+          const inbox = await loadInbox(m.token)
+          for (const f of Object.values(inbox)) out.push({ recipient: m.name, token: m.token, file: f })
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+    out.sort((a, b) => b.file.sentAt.localeCompare(a.file.sentAt))
+    setRows(out)
+    setLoading(false)
+  }, [company])
+
+  useEffect(() => {
+    load()
+  }, [load, refresh])
+
+  async function remove(row: { recipient: string; token: string; file: ScanInboxFile }) {
+    if (!confirm(`「${row.file.name}」（${row.recipient}宛）を取り消しますか？顧問先のページから見えなくなります。`)) return
+    try {
+      await deleteInboxFile(row.token, row.file)
+      await load()
+    } catch (e) {
+      alert('削除に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  if (loading) return <p className="text-xs text-gray-400 py-3">送信済み一覧を読み込み中...</p>
+  if (!rows.length) return null
+
+  return (
+    <div className="mt-5 border-t border-gray-200 pt-3">
+      <h4 className="text-sm font-semibold text-gray-700 mb-2">📤 送信済み（事務所→顧問先）</h4>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50 text-gray-500">
+            <th className="text-left px-3 py-1.5">宛先</th>
+            <th className="text-left px-3 py-1.5">ファイル名</th>
+            <th className="text-left px-3 py-1.5">送信日</th>
+            <th className="text-left px-3 py-1.5">受領状況</th>
+            <th className="text-right px-3 py-1.5"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const dls = Object.keys(row.file.downloads || {})
+            return (
+              <tr key={row.token + row.file.id} className="border-t border-gray-100">
+                <td className="px-3 py-1.5 text-gray-700">{row.recipient}</td>
+                <td className="px-3 py-1.5 text-gray-800">
+                  {row.file.folder ? `📂${row.file.folder}／` : ''}📄 {row.file.name}
+                </td>
+                <td className="px-3 py-1.5 text-gray-600">{new Date(row.file.sentAt).toLocaleDateString('ja-JP')}</td>
+                <td className="px-3 py-1.5">
+                  {dls.length ? (
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5" title={dls.map((k) => `${k}: ${new Date((row.file.downloads || {})[k]).toLocaleString('ja-JP')}`).join('\n')}>
+                      ✅ 受領済み（{dls.join('、')}）
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">未受領</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right">
+                  <button onClick={() => remove(row)} className="px-2 py-0.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">取消</button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

@@ -6,8 +6,12 @@ import {
   submitScanBatchPublic,
   submitCashEntryPublic,
   submitFilesPublic,
+  loadInbox,
+  markInboxDownloaded,
+  getInboxBlob,
   SCAN_FILE_MAX_BYTES,
   SCAN_FILE_MAX_TOTAL,
+  type ScanInboxFile,
   type CashEntryType,
   type CashDepositType,
 } from '@/lib/scan/store'
@@ -37,6 +41,11 @@ export default function ScanUpload() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [token, setToken] = useState('')
   const [companyName, setCompanyName] = useState('')
+  const [memberName, setMemberName] = useState('') // メンバー用URLの場合のみ
+  const [companyToken, setCompanyToken] = useState('') // メンバー用URLの場合の会社トークン（撮影/送信先・全員宛の参照）
+  // 事務所からのファイル（自分宛＋全員宛）
+  const [inboxItems, setInboxItems] = useState<{ srcToken: string; file: ScanInboxFile; toAll: boolean }[]>([])
+  const [inboxMsg, setInboxMsg] = useState('')
 
   const [docType, setDocType] = useState<string>('レシート・領収書')
   const [bankName, setBankName] = useState('')
@@ -98,7 +107,24 @@ export default function ScanUpload() {
           }
           setToken(t)
           setCompanyName(info.name)
+          if (info.member) setMemberName(info.member)
+          if (info.ct) setCompanyToken(info.ct)
           setPhase('ready')
+          // 事務所からのファイル（自分宛＋全員宛）を読み込む
+          try {
+            const own = await loadInbox(t)
+            const items: { srcToken: string; file: ScanInboxFile; toAll: boolean }[] = Object.values(own).map((f) => ({
+              srcToken: t,
+              file: f,
+              toAll: !info.member, // 会社URLで見ている場合は全員宛
+            }))
+            if (info.ct) {
+              const shared = await loadInbox(info.ct)
+              for (const f of Object.values(shared)) items.push({ srcToken: info.ct, file: f, toAll: true })
+            }
+            items.sort((a, b) => b.file.sentAt.localeCompare(a.file.sentAt))
+            setInboxItems(items)
+          } catch { /* ignore */ }
         } catch {
           // 通信エラー・サーバ設定エラー等（リンク自体は正しい可能性がある）
           setPhase('error')
@@ -111,6 +137,34 @@ export default function ScanUpload() {
 
   const isPassbook = docType === '通帳'
   const isReceipt = docType === 'レシート・領収書'
+  // 撮影・現金・ファイル送信の送り先（メンバー用URLでも会社の受信箱に集約される）
+  const uploadToken = companyToken || token
+  const myDlKey = (memberName || '共通URL').replace(/[.#$/\[\]]/g, '_').slice(0, 40) || '共通URL'
+
+  async function downloadInboxFile(item: { srcToken: string; file: ScanInboxFile }) {
+    setInboxMsg('')
+    try {
+      const blob = await getInboxBlob(item.file)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = item.file.name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+      try { await markInboxDownloaded(item.srcToken, item.file.id, memberName || '共通URL') } catch { /* ignore */ }
+      setInboxItems((prev) =>
+        prev.map((x) =>
+          x.file.id === item.file.id
+            ? { ...x, file: { ...x.file, downloads: { ...(x.file.downloads || {}), [myDlKey]: new Date().toISOString() } } }
+            : x,
+        ),
+      )
+    } catch (e) {
+      setInboxMsg('ダウンロードに失敗しました：' + (e instanceof Error ? e.message : '') + '。通信環境をご確認ください')
+    }
+  }
 
   function onCapture(list: FileList | null) {
     if (!list || !list.length) return
@@ -140,12 +194,13 @@ export default function ScanUpload() {
       }
       setProgress('送信しています...')
       await submitScanBatchPublic(
-        token,
+        uploadToken,
         docType,
         {
           bankName: isPassbook ? bankName : undefined,
           accountNumber: isPassbook ? accountNumber : undefined,
           userName: isReceipt ? userName : undefined,
+          member: memberName || undefined,
         },
         blobs,
       )
@@ -185,13 +240,14 @@ export default function ScanUpload() {
     }
     setCashSubmitting(true)
     try {
-      await submitCashEntryPublic(token, {
+      await submitCashEntryPublic(uploadToken, {
         entryType: cashTab,
         date: cashDate,
         bankName: cashBank,
         accountNumber: cashAccount || undefined,
         amount: amountNum,
         depositType: cashTab === '現金預入' ? cashDepositType : undefined,
+        member: memberName || undefined,
       })
       setCashDone(`${cashTab}を登録しました。`)
       setCashBank('')
@@ -239,7 +295,7 @@ export default function ScanUpload() {
     setFileErr('')
     setFileDone('')
     try {
-      await submitFilesPublic(token, sendFiles, sendFolder, (done, total, name) => {
+      await submitFilesPublic(uploadToken, sendFiles, sendFolder, memberName || undefined, (done, total, name) => {
         setFileProgress(`送信中... (${Math.min(done + 1, total)}/${total}) ${name}`)
       })
       setFileDone(`✅ ${sendFiles.length}件のファイルを送信しました${sendFolder.trim() ? `（フォルダ：${sendFolder.trim()}）` : ''}。ありがとうございました。`)
@@ -290,11 +346,47 @@ export default function ScanUpload() {
       <header className="bg-blue-600 text-white px-4 py-3">
         <div className="max-w-md mx-auto">
           <div className="text-xs opacity-80">書類スキャン</div>
-          <div className="font-bold text-lg">{companyName}</div>
+          <div className="font-bold text-lg">
+            {companyName}
+            {memberName && <span className="text-sm font-normal opacity-90">｜{memberName} 様</span>}
+          </div>
         </div>
       </header>
 
       <div className="max-w-md mx-auto p-4 space-y-4">
+        {inboxItems.length > 0 && (
+          <div className="bg-white rounded-2xl border-2 border-blue-200 p-5">
+            <h1 className="font-bold text-gray-800 mb-1">📥 事務所からのファイル</h1>
+            <p className="text-xs text-gray-500 mb-3">タップしてダウンロードしてください（送信から90日で自動削除されます）。</p>
+            {inboxMsg && <div className="text-xs text-red-600 mb-2 break-words">{inboxMsg}</div>}
+            <ul className="space-y-2">
+              {inboxItems.map((item) => {
+                const isNew = !(item.file.downloads || {})[myDlKey]
+                return (
+                  <li key={item.srcToken + item.file.id} className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm text-gray-800 truncate">
+                        📄 {item.file.folder ? `${item.file.folder}／` : ''}{item.file.name}
+                        {isNew && <span className="ml-1 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5 align-middle">新着</span>}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {new Date(item.file.sentAt).toLocaleDateString('ja-JP')}
+                        {memberName ? (item.toAll ? '・全員宛' : '・あなた宛') : ''}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => downloadInboxFile(item)}
+                      className="shrink-0 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg font-semibold"
+                    >
+                      ⬇ 保存
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-3">書類を撮影して送信</h1>
 

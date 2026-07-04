@@ -14,12 +14,20 @@ export interface ScanClient {
   code?: string
 }
 
+export interface ScanMember {
+  id: string
+  name: string // 例：社長、経理担当、山田
+  token: string // メンバー専用URLのトークン
+  createdAt: string
+}
+
 export interface ScanCompany {
   clientId: string
   code: string
   name: string
-  token: string
+  token: string // 会社（全員用）URLのトークン
   registeredAt: string
+  members?: Record<string, ScanMember> // メンバー別URL（宛先制御用）
 }
 
 export type ScanStatus = 'new' | 'done'
@@ -35,6 +43,7 @@ export interface ScanBatch {
   submittedAt: string
   status: ScanStatus
   transferredAt?: string // 仕訳作成へ転送した日時（二重取込防止の目印）
+  member?: string // 送信したメンバー名（メンバー用URLからの送信時）
 }
 
 export type CashEntryType = '現金引出' | '現金預入'
@@ -50,6 +59,7 @@ export interface ScanCashEntry {
   depositType?: CashDepositType
   submittedAt: string
   status: ScanStatus
+  member?: string // 送信したメンバー名
 }
 
 async function dbfns() {
@@ -103,9 +113,10 @@ export async function loadScanCompanies(): Promise<Record<string, ScanCompany>> 
 }
 
 /** 会社をスキャン利用に登録（トークンを発行）。既存ならそれを返す。
- *  公開領域の会社名(info)は毎回書き直す（過去にルール不備等で書けていなくても自己修復される） */
+ *  公開領域の会社名(info)は毎回書き直す（過去にルール不備等で書けていなくても自己修復される）。
+ *  ※ members サブツリーを消さないよう、会社フィールドは update で書く */
 export async function registerScanCompany(client: ScanClient): Promise<ScanCompany> {
-  const { db, ref, get, set } = await dbfns()
+  const { db, ref, get, set, update } = await dbfns()
   const path = await modulePath(SCAN_KEY, 'companies', client.id)
   const existing = (await get(ref(db, path))).val() as ScanCompany | null
   const company: ScanCompany =
@@ -118,9 +129,63 @@ export async function registerScanCompany(client: ScanClient): Promise<ScanCompa
           token: randomToken(),
           registeredAt: new Date().toISOString(),
         }
-  await set(ref(db, path), company)
+  await update(ref(db, path), {
+    clientId: company.clientId,
+    code: company.code,
+    name: company.name,
+    token: company.token,
+    registeredAt: company.registeredAt,
+  })
   await set(ref(db, publicPath(company.token, 'info')), { name: company.name })
+  // メンバーの公開infoも自己修復（会社名変更の反映）
+  for (const m of Object.values(company.members || {})) {
+    if (m && m.token) {
+      try {
+        await set(ref(db, publicPath(m.token, 'info')), { name: company.name, member: m.name, ct: company.token })
+      } catch { /* ignore */ }
+    }
+  }
   return company
+}
+
+// ===== メンバー別URL（宛先制御） =====
+
+/** メンバーを追加し専用トークンURLを発行。公開info には会社名・メンバー名・会社トークン(ct)を書く。
+ *  ct により、メンバーページは「全員宛」ファイルの閲覧と会社領域への撮影/送信ができる。
+ *  他メンバーのトークンは info に含まれないため、他人宛のファイルには構造的に到達できない */
+export async function addScanMember(company: ScanCompany, name: string): Promise<ScanMember> {
+  const member: ScanMember = {
+    id: genId(),
+    name: name.trim(),
+    token: randomToken(),
+    createdAt: new Date().toISOString(),
+  }
+  const { db, ref, set } = await dbfns()
+  const path = await modulePath(SCAN_KEY, 'companies', company.clientId, 'members', member.id)
+  await set(ref(db, path), member)
+  await set(ref(db, publicPath(member.token, 'info')), { name: company.name, member: member.name, ct: company.token })
+  return member
+}
+
+/** メンバーを削除（URL失効）。未受領の宛先ファイルも削除する */
+export async function removeScanMember(clientId: string, member: ScanMember): Promise<void> {
+  const { db, ref, remove } = await dbfns()
+  try {
+    const inbox = await loadInbox(member.token)
+    for (const f of Object.values(inbox)) {
+      try { await deleteInboxFile(member.token, f) } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  try { await remove(ref(db, publicPath(member.token))) } catch { /* ignore */ }
+  const path = await modulePath(SCAN_KEY, 'companies', clientId, 'members', member.id)
+  await remove(ref(db, path))
+}
+
+/** 任意のトークン（会社/メンバー）からURLを組み立て */
+export function buildScanUrlFromToken(token: string): string {
+  const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}${base}/scan-upload/?${new URLSearchParams({ t: token }).toString()}`
 }
 
 export async function unregisterScanCompany(clientId: string): Promise<void> {
@@ -141,13 +206,19 @@ export function buildScanUrl(company: ScanCompany): string {
 // ===== 顧問先側（公開ページ）：トークンのみで scan-public/{token} を読み書きする =====
 // roomKey は受け取らない（外部に渡るURLへ載せないため）。
 
-/** 会社名を取得（顧問先ページ用）。token が無効なら null */
-export async function loadScanInfoPublic(token: string): Promise<{ name: string } | null> {
+export interface ScanPublicInfo {
+  name: string // 会社名
+  member?: string // メンバー名（メンバー用URLの場合）
+  ct?: string // 会社トークン（メンバー用URLの場合。撮影/送信先と全員宛ファイルの参照に使う）
+}
+
+/** 会社名（＋メンバー情報）を取得（顧問先ページ用）。token が無効なら null */
+export async function loadScanInfoPublic(token: string): Promise<ScanPublicInfo | null> {
   if (!token) return null
   const { db, ref, get } = await dbfns()
-  const info = (await get(ref(db, publicPath(token, 'info')))).val() as { name: string } | null
+  const info = (await get(ref(db, publicPath(token, 'info')))).val() as ScanPublicInfo | null
   if (!info || !info.name) return null
-  return { name: info.name }
+  return info
 }
 
 function genId(): string {
@@ -158,7 +229,7 @@ function genId(): string {
 export async function submitScanBatchPublic(
   token: string,
   docType: string,
-  meta: { bankName?: string; accountNumber?: string; userName?: string },
+  meta: { bankName?: string; accountNumber?: string; userName?: string; member?: string },
   images: Blob[],
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
@@ -178,6 +249,7 @@ export async function submitScanBatchPublic(
     ...(meta.bankName ? { bankName: meta.bankName } : {}),
     ...(meta.accountNumber ? { accountNumber: meta.accountNumber } : {}),
     ...(meta.userName ? { userName: meta.userName } : {}),
+    ...(meta.member ? { member: meta.member } : {}),
     pageCount: images.length,
     paths,
     submittedAt: new Date().toISOString(),
@@ -196,6 +268,7 @@ export async function submitCashEntryPublic(
     accountNumber?: string
     amount: number
     depositType?: CashDepositType
+    member?: string
   },
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
@@ -209,6 +282,7 @@ export async function submitCashEntryPublic(
     ...(entry.accountNumber ? { accountNumber: entry.accountNumber } : {}),
     amount: entry.amount,
     ...(entry.depositType ? { depositType: entry.depositType } : {}),
+    ...(entry.member ? { member: entry.member } : {}),
     submittedAt: new Date().toISOString(),
     status: 'new',
   }
@@ -230,6 +304,7 @@ export interface ScanFile {
   status: ScanStatus
   downloadedAt?: string // 事務所がDL（個別/ZIP）した日時
   driveSavedAt?: string // 事務所がGoogleドライブへ保存した日時
+  member?: string // 送信したメンバー名
 }
 
 export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
@@ -245,6 +320,7 @@ export async function submitFilesPublic(
   token: string,
   files: File[],
   folder?: string,
+  member?: string,
   onProgress?: (done: number, total: number, name: string) => void,
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
@@ -266,12 +342,86 @@ export async function submitFilesPublic(
       mimeType: f.type || '',
       path,
       ...(folderName ? { folder: folderName } : {}),
+      ...(member ? { member } : {}),
       submittedAt: new Date().toISOString(),
       status: 'new',
     }
     await set(ref(db, publicPath(token, 'files', id)), rec)
     onProgress?.(i + 1, files.length, f.name)
   }
+}
+
+// ===== 事務所 → 顧問先 のファイル送信（inbox） =====
+// 宛先（会社=全員宛／メンバー）ごとのトークン領域にコピーを置く。
+// 他メンバー宛のファイルはそのメンバーのトークンを知らない限り到達できない（構造的な宛先制御）。
+
+export interface ScanInboxFile {
+  id: string
+  name: string
+  size: number
+  mimeType: string
+  path: string
+  folder?: string
+  sentAt: string
+  downloadedAt?: string // 最初にDLされた日時
+  downloads?: Record<string, string> // 誰がいつDLしたか（キー=メンバー名等をサニタイズしたもの）
+}
+
+function dlKey(who: string): string {
+  return (who || '共通URL').replace(/[.#$/\[\]]/g, '_').slice(0, 40) || '共通URL'
+}
+
+/** 事務所側：宛先トークンの受信箱へファイルを送る */
+export async function sendInboxFile(
+  recipientToken: string,
+  blob: Blob,
+  fileName: string,
+  folder?: string,
+): Promise<void> {
+  const { st, ref: sref, uploadBytes } = await storageFns()
+  const { db, ref, set } = await dbfns()
+  const id = genId()
+  const name = safeFileName(fileName)
+  const folderName = safeFileName((folder || '').trim()).slice(0, 40)
+  const path = `scan-public/${recipientToken}/inbox/${id}/${name}`
+  await uploadBytes(sref(st, path), blob, { contentType: blob.type || 'application/octet-stream' })
+  const rec: ScanInboxFile = {
+    id,
+    name,
+    size: blob.size,
+    mimeType: blob.type || '',
+    path,
+    ...(folderName ? { folder: folderName } : {}),
+    sentAt: new Date().toISOString(),
+  }
+  await set(ref(db, publicPath(recipientToken, 'inbox', id)), rec)
+}
+
+export async function loadInbox(token: string): Promise<Record<string, ScanInboxFile>> {
+  const { db, ref, get } = await dbfns()
+  return ((await get(ref(db, publicPath(token, 'inbox')))).val() as Record<string, ScanInboxFile>) || {}
+}
+
+/** 顧問先側：受け取り（DL）を記録 → 事務所側で受領確認できる */
+export async function markInboxDownloaded(token: string, id: string, who: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  const now = new Date().toISOString()
+  await update(ref(db, publicPath(token, 'inbox', id)), {
+    downloadedAt: now,
+    [`downloads/${dlKey(who)}`]: now,
+  })
+}
+
+export async function getInboxBlob(file: ScanInboxFile): Promise<Blob> {
+  const { st, ref: sref, getBlob } = await storageFns()
+  return getBlob(sref(st, file.path))
+}
+
+export async function deleteInboxFile(token: string, file: ScanInboxFile): Promise<void> {
+  const { st, ref: sref, deleteObject } = await storageFns()
+  try { await deleteObject(sref(st, file.path)) } catch { /* ignore */ }
+  const { db, ref, remove } = await dbfns()
+  await remove(ref(db, publicPath(token, 'inbox', file.id)))
 }
 
 /** 事務所がDLした印を付ける */
@@ -538,6 +688,16 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
       const t = Date.parse(f.submittedAt || '')
       if (t && t < fileCutoff) {
         try { await deleteScanFile(token, f); removed++ } catch { /* 次回に再試行 */ }
+      }
+    }
+  } catch { /* ignore */ }
+  // 事務所→顧問先のファイル（inbox）も送信から90日で削除
+  try {
+    const inbox = await loadInbox(token)
+    for (const f of Object.values(inbox)) {
+      const t = Date.parse(f.sentAt || '')
+      if (t && t < fileCutoff) {
+        try { await deleteInboxFile(token, f); removed++ } catch { /* 次回に再試行 */ }
       }
     }
   } catch { /* ignore */ }
