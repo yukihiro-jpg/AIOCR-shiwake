@@ -677,6 +677,73 @@ export async function receiptOcrParallel(
 }
 
 // ============================================================
+// 借入金返済予定表・リース支払予定表 OCR（書類スキャン受信用）
+// ============================================================
+
+const PROMPT_LOAN_SCHEDULE = `この画像は金融機関が発行した「借入金の返済予定表（償還予定表）」です。
+以下の情報をJSON形式で抽出してください。
+
+【全体情報】
+- lender: 金融機関名（発行者。用紙上部または下部に記載）
+- loanTitle: 契約・借入の名称や番号（あれば。例：証書貸付、契約番号）
+
+【返済予定の各行（rows 配列）】
+- paymentDate: 返済日（YYYY-MM-DD形式。和暦は西暦に変換。令和N年=2018+N年）
+- totalPayment: 返済額合計（元金＋利息。数値）
+- principal: うち元金（数値。記載が無ければ null）
+- interest: うち利息（数値。記載が無ければ null）
+- balance: 返済後残高（数値。記載が無ければ null）
+
+【注意】
+- 表の全行を漏れなく抽出してください（複数ページも続きとして全行）
+- 金額のカンマは除去して数値にしてください
+- 「据置」「利息のみ」の行も1行として抽出してください
+
+出力は必ず次のJSONのみ：
+{"lender":"○○銀行","loanTitle":"証書貸付 1234","rows":[{"paymentDate":"2026-01-25","totalPayment":150000,"principal":130000,"interest":20000,"balance":8700000}]}
+読み取れない場合は {"lender":"","loanTitle":"","rows":[]} を返してください。`
+
+const PROMPT_LEASE_SCHEDULE = `この画像は「リース契約の支払予定表（リース料支払明細・契約書の別表等）」です。
+以下の情報をJSON形式で抽出してください。
+
+【全体情報】
+- lessor: リース会社名（発行者）
+- itemName: リース物件名・契約名（あれば）
+
+【支払予定の各行（rows 配列）】
+- paymentDate: 支払日（YYYY-MM-DD形式。和暦は西暦に変換。令和N年=2018+N年）
+- amount: 支払額（リース料。数値）
+- note: 備考（回数表記「第○回」や再リース等の注記があれば）
+- balance: 支払後の残額・残回数など残りを示す数値（記載が無ければ null）
+
+【注意】
+- 表の全行を漏れなく抽出してください（複数ページも続きとして全行）
+- 「毎月○円×○回」のような一括表記しか無い場合は、rows は展開せず1行にまとめ、note にその旨を書いてください
+- 金額のカンマは除去して数値にしてください
+
+出力は必ず次のJSONのみ：
+{"lessor":"○○リース","itemName":"複合機","rows":[{"paymentDate":"2026-01-27","amount":33000,"note":"第10回","balance":26}]}
+読み取れない場合は {"lessor":"","itemName":"","rows":[]} を返してください。`
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loanScheduleOcr(images: string[], geminiModel?: string): Promise<any> {
+  if (!images || images.length === 0) throw new Error('画像データがありません')
+  const model = genAI().getGenerativeModel({ model: resolveModel(geminiModel), generationConfig: { temperature: 0 } })
+  const result = await model.generateContent([PROMPT_LOAN_SCHEDULE, ...imagesToParts(images)])
+  const m = result.response.text().match(/\{[\s\S]*"rows"[\s\S]*\}/)
+  return m ? JSON.parse(m[0]) : { lender: '', loanTitle: '', rows: [] }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function leaseScheduleOcr(images: string[], geminiModel?: string): Promise<any> {
+  if (!images || images.length === 0) throw new Error('画像データがありません')
+  const model = genAI().getGenerativeModel({ model: resolveModel(geminiModel), generationConfig: { temperature: 0 } })
+  const result = await model.generateContent([PROMPT_LEASE_SCHEDULE, ...imagesToParts(images)])
+  const m = result.response.text().match(/\{[\s\S]*"rows"[\s\S]*\}/)
+  return m ? JSON.parse(m[0]) : { lessor: '', itemName: '', rows: [] }
+}
+
+// ============================================================
 // 請求書 OCR … 旧 /api/bank-statement/invoice
 // ============================================================
 

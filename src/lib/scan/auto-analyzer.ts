@@ -7,7 +7,15 @@
 // 無い端末ではスキップし、キーのある端末（または手動の「AI解析」）に任せる。
 
 import { hasRoom } from '@/core/room'
-import { receiptOcrParallel, creditCardOcr, invoiceOcr } from '@/lib/bank-statement/gemini-client'
+import {
+  receiptOcrParallel,
+  creditCardOcr,
+  invoiceOcr,
+  loanScheduleOcr,
+  leaseScheduleOcr,
+  geminiUpload,
+  ocrImagesByFileUri,
+} from '@/lib/bank-statement/gemini-client'
 import {
   loadScanCompanies,
   subscribeBatches,
@@ -21,7 +29,7 @@ import {
   type ScanAnalysisMeta,
 } from './store'
 
-/** 書類種類 → 解析種別。未対応（通帳等・第2弾予定）は null */
+/** 書類種類 → 解析種別。未対応は null */
 export function docTypeToKind(docType: string): ScanAnalysisKind | null {
   switch (docType) {
     case 'レシート・領収書':
@@ -32,9 +40,26 @@ export function docTypeToKind(docType: string): ScanAnalysisKind | null {
       return 'invoice-sales'
     case '仕入請求書':
       return 'invoice-purchase'
+    case '通帳':
+      return 'passbook'
+    case '現金出納帳':
+      return 'cashbook'
+    case '借入金の返済予定表':
+      return 'loan'
+    case 'リース契約の支払予定表':
+      return 'lease'
     default:
       return null
   }
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) throw new Error('画像データの形式が不正です')
+  const bin = atob(m[2])
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return new Blob([arr], { type: m[1] })
 }
 
 export interface EngineStatus {
@@ -114,7 +139,7 @@ export async function analyzeBatchAndSave(
       pageIndex: null,
     }))
     meta = { paymentDate: cc.paymentDate, totalAmount: cc.totalAmount, cardName: cc.cardName }
-  } else {
+  } else if (kind === 'invoice-sales' || kind === 'invoice-purchase') {
     // 売上請求書／仕入請求書（発行者・宛名の位置ルールをプロンプトに内蔵）
     const { invoices } = await invoiceOcr(dataUrls, kind === 'invoice-purchase' ? 'purchase' : 'sales')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,6 +159,66 @@ export async function analyzeBatchAndSave(
         })
       }
     }
+  } else if (kind === 'passbook' || kind === 'cashbook') {
+    // 通帳・現金出納帳：仕訳作成の通帳OCR（残高整合チェック・自動補正つき）を流用。
+    // File API に画像をアップロードしてから解析する
+    const files: { fileUri: string; mimeType: string }[] = []
+    for (let i = 0; i < dataUrls.length; i++) {
+      onProgress?.(`画像をAIへ送信しています... (${i + 1}/${dataUrls.length})`)
+      const blob = dataUrlToBlob(dataUrls[i])
+      const ref = await geminiUpload(blob, `scan-${batch.id}-p${i + 1}`, blob.type)
+      files.push({ fileUri: ref.uri, mimeType: ref.mimeType || blob.type })
+    }
+    onProgress?.('AIで解析しています...')
+    const res = await ocrImagesByFileUri(files)
+    for (const page of res.pages) {
+      for (const tx of page.transactions) {
+        rows.push({
+          date: tx.date || '',
+          storeName: tx.description || '',
+          mainContent: '',
+          invoiceNumber: '',
+          taxRate: '',
+          totalAmount: 0,
+          deposit: tx.deposit ?? null,
+          withdrawal: tx.withdrawal ?? null,
+          balance: tx.balance ?? null,
+          pageIndex: page.pageIndex,
+        })
+      }
+    }
+    if (res.corrections?.length) meta = { corrections: res.corrections }
+  } else if (kind === 'loan') {
+    const res = await loanScheduleOcr(dataUrls)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rows = ((res.rows || []) as any[]).map((r) => ({
+      date: r.paymentDate || '',
+      storeName: '',
+      mainContent: '',
+      invoiceNumber: '',
+      taxRate: '',
+      totalAmount: Number(r.totalPayment) || 0,
+      deposit: r.principal != null ? Number(r.principal) : null, // うち元金
+      withdrawal: r.interest != null ? Number(r.interest) : null, // うち利息
+      balance: r.balance != null ? Number(r.balance) : null,
+      pageIndex: null,
+    }))
+    meta = { partyName: res.lender || '', title: res.loanTitle || '' }
+  } else {
+    // lease
+    const res = await leaseScheduleOcr(dataUrls)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rows = ((res.rows || []) as any[]).map((r) => ({
+      date: r.paymentDate || '',
+      storeName: '',
+      mainContent: r.note || '',
+      invoiceNumber: '',
+      taxRate: '',
+      totalAmount: Number(r.amount) || 0,
+      balance: r.balance != null ? Number(r.balance) : null,
+      pageIndex: null,
+    }))
+    meta = { partyName: res.lessor || '', title: res.itemName || '' }
   }
 
   await saveAnalysis(token, batch.id, rows, kind, meta)

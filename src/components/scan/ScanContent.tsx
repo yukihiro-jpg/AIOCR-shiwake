@@ -600,14 +600,67 @@ function BatchDetail({
   const [kind, setKind] = useState<ScanAnalysisKind | null>(docTypeToKind(batch.docType))
   const [meta, setMeta] = useState<ScanAnalysisMeta | undefined>(undefined)
 
-  // 書類種類ごとの表の列ラベル
-  const COLS: Record<ScanAnalysisKind, { date: string; name: string; content: string; amount: string }> = {
-    receipt: { date: '日付', name: '店名', content: '内容', amount: '税込金額' },
-    'credit-card': { date: '利用日', name: '利用店名', content: '備考', amount: '金額' },
-    'invoice-sales': { date: '請求日', name: '請求先（宛名）', content: '内容', amount: '税込金額' },
-    'invoice-purchase': { date: '請求日', name: '請求元（発行者）', content: '内容', amount: '税込金額' },
+  // 書類種類ごとの表の列定義（key=行データのフィールド、num=数値入力）
+  type ColSpec = { key: keyof ReceiptRow; label: string; num?: boolean; w: string }
+  const COLSPECS: Record<ScanAnalysisKind, ColSpec[]> = {
+    receipt: [
+      { key: 'date', label: '日付', w: 'w-24' },
+      { key: 'storeName', label: '店名', w: 'w-28' },
+      { key: 'mainContent', label: '内容', w: 'w-28' },
+      { key: 'invoiceNumber', label: 'インボイス番号', w: 'w-24' },
+      { key: 'taxRate', label: '税率', w: 'w-14' },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+    ],
+    'invoice-sales': [
+      { key: 'date', label: '請求日', w: 'w-24' },
+      { key: 'storeName', label: '請求先（宛名）', w: 'w-32' },
+      { key: 'mainContent', label: '内容', w: 'w-28' },
+      { key: 'taxRate', label: '税率', w: 'w-14' },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+    ],
+    'invoice-purchase': [
+      { key: 'date', label: '請求日', w: 'w-24' },
+      { key: 'storeName', label: '請求元（発行者）', w: 'w-32' },
+      { key: 'mainContent', label: '内容', w: 'w-28' },
+      { key: 'invoiceNumber', label: 'インボイス番号', w: 'w-24' },
+      { key: 'taxRate', label: '税率', w: 'w-14' },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+    ],
+    'credit-card': [
+      { key: 'date', label: '利用日', w: 'w-24' },
+      { key: 'storeName', label: '利用店名', w: 'w-36' },
+      { key: 'mainContent', label: '備考', w: 'w-28' },
+      { key: 'totalAmount', label: '金額', num: true, w: 'w-20' },
+    ],
+    passbook: [
+      { key: 'date', label: '日付', w: 'w-24' },
+      { key: 'storeName', label: '摘要', w: 'w-36' },
+      { key: 'deposit', label: '入金', num: true, w: 'w-20' },
+      { key: 'withdrawal', label: '出金', num: true, w: 'w-20' },
+      { key: 'balance', label: '残高', num: true, w: 'w-24' },
+    ],
+    cashbook: [
+      { key: 'date', label: '日付', w: 'w-24' },
+      { key: 'storeName', label: '摘要', w: 'w-36' },
+      { key: 'deposit', label: '入金', num: true, w: 'w-20' },
+      { key: 'withdrawal', label: '出金', num: true, w: 'w-20' },
+      { key: 'balance', label: '残高', num: true, w: 'w-24' },
+    ],
+    loan: [
+      { key: 'date', label: '返済日', w: 'w-24' },
+      { key: 'totalAmount', label: '返済額', num: true, w: 'w-20' },
+      { key: 'deposit', label: 'うち元金', num: true, w: 'w-20' },
+      { key: 'withdrawal', label: 'うち利息', num: true, w: 'w-20' },
+      { key: 'balance', label: '返済後残高', num: true, w: 'w-24' },
+    ],
+    lease: [
+      { key: 'date', label: '支払日', w: 'w-24' },
+      { key: 'totalAmount', label: '支払額', num: true, w: 'w-20' },
+      { key: 'mainContent', label: '備考', w: 'w-32' },
+      { key: 'balance', label: '残額・残回数', num: true, w: 'w-24' },
+    ],
   }
-  const col = COLS[kind || 'receipt']
+  const colSpecs = COLSPECS[kind || 'receipt']
 
   useEffect(() => {
     ;(async () => {
@@ -681,9 +734,11 @@ function BatchDetail({
     return `${safe(client.name)}_${safe(batch.docType)}_${batch.submittedAt.slice(0, 10)}`
   }
 
-  // 書類種類に応じた出力ヘッダ
-  function exportHeader(): string[] {
-    return [col.date, col.name, col.content, 'インボイス番号', '税率', col.amount]
+  // 行データ → 出力用の値（未入力の数値は空欄）
+  function cellValue(r: ReceiptRow, key: keyof ReceiptRow): string | number {
+    const v = r[key]
+    if (v == null) return ''
+    return v as string | number
   }
 
   async function exportExcel() {
@@ -692,24 +747,22 @@ function BatchDetail({
     if (kind === 'credit-card' && meta) {
       aoa.push(['引落日', meta.paymentDate || '', '引落総額', meta.totalAmount || 0, 'カード名', meta.cardName || ''])
     }
-    aoa.push(exportHeader())
-    for (const r of rows) aoa.push([r.date, r.storeName, r.mainContent, r.invoiceNumber, r.taxRate, r.totalAmount])
+    if ((kind === 'loan' || kind === 'lease') && meta) {
+      aoa.push([kind === 'loan' ? '金融機関' : 'リース会社', meta.partyName || '', kind === 'loan' ? '契約' : '物件', meta.title || ''])
+    }
+    aoa.push(colSpecs.map((c) => c.label))
+    for (const r of rows) aoa.push(colSpecs.map((c) => cellValue(r, c.key)))
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 8 }, { wch: 12 }]
+    ws['!cols'] = colSpecs.map(() => ({ wch: 16 }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, '解析結果')
     XLSX.writeFile(wb, `${fileBase()}.xlsx`)
   }
 
   function exportCsv() {
-    const header = exportHeader()
-    const lines = [header.join(',')]
+    const lines = [colSpecs.map((c) => c.label).join(',')]
     for (const r of rows) {
-      lines.push(
-        [r.date, r.storeName, r.mainContent, r.invoiceNumber, r.taxRate, String(r.totalAmount)]
-          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-          .join(','),
-      )
+      lines.push(colSpecs.map((c) => `"${String(cellValue(r, c.key)).replace(/"/g, '""')}"`).join(','))
     }
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' })
     downloadBlob(blob, `${fileBase()}.csv`)
@@ -833,6 +886,16 @@ function BatchDetail({
                 💳 {meta.cardName ? `${meta.cardName}／` : ''}引落日 {meta.paymentDate || '不明'}／引落総額 ¥{(meta.totalAmount || 0).toLocaleString('ja-JP')}
               </div>
             )}
+            {(kind === 'loan' || kind === 'lease') && meta && (meta.partyName || meta.title) && (
+              <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">
+                {kind === 'loan' ? '🏦' : '📄'} {meta.partyName || '—'}{meta.title ? `／${meta.title}` : ''}
+              </div>
+            )}
+            {(kind === 'passbook' || kind === 'cashbook') && meta?.corrections?.length ? (
+              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 mb-2">
+                ⚠️ 残高整合チェックで自動補正した行があります：{meta.corrections.join('、')}
+              </div>
+            ) : null}
 
             {rows.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center border border-dashed border-gray-200 rounded">
@@ -845,12 +908,9 @@ function BatchDetail({
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 sticky top-0">
-                      <th className="text-left px-2 py-1.5">{col.date}</th>
-                      <th className="text-left px-2 py-1.5">{col.name}</th>
-                      <th className="text-left px-2 py-1.5">{col.content}</th>
-                      <th className="text-left px-2 py-1.5">インボイス番号</th>
-                      <th className="text-left px-2 py-1.5">税率</th>
-                      <th className="text-right px-2 py-1.5">{col.amount}</th>
+                      {colSpecs.map((c) => (
+                        <th key={c.key} className={`px-2 py-1.5 ${c.num ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                      ))}
                       <th></th>
                     </tr>
                   </thead>
@@ -865,28 +925,26 @@ function BatchDetail({
                         title={r.pageIndex != null ? `クリックで元画像（${(r.pageIndex ?? 0) + 1}枚目）を表示` : undefined}
                         className={`border-t border-gray-100 ${r.pageIndex != null ? 'cursor-pointer hover:bg-blue-50/40' : ''} ${activeImg != null && r.pageIndex === activeImg ? 'bg-blue-50' : ''}`}
                       >
-                        <td className="px-1 py-1">
-                          <input value={r.date} onChange={(e) => updateRow(i, { date: e.target.value })} className="w-24 px-1 py-1 border border-gray-200 rounded" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input value={r.storeName} onChange={(e) => updateRow(i, { storeName: e.target.value })} className="w-28 px-1 py-1 border border-gray-200 rounded" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input value={r.mainContent} onChange={(e) => updateRow(i, { mainContent: e.target.value })} className="w-28 px-1 py-1 border border-gray-200 rounded" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input value={r.invoiceNumber} onChange={(e) => updateRow(i, { invoiceNumber: e.target.value })} className="w-24 px-1 py-1 border border-gray-200 rounded" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input value={r.taxRate} onChange={(e) => updateRow(i, { taxRate: e.target.value })} className="w-14 px-1 py-1 border border-gray-200 rounded" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <input
-                            value={r.totalAmount}
-                            onChange={(e) => updateRow(i, { totalAmount: Number(e.target.value.replace(/[^\d.-]/g, '')) || 0 })}
-                            className="w-20 px-1 py-1 border border-gray-200 rounded text-right"
-                          />
-                        </td>
+                        {colSpecs.map((c) => (
+                          <td key={c.key} className="px-1 py-1">
+                            {c.num ? (
+                              <input
+                                value={r[c.key] == null ? '' : String(r[c.key])}
+                                onChange={(e) => {
+                                  const t = e.target.value.replace(/[^\d.-]/g, '')
+                                  updateRow(i, { [c.key]: t === '' ? (c.key === 'totalAmount' ? 0 : null) : Number(t) } as Partial<ReceiptRow>)
+                                }}
+                                className={`${c.w} px-1 py-1 border border-gray-200 rounded text-right`}
+                              />
+                            ) : (
+                              <input
+                                value={(r[c.key] as string) || ''}
+                                onChange={(e) => updateRow(i, { [c.key]: e.target.value } as Partial<ReceiptRow>)}
+                                className={`${c.w} px-1 py-1 border border-gray-200 rounded`}
+                              />
+                            )}
+                          </td>
+                        ))}
                         <td className="px-1 py-1 text-right">
                           <button onClick={() => removeRow(i)} className="text-red-500 text-xs">
                             削除

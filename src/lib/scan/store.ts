@@ -321,21 +321,36 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 export interface ScanAnalysisRow {
   date: string
-  storeName: string
+  storeName: string // 店名／相手先／摘要（種別により意味が変わる。表のラベルは種別ごとに切替）
   mainContent: string
   invoiceNumber: string
   taxRate: string
   totalAmount: number
+  // 通帳・現金出納帳・返済予定表用（種別により 入金/出金/残高、元金/利息/残高 として使う）
+  deposit?: number | null
+  withdrawal?: number | null
+  balance?: number | null
   pageIndex?: number | null // 元になった画像（0始まり）
 }
 
 /** 解析の種別（書類種類に対応） */
-export type ScanAnalysisKind = 'receipt' | 'credit-card' | 'invoice-sales' | 'invoice-purchase'
+export type ScanAnalysisKind =
+  | 'receipt'
+  | 'credit-card'
+  | 'invoice-sales'
+  | 'invoice-purchase'
+  | 'passbook'
+  | 'cashbook'
+  | 'loan'
+  | 'lease'
 
 export interface ScanAnalysisMeta {
   paymentDate?: string // クレジットカード：引落日
   totalAmount?: number // クレジットカード：引落総額
   cardName?: string // クレジットカード：カード名
+  partyName?: string // 返済予定表：金融機関名／リース：リース会社名
+  title?: string // 返済予定表：契約名／リース：物件名
+  corrections?: string[] // 通帳：残高整合チェックによる自動補正の記録
 }
 
 export interface ScanAnalysis {
