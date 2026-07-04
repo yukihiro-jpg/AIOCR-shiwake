@@ -305,6 +305,7 @@ export interface ScanFile {
   downloadedAt?: string // 事務所がDL（個別/ZIP）した日時
   driveSavedAt?: string // 事務所がGoogleドライブへ保存した日時
   member?: string // 送信したメンバー名
+  comment?: string // 送信時のコメント（相手側に表示される）
 }
 
 export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
@@ -321,6 +322,7 @@ export async function submitFilesPublic(
   files: File[],
   folder?: string,
   member?: string,
+  comment?: string,
   onProgress?: (done: number, total: number, name: string) => void,
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
@@ -343,6 +345,7 @@ export async function submitFilesPublic(
       path,
       ...(folderName ? { folder: folderName } : {}),
       ...(member ? { member } : {}),
+      ...(comment && comment.trim() ? { comment: comment.trim().slice(0, 500) } : {}),
       submittedAt: new Date().toISOString(),
       status: 'new',
     }
@@ -362,6 +365,7 @@ export interface ScanInboxFile {
   mimeType: string
   path: string
   folder?: string
+  comment?: string // 送信時のコメント（顧問先側に表示される）
   sentAt: string
   downloadedAt?: string // 最初にDLされた日時
   downloads?: Record<string, string> // 誰がいつDLしたか（キー=メンバー名等をサニタイズしたもの）
@@ -377,6 +381,7 @@ export async function sendInboxFile(
   blob: Blob,
   fileName: string,
   folder?: string,
+  comment?: string,
 ): Promise<void> {
   const { st, ref: sref, uploadBytes } = await storageFns()
   const { db, ref, set } = await dbfns()
@@ -392,6 +397,7 @@ export async function sendInboxFile(
     mimeType: blob.type || '',
     path,
     ...(folderName ? { folder: folderName } : {}),
+    ...(comment && comment.trim() ? { comment: comment.trim().slice(0, 500) } : {}),
     sentAt: new Date().toISOString(),
   }
   await set(ref(db, publicPath(recipientToken, 'inbox', id)), rec)

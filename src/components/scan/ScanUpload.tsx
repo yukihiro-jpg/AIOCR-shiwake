@@ -71,6 +71,7 @@ export default function ScanUpload() {
   // ファイル便
   const [sendFiles, setSendFiles] = useState<File[]>([])
   const [sendFolder, setSendFolder] = useState('')
+  const [sendComment, setSendComment] = useState('')
   const [fileDrag, setFileDrag] = useState(false)
   const [fileSubmitting, setFileSubmitting] = useState(false)
   const [fileProgress, setFileProgress] = useState('')
@@ -295,7 +296,7 @@ export default function ScanUpload() {
     setFileErr('')
     setFileDone('')
     try {
-      await submitFilesPublic(uploadToken, sendFiles, sendFolder, memberName || undefined, (done, total, name) => {
+      await submitFilesPublic(uploadToken, sendFiles, sendFolder, memberName || undefined, sendComment, (done, total, name) => {
         setFileProgress(`送信中... (${Math.min(done + 1, total)}/${total}) ${name}`)
       })
       setFileDone(`✅ ${sendFiles.length}件のファイルを送信しました${sendFolder.trim() ? `（フォルダ：${sendFolder.trim()}）` : ''}。ありがとうございました。`)
@@ -304,6 +305,7 @@ export default function ScanUpload() {
         ...prev,
       ])
       setSendFiles([])
+      setSendComment('')
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
       setFileErr(
@@ -373,6 +375,11 @@ export default function ScanUpload() {
                         {new Date(item.file.sentAt).toLocaleDateString('ja-JP')}
                         {memberName ? (item.toAll ? '・全員宛' : '・あなた宛') : ''}
                       </div>
+                      {item.file.comment && (
+                        <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">
+                          💬 {item.file.comment}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => downloadInboxFile(item)}
@@ -611,6 +618,15 @@ export default function ScanUpload() {
             value={sendFolder}
             onChange={(e) => setSendFolder(e.target.value)}
             placeholder="例：2026年3月分、決算資料 など"
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3"
+          />
+
+          <label className="block text-xs text-gray-500 mb-1">💬 コメント（任意・事務所に表示されます）</label>
+          <textarea
+            value={sendComment}
+            onChange={(e) => setSendComment(e.target.value)}
+            placeholder="例：3月分の通帳コピーです。2ページ目が見づらいかもしれません。"
+            rows={2}
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3"
           />
 

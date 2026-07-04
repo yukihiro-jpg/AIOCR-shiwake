@@ -54,6 +54,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
+import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
 
 type SharedClient = ScanClient
 
@@ -175,6 +176,24 @@ export default function ScanContent() {
     setQr({ name: company.name, url, dataUrl })
   }
 
+  async function makeGuide(company: ScanCompany) {
+    const url = buildScanUrl(company)
+    const QRCode = (await import('qrcode')).default
+    const qrDataUrl = await QRCode.toDataURL(url, { width: 340, margin: 1 })
+    const ok = openScanGuidePrint({ companyName: company.name, url, qrDataUrl })
+    if (!ok) setMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度お試しください。')
+  }
+
+  async function copyMail(company: ScanCompany) {
+    const text = buildScanMailText({ companyName: company.name, url: buildScanUrl(company) })
+    try {
+      await navigator.clipboard.writeText(text)
+      setMsg('メール文をコピーしました。メールに貼り付けて送信してください。')
+    } catch {
+      window.prompt('メール文をコピーしてください', text)
+    }
+  }
+
   if (!ready) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
@@ -264,6 +283,12 @@ export default function ScanContent() {
                           </button>
                           <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             QR表示
+                          </button>
+                          <button onClick={() => makeGuide(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            案内PDF
+                          </button>
+                          <button onClick={() => copyMail(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            メール文
                           </button>
                           <button onClick={() => setMembersFor({ client, company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             👥 メンバー{company.members && Object.keys(company.members).length ? `（${Object.keys(company.members).length}）` : ''}
@@ -1434,6 +1459,11 @@ function FilesTab({
                             </span>
                           )}
                         </span>
+                        {f.comment && (
+                          <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">
+                            💬 {f.comment}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right text-gray-600">{fmtSize(f.size)}</td>
                       <td className="px-3 py-2 text-gray-600">{new Date(f.submittedAt).toLocaleString('ja-JP')}</td>
@@ -1570,6 +1600,24 @@ function MembersDialog({
     setQr({ name: `${client.name}／${m.name}`, url, dataUrl })
   }
 
+  async function makeGuide(m: ScanMember) {
+    const url = buildScanUrlFromToken(m.token)
+    const QRCode = (await import('qrcode')).default
+    const qrDataUrl = await QRCode.toDataURL(url, { width: 340, margin: 1 })
+    const ok = openScanGuidePrint({ companyName: client.name, memberName: m.name, url, qrDataUrl })
+    if (!ok) setMsg('ポップアップがブロックされました。ブラウザで許可してからお試しください。')
+  }
+
+  async function copyMail(m: ScanMember) {
+    const text = buildScanMailText({ companyName: client.name, memberName: m.name, url: buildScanUrlFromToken(m.token) })
+    try {
+      await navigator.clipboard.writeText(text)
+      setMsg(`${m.name} さん宛のメール文をコピーしました。`)
+    } catch {
+      window.prompt('メール文をコピーしてください', text)
+    }
+  }
+
   return (
     <Overlay onClose={onClose}>
       <h2 className="font-bold text-gray-800 mb-1">{client.name} — メンバー別URL</h2>
@@ -1600,9 +1648,11 @@ function MembersDialog({
           {members.map((m) => (
             <li key={m.id} className="flex items-center justify-between px-4 py-2.5">
               <span className="text-sm font-medium text-gray-800">👤 {m.name}</span>
-              <span className="inline-flex gap-1.5">
+              <span className="inline-flex gap-1.5 flex-wrap justify-end">
                 <button onClick={() => copyUrl(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">URLコピー</button>
                 <button onClick={() => showQr(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">QR表示</button>
+                <button onClick={() => makeGuide(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">案内PDF</button>
+                <button onClick={() => copyMail(m)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">メール文</button>
                 <button onClick={() => remove(m)} disabled={busy} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50">削除</button>
               </span>
             </li>
@@ -1639,6 +1689,7 @@ function SendFilesDialog({
   const [files, setFiles] = useState<File[]>([])
   const [drag, setDrag] = useState(false)
   const [folder, setFolder] = useState('')
+  const [comment, setComment] = useState('')
   const [toAll, setToAll] = useState(true)
   const [toMembers, setToMembers] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
@@ -1686,7 +1737,7 @@ function SendFilesDialog({
       for (const r of recipients) {
         for (const f of files) {
           setProgress(`送信中... (${++n}/${total}) ${r.name}宛：${f.name}`)
-          await sendInboxFile(r.token, f, f.name, folder)
+          await sendInboxFile(r.token, f, f.name, folder, comment)
         }
       }
       setDone(`✅ ${files.length}件を ${recipients.map((r) => r.name).join('・')} 宛に送信しました。`)
@@ -1735,6 +1786,9 @@ function SendFilesDialog({
 
         <label className="block text-xs text-gray-500 mb-1">📂 フォルダ名（任意）</label>
         <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="例：2026年3月 月次報告" className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3" />
+
+        <label className="block text-xs text-gray-500 mb-1">💬 コメント（任意・顧問先に表示されます）</label>
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="例：3月分の月次報告書です。ご確認をお願いします。" rows={2} className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3" />
 
         <div
           onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
@@ -1836,6 +1890,9 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
                 <td className="px-3 py-1.5 text-gray-700">{row.recipient}</td>
                 <td className="px-3 py-1.5 text-gray-800">
                   {row.file.folder ? `📂${row.file.folder}／` : ''}📄 {row.file.name}
+                  {row.file.comment && (
+                    <div className="text-[11px] text-gray-500 mt-0.5">💬 {row.file.comment}</div>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 text-gray-600">{new Date(row.file.sentAt).toLocaleDateString('ja-JP')}</td>
                 <td className="px-3 py-1.5">
