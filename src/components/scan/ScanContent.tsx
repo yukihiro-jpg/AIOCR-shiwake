@@ -25,13 +25,15 @@ import {
   pushScanCreditHistory,
   type ScanAnalysis,
   type ScanAnalysisRow,
+  type ScanAnalysisKind,
+  type ScanAnalysisMeta,
   type ScanCreditAccount,
   type ScanCompany,
   type ScanBatch,
   type ScanCashEntry,
   type ScanStatus,
 } from '@/lib/scan/store'
-import { analyzeBatchAndSave, subscribeEngineStatus } from '@/lib/scan/auto-analyzer'
+import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 
@@ -466,6 +468,8 @@ function InboxModal({
                       <span className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-0.5 animate-pulse">解析中…</span>
                     ) : analyses[b.id] ? (
                       <span className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-0.5">解析済み（{(analyses[b.id].rows || []).length}行）</span>
+                    ) : docTypeToKind(b.docType) === null ? (
+                      <span className="text-xs text-gray-300" title="この書類種類のAI解析は準備中です">対象外</span>
                     ) : (
                       <span className="text-xs text-gray-400">未解析</span>
                     )}
@@ -593,6 +597,17 @@ function BatchDetail({
   const [loadedSaved, setLoadedSaved] = useState(false) // 保存済み解析の読込完了（自動保存の暴発防止）
   const [activeImg, setActiveImg] = useState<number | null>(null)
   const imgRefs = useRef<(HTMLImageElement | null)[]>([])
+  const [kind, setKind] = useState<ScanAnalysisKind | null>(docTypeToKind(batch.docType))
+  const [meta, setMeta] = useState<ScanAnalysisMeta | undefined>(undefined)
+
+  // 書類種類ごとの表の列ラベル
+  const COLS: Record<ScanAnalysisKind, { date: string; name: string; content: string; amount: string }> = {
+    receipt: { date: '日付', name: '店名', content: '内容', amount: '税込金額' },
+    'credit-card': { date: '利用日', name: '利用店名', content: '備考', amount: '金額' },
+    'invoice-sales': { date: '請求日', name: '請求先（宛名）', content: '内容', amount: '税込金額' },
+    'invoice-purchase': { date: '請求日', name: '請求元（発行者）', content: '内容', amount: '税込金額' },
+  }
+  const col = COLS[kind || 'receipt']
 
   useEffect(() => {
     ;(async () => {
@@ -607,7 +622,11 @@ function BatchDetail({
       // 保存済みの解析結果があれば復元（閉じても消えない）
       try {
         const saved = await loadAnalysis(company.token, batch.id)
-        if (saved && Array.isArray(saved.rows) && saved.rows.length) setRows(saved.rows as ReceiptRow[])
+        if (saved && Array.isArray(saved.rows) && saved.rows.length) {
+          setRows(saved.rows as ReceiptRow[])
+          if (saved.kind) setKind(saved.kind)
+          if (saved.meta) setMeta(saved.meta)
+        }
       } catch {
         /* ignore */
       }
@@ -619,7 +638,7 @@ function BatchDetail({
   useEffect(() => {
     if (!loadedSaved) return
     const t = setTimeout(() => {
-      saveAnalysis(company.token, batch.id, rows).catch(() => { /* 次の編集時に再試行 */ })
+      saveAnalysis(company.token, batch.id, rows, kind || 'receipt', meta).catch(() => { /* 次の編集時に再試行 */ })
     }, 800)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -636,9 +655,11 @@ function BatchDetail({
     setAnalyzing(true)
     setAnalyzeErr('')
     try {
-      const { rows: next, errors } = await analyzeBatchAndSave(company.token, batch, (m) => setProgress(m))
-      setRows(next)
-      if (errors.length) setAnalyzeErr(`一部の画像で解析に失敗しました：${errors.join('、')}`)
+      const res = await analyzeBatchAndSave(company.token, batch, (m) => setProgress(m))
+      setRows(res.rows)
+      setKind(res.kind)
+      setMeta(res.meta)
+      if (res.errors.length) setAnalyzeErr(`一部の画像で解析に失敗しました：${res.errors.join('、')}`)
     } catch (e) {
       setAnalyzeErr('解析に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
@@ -660,9 +681,18 @@ function BatchDetail({
     return `${safe(client.name)}_${safe(batch.docType)}_${batch.submittedAt.slice(0, 10)}`
   }
 
+  // 書類種類に応じた出力ヘッダ
+  function exportHeader(): string[] {
+    return [col.date, col.name, col.content, 'インボイス番号', '税率', col.amount]
+  }
+
   async function exportExcel() {
     const XLSX = await import('xlsx')
-    const aoa: (string | number)[][] = [['日付', '店名', '内容', 'インボイス番号', '税率', '税込金額']]
+    const aoa: (string | number)[][] = []
+    if (kind === 'credit-card' && meta) {
+      aoa.push(['引落日', meta.paymentDate || '', '引落総額', meta.totalAmount || 0, 'カード名', meta.cardName || ''])
+    }
+    aoa.push(exportHeader())
     for (const r of rows) aoa.push([r.date, r.storeName, r.mainContent, r.invoiceNumber, r.taxRate, r.totalAmount])
     const ws = XLSX.utils.aoa_to_sheet(aoa)
     ws['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 24 }, { wch: 18 }, { wch: 8 }, { wch: 12 }]
@@ -672,7 +702,7 @@ function BatchDetail({
   }
 
   function exportCsv() {
-    const header = ['日付', '店名', '内容', 'インボイス番号', '税率', '税込金額']
+    const header = exportHeader()
     const lines = [header.join(',')]
     for (const r of rows) {
       lines.push(
@@ -695,6 +725,10 @@ function BatchDetail({
           <div className="flex gap-2">
             <button
               onClick={() => {
+                if ((kind || 'receipt') !== 'receipt') {
+                  alert('仕訳作成への転送は現在「レシート・領収書」のみ対応しています（他の書類種類は順次対応予定）。')
+                  return
+                }
                 if (!rows.length) {
                   alert('先にAI解析（または行の追加）を行ってから転送してください。')
                   return
@@ -794,21 +828,29 @@ function BatchDetail({
 
             {analyzeErr && <div className="text-xs text-red-600 mb-2 break-words">{analyzeErr}</div>}
 
+            {kind === 'credit-card' && meta && (
+              <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">
+                💳 {meta.cardName ? `${meta.cardName}／` : ''}引落日 {meta.paymentDate || '不明'}／引落総額 ¥{(meta.totalAmount || 0).toLocaleString('ja-JP')}
+              </div>
+            )}
+
             {rows.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center border border-dashed border-gray-200 rounded">
-                「AI解析」を押すと結果がここに表示されます。手動で行を追加することもできます。
+                {kind
+                  ? '「AI解析」を押すと結果がここに表示されます。手動で行を追加することもできます。'
+                  : `「${batch.docType}」のAI解析は現在準備中です（画像の確認・Drive保存・行の手動追加は利用できます）。`}
               </p>
             ) : (
               <div className="overflow-auto max-h-[60vh] border border-gray-200 rounded">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 sticky top-0">
-                      <th className="text-left px-2 py-1.5">日付</th>
-                      <th className="text-left px-2 py-1.5">店名</th>
-                      <th className="text-left px-2 py-1.5">内容</th>
+                      <th className="text-left px-2 py-1.5">{col.date}</th>
+                      <th className="text-left px-2 py-1.5">{col.name}</th>
+                      <th className="text-left px-2 py-1.5">{col.content}</th>
                       <th className="text-left px-2 py-1.5">インボイス番号</th>
                       <th className="text-left px-2 py-1.5">税率</th>
-                      <th className="text-right px-2 py-1.5">税込金額</th>
+                      <th className="text-right px-2 py-1.5">{col.amount}</th>
                       <th></th>
                     </tr>
                   </thead>

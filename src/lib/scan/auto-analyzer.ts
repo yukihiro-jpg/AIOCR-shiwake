@@ -7,7 +7,7 @@
 // 無い端末ではスキップし、キーのある端末（または手動の「AI解析」）に任せる。
 
 import { hasRoom } from '@/core/room'
-import { receiptOcrParallel } from '@/lib/bank-statement/gemini-client'
+import { receiptOcrParallel, creditCardOcr, invoiceOcr } from '@/lib/bank-statement/gemini-client'
 import {
   loadScanCompanies,
   subscribeBatches,
@@ -17,7 +17,25 @@ import {
   saveAnalysis,
   type ScanBatch,
   type ScanAnalysisRow,
+  type ScanAnalysisKind,
+  type ScanAnalysisMeta,
 } from './store'
+
+/** 書類種類 → 解析種別。未対応（通帳等・第2弾予定）は null */
+export function docTypeToKind(docType: string): ScanAnalysisKind | null {
+  switch (docType) {
+    case 'レシート・領収書':
+      return 'receipt'
+    case 'クレジットカード利用明細書':
+      return 'credit-card'
+    case '売上請求書':
+      return 'invoice-sales'
+    case '仕入請求書':
+      return 'invoice-purchase'
+    default:
+      return null
+  }
+}
 
 export interface EngineStatus {
   message: string
@@ -60,22 +78,66 @@ export function receiptsToRows(receipts: any[]): ScanAnalysisRow[] {
   return rows
 }
 
-/** バッチをAI解析して結果を保存（自動解析・手動解析で共用） */
+/** バッチを書類種類に応じたAIで解析して結果を保存（自動解析・手動解析で共用） */
 export async function analyzeBatchAndSave(
   token: string,
   batch: ScanBatch,
   onProgress?: (msg: string) => void,
-): Promise<{ rows: ScanAnalysisRow[]; errors: string[] }> {
+): Promise<{ rows: ScanAnalysisRow[]; errors: string[]; kind: ScanAnalysisKind; meta?: ScanAnalysisMeta }> {
+  const kind = docTypeToKind(batch.docType)
+  if (!kind) throw new Error(`「${batch.docType}」のAI解析は現在準備中です（レシート・領収書／クレジットカード利用明細書／売上・仕入請求書に対応）`)
   onProgress?.('画像を取得しています...')
   const dataUrls = await getBatchImageDataUrls(token, batch)
   onProgress?.('AIで解析しています...')
-  const { receipts, errors } = await receiptOcrParallel(dataUrls, undefined, {
-    onProgress: (done, total) => onProgress?.(`AIで解析しています... (${done}/${total})`),
-  })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = receiptsToRows(receipts as any[])
-  await saveAnalysis(token, batch.id, rows)
-  return { rows, errors }
+
+  let rows: ScanAnalysisRow[] = []
+  let errors: string[] = []
+  let meta: ScanAnalysisMeta | undefined
+
+  if (kind === 'receipt') {
+    const res = await receiptOcrParallel(dataUrls, undefined, {
+      onProgress: (done, total) => onProgress?.(`AIで解析しています... (${done}/${total})`),
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rows = receiptsToRows(res.receipts as any[])
+    errors = res.errors
+  } else if (kind === 'credit-card') {
+    // 明細は複数ページで1つの書類なので全ページを1回で解析
+    const cc = await creditCardOcr(dataUrls)
+    rows = (cc.transactions || []).map((t) => ({
+      date: t.usageDate || '',
+      storeName: t.storeName || '',
+      mainContent: t.memo || '',
+      invoiceNumber: '',
+      taxRate: '',
+      totalAmount: Number(t.amount) || 0,
+      pageIndex: null,
+    }))
+    meta = { paymentDate: cc.paymentDate, totalAmount: cc.totalAmount, cardName: cc.cardName }
+  } else {
+    // 売上請求書／仕入請求書（発行者・宛名の位置ルールをプロンプトに内蔵）
+    const { invoices } = await invoiceOcr(dataUrls, kind === 'invoice-purchase' ? 'purchase' : 'sales')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const inv of invoices as any[]) {
+      const taxLines = Array.isArray(inv.taxLines) && inv.taxLines.length
+        ? inv.taxLines
+        : [{ taxRate: '', totalAmount: Number(inv.totalAmount) || 0 }]
+      for (const tl of taxLines) {
+        rows.push({
+          date: inv.invoiceDate || '',
+          storeName: inv.counterpartName || '',
+          mainContent: inv.mainContent || '',
+          invoiceNumber: inv.invoiceNumber || '',
+          taxRate: tl.taxRate || '',
+          totalAmount: Number(tl.totalAmount) || 0,
+          pageIndex: typeof inv.pageStart === 'number' ? inv.pageStart : null,
+        })
+      }
+    }
+  }
+
+  await saveAnalysis(token, batch.id, rows, kind, meta)
+  return { rows, errors, kind, meta }
 }
 
 function hasGeminiKey(): boolean {
@@ -123,7 +185,9 @@ async function refreshSubscriptions(): Promise<void> {
 }
 
 async function enqueue(token: string, batches: Record<string, ScanBatch>): Promise<void> {
-  const candidates = Object.values(batches).filter((b) => b.status !== 'done' && !seen.has(b.id))
+  const candidates = Object.values(batches).filter(
+    (b) => b.status !== 'done' && !seen.has(b.id) && docTypeToKind(b.docType) !== null,
+  )
   if (!candidates.length) return
   let analyses: Record<string, unknown> = {}
   try {

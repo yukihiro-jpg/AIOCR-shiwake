@@ -329,9 +329,20 @@ export interface ScanAnalysisRow {
   pageIndex?: number | null // 元になった画像（0始まり）
 }
 
+/** 解析の種別（書類種類に対応） */
+export type ScanAnalysisKind = 'receipt' | 'credit-card' | 'invoice-sales' | 'invoice-purchase'
+
+export interface ScanAnalysisMeta {
+  paymentDate?: string // クレジットカード：引落日
+  totalAmount?: number // クレジットカード：引落総額
+  cardName?: string // クレジットカード：カード名
+}
+
 export interface ScanAnalysis {
   rows: ScanAnalysisRow[]
   analyzedAt: string
+  kind?: ScanAnalysisKind
+  meta?: ScanAnalysisMeta
 }
 
 /** 自動解析の多端末ロック。取得できた端末だけが解析する（5分で失効＝処理中断時も別端末が引き継げる） */
@@ -348,10 +359,18 @@ export async function acquireAnalysisLock(token: string, batchId: string): Promi
 }
 
 /** 解析結果を保存（編集内容も同じ場所に上書き保存） */
-export async function saveAnalysis(token: string, batchId: string, rows: ScanAnalysisRow[]): Promise<void> {
+export async function saveAnalysis(
+  token: string,
+  batchId: string,
+  rows: ScanAnalysisRow[],
+  kind?: ScanAnalysisKind,
+  meta?: ScanAnalysisMeta,
+): Promise<void> {
   const { db, ref, set } = await dbfns()
   // undefined を含むと RTDB がエラーになるため JSON 経由で除去
-  const clean = JSON.parse(JSON.stringify({ rows, analyzedAt: new Date().toISOString() }))
+  const clean = JSON.parse(
+    JSON.stringify({ rows, analyzedAt: new Date().toISOString(), kind: kind || 'receipt', meta: meta || null }),
+  )
   await set(ref(db, publicPath(token, 'analysis', batchId)), clean)
 }
 
