@@ -243,6 +243,16 @@ export interface FcfResult {
   netCash: number; cashActualChg: number
 }
 
+/** 指定月末の運転資本（売上債権＋棚卸資産−仕入債務）とその内訳残高 */
+export interface WorkingCapital { recv: number; inv: number; pay: number; wc: number }
+export function workingCapital(fy: FiscalYearData, monthIdx: number): WorkingCapital {
+  const cur = aggregateRows(fy)
+  const recv = sumBsAt(cur, monthIdx, (n) => RECV_RE.test(n))
+  const inv = sumBsAt(cur, monthIdx, (n) => INV_RE.test(n))
+  const pay = sumBsAt(cur, monthIdx, isPay)
+  return { recv, inv, pay, wc: recv + inv - pay }
+}
+
 /** 推移BS/PLから簡易フリーキャッシュフロー（営業CF）と財務収支を算出 */
 export function fcfAnalysis(
   fy: FiscalYearData,

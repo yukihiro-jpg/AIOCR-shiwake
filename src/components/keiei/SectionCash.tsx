@@ -1,8 +1,8 @@
 'use client'
 
 import type { FiscalYearData } from '@/lib/keiei/types'
-import { singleMonth } from '@/lib/keiei/calc'
-import { safety, debtAccounts, landingScenarios, type KeieiSettings } from '@/lib/keiei/analysis'
+import { singleMonth, findPriorYear } from '@/lib/keiei/calc'
+import { safety, debtAccounts, landingScenarios, workingCapital, fcfAnalysis, type KeieiSettings } from '@/lib/keiei/analysis'
 import { fmtYen, fmtShort, fmtPct } from '@/lib/keiei/format'
 import { GroupedBars } from './charts'
 
@@ -28,6 +28,15 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
   years: Record<string, FiscalYearData>
 }) {
   const s = safety(fy, monthIdx, settings)
+  const prior = findPriorYear(years, fy)
+  const wc = workingCapital(fy, monthIdx)
+  const fcf = fcfAnalysis(fy, prior, monthIdx)
+  // 資金ランウェイ：本業から現金が流出している場合、手元現預金が何ヶ月もつか
+  const monthlyBurn = fcf.operatingCf < 0 ? -fcf.operatingCf / s.months : 0
+  const runwayMonths = monthlyBurn > 0 ? s.cash / monthlyBurn : null
+  // 運転資本の各回転月数（月商対比）。月商0なら算定不能
+  const turn = (v: number) => (s.monthlySales ? v / s.monthlySales : null)
+  const wcMonths = turn(wc.wc)
   const { loans, leases } = debtAccounts(fy)
   const ex = settings.loanExclude || {}
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
@@ -60,6 +69,30 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
           実効税率 <b>{fmtPct(s.taxRate * 100)}</b>（中小法人・所得連動の概算）で税引後利益を算定し、減価償却費を加えた簡易CFです。
           金融機関有利子負債 <b>{fmtShort(s.loans)}</b>、リース債務 <b>{fmtShort(s.leases)}</b>、現預金 <b>{fmtShort(s.cash)}</b>、月商 <b>{fmtShort(s.monthlySales)}</b>。
           債務償還年数は「有利子負債 ÷ 年間簡易CF」。一般に10年以内が目安です。
+        </div>
+      </Section>
+
+      <Section title={`運転資本と資金ランウェイ（${monthLabel}時点）`} note="事業に寝ている資金と、手元資金の持ちこたえ期間">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <Stat label="運転資本" value={wc.wc} sub="売上債権＋棚卸−仕入債務" />
+          <Stat label="運転資本回転月数" text={wcMonths == null ? '—' : `${wcMonths.toFixed(1)}ヶ月`} good={wcMonths != null && wcMonths <= 2} sub="月商の何ヶ月分が寝ているか" />
+          <Stat label="手元現預金" value={s.cash} sub={`月商 ${fmtShort(s.monthlySales)}`} />
+          <Stat label="資金ランウェイ"
+            text={fcf.operatingCf >= 0 ? '流出なし' : runwayMonths == null ? '—' : `${runwayMonths.toFixed(1)}ヶ月`}
+            good={fcf.operatingCf >= 0 || (runwayMonths != null && runwayMonths >= 6)}
+            sub={fcf.operatingCf >= 0 ? '本業CFはプラス' : '本業流出が続いた場合'} />
+        </div>
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <MiniWc label="売上債権" value={wc.recv} months={turn(wc.recv)} hint="回収に寝る資金" />
+          <MiniWc label="棚卸資産" value={wc.inv} months={turn(wc.inv)} hint="在庫に寝る資金" />
+          <MiniWc label="仕入債務" value={wc.pay} months={turn(wc.pay)} hint="支払を待てる分（資金源）" />
+        </div>
+        <div className="text-xs text-gray-500 leading-relaxed">
+          <b>運転資本</b>（{fmtShort(wc.wc)}）は、売上債権 {fmtShort(wc.recv)} ＋ 棚卸資産 {fmtShort(wc.inv)} − 仕入債務 {fmtShort(wc.pay)} で、
+          利益とは別に事業へ寝ている資金です。回収を早め・在庫を圧縮し・支払を適正化すると、この資金が手元に戻ります。
+          {fcf.operatingCf >= 0
+            ? `　本業の営業CF（累計）は ${fmtShort(fcf.operatingCf)} のプラスで、現預金が本業で目減りする状況ではありません。`
+            : `　本業の営業CF（累計）が ${fmtShort(fcf.operatingCf)} のマイナスで、この水準の流出が続くと手元現預金 ${fmtShort(s.cash)} は約 ${runwayMonths != null ? runwayMonths.toFixed(1) : '—'} ヶ月分に相当します。早期の収益改善・資金手当てが必要です。`}
         </div>
       </Section>
 
@@ -120,6 +153,16 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
           <div className="text-sm text-gray-600">当期は12ヶ月すべて入力済みのため、着地は確定値です。期中データを取り込むと予測を表示します。</div>
         )}
       </Section>
+    </div>
+  )
+}
+
+function MiniWc({ label, value, months, hint }: { label: string; value: number; months: number | null; hint: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+      <div className="text-[12px] font-semibold text-gray-600 mb-0.5">{label}</div>
+      <div className="text-[18px] leading-tight font-extrabold text-gray-900 tabular-nums">{fmtShort(value)}</div>
+      <div className="text-[11px] text-gray-400 mt-0.5">{months == null ? '—' : `月商 ${months.toFixed(1)}ヶ月分`}・{hint}</div>
     </div>
   )
 }
