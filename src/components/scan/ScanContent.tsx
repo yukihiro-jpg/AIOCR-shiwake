@@ -415,6 +415,14 @@ export function InboxModal({
   const [browseRoot, setBrowseRoot] = useState<'select' | 'toClient' | 'toOffice'>('select')
   const [folderId, setFolderId] = useState<string | null>(null)
 
+  // 新規タブ（全画面）で開いたときはタブ名を「共有フォルダ_顧問先名」にする
+  useEffect(() => {
+    if (!fullPage) return
+    const prev = document.title
+    document.title = `共有フォルダ_${client.name}`
+    return () => { document.title = prev }
+  }, [fullPage, client.name])
+
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
