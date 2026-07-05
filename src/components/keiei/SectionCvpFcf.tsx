@@ -85,6 +85,33 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
   // 参考: 実績の月平均返済（自動読取りは使わないが目安として表示）
   const refMonthlyRepay = ctx.months > 0 ? Math.max(0, -(ctx.loanChg + ctx.leaseChg)) / ctx.months : 0
 
+  // ===== シミュレーション前提と結論（画面・PDF共通の要約） =====
+  const simAdjusted = salesAdj !== 0 || grossAdj !== 0 || varAdj !== 0 || fixedAdj !== 0
+  const simAssumptions = [
+    { label: '売上', v: salesAdj, unit: '%' },
+    { label: '粗利率', v: grossAdj, unit: 'pt' },
+    { label: '変動費率', v: varAdj, unit: 'pt' },
+    { label: '固定費', v: fixedAdj, unit: '%' },
+  ].filter((a) => a.v !== 0)
+  const signPt = (v: number, u: string) => `${v >= 0 ? '+' : '−'}${Math.abs(v)}${u}`
+  const simComment = (() => {
+    if (!simAdjusted) {
+      return 'スライダーは基準（±0）のままです。売上・粗利率・変動費率・固定費を動かすと、損益分岐点・経営安全率・借入返済の充足がどう変わるかをこの欄に要約します。'
+    }
+    const cond = simAssumptions.map((a) => `${a.label}を ${signPt(a.v, a.unit)}`).join('、')
+    const opTxt = `営業利益は ${fmtShort(baseM.op)} → ${fmtShort(afterM.op)}（${afterM.op - baseM.op >= 0 ? '＋' : '−'}${fmtShort(Math.abs(afterM.op - baseM.op))}）`
+    const bepTxt = `損益分岐点売上は ${fmtShort(baseM.bep)} → ${fmtShort(afterM.bep)}`
+    const bepDir = afterM.bep < baseM.bep ? '低下（改善）' : afterM.bep > baseM.bep ? '上昇' : '横ばい'
+    const safeTxt = `経営安全率は ${baseM.safety.toFixed(1)}% → ${afterM.safety.toFixed(1)}%`
+    let repay = ''
+    if (plannedRepay > 0) {
+      repay = sol.covered
+        ? `　この条件なら期首〜${monthLabel}の返済額 ${fmtShort(plannedRepay)} を営業CF ${fmtShort(sol.cfSim)} で賄えます（余力 ${fmtShort(sol.surplus)}）。`
+        : `　この条件では期首〜${monthLabel}の返済額 ${fmtShort(plannedRepay)} に対し営業CF ${fmtShort(sol.cfSim)} で ${fmtShort(sol.shortfall)} 不足します。`
+    }
+    return `${cond} と仮定すると、${opTxt}、${bepTxt}へ${bepDir}し、${safeTxt}に変化します。${repay}`
+  })()
+
   // ===== 損益分岐点の逆算 =====
   const [fixSales, setFixSales] = useState<number>(Math.round(base.sales))
   const [fixRate, setFixRate] = useState<number>(Number((base.marginalRate * 100).toFixed(1)))
@@ -188,6 +215,31 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
           <Slider label="粗利率" value={grossAdj} min={-10} max={10} unit="pt" onChange={setGrossAdj} />
           <Slider label="変動費率" value={varAdj} min={-10} max={10} unit="pt" onChange={setVarAdj} />
           <Slider label="固定費" value={fixedAdj} min={-30} max={30} unit="%" onChange={setFixedAdj} />
+        </div>
+
+        {/* シミュレーション前提と結論（画面・PDFで同じ内容を明示） */}
+        <div className="rounded-xl border border-[#1F3A5F]/25 bg-[#f4f8ff] p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="px-2 py-0.5 rounded bg-[#1F3A5F] text-white text-[11px] font-bold">前提</span>
+            {simAssumptions.length === 0 ? (
+              <span className="text-[13px] text-gray-500">基準（±0・調整なし）</span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {simAssumptions.map((a) => (
+                  <span key={a.label} className={`px-2 py-0.5 rounded-full text-[12px] font-bold border ${a.v >= 0 ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>{a.label} {signPt(a.v, a.unit)}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          {simAdjusted && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2.5">
+              <SimResult label="営業利益" before={baseM.op} after={afterM.op} betterWhenUp />
+              <SimResult label="損益分岐点売上" before={baseM.bep} after={afterM.bep} betterWhenUp={false} />
+              <SimResult label="経営安全率" before={baseM.safety} after={afterM.safety} pct betterWhenUp />
+              <SimResult label="限界利益率" before={baseM.mr} after={afterM.mr} pct betterWhenUp />
+            </div>
+          )}
+          <p className="text-[13px] leading-[1.9] text-gray-700">{simComment}</p>
         </div>
 
         {/* 借入返済の充足パネル */}
@@ -386,6 +438,21 @@ function Stat({ label, value, sub, text, accent, good }: { label: string; value?
       <div className="text-[13px] font-semibold text-gray-600 mb-1.5">{label}</div>
       <div className={`text-[22px] leading-none font-extrabold ${good == null ? (accent ? 'text-amber-700' : 'text-gray-900') : good ? 'text-green-600' : 'text-red-600'}`}>{text != null ? text : fmtShort(value || 0)}</div>
       {sub && <div className="text-[11px] text-gray-500 mt-1.5">{sub}</div>}
+    </div>
+  )
+}
+
+function SimResult({ label, before, after, pct, betterWhenUp }: { label: string; before: number; after: number; pct?: boolean; betterWhenUp: boolean }) {
+  const diff = after - before
+  const improved = betterWhenUp ? diff >= 0 : diff <= 0
+  const f = (v: number) => (pct ? `${v.toFixed(1)}%` : fmtShort(v))
+  const eps = pct ? 0.05 : 0.5
+  const tone = Math.abs(diff) < eps ? 'text-gray-500' : improved ? 'text-green-600' : 'text-red-600'
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-2.5">
+      <div className="text-[11px] font-semibold text-gray-500 mb-0.5">{label}</div>
+      <div className="text-[13px] text-gray-500 tabular-nums">{f(before)} <span className="text-gray-400">→</span> <b className="text-gray-900">{f(after)}</b></div>
+      <div className={`text-[11px] font-bold tabular-nums ${tone}`}>{Math.abs(diff) < eps ? '±0' : `${diff >= 0 ? '＋' : '−'}${pct ? Math.abs(diff).toFixed(1) + 'pt' : fmtShort(Math.abs(diff))}`}</div>
     </div>
   )
 }
