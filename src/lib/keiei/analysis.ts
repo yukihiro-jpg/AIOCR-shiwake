@@ -78,8 +78,17 @@ export interface KeieiSettings {
   fcfComments?: Record<string, string>
   repayLoanMonthly?: Record<string, number> // 月額元本返済額（期ごと）
   repayLeaseMonthly?: Record<string, number> // 月額リース債務返済額（期ごと）
+  budgets?: Record<string, YearBudget> // 予算（期ごと）
 }
-export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {}, fcfComments: {}, repayLoanMonthly: {}, repayLeaseMonthly: {} } }
+export function defaultSettings(): KeieiSettings { return { varfix: {}, loanExclude: {}, fcfComments: {}, repayLoanMonthly: {}, repayLeaseMonthly: {}, budgets: {} } }
+
+/** 簡易予算（通期）。営業利益は 売上×粗利率 − 販管費 で導出する */
+export interface YearBudget {
+  sales: number       // 通期 売上高
+  grossMargin: number // 粗利率（%）
+  sgna: number        // 通期 販管費（固定費相当）
+  comment?: string    // 予実に対する所見（編集可）
+}
 
 // 分類対象 = 「売上原価（合計を1ブロック）」＋「販管費の各明細」。
 // ※売上原価は期首/期末棚卸を含むため明細合算では正しくならない。小計(9577)を一括で扱う。

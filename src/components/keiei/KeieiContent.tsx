@@ -21,9 +21,10 @@ import SectionDetail from './SectionDetail'
 import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
+import SectionBudget from './SectionBudget'
 import { buildSummaryStory } from '@/lib/keiei/narrative'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'cash'
+type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'cash' | 'budget'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -87,12 +88,12 @@ export default function KeieiContent() {
   const fy = years[yearId]
 
   // ===== 印刷（タブ選択式） =====
-  const TABS: [View, string][] = [['overview', '概要'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']]
+  const TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']]
   const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
-  const [printSel, setPrintSel] = useState<View[]>(['overview', 'report', 'detail', 'cvpfcf', 'cash'])
+  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'cash'])
   const [printViews, setPrintViews] = useState<View[] | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
   const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
@@ -129,6 +130,7 @@ export default function KeieiContent() {
       case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
       case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} sim={cvpSim} onSimChange={setCvpSim} />
       case 'cash': return <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />
+      case 'budget': return <SectionBudget fy={fy} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />
     }
   }
 
