@@ -66,13 +66,25 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
           {children.length > 0 ? (
             <button
               onClick={() => toggle(folder.id)}
-              className="w-5 h-7 shrink-0 text-gray-400 text-[11px] leading-none"
+              className="w-7 h-7 shrink-0 flex items-center justify-center rounded-md text-gray-500 hover:bg-gray-200 hover:text-gray-700"
               aria-label={isOpen ? '折りたたむ' : '展開'}
             >
-              {isOpen ? '▾' : '▸'}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}
+              >
+                <path d="M9 6l6 6-6 6" />
+              </svg>
             </button>
           ) : (
-            <span className="w-5 shrink-0" />
+            <span className="w-7 shrink-0" />
           )}
           <button
             onClick={() => onSelect(root.key, folder.id)}
