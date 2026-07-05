@@ -82,7 +82,8 @@ export default function ScanContent() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
-  const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
+  const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany; fullPage?: boolean } | null>(null)
+  const openedFromParam = useRef(false)
   const [membersFor, setMembersFor] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
 
   // 常駐の自動AI解析エンジン（layout.tsx で全ページ起動）の状態を表示に反映
@@ -160,6 +161,20 @@ export default function ScanContent() {
   useEffect(() => {
     if (ready) reload()
   }, [ready, reload])
+
+  // 新規タブ（?open=顧問先ID）で開かれたら、その顧問先の共有フォルダを全画面表示する
+  useEffect(() => {
+    if (openedFromParam.current) return
+    if (!clients.length || !Object.keys(companies).length) return
+    const id = new URLSearchParams(window.location.search).get('open')
+    if (!id) return
+    const client = clients.find((c) => c.id === id)
+    const company = client ? companies[client.id] : undefined
+    if (client && company) {
+      openedFromParam.current = true
+      setInbox({ client, company, fullPage: true })
+    }
+  }, [clients, companies])
 
   function saveRoom() {
     if (!pass.trim()) return
@@ -274,8 +289,8 @@ export default function ScanContent() {
                   return (
                     <tr
                       key={client.id}
-                      onClick={() => setInbox({ client, company })}
-                      title="クリックで共有フォルダを開く"
+                      onClick={() => window.open(`${window.location.pathname}?open=${encodeURIComponent(client.id)}`, '_blank')}
+                      title="クリックで共有フォルダを新しいタブで開く"
                       className="border-t border-gray-100 cursor-pointer hover:bg-blue-50/40"
                     >
                       <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
@@ -333,7 +348,8 @@ export default function ScanContent() {
           client={inbox.client}
           company={inbox.company}
           analyzingIds={analyzingIds}
-          onClose={() => setInbox(null)}
+          fullPage={inbox.fullPage}
+          onClose={() => (inbox.fullPage ? window.close() : setInbox(null))}
           onChanged={reload}
         />
       )}
@@ -368,18 +384,20 @@ function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClo
   )
 }
 
-function InboxModal({
+export function InboxModal({
   client,
   company,
   analyzingIds,
   onClose,
   onChanged,
+  fullPage,
 }: {
   client: SharedClient
   company: ScanCompany
   analyzingIds: Set<string> // 画面全体の自動解析エンジンが処理中のバッチID
   onClose: () => void
   onChanged: () => void
+  fullPage?: boolean // 新規タブで全画面表示するとき
 }) {
   const [view, setView] = useState<'files' | 'batches' | 'cash'>('files')
   const [batches, setBatches] = useState<Record<string, ScanBatch>>({})
@@ -526,8 +544,14 @@ function InboxModal({
   ]
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div
+      className={fullPage ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4'}
+      onClick={fullPage ? undefined : onClose}
+    >
+      <div
+        className={fullPage ? 'bg-white w-full h-full flex flex-col overflow-hidden' : 'bg-white rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden'}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* ヘッダー（Taxsys風ネイビー） */}
         <header className="px-5 py-3 flex items-center justify-between text-white shrink-0" style={{ background: '#0f2740' }}>
           <div>

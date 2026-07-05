@@ -377,7 +377,7 @@ export default function ScanUpload() {
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       <header className="text-white px-4 py-3" style={{ background: '#0f2740' }}>
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-md md:max-w-none md:px-4 mx-auto">
           <div className="text-[11px] text-slate-300">書類スキャン・ファイル便</div>
           <div className="font-bold text-lg">
             {companyName}
@@ -386,7 +386,7 @@ export default function ScanUpload() {
         </div>
       </header>
 
-      <div className="max-w-md md:max-w-5xl mx-auto p-4">
+      <div className="max-w-md md:max-w-none mx-auto p-4 md:px-6">
         {/* スマホ：上部3ボタン */}
         <div className="grid grid-cols-3 gap-2 mb-4 md:hidden">
           {NAV.map((n) => (
