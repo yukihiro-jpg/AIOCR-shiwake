@@ -346,8 +346,8 @@ export default function ScanUpload() {
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
       <header className="bg-blue-600 text-white px-4 py-3">
-        <div className="max-w-md mx-auto">
-          <div className="text-xs opacity-80">書類スキャン</div>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-xs opacity-80">書類スキャン・ファイル便</div>
           <div className="font-bold text-lg">
             {companyName}
             {memberName && <span className="text-sm font-normal opacity-90">｜{memberName} 様</span>}
@@ -355,7 +355,7 @@ export default function ScanUpload() {
         </div>
       </header>
 
-      <div className="max-w-md mx-auto p-4 space-y-4">
+      <div className="max-w-md md:max-w-5xl mx-auto p-4 space-y-4">
         {inboxItems.length > 0 && (
           <div className="bg-white rounded-2xl border-2 border-blue-200 p-5">
             <h1 className="font-bold text-gray-800 mb-1">📥 事務所からのファイル</h1>
@@ -394,6 +394,9 @@ export default function ScanUpload() {
           </div>
         )}
 
+        {/* PCでは2カラム。左＝書類の送信（撮影・現金）、右＝ファイルのやり取り */}
+        <div className="md:grid md:grid-cols-2 md:gap-5 md:items-start space-y-4 md:space-y-0">
+        <div className="space-y-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-3">書類を撮影して送信</h1>
 
@@ -607,6 +610,8 @@ export default function ScanUpload() {
           </button>
         </div>
 
+        </div>{/* end column A */}
+        <div className="space-y-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-1">📎 ファイルを送る</h1>
           <p className="text-xs text-gray-500 mb-3">
@@ -687,6 +692,9 @@ export default function ScanUpload() {
             {fileSubmitting ? fileProgress || '送信中...' : 'まとめて送信する'}
           </button>
         </div>
+
+        </div>{/* end column B */}
+        </div>{/* end 2-column grid */}
 
         <p className="text-[11px] text-gray-400 text-center">
           カメラが開かないときは LINE 等ではなく Safari / Chrome で開き直してください（アルバムからの選択はどのアプリでも使えます）。<br />
