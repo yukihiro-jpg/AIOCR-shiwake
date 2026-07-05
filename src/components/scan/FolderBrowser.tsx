@@ -549,7 +549,7 @@ export default function FolderBrowser({
           <span className="flex-1 min-w-0">名称</span>
           <span className="hidden sm:block w-44 shrink-0">更新日時</span>
           <span className="hidden sm:block w-16 shrink-0 text-right">サイズ</span>
-          <span className="hidden sm:block w-52 shrink-0 text-right pr-1">操作</span>
+          <span className="hidden sm:block w-80 shrink-0 text-right pr-1">操作</span>
         </div>
 
         {/* 本文（8ファイル分の高さを確保・超過分はスクロール） */}
@@ -593,7 +593,7 @@ export default function FolderBrowser({
                       </button>
                       <span className="hidden sm:block w-44 shrink-0 text-[11px] text-gray-400">{f.createdAt ? new Date(f.createdAt).toLocaleString('ja-JP') : ''}</span>
                       <span className="hidden sm:block w-16 shrink-0 text-right text-[11px] text-gray-400">—</span>
-                      <span className="shrink-0 sm:w-52 flex justify-end gap-1">
+                      <span className="shrink-0 sm:w-80 flex justify-end gap-1">
                         {canManageFolders && (
                           <>
                             <button onClick={() => { setRenaming(f.id); setRenameName(f.name) }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">改名</button>
@@ -639,12 +639,12 @@ export default function FolderBrowser({
                   </div>
                   <span className="hidden sm:block w-44 shrink-0 text-[11px] text-gray-500 pt-0.5">{new Date(f.at).toLocaleString('ja-JP')}</span>
                   <span className="hidden sm:block w-16 shrink-0 text-right text-[11px] text-gray-500 pt-0.5">{fmtSize(f.size)}</span>
-                  <span className="shrink-0 sm:w-52 flex justify-end gap-1.5">
+                  <span className="shrink-0 sm:w-80 flex justify-end gap-1.5">
                     {onGetBlob && (
-                      <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">👁</button>
+                      <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">プレビュー</button>
                     )}
                     {onMoveFile && (
-                      <button onClick={() => setMovePicker(f)} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50" title="別のフォルダへ移動">↪</button>
+                      <button onClick={() => setMovePicker(f)} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50" title="別のフォルダへ移動（ドラッグ＆ドロップでも移動できます）">ファイル移動</button>
                     )}
                     <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
                     {onDeleteFile && (

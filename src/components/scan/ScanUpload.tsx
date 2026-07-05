@@ -16,6 +16,7 @@ import {
   renameScanFolder,
   deleteScanFolder,
   moveScanFile,
+  moveInboxFile,
   SCAN_FILE_MAX_BYTES,
   SCAN_FILE_MAX_TOTAL,
   type ScanInboxFile,
@@ -561,6 +562,10 @@ export default function ScanUpload() {
                     onDeleteFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
                     onAddFiles={async () => { /* 顧問先はアップロード不可 */ }}
                     onGetBlob={async (f) => getInboxBlob((f.raw as { file: ScanInboxFile }).file)}
+                    onMoveFile={async (f, targetFolderId) => {
+                      const item = f.raw as { srcToken: string; file: ScanInboxFile }
+                      await moveInboxFile(item.srcToken, item.file.id, targetFolderId)
+                    }}
                     onDownload={async (f) => {
                       const item = f.raw as { srcToken: string; file: ScanInboxFile; toAll: boolean }
                       await downloadInboxFile(item)
