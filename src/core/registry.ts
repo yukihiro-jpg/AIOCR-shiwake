@@ -59,8 +59,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     key: 'scan',
-    label: '書類スキャン受信',
-    desc: '顧問先がスマホで撮影した書類を受信・AI解析・Excel/CSV出力',
+    label: '共有フォルダ',
+    desc: '顧問先とのファイル共有・スマホ撮影書類のAI解析・Excel/CSV出力',
     path: '/scan',
     icon: '📥',
     status: 'ready',

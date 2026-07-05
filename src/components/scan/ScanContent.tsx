@@ -232,8 +232,7 @@ export default function ScanContent() {
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="scan" />
       <div className="flex-1 p-6 max-w-7xl w-full mx-auto">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <h1 className="text-xl font-bold text-gray-800">書類スキャン受信 — 顧問先スマホ撮影の回収</h1>
+        <div className="flex items-center justify-end mb-4 flex-wrap gap-3">
           <button onClick={reload} disabled={busy} className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
             更新
           </button>
@@ -248,7 +247,7 @@ export default function ScanContent() {
 
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
-            「顧問先情報登録」の「アプリ利用」で<strong>書類スキャン受信＝利用</strong>にした会社が表示されます。URL/QRを配布し、受信箱で画像確認・AI解析・Excel/CSV出力ができます。
+            「顧問先情報登録」の「アプリ利用」で<strong>書類スキャン受信＝利用</strong>にした会社が表示されます。URL/QRを配布し、<strong>会社名をクリック</strong>すると共有フォルダ（画像確認・AI解析・Excel/CSV出力・ファイル授受）が開きます。
           </div>
           {clients.length === 0 ? (
             <div className="p-6 text-center text-sm text-gray-500">
@@ -275,7 +274,15 @@ export default function ScanContent() {
                   return (
                     <tr key={client.id} className="border-t border-gray-100">
                       <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setInbox({ client, company })}
+                          className="font-semibold text-blue-700 hover:underline"
+                          title="クリックで共有フォルダを開く"
+                        >
+                          {client.name}
+                        </button>
+                      </td>
                       <td className="px-4 py-3">
                         <span className="font-semibold text-blue-700">{cnt.batch}</span>
                       </td>
@@ -301,9 +308,6 @@ export default function ScanContent() {
                           </button>
                           <button onClick={() => setMembersFor({ client, company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             👥 メンバー{company.members && Object.keys(company.members).length ? `（${Object.keys(company.members).length}）` : ''}
-                          </button>
-                          <button onClick={() => setInbox({ client, company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-                            📁 共有フォルダ
                           </button>
                         </div>
                       </td>
