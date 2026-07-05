@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   loadScanInfoPublic,
   submitScanBatchPublic,
@@ -9,13 +9,22 @@ import {
   loadInbox,
   markInboxDownloaded,
   getInboxBlob,
+  loadFiles,
+  getScanFileBlob,
+  loadScanFolders,
+  createScanFolder,
+  renameScanFolder,
+  deleteScanFolder,
   SCAN_FILE_MAX_BYTES,
   SCAN_FILE_MAX_TOTAL,
   type ScanInboxFile,
+  type ScanFile,
+  type ScanFolder,
   type CashEntryType,
   type CashDepositType,
 } from '@/lib/scan/store'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
+import FolderBrowser, { type BrowserFile, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
 
 const TOKEN_STORAGE_KEY = 'scan-token'
 
@@ -77,15 +86,11 @@ export default function ScanUpload() {
   const [cashErr, setCashErr] = useState('')
   const [cashDone, setCashDone] = useState('')
 
-  // ファイル便
-  const [sendFiles, setSendFiles] = useState<File[]>([])
-  const [sendFolder, setSendFolder] = useState('')
-  const [sendComment, setSendComment] = useState('')
-  const [fileDrag, setFileDrag] = useState(false)
-  const [fileSubmitting, setFileSubmitting] = useState(false)
-  const [fileProgress, setFileProgress] = useState('')
-  const [fileErr, setFileErr] = useState('')
-  const [fileDone, setFileDone] = useState('')
+  // 共有フォルダ（DocuWorks風フォルダツリー）
+  const [browseRoot, setBrowseRoot] = useState<'select' | 'toOffice' | 'toClient'>('select')
+  const [folders, setFolders] = useState<ScanFolder[]>([])
+  const [ownFiles, setOwnFiles] = useState<Record<string, ScanFile>>({})
+  const [folderErr, setFolderErr] = useState('')
 
   useEffect(() => {
     ;(async () => {
@@ -151,6 +156,64 @@ export default function ScanUpload() {
   const uploadToken = companyToken || token
   const myDlKey = (memberName || '共通URL').replace(/[.#$/\[\]]/g, '_').slice(0, 40) || '共通URL'
   const inboxNew = inboxItems.filter((x) => !(x.file.downloads || {})[myDlKey]).length
+
+  // ===== 共有フォルダ（フォルダツリー） =====
+  const reloadFolderData = useCallback(async () => {
+    if (!uploadToken) return
+    try {
+      const [f, files] = await Promise.all([loadScanFolders(uploadToken), loadFiles(uploadToken)])
+      setFolders(Object.values(f))
+      setOwnFiles(files)
+    } catch { /* ignore */ }
+  }, [uploadToken])
+
+  async function reloadInboxItems() {
+    if (!token) return
+    try {
+      const own = await loadInbox(token)
+      const items: { srcToken: string; file: ScanInboxFile; toAll: boolean }[] = Object.values(own).map((f) => ({
+        srcToken: token,
+        file: f,
+        toAll: !memberName,
+      }))
+      if (companyToken) {
+        const shared = await loadInbox(companyToken)
+        for (const f of Object.values(shared)) items.push({ srcToken: companyToken, file: f, toAll: true })
+      }
+      items.sort((a, b) => b.file.sentAt.localeCompare(a.file.sentAt))
+      setInboxItems(items)
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    if (phase === 'ready') reloadFolderData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, uploadToken])
+
+  // toOffice（顧問先→事務所）：自分がこの会社へ送ったファイル一覧をフォルダ表示用に変換
+  const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
+  const toOfficeFiles: BrowserFile[] = Object.values(ownFiles).map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    folderId: f.folderId || null,
+    at: f.submittedAt,
+    comment: f.comment,
+    member: f.member,
+    raw: f,
+  }))
+
+  // toClient（事務所→顧問先）：会社宛（フォルダツリーあり）＋自分（メンバー）宛（ルート直下扱い）
+  const toClientFolders = folders.filter((f) => f.root === 'toClient')
+  const toClientFiles: BrowserFile[] = inboxItems.map((item) => ({
+    id: item.file.id,
+    name: item.file.name,
+    size: item.file.size,
+    folderId: item.srcToken === uploadToken ? item.file.folderId || null : null,
+    at: item.file.sentAt,
+    comment: item.file.comment,
+    raw: item,
+  }))
 
   async function downloadInboxFile(item: { srcToken: string; file: ScanInboxFile }) {
     setInboxMsg('')
@@ -273,61 +336,6 @@ export default function ScanUpload() {
 
   const photoPreviews = useMemo(() => photos.map((f) => URL.createObjectURL(f)), [photos])
 
-  // ===== ファイル便 =====
-  function fmtSize(bytes: number): string {
-    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
-    return Math.max(1, Math.round(bytes / 1024)) + 'KB'
-  }
-
-  function addSendFiles(list: FileList | File[] | null) {
-    if (!list || !list.length) return
-    const arr = Array.from(list)
-    setFileErr('')
-    setFileDone('')
-    const tooBig = arr.filter((f) => f.size > SCAN_FILE_MAX_BYTES)
-    if (tooBig.length) {
-      setFileErr(`${tooBig.map((f) => f.name).join('、')} はサイズが大きすぎます（1ファイル ${fmtSize(SCAN_FILE_MAX_BYTES)} まで）。`)
-      return
-    }
-    setSendFiles((prev) => {
-      const next = [...prev, ...arr]
-      const total = next.reduce((s, f) => s + f.size, 0)
-      if (total > SCAN_FILE_MAX_TOTAL) {
-        setFileErr(`1回の送信は合計 ${fmtSize(SCAN_FILE_MAX_TOTAL)} までです。分けて送信してください。`)
-        return prev
-      }
-      return next
-    })
-  }
-
-  async function submitSendFiles() {
-    if (!token || sendFiles.length === 0) return
-    setFileSubmitting(true)
-    setFileErr('')
-    setFileDone('')
-    try {
-      await submitFilesPublic(uploadToken, sendFiles, sendFolder, memberName || undefined, sendComment, (done, total, name) => {
-        setFileProgress(`送信中... (${Math.min(done + 1, total)}/${total}) ${name}`)
-      })
-      setFileDone(`✅ ${sendFiles.length}件のファイルを送信しました${sendFolder.trim() ? `（フォルダ：${sendFolder.trim()}）` : ''}。ありがとうございました。`)
-      setHistory((prev) => [
-        { at: new Date().toLocaleString('ja-JP'), label: `ファイル（${sendFiles.length}件${sendFolder.trim() ? `・${sendFolder.trim()}` : ''}）` },
-        ...prev,
-      ])
-      setSendFiles([])
-      setSendComment('')
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e)
-      setFileErr(
-        /unauthorized|permission/i.test(m)
-          ? '送信できませんでした。お手数ですが、会計事務所のご担当者にお伝えください。'
-          : `送信に失敗しました：${m}。通信環境をご確認ください`,
-      )
-    }
-    setFileSubmitting(false)
-    setFileProgress('')
-  }
-
   if (phase === 'loading') return <Center>読み込み中...</Center>
   if (phase === 'error')
     return (
@@ -406,46 +414,126 @@ export default function ScanUpload() {
 
           {/* 右：選択中の機能 */}
           <div className="flex-1 min-w-0 space-y-4">
-        {view === 'files' && inboxItems.length > 0 && (
-          <div className="bg-white rounded-2xl border-2 border-blue-200 p-5">
-            <h1 className="font-bold text-gray-800 mb-1">📥 事務所からのファイル</h1>
-            <p className="text-xs text-gray-500 mb-3">タップしてダウンロードしてください（送信から90日で自動削除されます）。</p>
+        {view === 'files' && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-5">
             {inboxMsg && <div className="text-xs text-red-600 mb-2 break-words">{inboxMsg}</div>}
-            <ul className="space-y-2">
-              {inboxItems.map((item) => {
-                const isNew = !(item.file.downloads || {})[myDlKey]
-                return (
-                  <li key={item.srcToken + item.file.id} className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="text-sm text-gray-800 truncate">
-                        📄 {item.file.folder ? `${item.file.folder}／` : ''}{item.file.name}
-                        {isNew && <span className="ml-1 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5 align-middle">新着</span>}
-                      </div>
-                      <div className="text-[10px] text-gray-400">
-                        {new Date(item.file.sentAt).toLocaleDateString('ja-JP')}
-                        {memberName ? (item.toAll ? '・全員宛' : '・あなた宛') : ''}
-                      </div>
-                      {item.file.comment && (
-                        <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">
-                          💬 {item.file.comment}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => downloadInboxFile(item)}
-                      className="shrink-0 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg font-semibold"
-                    >
-                      ⬇ 保存
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
-        {view === 'files' && inboxItems.length === 0 && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-4 text-sm text-gray-400">
-            📥 事務所からのファイルはまだありません。下の「ファイルを送る」から事務所へ送れます。
+            {folderErr && <div className="text-xs text-red-600 mb-2 break-words">{folderErr}</div>}
+
+            {browseRoot === 'select' && (
+              <>
+                <h1 className="font-bold text-gray-800 mb-3">📁 共有フォルダ</h1>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setBrowseRoot('toOffice')}
+                    className="flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
+                    style={{ borderColor: FOLDER_COLOR.toOffice }}
+                  >
+                    <span className="text-3xl leading-none">📁</span>
+                    <span>
+                      <span className="block text-sm font-bold text-gray-800">顧問先 → 税理士事務所</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">フォルダを作って事務所へファイルを送れます</span>
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setBrowseRoot('toClient')}
+                    className="relative flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
+                    style={{ borderColor: FOLDER_COLOR.toClient }}
+                  >
+                    <span className="text-3xl leading-none">📁</span>
+                    <span>
+                      <span className="block text-sm font-bold text-gray-800">税理士事務所 → 顧問先</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">事務所から届いたファイルを確認・ダウンロードできます</span>
+                    </span>
+                    {inboxNew > 0 && (
+                      <span className="absolute top-2 right-2 text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{inboxNew}</span>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-3">送信されたファイルは90日で自動削除されます。</p>
+              </>
+            )}
+
+            {browseRoot !== 'select' && (
+              <>
+                <button
+                  onClick={() => setBrowseRoot('select')}
+                  className="mb-3 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  ← 共有フォルダ一覧へ戻る
+                </button>
+                {browseRoot === 'toOffice' ? (
+                  <FolderBrowser
+                    rootKey="toOffice"
+                    rootLabel="顧問先 → 税理士事務所"
+                    folders={toOfficeFolders}
+                    files={toOfficeFiles}
+                    canManageFolders
+                    canAddFiles
+                    addFilesLabel="事務所へファイルを送る"
+                    maxFileBytes={SCAN_FILE_MAX_BYTES}
+                    maxTotalBytes={SCAN_FILE_MAX_TOTAL}
+                    onCreateFolder={async (parentId, name) => {
+                      await createScanFolder(uploadToken, 'toOffice', parentId, name)
+                    }}
+                    onRenameFolder={async (folder, name) => {
+                      await renameScanFolder(uploadToken, folder.id, name)
+                    }}
+                    onDeleteFolder={async (folder) => {
+                      await deleteScanFolder(uploadToken, folder, toOfficeFolders, Object.values(ownFiles))
+                    }}
+                    onAddFiles={async (parentId, addFiles, comment) => {
+                      await submitFilesPublic(uploadToken, addFiles, undefined, parentId, memberName || undefined, comment)
+                    }}
+                    onDownload={async (f) => {
+                      const raw = f.raw as ScanFile
+                      const blob = await getScanFileBlob(raw)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = raw.name
+                      document.body.appendChild(a)
+                      a.click()
+                      a.remove()
+                      setTimeout(() => URL.revokeObjectURL(url), 2000)
+                    }}
+                    onChanged={reloadFolderData}
+                  />
+                ) : (
+                  <FolderBrowser
+                    rootKey="toClient"
+                    rootLabel="税理士事務所 → 顧問先"
+                    folders={toClientFolders}
+                    files={toClientFiles}
+                    canManageFolders={false}
+                    canAddFiles={false}
+                    addFilesLabel=""
+                    onCreateFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
+                    onRenameFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
+                    onDeleteFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
+                    onAddFiles={async () => { /* 顧問先はアップロード不可 */ }}
+                    onDownload={async (f) => {
+                      const item = f.raw as { srcToken: string; file: ScanInboxFile; toAll: boolean }
+                      await downloadInboxFile(item)
+                    }}
+                    renderFileBadges={(f) => {
+                      const item = f.raw as { srcToken: string; file: ScanInboxFile; toAll: boolean }
+                      const isNew = !(item.file.downloads || {})[myDlKey]
+                      return (
+                        <>
+                          {isNew && <span className="text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5 align-middle">新着</span>}
+                          {memberName && (
+                            <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">
+                              {item.toAll ? '全員宛' : 'あなた宛'}
+                            </span>
+                          )}
+                        </>
+                      )
+                    }}
+                    onChanged={reloadInboxItems}
+                  />
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -668,88 +756,6 @@ export default function ScanUpload() {
         </div>
         )}
 
-        {view === 'files' && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <h1 className="font-bold text-gray-800 mb-1">📎 ファイルを送る</h1>
-          <p className="text-xs text-gray-500 mb-3">
-            PDF・Excel・Word などのファイルを事務所へ送れます（お手元の元ファイルはそのまま残ります）。
-          </p>
-
-          <label className="block text-xs text-gray-500 mb-1">📂 フォルダ名（任意・まとめて整理したいとき）</label>
-          <input
-            value={sendFolder}
-            onChange={(e) => setSendFolder(e.target.value)}
-            placeholder="例：2026年3月分、決算資料 など"
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3"
-          />
-
-          <label className="block text-xs text-gray-500 mb-1">💬 コメント（任意・事務所に表示されます）</label>
-          <textarea
-            value={sendComment}
-            onChange={(e) => setSendComment(e.target.value)}
-            placeholder="例：3月分の通帳コピーです。2ページ目が見づらいかもしれません。"
-            rows={2}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-3"
-          />
-
-          <div
-            onDragOver={(e) => { e.preventDefault(); setFileDrag(true) }}
-            onDragLeave={() => setFileDrag(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setFileDrag(false)
-              addSendFiles(e.dataTransfer?.files || null)
-            }}
-            className={`border-2 border-dashed rounded-xl p-6 text-center mb-3 transition-colors ${fileDrag ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'}`}
-          >
-            <p className="text-sm text-gray-600 mb-2">ここにファイルをドラッグ＆ドロップ</p>
-            <label className="inline-block px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold cursor-pointer">
-              ファイルを選択
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  addSendFiles(e.target.files)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-            <p className="text-[10px] text-gray-400 mt-2">1ファイル50MB・1回の送信200MBまで</p>
-          </div>
-
-          {sendFiles.length > 0 && (
-            <ul className="mb-3 space-y-1">
-              {sendFiles.map((f, i) => (
-                <li key={i} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1.5">
-                  <span className="truncate mr-2">📄 {f.name}</span>
-                  <span className="flex items-center gap-2 shrink-0 text-gray-400">
-                    {fmtSize(f.size)}
-                    <button onClick={() => setSendFiles((prev) => prev.filter((_, j) => j !== i))} className="text-red-500">
-                      ×
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {fileErr && <div className="text-xs text-red-600 mb-2 break-words">{fileErr}</div>}
-          {fileDone && (
-            <div className="text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 mb-2">
-              {fileDone}
-            </div>
-          )}
-
-          <button
-            onClick={submitSendFiles}
-            disabled={fileSubmitting || sendFiles.length === 0}
-            className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-60"
-          >
-            {fileSubmitting ? fileProgress || '送信中...' : 'まとめて送信する'}
-          </button>
-        </div>
-        )}
           </div>{/* end content */}
         </div>{/* end md:flex */}
 

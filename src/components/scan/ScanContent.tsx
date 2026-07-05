@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
@@ -27,8 +27,14 @@ import {
   sendInboxFile,
   loadInbox,
   deleteInboxFile,
+  getInboxBlob,
+  loadScanFolders,
+  createScanFolder,
+  renameScanFolder,
+  deleteScanFolder,
   type ScanMember,
   type ScanInboxFile,
+  type ScanFolder,
   setBatchStatus,
   setCashStatus,
   getBatchImageUrls,
@@ -54,6 +60,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
+import FolderBrowser, { type BrowserFile } from '@/components/scan/FolderBrowser'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
 
 type SharedClient = ScanClient
@@ -1291,20 +1298,48 @@ function FilesTab({
   const [busy, setBusy] = useState(false)
   const [sendOpen, setSendOpen] = useState(false)
   const [sentRefresh, setSentRefresh] = useState(0)
+  const [sub, setSub] = useState<'toClient' | 'toOffice'>('toClient')
+  const [folders, setFolders] = useState<ScanFolder[]>([])
+  const [companyInbox, setCompanyInbox] = useState<Record<string, ScanInboxFile>>({})
 
+  const loadExtra = useCallback(async () => {
+    try {
+      const [f, inbox] = await Promise.all([loadScanFolders(company.token), loadInbox(company.token)])
+      setFolders(Object.values(f))
+      setCompanyInbox(inbox)
+    } catch { /* ignore */ }
+  }, [company.token])
+
+  useEffect(() => {
+    loadExtra()
+  }, [loadExtra, sentRefresh])
+
+  const toClientFolders = folders.filter((f) => f.root === 'toClient')
+  const toClientFiles: BrowserFile[] = Object.values(companyInbox)
+    .map((f) => ({
+      id: f.id,
+      name: f.name,
+      size: f.size,
+      folderId: f.folderId || null,
+      at: f.sentAt,
+      comment: f.comment,
+      raw: f,
+    }))
+
+  const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
   const list = Object.values(files)
     .filter((f) => showDone || f.status !== 'done')
     .sort((a, b) => (a.folder || '').localeCompare(b.folder || '', 'ja') || b.submittedAt.localeCompare(a.submittedAt))
-
-  // フォルダごとにグループ化（顧問先が付けたサブフォルダ。無しは末尾）
-  const groups: { folder: string; items: ScanFile[] }[] = []
-  for (const f of list) {
-    const key = f.folder || ''
-    const g = groups.find((x) => x.folder === key)
-    if (g) g.items.push(f)
-    else groups.push({ folder: key, items: [f] })
-  }
-  groups.sort((a, b) => (a.folder === '' ? 1 : b.folder === '' ? -1 : a.folder.localeCompare(b.folder, 'ja')))
+  const toOfficeFiles: BrowserFile[] = list.map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    folderId: f.folderId || null,
+    at: f.submittedAt,
+    comment: f.comment,
+    member: f.member,
+    raw: f,
+  }))
 
   function fmtSize(bytes: number): string {
     if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
@@ -1385,115 +1420,149 @@ function FilesTab({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-        <p className="text-xs text-gray-500">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <div className="flex gap-2">
           <button
-            onClick={() => setSendOpen(true)}
-            className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            onClick={() => setSub('toClient')}
+            className={`px-3 py-1.5 text-xs rounded ${sub === 'toClient' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
           >
-            📤 顧問先へ送る
+            📁 税理士事務所 → 顧問先
           </button>
           <button
-            onClick={() => setDriveOpen(true)}
-            disabled={busy || list.length === 0}
-            className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
+            onClick={() => setSub('toOffice')}
+            className={`px-3 py-1.5 text-xs rounded ${sub === 'toOffice' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
           >
-            📁 Driveへ保存
-          </button>
-          <button
-            onClick={downloadZip}
-            disabled={busy || list.length === 0}
-            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-          >
-            一括DL（ZIP）
+            📁 顧問先 → 税理士事務所
           </button>
         </div>
+        {sub === 'toClient' && (
+          <button
+            onClick={() => setSendOpen(true)}
+            className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
+          >
+            👤 メンバー個別宛に送る
+          </button>
+        )}
+        {sub === 'toOffice' && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDriveOpen(true)}
+              disabled={busy || list.length === 0}
+              className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
+            >
+              📁 Driveへ保存
+            </button>
+            <button
+              onClick={downloadZip}
+              disabled={busy || list.length === 0}
+              className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+            >
+              一括DL（ZIP）
+            </button>
+          </div>
+        )}
       </div>
 
       {msg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{msg}</div>}
+      <p className="text-xs text-gray-500 mb-2">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
 
-      {list.length === 0 ? (
-        <p className="text-sm text-gray-500 py-6 text-center">ファイルがありません。</p>
+      {sub === 'toClient' ? (
+        <FolderBrowser
+          rootKey="toClient"
+          rootLabel="税理士事務所 → 顧問先"
+          folders={toClientFolders}
+          files={toClientFiles}
+          canManageFolders
+          canAddFiles
+          addFilesLabel="顧問先へ送る"
+          maxFileBytes={SCAN_FILE_MAX_BYTES}
+          maxTotalBytes={SCAN_FILE_MAX_TOTAL}
+          onCreateFolder={async (parentId, name) => {
+            await createScanFolder(company.token, 'toClient', parentId, name)
+          }}
+          onRenameFolder={async (folder, name) => {
+            await renameScanFolder(company.token, folder.id, name)
+          }}
+          onDeleteFolder={async (folder) => {
+            await deleteScanFolder(company.token, folder, toClientFolders, Object.values(companyInbox))
+          }}
+          onAddFiles={async (parentId, addFiles, comment) => {
+            for (const f of addFiles) {
+              await sendInboxFile(company.token, f, f.name, undefined, parentId, comment)
+            }
+            setSentRefresh((v) => v + 1)
+          }}
+          onDownload={async (f) => {
+            const raw = f.raw as ScanInboxFile
+            const blob = await getInboxBlob(raw)
+            downloadBlob(blob, raw.name)
+          }}
+          onDeleteFile={async (f) => {
+            await deleteInboxFile(company.token, f.raw as ScanInboxFile)
+          }}
+          renderFileBadges={(f) => {
+            const raw = f.raw as ScanInboxFile
+            const dls = Object.keys(raw.downloads || {})
+            return dls.length ? (
+              <span
+                className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5"
+                title={dls.map((k) => `${k}: ${new Date((raw.downloads || {})[k]).toLocaleString('ja-JP')}`).join('\n')}
+              >
+                ✅ 受領済み（{dls.join('、')}）
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">未受領</span>
+            )
+          }}
+          onChanged={loadExtra}
+        />
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-gray-500">
-              <th className="text-left px-3 py-2">ファイル名</th>
-              <th className="text-right px-3 py-2">サイズ</th>
-              <th className="text-left px-3 py-2">送信日時</th>
-              <th className="text-left px-3 py-2">状態</th>
-              <th className="text-right px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((g) => (
-              <Fragment key={g.folder || '_none'}>
-                {g.folder && (
-                  <tr className="bg-gray-50/70 border-t border-gray-200">
-                    <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold text-gray-600">📂 {g.folder}</td>
-                  </tr>
+        <FolderBrowser
+          rootKey="toOffice"
+          rootLabel="顧問先 → 税理士事務所"
+          folders={toOfficeFolders}
+          files={toOfficeFiles}
+          canManageFolders={false}
+          canAddFiles={false}
+          addFilesLabel=""
+          onCreateFolder={async () => { /* 事務所はフォルダ操作不可（顧問先の領域） */ }}
+          onRenameFolder={async () => { /* 事務所はフォルダ操作不可 */ }}
+          onDeleteFolder={async () => { /* 事務所はフォルダ操作不可 */ }}
+          onAddFiles={async () => { /* 事務所はこのツリーへアップロード不可 */ }}
+          onDownload={async (f) => downloadOne(f.raw as ScanFile)}
+          onDeleteFile={async (f) => removeOne(f.raw as ScanFile)}
+          renderFileBadges={(f) => {
+            const raw = f.raw as ScanFile
+            const left = daysLeft(raw)
+            return (
+              <>
+                {isNew(raw) && <span className="text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">新着</span>}
+                {raw.downloadedAt && (
+                  <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5" title={`DL: ${new Date(raw.downloadedAt).toLocaleString('ja-JP')}`}>
+                    ⬇ DL済
+                  </span>
                 )}
-                {g.items.map((f) => {
-                  const left = daysLeft(f)
-                  return (
-                    <tr key={f.id} className="border-t border-gray-100">
-                      <td className="px-3 py-2 text-gray-800">
-                        {g.folder ? <span className="text-gray-300 mr-1">└</span> : null}📄 {f.name}
-                        <span className="inline-flex gap-1 ml-2 align-middle">
-                          {f.member && <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{f.member}</span>}
-                          {isNew(f) && <span className="text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">新着</span>}
-                          {f.downloadedAt && (
-                            <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5" title={`DL: ${new Date(f.downloadedAt).toLocaleString('ja-JP')}`}>
-                              ⬇ DL済
-                            </span>
-                          )}
-                          {f.driveSavedAt && (
-                            <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5" title={`Drive保存: ${new Date(f.driveSavedAt).toLocaleString('ja-JP')}`}>
-                              📁 Drive済
-                            </span>
-                          )}
-                          {left <= 10 && (
-                            <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-300 rounded px-1.5 py-0.5">
-                              🗑 あと{Math.max(0, left)}日で削除
-                            </span>
-                          )}
-                        </span>
-                        {f.comment && (
-                          <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">
-                            💬 {f.comment}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right text-gray-600">{fmtSize(f.size)}</td>
-                      <td className="px-3 py-2 text-gray-600">{new Date(f.submittedAt).toLocaleString('ja-JP')}</td>
-                      <td className="px-3 py-2">
-                        {f.status === 'done' ? (
-                          <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
-                        ) : (
-                          <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <span className="inline-flex gap-1.5">
-                          <button onClick={() => downloadOne(f)} disabled={busy} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
-                            DL
-                          </button>
-                          <button onClick={() => toggleDone(f)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                            {f.status === 'done' ? '未処理に戻す' : '処理済みにする'}
-                          </button>
-                          <button onClick={() => removeOne(f)} className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">
-                            削除
-                          </button>
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+                {raw.driveSavedAt && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5" title={`Drive保存: ${new Date(raw.driveSavedAt).toLocaleString('ja-JP')}`}>
+                    📁 Drive済
+                  </span>
+                )}
+                {left <= 10 && (
+                  <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-300 rounded px-1.5 py-0.5">
+                    🗑 あと{Math.max(0, left)}日で削除
+                  </span>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleDone(raw) }}
+                  className="text-[10px] border border-gray-300 rounded px-1.5 py-0.5 hover:bg-gray-50"
+                >
+                  {raw.status === 'done' ? '未処理に戻す' : '処理済みにする'}
+                </button>
+              </>
+            )
+          }}
+          onChanged={onChanged}
+        />
       )}
 
       <SentFilesSection company={company} refresh={sentRefresh} />
@@ -1737,7 +1806,7 @@ function SendFilesDialog({
       for (const r of recipients) {
         for (const f of files) {
           setProgress(`送信中... (${++n}/${total}) ${r.name}宛：${f.name}`)
-          await sendInboxFile(r.token, f, f.name, folder, comment)
+          await sendInboxFile(r.token, f, f.name, folder, undefined, comment)
         }
       }
       setDone(`✅ ${files.length}件を ${recipients.map((r) => r.name).join('・')} 宛に送信しました。`)

@@ -299,13 +299,93 @@ export interface ScanFile {
   size: number
   mimeType: string
   path: string // Storage 上のパス
-  folder?: string // 顧問先が付けたフォルダ名（任意・整理用）
+  folder?: string // 顧問先が付けたフォルダ名（旧仕様・任意・整理用。フォルダツリー導入前の互換用）
+  folderId?: string | null // 共有フォルダ（toOfficeツリー）内の所属フォルダID。null/未設定=ルート直下
   submittedAt: string
   status: ScanStatus
   downloadedAt?: string // 事務所がDL（個別/ZIP）した日時
   driveSavedAt?: string // 事務所がGoogleドライブへ保存した日時
   member?: string // 送信したメンバー名
   comment?: string // 送信時のコメント（相手側に表示される）
+}
+
+// ===== 共有フォルダ（DocuWorks風フォルダツリー） =====
+// 2つの固定ルート（toOffice=顧問先→事務所／toClient=事務所→顧問先）配下のサブフォルダのみを保持する。
+// ルート自体はDBに実体を持たない仮想フォルダ。
+
+export interface ScanFolder {
+  id: string
+  name: string
+  root: 'toOffice' | 'toClient'
+  parentId: string | null // null=ルート直下
+  createdAt: string
+}
+
+export async function loadScanFolders(token: string): Promise<Record<string, ScanFolder>> {
+  const { db, ref, get } = await dbfns()
+  return ((await get(ref(db, publicPath(token, 'folders')))).val() as Record<string, ScanFolder>) || {}
+}
+
+export async function createScanFolder(
+  token: string,
+  root: 'toOffice' | 'toClient',
+  parentId: string | null,
+  name: string,
+): Promise<ScanFolder> {
+  const trimmed = safeFileName((name || '').trim()).slice(0, 40)
+  if (!trimmed) throw new Error('フォルダ名を入力してください')
+  const { db, ref, set } = await dbfns()
+  const folder: ScanFolder = {
+    id: genId(),
+    name: trimmed,
+    root,
+    parentId: parentId || null,
+    createdAt: new Date().toISOString(),
+  }
+  await set(ref(db, publicPath(token, 'folders', folder.id)), folder)
+  return folder
+}
+
+export async function renameScanFolder(token: string, id: string, name: string): Promise<void> {
+  const trimmed = safeFileName((name || '').trim()).slice(0, 40)
+  if (!trimmed) throw new Error('フォルダ名を入力してください')
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'folders', id)), { name: trimmed })
+}
+
+/** フォルダを削除。配下の子フォルダ・ファイルも再帰的に削除してから、フォルダ本体を削除する。
+ *  allFolders / filesInRoot は呼び出し側が渡す（該当rootの全フォルダ・全ファイル）。 */
+export async function deleteScanFolder(
+  token: string,
+  folder: ScanFolder,
+  allFolders: ScanFolder[],
+  filesInRoot: (ScanFile | ScanInboxFile)[],
+): Promise<void> {
+  // 配下の子孫フォルダIDを収集（folder自身含む）
+  const targetIds = new Set<string>([folder.id])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const f of allFolders) {
+      if (f.parentId && targetIds.has(f.parentId) && !targetIds.has(f.id)) {
+        targetIds.add(f.id)
+        changed = true
+      }
+    }
+  }
+  // 対象フォルダ配下の全ファイルを削除
+  for (const f of filesInRoot) {
+    const fid = f.folderId
+    if (fid && targetIds.has(fid)) {
+      if (folder.root === 'toOffice') await deleteScanFile(token, f as ScanFile)
+      else await deleteInboxFile(token, f as ScanInboxFile)
+    }
+  }
+  // 対象フォルダ本体・子フォルダを削除
+  const { db, ref, remove } = await dbfns()
+  for (const id of Array.from(targetIds)) {
+    try { await remove(ref(db, publicPath(token, 'folders', id))) } catch { /* ignore */ }
+  }
 }
 
 export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
@@ -321,6 +401,7 @@ export async function submitFilesPublic(
   token: string,
   files: File[],
   folder?: string,
+  folderId?: string | null,
   member?: string,
   comment?: string,
   onProgress?: (done: number, total: number, name: string) => void,
@@ -344,6 +425,7 @@ export async function submitFilesPublic(
       mimeType: f.type || '',
       path,
       ...(folderName ? { folder: folderName } : {}),
+      ...(folderId ? { folderId } : {}),
       ...(member ? { member } : {}),
       ...(comment && comment.trim() ? { comment: comment.trim().slice(0, 500) } : {}),
       submittedAt: new Date().toISOString(),
@@ -364,7 +446,8 @@ export interface ScanInboxFile {
   size: number
   mimeType: string
   path: string
-  folder?: string
+  folder?: string // 旧仕様のフォルダ名（フォルダツリー導入前の互換用）
+  folderId?: string | null // 共有フォルダ（toClientツリー）内の所属フォルダID。null/未設定=ルート直下
   comment?: string // 送信時のコメント（顧問先側に表示される）
   sentAt: string
   downloadedAt?: string // 最初にDLされた日時
@@ -381,6 +464,7 @@ export async function sendInboxFile(
   blob: Blob,
   fileName: string,
   folder?: string,
+  folderId?: string | null,
   comment?: string,
 ): Promise<void> {
   const { st, ref: sref, uploadBytes } = await storageFns()
@@ -397,6 +481,7 @@ export async function sendInboxFile(
     mimeType: blob.type || '',
     path,
     ...(folderName ? { folder: folderName } : {}),
+    ...(folderId ? { folderId } : {}),
     ...(comment && comment.trim() ? { comment: comment.trim().slice(0, 500) } : {}),
     sentAt: new Date().toISOString(),
   }
