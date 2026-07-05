@@ -25,6 +25,7 @@ import {
 } from '@/lib/scan/store'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import FolderBrowser, { type BrowserFile, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
+import FolderTree from '@/components/scan/FolderTree'
 
 const TOKEN_STORAGE_KEY = 'scan-token'
 
@@ -88,6 +89,7 @@ export default function ScanUpload() {
 
   // 共有フォルダ（DocuWorks風フォルダツリー）
   const [browseRoot, setBrowseRoot] = useState<'select' | 'toOffice' | 'toClient'>('select')
+  const [folderId, setFolderId] = useState<string | null>(null) // 現在表示中フォルダ（null=ルート直下）
   const [folders, setFolders] = useState<ScanFolder[]>([])
   const [ownFiles, setOwnFiles] = useState<Record<string, ScanFile>>({})
   const [folderErr, setFolderErr] = useState('')
@@ -166,6 +168,12 @@ export default function ScanUpload() {
       setOwnFiles(files)
     } catch { /* ignore */ }
   }, [uploadToken])
+
+  function selectFolder(root: 'toOffice' | 'toClient', id: string | null) {
+    setView('files')
+    setBrowseRoot(root)
+    setFolderId(id)
+  }
 
   async function reloadInboxItems() {
     if (!token) return
@@ -410,6 +418,22 @@ export default function ScanUpload() {
                 )}
               </button>
             ))}
+
+            {/* サイドバー内フォルダツリー（共有フォルダ選択時） */}
+            {view === 'files' && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="text-[11px] font-semibold text-gray-400 px-1.5 mb-1.5">フォルダ</div>
+                <FolderTree
+                  roots={[
+                    { key: 'toOffice', label: '顧問先 → 税理士事務所', folders: toOfficeFolders },
+                    { key: 'toClient', label: '税理士事務所 → 顧問先', folders: toClientFolders, badge: inboxNew },
+                  ]}
+                  currentRoot={browseRoot}
+                  currentId={folderId}
+                  onSelect={selectFolder}
+                />
+              </div>
+            )}
           </aside>
 
           {/* 右：選択中の機能 */}
@@ -421,35 +445,42 @@ export default function ScanUpload() {
 
             {browseRoot === 'select' && (
               <>
-                <h1 className="font-bold text-gray-800 mb-3">📁 共有フォルダ</h1>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setBrowseRoot('toOffice')}
-                    className="flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
-                    style={{ borderColor: FOLDER_COLOR.toOffice }}
-                  >
-                    <span className="text-3xl leading-none">📁</span>
-                    <span>
-                      <span className="block text-sm font-bold text-gray-800">顧問先 → 税理士事務所</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">フォルダを作って事務所へファイルを送れます</span>
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setBrowseRoot('toClient')}
-                    className="relative flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
-                    style={{ borderColor: FOLDER_COLOR.toClient }}
-                  >
-                    <span className="text-3xl leading-none">📁</span>
-                    <span>
-                      <span className="block text-sm font-bold text-gray-800">税理士事務所 → 顧問先</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">事務所から届いたファイルを確認・ダウンロードできます</span>
-                    </span>
-                    {inboxNew > 0 && (
-                      <span className="absolute top-2 right-2 text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{inboxNew}</span>
-                    )}
-                  </button>
+                {/* モバイル：ルート選択カード（PCは左サイドバーのツリーで選ぶ） */}
+                <div className="md:hidden">
+                  <h1 className="font-bold text-gray-800 mb-3">📁 共有フォルダ</h1>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      onClick={() => selectFolder('toOffice', null)}
+                      className="flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
+                      style={{ borderColor: FOLDER_COLOR.toOffice }}
+                    >
+                      <span className="text-3xl leading-none">📁</span>
+                      <span>
+                        <span className="block text-sm font-bold text-gray-800">顧問先 → 税理士事務所</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">フォルダを作って事務所へファイルを送れます</span>
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => selectFolder('toClient', null)}
+                      className="relative flex items-center gap-3 p-4 rounded-xl border-2 text-left hover:bg-gray-50"
+                      style={{ borderColor: FOLDER_COLOR.toClient }}
+                    >
+                      <span className="text-3xl leading-none">📁</span>
+                      <span>
+                        <span className="block text-sm font-bold text-gray-800">税理士事務所 → 顧問先</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">事務所から届いたファイルを確認・ダウンロードできます</span>
+                      </span>
+                      {inboxNew > 0 && (
+                        <span className="absolute top-2 right-2 text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{inboxNew}</span>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-3">送信されたファイルは90日で自動削除されます。</p>
                 </div>
-                <p className="text-[11px] text-gray-400 mt-3">送信されたファイルは90日で自動削除されます。</p>
+                {/* PC：ツリー未選択時のヒント */}
+                <div className="hidden md:block text-center text-gray-400 py-20 text-sm">
+                  ← 左のフォルダを選択してください
+                </div>
               </>
             )}
 
@@ -457,7 +488,7 @@ export default function ScanUpload() {
               <>
                 <button
                   onClick={() => setBrowseRoot('select')}
-                  className="mb-3 text-xs text-gray-500 hover:text-gray-700"
+                  className="md:hidden mb-3 text-xs text-gray-500 hover:text-gray-700"
                 >
                   ← 共有フォルダ一覧へ戻る
                 </button>
@@ -467,6 +498,8 @@ export default function ScanUpload() {
                     rootLabel="顧問先 → 税理士事務所"
                     folders={toOfficeFolders}
                     files={toOfficeFiles}
+                    controlledId={folderId}
+                    onNavigate={setFolderId}
                     canManageFolders
                     canAddFiles
                     addFilesLabel="事務所へファイルを送る"
@@ -504,6 +537,8 @@ export default function ScanUpload() {
                     rootLabel="税理士事務所 → 顧問先"
                     folders={toClientFolders}
                     files={toClientFiles}
+                    controlledId={folderId}
+                    onNavigate={setFolderId}
                     canManageFolders={false}
                     canAddFiles={false}
                     addFilesLabel=""

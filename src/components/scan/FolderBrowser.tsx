@@ -36,6 +36,8 @@ export interface FolderBrowserProps {
   onChanged: () => void
   maxFileBytes?: number
   maxTotalBytes?: number
+  controlledId?: string | null // 指定するとサイドバー等の外部から現在フォルダを制御する
+  onNavigate?: (id: string | null) => void
 }
 
 function fmtSize(bytes: number): string {
@@ -44,7 +46,7 @@ function fmtSize(bytes: number): string {
 }
 
 // フォルダアイコン（絵文字ではなく塗り色で区別する小さなSVG）
-function FolderIcon({ color, size = 18 }: { color: string; size?: number }) {
+export function FolderIcon({ color, size = 18 }: { color: string; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
       <path
@@ -79,8 +81,15 @@ export default function FolderBrowser({
   onChanged,
   maxFileBytes,
   maxTotalBytes,
+  controlledId,
+  onNavigate,
 }: FolderBrowserProps) {
-  const [currentId, setCurrentId] = useState<string | null>(null)
+  const [internalId, setInternalId] = useState<string | null>(null)
+  const currentId = controlledId !== undefined ? controlledId : internalId
+  const setCurrentId = (id: string | null) => {
+    if (onNavigate) onNavigate(id)
+    else setInternalId(id)
+  }
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [renaming, setRenaming] = useState<string | null>(null)
