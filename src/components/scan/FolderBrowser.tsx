@@ -63,6 +63,34 @@ export const FOLDER_COLOR = {
   sub: '#f59e0b', // ユーザー作成サブフォルダ（黄/オレンジ）
 } as const
 
+// ファイル名の拡張子から種類マーク（色付き丸バッジ）を決める
+function fileTypeBadge(name: string): { label: string; bg: string } {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  if (ext === 'pdf') return { label: 'PDF', bg: '#ef4444' } // 赤
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'xlsm') return { label: 'Excel', bg: '#16a34a' } // 緑
+  if (ext === 'csv') return { label: 'CSV', bg: '#16a34a' } // 緑
+  if (ext === 'doc' || ext === 'docx') return { label: 'Word', bg: '#2563eb' } // 青
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'bmp', 'tif', 'tiff'].includes(ext)) return { label: '画像', bg: '#6b7280' }
+  if (ext === 'ppt' || ext === 'pptx') return { label: 'PPT', bg: '#ea580c' }
+  if (ext === 'zip' || ext === 'rar' || ext === '7z') return { label: 'ZIP', bg: '#6b7280' }
+  if (ext === 'txt') return { label: 'TXT', bg: '#6b7280' }
+  return { label: ext ? ext.toUpperCase().slice(0, 4) : 'FILE', bg: '#6b7280' }
+}
+
+// ファイル種類マーク（丸バッジ）：PDF=赤・Excel/CSV=緑・Word=青 など
+export function FileTypeBadge({ name }: { name: string }) {
+  const { label, bg } = fileTypeBadge(name)
+  return (
+    <span
+      className="inline-flex items-center justify-center shrink-0 text-[9px] font-bold text-white rounded-full px-1.5 py-0.5 leading-none align-middle"
+      style={{ background: bg }}
+      title={label}
+    >
+      {label}
+    </span>
+  )
+}
+
 export default function FolderBrowser({
   rootKey,
   rootLabel,
@@ -359,7 +387,8 @@ export default function FolderBrowser({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-gray-800 truncate flex items-center gap-1.5 flex-wrap">
-                    📄 {f.name}
+                    <FileTypeBadge name={f.name} />
+                    {f.name}
                     {renderFileBadges?.(f)}
                   </div>
                   <div className="text-[11px] text-gray-400">
@@ -421,7 +450,7 @@ export default function FolderBrowser({
             <ul className="mb-2 space-y-1">
               {pendingFiles.map((f, i) => (
                 <li key={i} className="flex items-center justify-between text-xs bg-white rounded px-2 py-1.5 border border-gray-200">
-                  <span className="truncate mr-2">📄 {f.name}</span>
+                  <span className="truncate mr-2 inline-flex items-center gap-1.5"><FileTypeBadge name={f.name} />{f.name}</span>
                   <span className="flex items-center gap-2 shrink-0 text-gray-400">
                     {fmtSize(f.size)}
                     <button onClick={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))} className="text-red-500">

@@ -60,7 +60,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
 
@@ -1080,10 +1080,7 @@ function BatchDetail({
                     {rows.map((r, i) => (
                       <tr
                         key={i}
-                        onClick={(e) => {
-                          const tag = (e.target as HTMLElement).tagName
-                          if (tag !== 'INPUT' && tag !== 'BUTTON') focusImage(r.pageIndex)
-                        }}
+                        onClick={() => focusImage(r.pageIndex)}
                         title={r.pageIndex != null ? `クリックで元画像（${(r.pageIndex ?? 0) + 1}枚目）を表示` : undefined}
                         className={`border-t border-gray-100 ${r.pageIndex != null ? 'cursor-pointer hover:bg-blue-50/40' : ''} ${activeImg != null && r.pageIndex === activeImg ? 'bg-blue-50' : ''}`}
                       >
@@ -1092,6 +1089,7 @@ function BatchDetail({
                             {c.num ? (
                               <input
                                 value={r[c.key] == null ? '' : String(r[c.key])}
+                                onFocus={() => focusImage(r.pageIndex)}
                                 onChange={(e) => {
                                   const t = e.target.value.replace(/[^\d.-]/g, '')
                                   updateRow(i, { [c.key]: t === '' ? (c.key === 'totalAmount' ? 0 : null) : Number(t) } as Partial<ReceiptRow>)
@@ -1101,6 +1099,7 @@ function BatchDetail({
                             ) : (
                               <input
                                 value={(r[c.key] as string) || ''}
+                                onFocus={() => focusImage(r.pageIndex)}
                                 onChange={(e) => updateRow(i, { [c.key]: e.target.value } as Partial<ReceiptRow>)}
                                 className={`${c.w} px-1 py-1 border border-gray-200 rounded`}
                               />
@@ -1999,7 +1998,11 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
               <tr key={row.token + row.file.id} className="border-t border-gray-100">
                 <td className="px-3 py-1.5 text-gray-700">{row.recipient}</td>
                 <td className="px-3 py-1.5 text-gray-800">
-                  {row.file.folder ? `📂${row.file.folder}／` : ''}📄 {row.file.name}
+                  <span className="inline-flex items-center gap-1.5">
+                    {row.file.folder ? `📂${row.file.folder}／` : ''}
+                    <FileTypeBadge name={row.file.name} />
+                    {row.file.name}
+                  </span>
                   {row.file.comment && (
                     <div className="text-[11px] text-gray-500 mt-0.5">💬 {row.file.comment}</div>
                   )}
