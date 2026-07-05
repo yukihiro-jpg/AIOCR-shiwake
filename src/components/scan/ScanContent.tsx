@@ -62,6 +62,7 @@ import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-stat
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import FolderBrowser, { type BrowserFile, FileTypeBadge } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
+import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
 
 type SharedClient = ScanClient
@@ -1610,6 +1611,7 @@ function FilesPanel({
             }
             setSentRefresh((v) => v + 1)
           }}
+          onGetBlob={async (f) => getInboxBlob(f.raw as ScanInboxFile)}
           onDownload={async (f) => {
             const raw = f.raw as ScanInboxFile
             const blob = await getInboxBlob(raw)
@@ -1649,6 +1651,14 @@ function FilesPanel({
           onRenameFolder={async () => { /* 事務所はフォルダ操作不可 */ }}
           onDeleteFolder={async () => { /* 事務所はフォルダ操作不可 */ }}
           onAddFiles={async () => { /* 事務所はこのツリーへアップロード不可 */ }}
+          onGetBlob={async (f) => getScanFileBlob(f.raw as ScanFile)}
+          enableAiAsk
+          onAiAsk={async (aiFiles, question, onProgress) => {
+            const blobs = await Promise.all(
+              aiFiles.map(async (f) => ({ name: f.name, blob: await getScanFileBlob(f.raw as ScanFile) })),
+            )
+            return askFilesQuestion(blobs, question, onProgress)
+          }}
           onDownload={async (f) => downloadOne(f.raw as ScanFile)}
           onDeleteFile={async (f) => removeOne(f.raw as ScanFile)}
           renderFileBadges={(f) => {

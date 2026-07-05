@@ -878,3 +878,58 @@ export async function expandDescriptions(descriptions: string[], geminiModel?: s
   }
   return { descriptions: out.map((d) => String(d ?? '')) }
 }
+
+// ============================================================
+// 共有フォルダ：届いたファイルに対するAI質問（PDF・画像はFile API、Excel/CSV/テキストは本文として渡す）
+// ============================================================
+export async function askFilesQuestion(
+  files: { name: string; blob: Blob }[],
+  question: string,
+  onProgress?: (msg: string) => void,
+  geminiModel?: string,
+): Promise<string> {
+  if (!files.length) throw new Error('対象のファイルがありません。')
+  if (!question.trim()) throw new Error('質問内容を入力してください。')
+  const model = genAI().getGenerativeModel({ model: resolveModel(geminiModel) })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = []
+  parts.push({
+    text:
+      'あなたは税理士事務所の実務アシスタントです。顧問先から届いた以下の資料を読み取り、質問に日本語で正確かつ簡潔に答えてください。' +
+      '数値・日付・固有名詞は資料の記載に忠実に扱い、資料に書かれていないことは推測せず「資料からは確認できません」と述べてください。' +
+      '複数の資料がある場合は、どの資料に基づく回答かが分かるように述べてください。\n\n' +
+      '【質問】\n' + question.trim() + '\n\n【参照資料】\n',
+  })
+  let usable = 0
+  for (const f of files) {
+    const ext = (f.name.split('.').pop() || '').toLowerCase()
+    onProgress?.(`資料を読み込み中… ${f.name}`)
+    try {
+      if (ext === 'pdf' || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'bmp', 'tif', 'tiff'].includes(ext)) {
+        const ref = await geminiUpload(f.blob, f.name)
+        parts.push({ text: `■ ${f.name}` })
+        parts.push({ fileData: { mimeType: ref.mimeType, fileUri: ref.uri } })
+        usable++
+      } else if (['xlsx', 'xls', 'xlsm'].includes(ext)) {
+        const XLSX = await import('xlsx')
+        const wb = XLSX.read(await f.blob.arrayBuffer(), { type: 'array' })
+        let t = ''
+        for (const sn of wb.SheetNames) t += `[シート: ${sn}]\n` + XLSX.utils.sheet_to_csv(wb.Sheets[sn]) + '\n'
+        parts.push({ text: `■ ${f.name}（Excelを表形式テキストに変換）\n${t.slice(0, 200000)}` })
+        usable++
+      } else if (['csv', 'txt', 'tsv', 'json'].includes(ext)) {
+        const t = await f.blob.text()
+        parts.push({ text: `■ ${f.name}\n${t.slice(0, 200000)}` })
+        usable++
+      } else {
+        parts.push({ text: `■ ${f.name}（この形式（.${ext}）はAIが直接読み取れないため内容を省略しました）` })
+      }
+    } catch (e) {
+      parts.push({ text: `■ ${f.name}（読み込みに失敗：${e instanceof Error ? e.message : ''}）` })
+    }
+  }
+  if (!usable) throw new Error('AIが読み取れる資料（PDF・画像・Excel・CSV・テキスト）がありませんでした。')
+  onProgress?.('AIが回答を作成しています…')
+  const result = await model.generateContent(parts)
+  return result.response.text()
+}

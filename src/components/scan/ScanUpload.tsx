@@ -522,6 +522,7 @@ export default function ScanUpload() {
                     onAddFiles={async (parentId, addFiles, comment) => {
                       await submitFilesPublic(uploadToken, addFiles, undefined, parentId, memberName || undefined, comment)
                     }}
+                    onGetBlob={async (f) => getScanFileBlob(f.raw as ScanFile)}
                     onDownload={async (f) => {
                       const raw = f.raw as ScanFile
                       const blob = await getScanFileBlob(raw)
@@ -551,6 +552,7 @@ export default function ScanUpload() {
                     onRenameFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
                     onDeleteFolder={async () => { /* 顧問先はフォルダ操作不可 */ }}
                     onAddFiles={async () => { /* 顧問先はアップロード不可 */ }}
+                    onGetBlob={async (f) => getInboxBlob((f.raw as { file: ScanInboxFile }).file)}
                     onDownload={async (f) => {
                       const item = f.raw as { srcToken: string; file: ScanInboxFile; toAll: boolean }
                       await downloadInboxFile(item)

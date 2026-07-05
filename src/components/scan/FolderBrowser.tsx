@@ -38,6 +38,9 @@ export interface FolderBrowserProps {
   maxTotalBytes?: number
   controlledId?: string | null // 指定するとサイドバー等の外部から現在フォルダを制御する
   onNavigate?: (id: string | null) => void
+  onGetBlob?: (file: BrowserFile) => Promise<Blob> // 指定するとプレビュー可能に
+  enableAiAsk?: boolean // ファイル選択＋AI質問を有効化（税理士側の届いた資料用）
+  onAiAsk?: (files: BrowserFile[], question: string, onProgress?: (m: string) => void) => Promise<string>
 }
 
 function fmtSize(bytes: number): string {
@@ -111,12 +114,16 @@ export default function FolderBrowser({
   maxTotalBytes,
   controlledId,
   onNavigate,
+  onGetBlob,
+  enableAiAsk,
+  onAiAsk,
 }: FolderBrowserProps) {
   const [internalId, setInternalId] = useState<string | null>(null)
   const currentId = controlledId !== undefined ? controlledId : internalId
   const setCurrentId = (id: string | null) => {
     if (onNavigate) onNavigate(id)
     else setInternalId(id)
+    setSelected(new Set())
   }
   const [newFolderOpen, setNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
@@ -128,6 +135,12 @@ export default function FolderBrowser({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [done, setDone] = useState('')
+  // プレビュー
+  const [preview, setPreview] = useState<{ url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  // AI質問（選択）
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [ai, setAi] = useState<{ files: BrowserFile[]; label: string } | null>(null)
 
   const byId = useMemo(() => {
     const m = new Map<string, ScanFolder>()
@@ -151,9 +164,60 @@ export default function FolderBrowser({
     .filter((f) => (f.folderId || null) === currentId)
     .sort((a, b) => b.at.localeCompare(a.at))
 
+  // 「このフォルダごと」＝現在フォルダ＋その配下すべてのファイル
+  function filesUnderCurrent(): BrowserFile[] {
+    const ids = new Set<string | null>([currentId])
+    let added = true
+    while (added) {
+      added = false
+      for (const f of folders) {
+        const p = f.parentId || null
+        if (ids.has(p) && !ids.has(f.id)) { ids.add(f.id); added = true }
+      }
+    }
+    return files.filter((f) => ids.has(f.folderId || null))
+  }
+
   function resetMsgs() {
     setErr('')
     setDone('')
+  }
+
+  async function openPreview(file: BrowserFile) {
+    if (!onGetBlob) return
+    setPreviewLoading(true)
+    setErr('')
+    try {
+      const blob = await onGetBlob(file)
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'tif', 'tiff'].includes(ext)) {
+        setPreview({ url: URL.createObjectURL(blob), name: file.name, kind: 'image' })
+      } else if (ext === 'pdf') {
+        setPreview({ url: URL.createObjectURL(blob), name: file.name, kind: 'pdf' })
+      } else if (['csv', 'txt', 'tsv', 'json'].includes(ext)) {
+        const text = await blob.text()
+        setPreview({ url: '', name: file.name, kind: 'text', text })
+      } else {
+        setErr(`「${file.name}」はプレビュー非対応の形式です。ダウンロードしてご確認ください（Excel・Word 等）。`)
+      }
+    } catch (e) {
+      setErr('プレビューの取得に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setPreviewLoading(false)
+  }
+
+  function closePreview() {
+    if (preview?.url) URL.revokeObjectURL(preview.url)
+    setPreview(null)
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   async function createFolder() {
@@ -375,6 +439,37 @@ export default function FolderBrowser({
         </ul>
       )}
 
+      {/* AI質問ツールバー（税理士側の届いた資料） */}
+      {enableAiAsk && onAiAsk && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+          <span className="text-xs text-indigo-800 font-semibold">🤖 AIに質問：</span>
+          <button
+            onClick={() => {
+              const fs = filesUnderCurrent()
+              if (!fs.length) { setErr('このフォルダ（配下含む）にファイルがありません。'); return }
+              setAi({ files: fs, label: `${currentId ? (byId.get(currentId)?.name || 'このフォルダ') : rootLabel}（配下含む ${fs.length}件）` })
+            }}
+            className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+          >
+            このフォルダごと
+          </button>
+          <button
+            disabled={!selected.size}
+            onClick={() => {
+              const fs = files.filter((x) => selected.has(x.id))
+              if (!fs.length) return
+              setAi({ files: fs, label: `選択した ${fs.length}件` })
+            }}
+            className="px-3 py-1 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-100 disabled:opacity-50"
+          >
+            選択した{selected.size ? `${selected.size}件` : 'ファイル'}
+          </button>
+          {selected.size > 0 && (
+            <button onClick={() => setSelected(new Set())} className="text-[11px] text-gray-500 hover:text-gray-700">選択解除</button>
+          )}
+        </div>
+      )}
+
       {/* ファイル一覧 */}
       {curFiles.length === 0 ? (
         <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded mb-3">
@@ -385,6 +480,15 @@ export default function FolderBrowser({
           {curFiles.map((f) => (
             <li key={f.id} className="px-3 py-2 hover:bg-gray-50">
               <div className="flex items-center justify-between gap-2">
+                {enableAiAsk && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(f.id)}
+                    onChange={() => toggleSelect(f.id)}
+                    className="shrink-0 w-4 h-4"
+                    title="AI質問の対象に選択"
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-gray-800 truncate flex items-center gap-1.5 flex-wrap">
                     <FileTypeBadge name={f.name} />
@@ -402,6 +506,11 @@ export default function FolderBrowser({
                   )}
                 </div>
                 <span className="inline-flex gap-1.5 shrink-0">
+                  {onGetBlob && (
+                    <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
+                      👁 プレビュー
+                    </button>
+                  )}
                   <button onClick={() => onDownload(f)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
                     ⬇ DL
                   </button>
@@ -471,6 +580,116 @@ export default function FolderBrowser({
           </button>
         </div>
       )}
+
+      {preview && <PreviewModal preview={preview} onClose={closePreview} onDownload={() => { /* DLは一覧から */ }} />}
+      {ai && onAiAsk && <AiAskModal target={ai} onAsk={onAiAsk} onClose={() => setAi(null)} />}
+    </div>
+  )
+}
+
+// ファイルプレビュー（画像・PDF・テキスト）
+function PreviewModal({ preview, onClose }: { preview: { url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string }; onClose: () => void; onDownload?: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[80] flex flex-col p-3 sm:p-6" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full h-full flex flex-col overflow-hidden max-w-5xl mx-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200">
+          <div className="text-sm font-semibold text-gray-800 truncate">👁 {preview.name}</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-1">×</button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto bg-gray-100">
+          {preview.kind === 'image' && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview.url} alt={preview.name} className="max-w-full mx-auto block" />
+          )}
+          {preview.kind === 'pdf' && (
+            <iframe src={preview.url} title={preview.name} className="w-full h-full" />
+          )}
+          {preview.kind === 'text' && (
+            <pre className="text-xs text-gray-800 whitespace-pre-wrap break-words p-4 bg-white h-full">{preview.text}</pre>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// AI質問（フォルダごと／選択ファイル）
+function AiAskModal({
+  target,
+  onAsk,
+  onClose,
+}: {
+  target: { files: BrowserFile[]; label: string }
+  onAsk: (files: BrowserFile[], question: string, onProgress?: (m: string) => void) => Promise<string>
+  onClose: () => void
+}) {
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState('')
+  const [err, setErr] = useState('')
+
+  async function ask() {
+    if (!question.trim()) { setErr('質問内容を入力してください。'); return }
+    setBusy(true); setErr(''); setAnswer(''); setProgress('')
+    try {
+      const a = await onAsk(target.files, question, (m) => setProgress(m))
+      setAnswer(a || '（回答が空でした）')
+    } catch (e) {
+      setErr('AI質問に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false); setProgress('')
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+          <div>
+            <div className="font-bold text-gray-800">🤖 AIに質問</div>
+            <div className="text-[11px] text-gray-500">対象：{target.label}</div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-1">×</button>
+        </div>
+        <div className="p-5 overflow-auto">
+          <label className="block text-sm font-medium text-gray-700 mb-1">確認したい内容を入力してください</label>
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            rows={3}
+            placeholder="例：この請求書の合計金額と支払期限を教えて／通帳のうち10万円以上の入金を一覧にして／この資料に登録番号（インボイス）はありますか？"
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg mb-2"
+          />
+          <div className="text-[11px] text-gray-400 mb-3">
+            対象ファイル {target.files.length}件（PDF・画像・Excel・CSV・テキストをAIが読み取ります。Word等は非対応）。
+          </div>
+          {err && <div className="text-xs text-red-600 mb-2 break-words">{err}</div>}
+          <button
+            onClick={ask}
+            disabled={busy || !question.trim()}
+            className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {busy ? (progress || 'AIが回答中…') : '質問する'}
+          </button>
+
+          {answer && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-semibold text-gray-700">回答</div>
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(answer).catch(() => {}) }}
+                  className="text-[11px] text-gray-500 hover:text-gray-700 border border-gray-300 rounded px-2 py-0.5"
+                >
+                  コピー
+                </button>
+              </div>
+              <div className="text-sm text-gray-800 whitespace-pre-wrap bg-indigo-50 border border-indigo-200 rounded-lg p-3 leading-relaxed">
+                {answer}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
