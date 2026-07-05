@@ -24,17 +24,17 @@ export interface FolderTreeProps {
   onSelect: (root: RootKey, id: string | null) => void
 }
 
-// ルート名「A → B」の矢印を大きく見やすく描画（方向が一目で分かるように）
+// ルート名「A → B」の矢印を大きく見やすく描画（1行固定・顧問先名側のみ省略）
 function RootLabel({ label, color }: { label: string; color: string }) {
   const idx = label.indexOf('→')
-  if (idx < 0) return <span className="flex-1 min-w-0 leading-snug">{label}</span>
+  if (idx < 0) return <span className="flex-1 min-w-0 truncate leading-snug">{label}</span>
   const left = label.slice(0, idx).trim()
   const right = label.slice(idx + 1).trim()
   return (
-    <span className="flex-1 min-w-0 flex items-center gap-1 flex-wrap leading-snug">
-      <span>{left}</span>
-      <span className="text-lg font-black leading-none px-0.5" style={{ color }}>➜</span>
-      <span>{right}</span>
+    <span className="flex-1 min-w-0 flex items-center gap-1 leading-snug">
+      <span className={left === '税理士' ? 'shrink-0' : 'truncate min-w-0'}>{left}</span>
+      <span className="shrink-0 text-lg font-black leading-none px-0.5" style={{ color }}>➜</span>
+      <span className={right === '税理士' ? 'shrink-0' : 'truncate min-w-0'}>{right}</span>
     </span>
   )
 }

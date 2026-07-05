@@ -569,10 +569,10 @@ export function InboxModal({
 
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
-  // 共有フォルダのルート名は実際の顧問先名を使う（例：㈱サンハート → 税理士事務所）
+  // 共有フォルダのルート名は実際の顧問先名を使う（1行に収めるため「税理士」表記）
   const cn = client.name || '顧問先'
-  const labelToOffice = `${cn} → 税理士事務所`
-  const labelToClient = `税理士事務所 → ${cn}`
+  const labelToOffice = `${cn} → 税理士`
+  const labelToClient = `税理士 → ${cn}`
   const newUploads = Object.values(files).filter((f) => !f.downloadedAt && !f.driveSavedAt && f.status !== 'done').length
   const batchNew = Object.values(batches).filter((b) => b.status !== 'done').length
   const cashNew = Object.values(cash).filter((c) => c.status !== 'done').length
@@ -615,7 +615,7 @@ export function InboxModal({
 
         <div className="flex-1 flex min-h-0">
           {/* 左サイドバー（顧問先版と同じ構成） */}
-          <aside className="w-56 shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-3 space-y-1.5">
+          <aside className="w-64 shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-3 space-y-1.5">
             {NAV.map((n) => (
               <button
                 key={n.key}
@@ -1485,8 +1485,8 @@ function FilesPanel({
   const [sentRefresh, setSentRefresh] = useState(0)
 
   const cn = client.name || '顧問先'
-  const labelToOffice = `${cn} → 税理士事務所`
-  const labelToClient = `税理士事務所 → ${cn}`
+  const labelToOffice = `${cn} → 税理士`
+  const labelToClient = `税理士 → ${cn}`
 
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
   const toClientFiles: BrowserFile[] = Object.values(companyInbox).map((f) => ({

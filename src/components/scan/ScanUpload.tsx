@@ -201,10 +201,10 @@ export default function ScanUpload() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, uploadToken])
 
-  // 共有フォルダのルート名は実際の顧問先名を使う（例：㈱サンハート → 税理士事務所）
+  // 共有フォルダのルート名は実際の顧問先名を使う（1行に収めるため「税理士」表記）
   const cn = companyName || '顧問先'
-  const labelToOffice = `${cn} → 税理士事務所`
-  const labelToClient = `税理士事務所 → ${cn}`
+  const labelToOffice = `${cn} → 税理士`
+  const labelToClient = `税理士 → ${cn}`
 
   // toOffice（顧問先→事務所）：自分がこの会社へ送ったファイル一覧をフォルダ表示用に変換
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
@@ -409,7 +409,7 @@ export default function ScanUpload() {
 
         <div className="md:flex md:gap-5 md:items-start">
           {/* PC：左サイドバー */}
-          <aside className="hidden md:block md:w-56 shrink-0 space-y-1.5">
+          <aside className="hidden md:block md:w-64 shrink-0 space-y-1.5">
             {NAV.map((n) => (
               <button
                 key={n.key}
