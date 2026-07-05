@@ -131,6 +131,7 @@ export default function FolderBrowser({
   const [renameName, setRenameName] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [comment, setComment] = useState('')
+  const [uploadOpen, setUploadOpen] = useState(false) // 送信欄は折りたたみ（ファイル一覧を主役に）
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -383,6 +384,12 @@ export default function FolderBrowser({
 
       {/* サブフォルダ一覧 */}
       {subFolders.length > 0 && (
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-sm font-bold text-gray-700">📁 サブフォルダ</span>
+          <span className="text-xs font-semibold text-white bg-amber-500 rounded-full px-2 py-0.5">{subFolders.length}</span>
+        </div>
+      )}
+      {subFolders.length > 0 && (
         <ul className="mb-3 divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
           {subFolders.map((f) => (
             <li key={f.id} className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-gray-50">
@@ -471,14 +478,18 @@ export default function FolderBrowser({
       )}
 
       {/* ファイル一覧 */}
+      <div className="flex items-center gap-2 mb-1.5 mt-1">
+        <span className="text-sm font-bold text-gray-700">📄 このフォルダのファイル</span>
+        <span className="text-xs font-semibold text-white bg-gray-400 rounded-full px-2 py-0.5">{curFiles.length}件</span>
+      </div>
       {curFiles.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded mb-3">
-          このフォルダにファイルはありません。
+        <p className="text-sm text-gray-400 py-8 text-center border-2 border-dashed border-gray-200 rounded-lg mb-3 bg-gray-50">
+          このフォルダにファイルはありません。{subFolders.length > 0 ? 'サブフォルダの中もご確認ください。' : ''}
         </p>
       ) : (
-        <ul className="mb-3 divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+        <ul className="mb-3 divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
           {curFiles.map((f) => (
-            <li key={f.id} className="px-3 py-2 hover:bg-gray-50">
+            <li key={f.id} className="px-3 py-2.5 hover:bg-blue-50/40">
               <div className="flex items-center justify-between gap-2">
                 {enableAiAsk && (
                   <input
@@ -526,10 +537,21 @@ export default function FolderBrowser({
         </ul>
       )}
 
-      {/* アップロード／送付エリア */}
-      {canAddFiles && (
+      {/* アップロード／送付エリア（折りたたみ：ファイル一覧を主役にする） */}
+      {canAddFiles && !uploadOpen && (
+        <button
+          onClick={() => setUploadOpen(true)}
+          className="w-full py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm font-semibold text-gray-500 hover:bg-gray-50 hover:border-blue-400 hover:text-blue-600"
+        >
+          ＋ {addFilesLabel}（このフォルダへ）
+        </button>
+      )}
+      {canAddFiles && uploadOpen && (
         <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-          <div className="text-xs font-semibold text-gray-600 mb-2">📤 {addFilesLabel}（このフォルダへ）</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-gray-600">📤 {addFilesLabel}（このフォルダへ）</div>
+            <button onClick={() => { setUploadOpen(false); setPendingFiles([]); setComment('') }} className="text-xs text-gray-400 hover:text-gray-700">閉じる</button>
+          </div>
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
