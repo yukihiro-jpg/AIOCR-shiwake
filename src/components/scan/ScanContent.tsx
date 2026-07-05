@@ -390,6 +390,7 @@ function InboxModal({
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
+  const [transferBatch, setTransferBatch] = useState<ScanBatch | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
   // 共有フォルダ（DocuWorks風ツリー・顧問先版と同一のフォルダを双方向で共有）
@@ -516,7 +517,7 @@ function InboxModal({
 
   const NAV = [
     { key: 'files' as const, icon: '📁', label: '共有フォルダ', desc: 'ファイルの受取・送付', badge: newUploads },
-    { key: 'batches' as const, icon: '📷', label: '撮影バッチ', desc: 'スマホ撮影の解析', badge: batchNew },
+    { key: 'batches' as const, icon: '📷', label: '解析データ', desc: 'スマホ撮影の解析結果', badge: batchNew },
     { key: 'cash' as const, icon: '💴', label: '現金引出・預入', desc: '現金の登録', badge: cashNew },
   ]
 
@@ -608,6 +609,7 @@ function InboxModal({
                       <th className="text-left px-3 py-2">ページ数</th>
                       <th className="text-left px-3 py-2">AI解析</th>
                       <th className="text-left px-3 py-2">状態</th>
+                      <th className="text-left px-3 py-2">仕訳作成</th>
                       <th className="text-right px-3 py-2"></th>
                     </tr>
                   </thead>
@@ -638,6 +640,32 @@ function InboxModal({
                             <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
                           ) : (
                             <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {docTypeToKind(b.docType) !== 'receipt' ? (
+                            <span className="text-xs text-gray-300" title="仕訳作成への転送はレシート・領収書のみ対応">—</span>
+                          ) : b.transferredAt ? (
+                            <span
+                              className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-0.5"
+                              title={`転送済み：${new Date(b.transferredAt).toLocaleString('ja-JP')}`}
+                            >
+                              ✅ 転送済
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                const rows = analyses[b.id]?.rows
+                                if (!rows || !rows.length) {
+                                  alert('先にAI解析を行ってください（解析データがありません）。「開く」→「AI解析」で解析できます。')
+                                  return
+                                }
+                                setTransferBatch(b)
+                              }}
+                              className="px-3 py-1 text-xs border border-blue-300 text-blue-700 rounded hover:bg-blue-50"
+                            >
+                              📒 仕訳作成へ転送
+                            </button>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -717,6 +745,16 @@ function InboxModal({
           }}
           onToggleDone={() => toggleBatchDone(openBatch)}
           onDelete={() => removeBatch(openBatch)}
+        />
+      )}
+
+      {transferBatch && (
+        <TransferDialog
+          client={client}
+          company={company}
+          batch={transferBatch}
+          rows={(analyses[transferBatch.id]?.rows || []) as ReceiptRow[]}
+          onClose={() => setTransferBatch(null)}
         />
       )}
     </div>
