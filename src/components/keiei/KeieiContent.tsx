@@ -504,9 +504,30 @@ function Section({ title, note, children }: { title: string; note?: string; chil
   )
 }
 
+// 前年同月比の表示。黒字↔赤字の符号反転は「黒字転換／赤字転落」等と明示し、
+// 単純な%が誤解を招くケース（前年が赤字→当年黒字で+101.7%等）を防ぐ。
+function yoyInfo(value: number, prior?: number): { label: string; tone: 'good' | 'bad' | 'muted'; diff: number } | null {
+  if (prior == null) return null
+  const diff = value - prior
+  if (prior === 0) {
+    if (value > 0) return { label: '前年0→黒字', tone: 'good', diff }
+    if (value < 0) return { label: '前年0→赤字', tone: 'bad', diff }
+    return { label: '±0', tone: 'muted', diff }
+  }
+  if (prior < 0 && value >= 0) return { label: '黒字転換', tone: 'good', diff }
+  if (prior >= 0 && value < 0) return { label: '赤字転落', tone: 'bad', diff }
+  if (prior < 0 && value < 0) {
+    const rate = (diff / Math.abs(prior)) * 100 // >0＝赤字縮小（改善）
+    return { label: `赤字${rate >= 0 ? '縮小' : '拡大'}${Math.abs(rate).toFixed(1)}%`, tone: rate >= 0 ? 'good' : 'bad', diff }
+  }
+  const rate = (diff / Math.abs(prior)) * 100
+  return { label: `${rate >= 0 ? '+' : '−'}${Math.abs(rate).toFixed(1)}%`, tone: rate >= 0 ? 'good' : 'bad', diff }
+}
+
 function KpiCard({ title, value, margin, prior }: { title: string; value: number; margin?: number; prior?: number }) {
   const neg = value < 0
-  const yy = prior != null && prior !== 0 ? ((value - prior) / Math.abs(prior)) * 100 : null
+  const yy = yoyInfo(value, prior)
+  const toneCls = yy == null ? 'bg-gray-100 text-gray-400' : yy.tone === 'good' ? 'bg-green-100 text-green-700' : yy.tone === 'bad' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
   return (
     <div className={`rounded-xl border p-4 ${neg ? 'border-red-200 bg-red-50/70' : 'border-gray-200 bg-white'} shadow-sm`}>
       <div className="flex items-center justify-between mb-1.5">
@@ -519,13 +540,18 @@ function KpiCard({ title, value, margin, prior }: { title: string; value: number
       <div className="text-xs text-gray-500 mt-1">{fmtYen(value)}</div>
       <div className="mt-2.5 pt-2 border-t border-gray-200 flex items-center justify-between">
         <span className="text-[11px] text-gray-500">前年同月比</span>
-        {prior == null ? (
+        {yy == null ? (
           <span className="text-[11px] text-gray-400">データなし</span>
         ) : (
-          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${yy == null ? 'bg-gray-100 text-gray-400' : yy >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{fmtPctSigned(yy)}</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${toneCls}`}>{yy.label}</span>
         )}
       </div>
-      {prior != null && <div className="text-[11px] text-gray-400 mt-1 text-right">前年同月 {fmtShort(prior)}</div>}
+      {yy != null && (
+        <div className="text-[11px] text-gray-400 mt-1 flex items-center justify-between">
+          <span>前年同月 {fmtShort(prior as number)}</span>
+          <span className={yy.diff >= 0 ? 'text-green-600' : 'text-red-500'}>前年差 {yy.diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(yy.diff))}</span>
+        </div>
+      )}
     </div>
   )
 }
