@@ -19,6 +19,14 @@ import { compressImage } from '@/lib/nenmatsu/image-compress'
 
 const TOKEN_STORAGE_KEY = 'scan-token'
 
+// 顧問先ページの3機能（スマホ=上部ボタン／PC=左サイドバー）
+const NAV = [
+  { key: 'files', icon: '📁', label: '共有フォルダ', desc: 'ファイルの受取・送付' },
+  { key: 'scan', icon: '📷', label: 'スマホスキャン', desc: '書類を撮影して送る' },
+  { key: 'cash', icon: '💴', label: '現金入出金登録', desc: '現金引出・預入の登録' },
+] as const
+type ViewKey = (typeof NAV)[number]['key']
+
 const DOC_TYPES = [
   '通帳',
   '現金出納帳',
@@ -40,6 +48,7 @@ interface HistoryItem {
 export default function ScanUpload() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [token, setToken] = useState('')
+  const [view, setView] = useState<ViewKey>('files')
   const [companyName, setCompanyName] = useState('')
   const [memberName, setMemberName] = useState('') // メンバー用URLの場合のみ
   const [companyToken, setCompanyToken] = useState('') // メンバー用URLの場合の会社トークン（撮影/送信先・全員宛の参照）
@@ -141,6 +150,7 @@ export default function ScanUpload() {
   // 撮影・現金・ファイル送信の送り先（メンバー用URLでも会社の受信箱に集約される）
   const uploadToken = companyToken || token
   const myDlKey = (memberName || '共通URL').replace(/[.#$/\[\]]/g, '_').slice(0, 40) || '共通URL'
+  const inboxNew = inboxItems.filter((x) => !(x.file.downloads || {})[myDlKey]).length
 
   async function downloadInboxFile(item: { srcToken: string; file: ScanInboxFile }) {
     setInboxMsg('')
@@ -355,8 +365,48 @@ export default function ScanUpload() {
         </div>
       </header>
 
-      <div className="max-w-md md:max-w-5xl mx-auto p-4 space-y-4">
-        {inboxItems.length > 0 && (
+      <div className="max-w-md md:max-w-5xl mx-auto p-4">
+        {/* スマホ：上部3ボタン */}
+        <div className="grid grid-cols-3 gap-2 mb-4 md:hidden">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              onClick={() => setView(n.key)}
+              className={`relative py-2.5 rounded-xl border ${view === n.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+            >
+              <div className="text-xl leading-none">{n.icon}</div>
+              <div className="text-[11px] font-semibold mt-1">{n.label}</div>
+              {n.key === 'files' && inboxNew > 0 && (
+                <span className="absolute top-1 right-1 text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[16px] px-1">{inboxNew}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="md:flex md:gap-5 md:items-start">
+          {/* PC：左サイドバー */}
+          <aside className="hidden md:block md:w-56 shrink-0 space-y-1.5">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                onClick={() => setView(n.key)}
+                className={`w-full text-left px-3 py-3 rounded-xl flex items-center gap-3 border ${view === n.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+              >
+                <span className="text-2xl leading-none">{n.icon}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold">{n.label}</span>
+                  <span className={`block text-[11px] ${view === n.key ? 'text-blue-100' : 'text-gray-400'}`}>{n.desc}</span>
+                </span>
+                {n.key === 'files' && inboxNew > 0 && (
+                  <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{inboxNew}</span>
+                )}
+              </button>
+            ))}
+          </aside>
+
+          {/* 右：選択中の機能 */}
+          <div className="flex-1 min-w-0 space-y-4">
+        {view === 'files' && inboxItems.length > 0 && (
           <div className="bg-white rounded-2xl border-2 border-blue-200 p-5">
             <h1 className="font-bold text-gray-800 mb-1">📥 事務所からのファイル</h1>
             <p className="text-xs text-gray-500 mb-3">タップしてダウンロードしてください（送信から90日で自動削除されます）。</p>
@@ -393,10 +443,14 @@ export default function ScanUpload() {
             </ul>
           </div>
         )}
+        {view === 'files' && inboxItems.length === 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 text-sm text-gray-400">
+            📥 事務所からのファイルはまだありません。下の「ファイルを送る」から事務所へ送れます。
+          </div>
+        )}
 
-        {/* PCでは2カラム。左＝書類の送信（撮影・現金）、右＝ファイルのやり取り */}
-        <div className="md:grid md:grid-cols-2 md:gap-5 md:items-start space-y-4 md:space-y-0">
-        <div className="space-y-4">
+        {view === 'scan' && (
+        <>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-3">書類を撮影して送信</h1>
 
@@ -524,7 +578,10 @@ export default function ScanUpload() {
             </ul>
           </div>
         )}
+        </>
+        )}
 
+        {view === 'cash' && (
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-3">現金引出・現金預入を登録する</h1>
           <div className="flex gap-2 mb-3">
@@ -609,9 +666,9 @@ export default function ScanUpload() {
             {cashSubmitting ? '登録中...' : '登録する'}
           </button>
         </div>
+        )}
 
-        </div>{/* end column A */}
-        <div className="space-y-4">
+        {view === 'files' && (
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h1 className="font-bold text-gray-800 mb-1">📎 ファイルを送る</h1>
           <p className="text-xs text-gray-500 mb-3">
@@ -692,9 +749,9 @@ export default function ScanUpload() {
             {fileSubmitting ? fileProgress || '送信中...' : 'まとめて送信する'}
           </button>
         </div>
-
-        </div>{/* end column B */}
-        </div>{/* end 2-column grid */}
+        )}
+          </div>{/* end content */}
+        </div>{/* end md:flex */}
 
         <p className="text-[11px] text-gray-400 text-center">
           カメラが開かないときは LINE 等ではなく Safari / Chrome で開き直してください（アルバムからの選択はどのアプリでも使えます）。<br />
