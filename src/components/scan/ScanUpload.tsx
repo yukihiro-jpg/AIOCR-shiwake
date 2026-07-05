@@ -219,13 +219,14 @@ export default function ScanUpload() {
     raw: f,
   }))
 
-  // toClient（事務所→顧問先）：会社宛（フォルダツリーあり）＋自分（メンバー）宛（ルート直下扱い）
+  // toClient（事務所→顧問先）：会社宛＋自分（メンバー）宛。フォルダは会社トークンの共有ツリー、
+  // ファイルは folderId でそのフォルダに振り分け表示（全員宛・個別宛とも同じツリーに載る）
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
   const toClientFiles: BrowserFile[] = inboxItems.map((item) => ({
-    id: item.file.id,
+    id: `${item.srcToken}_${item.file.id}`,
     name: item.file.name,
     size: item.file.size,
-    folderId: item.srcToken === uploadToken ? item.file.folderId || null : null,
+    folderId: item.file.folderId || null,
     at: item.file.sentAt,
     comment: item.file.comment,
     raw: item,

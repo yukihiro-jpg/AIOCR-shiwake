@@ -29,7 +29,8 @@ export interface FolderBrowserProps {
   onCreateFolder: (parentId: string | null, name: string) => Promise<void>
   onRenameFolder: (folder: ScanFolder, name: string) => Promise<void>
   onDeleteFolder: (folder: ScanFolder) => Promise<void>
-  onAddFiles: (parentId: string | null, files: File[], comment: string) => Promise<void>
+  onAddFiles: (parentId: string | null, files: File[], comment: string, recipientIds?: string[]) => Promise<void>
+  recipients?: { id: string; name: string }[] // 指定すると「＋ファイル追加」に宛先選択を表示（税理士→顧問先用）
   onDownload: (file: BrowserFile) => Promise<void>
   onDeleteFile?: (file: BrowserFile) => Promise<void>
   renderFileBadges?: (file: BrowserFile) => React.ReactNode
@@ -111,6 +112,7 @@ export default function FolderBrowser({
   onRenameFolder,
   onDeleteFolder,
   onAddFiles,
+  recipients,
   onDownload,
   onDeleteFile,
   renderFileBadges,
@@ -136,6 +138,8 @@ export default function FolderBrowser({
   const [renameName, setRenameName] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [comment, setComment] = useState('')
+  const [toAll, setToAll] = useState(true) // 宛先：全員宛
+  const [toMembers, setToMembers] = useState<Set<string>>(new Set()) // 宛先：特定メンバー
   const [uploadOpen, setUploadOpen] = useState(false) // 送信欄は折りたたみ（ファイル一覧を主役に）
   const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -337,10 +341,15 @@ export default function FolderBrowser({
 
   async function submitFiles() {
     if (!pendingFiles.length) return
+    let recips: string[] | undefined
+    if (recipients && recipients.length) {
+      recips = [...(toAll ? ['all'] : []), ...Array.from(toMembers)]
+      if (!recips.length) { setErr('宛先を選択してください（全員宛または特定メンバー）。'); return }
+    }
     setBusy(true)
     resetMsgs()
     try {
-      await onAddFiles(currentId, pendingFiles, comment)
+      await onAddFiles(currentId, pendingFiles, comment, recips)
       setDone(`✅ ${pendingFiles.length}件を送信しました。`)
       setPendingFiles([])
       setComment('')
@@ -601,6 +610,27 @@ export default function FolderBrowser({
                 追加先：{currentId ? (byId.get(currentId)?.name || 'このフォルダ') : rootLabel}
                 {maxFileBytes ? `／1ファイル ${fmtSize(maxFileBytes)}まで` : ''}
               </div>
+
+              {recipients && recipients.length > 0 && (
+                <div className="mb-3 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                  <div className="text-xs font-semibold text-gray-600 mb-1.5">宛先（誰が見られるか）</div>
+                  <label className="flex items-center gap-2 text-sm mb-1">
+                    <input type="checkbox" checked={toAll} onChange={(e) => setToAll(e.target.checked)} />
+                    全員宛（会社URL・全メンバーで閲覧可）
+                  </label>
+                  {recipients.map((r) => (
+                    <label key={r.id} className="flex items-center gap-2 text-sm mb-1">
+                      <input
+                        type="checkbox"
+                        checked={toMembers.has(r.id)}
+                        onChange={(e) => setToMembers((prev) => { const n = new Set(prev); if (e.target.checked) n.add(r.id); else n.delete(r.id); return n })}
+                      />
+                      👤 {r.name} 宛（この人のURLでのみ閲覧可）
+                    </label>
+                  ))}
+                </div>
+              )}
+
               <label className="block text-xs text-gray-500 mb-1">コメント（任意）</label>
               <textarea
                 value={comment}

@@ -1480,30 +1480,66 @@ function FilesPanel({
 }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [sendOpen, setSendOpen] = useState(false)
   const [driveOpen, setDriveOpen] = useState(false)
   const [sentRefresh, setSentRefresh] = useState(0)
+  const [senderFilter, setSenderFilter] = useState<string | null>(null) // C-1：顧問先→税理士の送信者絞り込み
+  // A案：メンバー個別宛の受信ファイル（各メンバートークンの受信箱）
+  const [memberInbox, setMemberInbox] = useState<{ token: string; name: string; files: ScanInboxFile[] }[]>([])
 
   const cn = client.name || '顧問先'
   const labelToOffice = `${cn} → 税理士`
   const labelToClient = `税理士 → ${cn}`
+  const memberList = Object.values(company.members || {})
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const out: { token: string; name: string; files: ScanInboxFile[] }[] = []
+      for (const m of memberList) {
+        try {
+          const inb = await loadInbox(m.token)
+          out.push({ token: m.token, name: m.name, files: Object.values(inb) })
+        } catch { /* ignore */ }
+      }
+      if (!cancelled) setMemberInbox(out)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company.token, sentRefresh])
 
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
-  const toClientFiles: BrowserFile[] = Object.values(companyInbox).map((f) => ({
-    id: f.id,
-    name: f.name,
-    size: f.size,
-    folderId: f.folderId || null,
-    at: f.sentAt,
-    comment: f.comment,
-    raw: f,
-  }))
+  // 全員宛（会社トークン）＋各メンバー宛（メンバートークン）を1つのツリーに統合。宛先はrawに保持
+  const toClientFiles: BrowserFile[] = [
+    ...Object.values(companyInbox).map((f) => ({
+      id: `all_${f.id}`,
+      name: f.name,
+      size: f.size,
+      folderId: f.folderId || null,
+      at: f.sentAt,
+      comment: f.comment,
+      raw: { file: f, recipient: '全員', token: company.token },
+    })),
+    ...memberInbox.flatMap((mi) =>
+      mi.files.map((f) => ({
+        id: `${mi.token}_${f.id}`,
+        name: f.name,
+        size: f.size,
+        folderId: f.folderId || null,
+        at: f.sentAt,
+        comment: f.comment,
+        raw: { file: f, recipient: mi.name, token: mi.token },
+      })),
+    ),
+  ]
 
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
   const list = Object.values(files)
     .filter((f) => showDone || f.status !== 'done')
     .sort((a, b) => (a.folder || '').localeCompare(b.folder || '', 'ja') || b.submittedAt.localeCompare(a.submittedAt))
-  const toOfficeFiles: BrowserFile[] = list.map((f) => ({
+  // C-1：送信者（メンバー名／会社URL）の一覧
+  const senderOf = (m?: string) => m || '会社URL'
+  const senders = Array.from(new Set(list.map((f) => senderOf(f.member))))
+  const toOfficeFilesAll: BrowserFile[] = list.map((f) => ({
     id: f.id,
     name: f.name,
     size: f.size,
@@ -1513,6 +1549,7 @@ function FilesPanel({
     member: f.member,
     raw: f,
   }))
+  const toOfficeFiles = senderFilter ? toOfficeFilesAll.filter((f) => senderOf((f.raw as ScanFile).member) === senderFilter) : toOfficeFilesAll
 
   // 削除までの残り日数（90日保存）
   function daysLeft(f: ScanFile): number {
@@ -1596,16 +1633,30 @@ function FilesPanel({
 
   return (
     <div>
+      {/* C-1：顧問先→税理士の送信者フィルタ */}
+      {browseRoot === 'toOffice' && senders.length > 1 && (
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          <span className="text-xs text-gray-500 shrink-0">👤 送信者:</span>
+          <button
+            onClick={() => setSenderFilter(null)}
+            className={`px-2.5 py-1 text-xs rounded-full border ${senderFilter === null ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+          >
+            すべて
+          </button>
+          {senders.map((s) => (
+            <button
+              key={s}
+              onClick={() => setSenderFilter(s)}
+              className={`px-2.5 py-1 text-xs rounded-full border ${senderFilter === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ルート別ツールバー */}
       <div className="flex items-center justify-end gap-2 mb-3 flex-wrap">
-        {browseRoot === 'toClient' && (
-          <button
-            onClick={() => setSendOpen(true)}
-            className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-          >
-            👤 メンバー個別宛に送る
-          </button>
-        )}
         {browseRoot === 'toOffice' && (
           <>
             <button
@@ -1651,33 +1702,51 @@ function FilesPanel({
           onDeleteFolder={async (folder) => {
             await deleteScanFolder(company.token, folder, toClientFolders, Object.values(companyInbox))
           }}
-          onAddFiles={async (parentId, addFiles, comment) => {
-            for (const f of addFiles) {
-              await sendInboxFile(company.token, f, f.name, undefined, parentId, comment)
+          recipients={memberList.map((m) => ({ id: m.id, name: m.name }))}
+          onAddFiles={async (parentId, addFiles, comment, recipientIds) => {
+            // recipientIds: ['all', memberId...]。未指定は全員宛
+            const rs = recipientIds && recipientIds.length ? recipientIds : ['all']
+            const tokens: string[] = []
+            for (const r of rs) {
+              if (r === 'all') tokens.push(company.token)
+              else { const m = (company.members || {})[r]; if (m) tokens.push(m.token) }
+            }
+            for (const t of tokens) {
+              for (const f of addFiles) {
+                await sendInboxFile(t, f, f.name, undefined, parentId, comment)
+              }
             }
             setSentRefresh((v) => v + 1)
           }}
-          onGetBlob={async (f) => getInboxBlob(f.raw as ScanInboxFile)}
+          onGetBlob={async (f) => getInboxBlob((f.raw as { file: ScanInboxFile }).file)}
           onDownload={async (f) => {
-            const raw = f.raw as ScanInboxFile
+            const raw = (f.raw as { file: ScanInboxFile }).file
             const blob = await getInboxBlob(raw)
             downloadBlob(blob, raw.name)
           }}
           onDeleteFile={async (f) => {
-            await deleteInboxFile(company.token, f.raw as ScanInboxFile)
+            const raw = f.raw as { file: ScanInboxFile; token: string }
+            await deleteInboxFile(raw.token, raw.file)
           }}
           renderFileBadges={(f) => {
-            const raw = f.raw as ScanInboxFile
-            const dls = Object.keys(raw.downloads || {})
-            return dls.length ? (
-              <span
-                className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5"
-                title={dls.map((k) => `${k}: ${new Date((raw.downloads || {})[k]).toLocaleString('ja-JP')}`).join('\n')}
-              >
-                ✅ 受領済み（{dls.join('、')}）
-              </span>
-            ) : (
-              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">未受領</span>
+            const raw = f.raw as { file: ScanInboxFile; recipient: string }
+            const dls = Object.keys(raw.file.downloads || {})
+            return (
+              <>
+                <span className={`text-[10px] rounded px-1.5 py-0.5 border ${raw.recipient === '全員' ? 'text-gray-600 bg-gray-50 border-gray-200' : 'text-purple-700 bg-purple-50 border-purple-200'}`}>
+                  {raw.recipient === '全員' ? '全員宛' : `👤${raw.recipient}宛`}
+                </span>
+                {dls.length ? (
+                  <span
+                    className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5"
+                    title={dls.map((k) => `${k}: ${new Date((raw.file.downloads || {})[k]).toLocaleString('ja-JP')}`).join('\n')}
+                  >
+                    ✅ 受領済み（{dls.join('、')}）
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">未受領</span>
+                )}
+              </>
             )
           }}
           onChanged={onChanged}
@@ -1742,15 +1811,6 @@ function FilesPanel({
       )}
 
       {browseRoot === 'toClient' && <SentFilesSection company={company} refresh={sentRefresh} />}
-
-      {sendOpen && (
-        <SendFilesDialog
-          client={client}
-          company={company}
-          onClose={() => setSendOpen(false)}
-          onSent={async () => { setSentRefresh((v) => v + 1); await onChanged() }}
-        />
-      )}
 
       {driveOpen && (
         <DriveSaveDialog
