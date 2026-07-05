@@ -198,6 +198,11 @@ export default function ScanUpload() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, uploadToken])
 
+  // 共有フォルダのルート名は実際の顧問先名を使う（例：㈱サンハート → 税理士事務所）
+  const cn = companyName || '顧問先'
+  const labelToOffice = `${cn} → 税理士事務所`
+  const labelToClient = `税理士事務所 → ${cn}`
+
   // toOffice（顧問先→事務所）：自分がこの会社へ送ったファイル一覧をフォルダ表示用に変換
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
   const toOfficeFiles: BrowserFile[] = Object.values(ownFiles).map((f) => ({
@@ -425,8 +430,8 @@ export default function ScanUpload() {
                 <div className="text-[11px] font-semibold text-gray-400 px-1.5 mb-1.5">フォルダ</div>
                 <FolderTree
                   roots={[
-                    { key: 'toOffice', label: '顧問先 → 税理士事務所', folders: toOfficeFolders },
-                    { key: 'toClient', label: '税理士事務所 → 顧問先', folders: toClientFolders, badge: inboxNew },
+                    { key: 'toOffice', label: labelToOffice, folders: toOfficeFolders },
+                    { key: 'toClient', label: labelToClient, folders: toClientFolders, badge: inboxNew },
                   ]}
                   currentRoot={browseRoot}
                   currentId={folderId}
@@ -456,7 +461,7 @@ export default function ScanUpload() {
                     >
                       <span className="text-3xl leading-none">📁</span>
                       <span>
-                        <span className="block text-sm font-bold text-gray-800">顧問先 → 税理士事務所</span>
+                        <span className="block text-sm font-bold text-gray-800">{labelToOffice}</span>
                         <span className="block text-xs text-gray-500 mt-0.5">フォルダを作って事務所へファイルを送れます</span>
                       </span>
                     </button>
@@ -467,7 +472,7 @@ export default function ScanUpload() {
                     >
                       <span className="text-3xl leading-none">📁</span>
                       <span>
-                        <span className="block text-sm font-bold text-gray-800">税理士事務所 → 顧問先</span>
+                        <span className="block text-sm font-bold text-gray-800">{labelToClient}</span>
                         <span className="block text-xs text-gray-500 mt-0.5">事務所から届いたファイルを確認・ダウンロードできます</span>
                       </span>
                       {inboxNew > 0 && (
@@ -495,7 +500,7 @@ export default function ScanUpload() {
                 {browseRoot === 'toOffice' ? (
                   <FolderBrowser
                     rootKey="toOffice"
-                    rootLabel="顧問先 → 税理士事務所"
+                    rootLabel={labelToOffice}
                     folders={toOfficeFolders}
                     files={toOfficeFiles}
                     controlledId={folderId}
@@ -534,7 +539,7 @@ export default function ScanUpload() {
                 ) : (
                   <FolderBrowser
                     rootKey="toClient"
-                    rootLabel="税理士事務所 → 顧問先"
+                    rootLabel={labelToClient}
                     folders={toClientFolders}
                     files={toClientFiles}
                     controlledId={folderId}

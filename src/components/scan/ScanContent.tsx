@@ -505,6 +505,10 @@ function InboxModal({
 
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
+  // 共有フォルダのルート名は実際の顧問先名を使う（例：㈱サンハート → 税理士事務所）
+  const cn = client.name || '顧問先'
+  const labelToOffice = `${cn} → 税理士事務所`
+  const labelToClient = `税理士事務所 → ${cn}`
   const newUploads = Object.values(files).filter((f) => !f.downloadedAt && !f.driveSavedAt && f.status !== 'done').length
   const batchNew = Object.values(batches).filter((b) => b.status !== 'done').length
   const cashNew = Object.values(cash).filter((c) => c.status !== 'done').length
@@ -564,8 +568,8 @@ function InboxModal({
                 <div className="text-[11px] font-semibold text-gray-400 px-1.5 mb-1.5">フォルダ</div>
                 <FolderTree
                   roots={[
-                    { key: 'toClient', label: '税理士事務所 → 顧問先', folders: toClientFolders },
-                    { key: 'toOffice', label: '顧問先 → 税理士事務所', folders: toOfficeFolders, badge: newUploads },
+                    { key: 'toClient', label: labelToClient, folders: toClientFolders },
+                    { key: 'toOffice', label: labelToOffice, folders: toOfficeFolders, badge: newUploads },
                   ]}
                   currentRoot={browseRoot}
                   currentId={folderId}
@@ -1401,6 +1405,10 @@ function FilesPanel({
   const [driveOpen, setDriveOpen] = useState(false)
   const [sentRefresh, setSentRefresh] = useState(0)
 
+  const cn = client.name || '顧問先'
+  const labelToOffice = `${cn} → 税理士事務所`
+  const labelToClient = `税理士事務所 → ${cn}`
+
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
   const toClientFiles: BrowserFile[] = Object.values(companyInbox).map((f) => ({
     id: f.id,
@@ -1502,7 +1510,7 @@ function FilesPanel({
     return (
       <div className="text-center text-gray-400 py-24 text-sm">
         ← 左の「フォルダ」から<br />
-        <span className="text-blue-600 font-semibold">税理士事務所 → 顧問先</span>／<span className="text-green-600 font-semibold">顧問先 → 税理士事務所</span> を選択してください
+        <span className="text-blue-600 font-semibold">{labelToClient}</span>／<span className="text-green-600 font-semibold">{labelToOffice}</span> を選択してください
       </div>
     )
   }
@@ -1545,7 +1553,7 @@ function FilesPanel({
       {browseRoot === 'toClient' ? (
         <FolderBrowser
           rootKey="toClient"
-          rootLabel="税理士事務所 → 顧問先"
+          rootLabel={labelToClient}
           folders={toClientFolders}
           files={toClientFiles}
           controlledId={folderId}
@@ -1597,7 +1605,7 @@ function FilesPanel({
       ) : (
         <FolderBrowser
           rootKey="toOffice"
-          rootLabel="顧問先 → 税理士事務所"
+          rootLabel={labelToOffice}
           folders={toOfficeFolders}
           files={toOfficeFiles}
           controlledId={folderId}
