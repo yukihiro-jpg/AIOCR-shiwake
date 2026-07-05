@@ -21,6 +21,7 @@ import SectionDetail from './SectionDetail'
 import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
+import { buildSummaryStory } from '@/lib/keiei/narrative'
 
 type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'cash'
 
@@ -123,7 +124,7 @@ export default function KeieiContent() {
   const renderView = (v: View) => {
     if (!fy) return null
     switch (v) {
-      case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} />
+      case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
       case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
       case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} sim={cvpSim} onSimChange={setCvpSim} />
@@ -465,8 +466,8 @@ export default function KeieiContent() {
   )
 }
 
-// ============ 概要（単月業績＋推移グラフ） ============
-function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number }) {
+// ============ 概要（経営サマリー＋単月業績＋推移グラフ） ============
+function Overview({ fy, prior, monthIdx, years, settings, clientId }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number; years: Record<string, FiscalYearData>; settings: KeieiSettings; clientId: string }) {
   const single = plKpisSingle(fy, monthIdx)
   const pSingle = prior ? plKpisSingle(prior, monthIdx) : null
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
@@ -474,8 +475,10 @@ function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYe
   const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
   const salesSeries = (getRow(fy, CODES.sales)?.monthly || []).slice(0, upto)
   const opSeries = (getRow(fy, CODES.opProfit)?.monthly || []).slice(0, upto)
+  const baseStory = useMemo(() => buildSummaryStory(fy, prior, monthIdx, years, settings), [fy, prior, monthIdx, years, settings])
   return (
     <div className="space-y-5">
+      <SummaryStory baseStory={baseStory} storyKey={`${clientId}__${fy.id}__${monthIdx}`} />
       <Section title={`${fy.label}　${monthLabel}（単月）の業績`} note={prior ? '各カード下段に前年同月比を表示' : '前年のデータを取り込むと前年同月比を表示します'}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <KpiCard title="売上高" value={single.sales} prior={pSingle?.sales} />
@@ -488,6 +491,93 @@ function Overview({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYe
       <Section title={`損益の推移実績（当期・期首〜${monthLabel}）`}>
         <ComboBarLine labels={monthLabels} bars={salesSeries} barLabel="売上高（棒）" line={opSeries} lineLabel="営業利益（線）" />
       </Section>
+    </div>
+  )
+}
+
+// 経営サマリー（相続レポートの .story と同思想のカード解説）。
+// テンプレ生成文を土台に、任意で Gemini「AI仕上げ」できる。仕上げ後の文は編集も可能。
+function SummaryStory({ baseStory, storyKey }: { baseStory: string; storyKey: string }) {
+  // 対象（顧問先・期・月）が変わったら仕上げ済みテキストをリセット
+  const [aiText, setAiText] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => { setAiText(null); setEditing(false); setErr(null) }, [storyKey])
+  const text = aiText ?? baseStory
+
+  const runPolish = async () => {
+    setBusy(true); setErr(null)
+    try {
+      const { polishSummaryStory } = await import('@/lib/keiei/gemini')
+      const out = await polishSummaryStory(baseStory)
+      setAiText(out)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'AI仕上げに失敗しました')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-100 bg-gradient-to-r from-[#f4f8ff] to-white">
+        <span className="text-lg">📝</span>
+        <h2 className="text-[15px] font-bold text-gray-800">今月の経営サマリー</h2>
+        <span className="text-[11px] text-gray-400">{aiText ? 'AI仕上げ済み' : 'テンプレ自動生成'}</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          {aiText && (
+            <button onClick={() => setEditing((e) => !e)}
+              className="px-3 py-1.5 text-xs text-gray-600 rounded-full hover:bg-gray-100">{editing ? '編集を終了' : '✎ 編集'}</button>
+          )}
+          {aiText && (
+            <button onClick={() => { setAiText(null); setEditing(false) }}
+              className="px-3 py-1.5 text-xs text-gray-600 rounded-full hover:bg-gray-100">元に戻す</button>
+          )}
+          <button onClick={runPolish} disabled={busy}
+            className="px-4 py-1.5 text-xs bg-[#1a73e8] text-white rounded-full font-semibold hover:bg-[#1765cc] disabled:opacity-50">
+            {busy ? '仕上げ中…' : aiText ? '✨ 再仕上げ' : '✨ AIで仕上げ'}
+          </button>
+        </div>
+      </div>
+      {err && <div className="px-5 py-2 bg-amber-50 text-amber-700 text-xs border-b border-amber-100">{err}</div>}
+      <div className="p-5">
+        {editing ? (
+          <textarea value={text} onChange={(e) => setAiText(e.target.value)}
+            className="w-full h-80 p-3 border border-gray-300 rounded-lg text-sm leading-relaxed font-[inherit]" />
+        ) : (
+          <StoryBody text={text} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// マーカー付きテキスト（# 見出し / 【小見出し】/ **強調**）を相続風に整形描画
+function StoryBody({ text }: { text: string }) {
+  const blocks = text.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
+  const renderInline = (s: string, keyBase: string) =>
+    s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith('**') && part.endsWith('**')
+        ? <b key={`${keyBase}-${i}`} className="text-[#1f3a5f] font-bold">{part.slice(2, -2)}</b>
+        : <span key={`${keyBase}-${i}`}>{part}</span>)
+  return (
+    <div className="space-y-3.5">
+      {blocks.map((b, i) => {
+        if (b.startsWith('# ')) {
+          return <div key={i} className="text-[17px] font-extrabold text-[#1f3a5f] leading-snug">{b.slice(2)}</div>
+        }
+        const m = b.match(/^【([^】]+)】([\s\S]*)$/)
+        if (m) {
+          return (
+            <div key={i} className="border-l-[3px] border-[#c8a24b] pl-3.5">
+              <div className="text-[13px] font-bold text-[#1f3a5f] mb-0.5">{m[1]}</div>
+              <p className="text-[13.5px] leading-[1.9] text-gray-700">{renderInline(m[2].trim(), `b${i}`)}</p>
+            </div>
+          )
+        }
+        return <p key={i} className="text-[13.5px] leading-[1.9] text-gray-700">{renderInline(b, `b${i}`)}</p>
+      })}
     </div>
   )
 }

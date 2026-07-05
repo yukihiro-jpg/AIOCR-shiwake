@@ -1,0 +1,46 @@
+// 月次レポートの解説文（テンプレ生成）を Gemini で仕上げる。
+// 相続レポートの「AI仕上げ」と同思想。キーはスイート共通（または未設定ならエラー）。
+// 【厳守】数値・事実は変えず、日本語の読みやすさ・つながりだけを整える。
+
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+const SUITE_GEMINI_API_KEY_STORAGE = 'suite-gemini-api-key'
+const DEFAULT_MODEL = 'gemini-2.5-flash'
+
+function getApiKey(): string {
+  if (typeof window === 'undefined') throw new Error('ブラウザ以外では利用できません')
+  const suite = (localStorage.getItem(SUITE_GEMINI_API_KEY_STORAGE) || '').trim()
+  if (!suite) {
+    throw new Error('Gemini APIキーが未設定です。ホーム画面の「共通設定」からGeminiキーを登録してください。')
+  }
+  return suite
+}
+
+/**
+ * テンプレ生成した経営サマリー文を、数値を変えずに読みやすく仕上げる。
+ * マーカー（# 見出し、【…】小見出し、**強調**）の書式はそのまま維持させる。
+ */
+export async function polishSummaryStory(raw: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(getApiKey())
+  const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL })
+  const prompt = [
+    'あなたは中小企業の社長に月次決算を分かりやすく説明する、財務・資金に精通した税理士です。',
+    '以下は自動生成した「今月の経営サマリー」の草案です。社長が読むだけで経営状況が腹落ちするよう、',
+    '日本語の言い回しと文のつながりだけを自然に整えてください。',
+    '',
+    '【厳守事項】',
+    '・金額・比率・月・シナリオなどの数値と事実は一切変えない（新しい数値を作らない・省かない）。',
+    '・書式マーカーはそのまま維持する：先頭の「# 見出し」、各段落の「【小見出し】」、強調の「**…**」。',
+    '・段落構成（【】の数と順序）は変えない。各段落の主旨も変えない。',
+    '・「税理士にご相談ください」等の丸投げ表現は使わない（読者自身が税理士事務所の顧問先という前提）。',
+    '・専門用語には必要に応じてやさしい補足を添えるが、冗長にしない。',
+    '・出力は仕上げ後の本文のみ（前置き・後書き・コードブロックは付けない）。',
+    '',
+    '--- 草案ここから ---',
+    raw,
+    '--- 草案ここまで ---',
+  ].join('\n')
+  const res = await model.generateContent(prompt)
+  const text = res.response.text().trim()
+  return text || raw
+}
