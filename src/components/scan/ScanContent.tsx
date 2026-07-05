@@ -272,17 +272,14 @@ export default function ScanContent() {
                   if (!company) return null
                   const cnt = counts[client.id] || { batch: 0, cash: 0, file: 0 }
                   return (
-                    <tr key={client.id} className="border-t border-gray-100">
+                    <tr
+                      key={client.id}
+                      onClick={() => setInbox({ client, company })}
+                      title="クリックで共有フォルダを開く"
+                      className="border-t border-gray-100 cursor-pointer hover:bg-blue-50/40"
+                    >
                       <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setInbox({ client, company })}
-                          className="font-semibold text-blue-700 hover:underline"
-                          title="クリックで共有フォルダを開く"
-                        >
-                          {client.name}
-                        </button>
-                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
                       <td className="px-4 py-3">
                         <span className="font-semibold text-blue-700">{cnt.batch}</span>
                       </td>
@@ -293,7 +290,7 @@ export default function ScanContent() {
                         <span className="font-semibold text-blue-700">{cnt.file}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 justify-end flex-nowrap whitespace-nowrap">
+                        <div className="flex items-center gap-2 justify-end flex-nowrap whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             URLコピー
                           </button>
