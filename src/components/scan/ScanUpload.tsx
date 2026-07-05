@@ -87,6 +87,9 @@ export default function ScanUpload() {
   const [cashErr, setCashErr] = useState('')
   const [cashDone, setCashDone] = useState('')
 
+  // タブ名を「共有フォルダ」にする（URLから開いた顧問先向けページ）
+  useEffect(() => { document.title = '共有フォルダ' }, [])
+
   // 共有フォルダ（DocuWorks風フォルダツリー）
   const [browseRoot, setBrowseRoot] = useState<'select' | 'toOffice' | 'toClient'>('select')
   const [folderId, setFolderId] = useState<string | null>(null) // 現在表示中フォルダ（null=ルート直下）

@@ -24,6 +24,21 @@ export interface FolderTreeProps {
   onSelect: (root: RootKey, id: string | null) => void
 }
 
+// ルート名「A → B」の矢印を大きく見やすく描画（方向が一目で分かるように）
+function RootLabel({ label, color }: { label: string; color: string }) {
+  const idx = label.indexOf('→')
+  if (idx < 0) return <span className="flex-1 min-w-0 leading-snug">{label}</span>
+  const left = label.slice(0, idx).trim()
+  const right = label.slice(idx + 1).trim()
+  return (
+    <span className="flex-1 min-w-0 flex items-center gap-1 flex-wrap leading-snug">
+      <span>{left}</span>
+      <span className="text-lg font-black leading-none px-0.5" style={{ color }}>➜</span>
+      <span>{right}</span>
+    </span>
+  )
+}
+
 export default function FolderTree({ roots, currentRoot, currentId, onSelect }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
@@ -112,12 +127,13 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
           <li key={root.key}>
             <button
               onClick={() => onSelect(root.key, null)}
-              className={`w-full flex items-center gap-1.5 px-1.5 py-2.5 rounded-md text-left text-[13px] ${rootSelected ? 'bg-blue-50 font-semibold text-blue-700' : 'text-gray-800 hover:bg-gray-50 font-medium'}`}
+              className={`w-full flex items-center gap-2 pl-2 pr-1.5 py-2.5 rounded-md text-left text-sm border-l-4 ${rootSelected ? 'bg-blue-50 font-bold text-blue-800' : 'text-gray-800 hover:bg-gray-50 font-semibold'}`}
+              style={{ borderLeftColor: FOLDER_COLOR[root.key] }}
             >
-              <FolderIcon color={FOLDER_COLOR[root.key]} size={16} />
-              <span className="flex-1 min-w-0 truncate">{root.label}</span>
+              <FolderIcon color={FOLDER_COLOR[root.key]} size={18} />
+              <RootLabel label={root.label} color={FOLDER_COLOR[root.key]} />
               {!!root.badge && root.badge > 0 && (
-                <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[16px] text-center px-1">{root.badge}</span>
+                <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[16px] text-center px-1 self-start">{root.badge}</span>
               )}
             </button>
             {top.length > 0 && <ul className="space-y-1 mt-1">{top.map((f) => renderFolder(root, f, 1))}</ul>}
