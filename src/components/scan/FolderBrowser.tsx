@@ -43,6 +43,11 @@ export interface FolderBrowserProps {
   onAiAsk?: (files: BrowserFile[], question: string, onProgress?: (m: string) => void) => Promise<string>
 }
 
+// 自然順（数字は 1,2,…,10 の順、英字は A,B,C、和暦 R7<R8<R9 等）で名前を比較
+export function naturalName(a: string, b: string): number {
+  return (a || '').localeCompare(b || '', 'ja', { numeric: true, sensitivity: 'base' })
+}
+
 function fmtSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
   return Math.max(1, Math.round(bytes / 1024)) + 'KB'
@@ -160,7 +165,9 @@ export default function FolderBrowser({
     return chain
   }, [currentId, byId])
 
-  const subFolders = folders.filter((f) => (f.parentId || null) === currentId)
+  const subFolders = folders
+    .filter((f) => (f.parentId || null) === currentId)
+    .sort((a, b) => naturalName(a.name, b.name))
   const curFiles = files
     .filter((f) => (f.folderId || null) === currentId)
     .sort((a, b) => b.at.localeCompare(a.at))

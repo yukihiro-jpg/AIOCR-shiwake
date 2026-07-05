@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ScanFolder } from '@/lib/scan/store'
-import { FolderIcon, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
+import { FolderIcon, FOLDER_COLOR, naturalName } from '@/components/scan/FolderBrowser'
 
 export type RootKey = 'toOffice' | 'toClient'
 
@@ -52,7 +52,9 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
   }
 
   function renderFolder(root: TreeRoot, folder: ScanFolder, depth: number): React.ReactNode {
-    const children = root.folders.filter((f) => (f.parentId || null) === folder.id)
+    const children = root.folders
+      .filter((f) => (f.parentId || null) === folder.id)
+      .sort((a, b) => naturalName(a.name, b.name))
     const isOpen = openIds.has(folder.id)
     const selected = currentRoot === root.key && currentId === folder.id
     return (
@@ -90,7 +92,9 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
   return (
     <ul className="space-y-2">
       {roots.map((root) => {
-        const top = root.folders.filter((f) => (f.parentId || null) === null)
+        const top = root.folders
+          .filter((f) => (f.parentId || null) === null)
+          .sort((a, b) => naturalName(a.name, b.name))
         const rootSelected = currentRoot === root.key && currentId === null
         return (
           <li key={root.key}>
