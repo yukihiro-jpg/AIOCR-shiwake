@@ -2031,6 +2031,7 @@ function SendFilesDialog({
 function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh: number }) {
   const [rows, setRows] = useState<{ recipient: string; token: string; file: ScanInboxFile }[]>([])
   const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -2067,9 +2068,11 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
   if (loading) return <p className="text-xs text-gray-400 py-3">送信済み一覧を読み込み中...</p>
   if (!rows.length) return null
 
+  const shown = expanded ? rows : rows.slice(0, 3)
+
   return (
     <div className="mt-5 border-t border-gray-200 pt-3">
-      <h4 className="text-sm font-semibold text-gray-700 mb-2">📤 送信済み（事務所→顧問先）</h4>
+      <h4 className="text-sm font-semibold text-gray-700 mb-2">📤 送信済み（事務所→顧問先）<span className="text-xs font-normal text-gray-400 ml-1">全{rows.length}件</span></h4>
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-gray-50 text-gray-500">
@@ -2081,7 +2084,7 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {shown.map((row) => {
             const dls = Object.keys(row.file.downloads || {})
             return (
               <tr key={row.token + row.file.id} className="border-t border-gray-100">
@@ -2114,6 +2117,16 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
           })}
         </tbody>
       </table>
+      {rows.length > 3 && (
+        <div className="text-center mt-2">
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="px-4 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+          >
+            {expanded ? '直近3件だけ表示' : `過去のものも表示（他 ${rows.length - 3}件）`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

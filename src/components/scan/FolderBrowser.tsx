@@ -228,6 +228,45 @@ export default function FolderBrowser({
     })
   }
 
+  // 選択したファイルをまとめてダウンロード（複数はZIP）
+  async function bulkDownload() {
+    if (!onGetBlob || !selected.size) return
+    const targets = files.filter((f) => selected.has(f.id))
+    if (!targets.length) return
+    setBusy(true)
+    resetMsgs()
+    try {
+      if (targets.length === 1) {
+        await onDownload(targets[0])
+      } else {
+        const JSZip = (await import('jszip')).default
+        const zip = new JSZip()
+        const used: Record<string, number> = {}
+        for (const f of targets) {
+          const blob = await onGetBlob(f)
+          // 同名ファイルの重複回避
+          let nm = f.name
+          if (used[nm] != null) { used[nm]++; const dot = nm.lastIndexOf('.'); nm = dot > 0 ? `${nm.slice(0, dot)}(${used[nm]})${nm.slice(dot)}` : `${nm}(${used[nm]})` }
+          else used[nm] = 0
+          zip.file(nm, blob)
+        }
+        const out = await zip.generateAsync({ type: 'blob' })
+        const url = URL.createObjectURL(out)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `まとめてDL_${new Date().toISOString().slice(0, 10)}.zip`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 2000)
+      }
+      setSelected(new Set())
+    } catch (e) {
+      setErr('まとめてダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
   async function createFolder() {
     const name = newFolderName.trim()
     if (!name) return
@@ -423,101 +462,130 @@ export default function FolderBrowser({
         </div>
       )}
 
-      {/* フォルダ＋ファイル 統合一覧（Mykomon風） */}
+      {/* 選択バー（複数選択→まとめてDL） */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-2 mb-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm">
+          <span className="text-blue-800 font-semibold">{selected.size}件を選択中</span>
+          {onGetBlob && (
+            <button onClick={bulkDownload} disabled={busy} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+              {busy ? 'まとめてDL中…' : '⬇ まとめてDL'}
+            </button>
+          )}
+          <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:text-gray-700">選択解除</button>
+        </div>
+      )}
+
+      {/* フォルダ＋ファイル 統合一覧（Mykomon風・ヘッダ固定・8行分スクロール） */}
       <div className="border border-gray-200 rounded-lg overflow-hidden">
-        {/* 見出し行 */}
+        {/* 見出し行（固定） */}
         <div className="flex items-center text-[11px] font-semibold text-gray-500 bg-gray-50 border-b border-gray-200 px-3 py-2">
-          {enableAiAsk && <span className="w-5 shrink-0" />}
+          <span className="w-8 shrink-0 flex items-center">
+            <input
+              type="checkbox"
+              aria-label="表示中のファイルをすべて選択"
+              checked={curFiles.length > 0 && curFiles.every((f) => selected.has(f.id))}
+              onChange={(e) => {
+                const on = e.target.checked
+                setSelected((prev) => { const n = new Set(prev); curFiles.forEach((f) => (on ? n.add(f.id) : n.delete(f.id))); return n })
+              }}
+              className="w-4 h-4"
+            />
+          </span>
           <span className="flex-1 min-w-0">名称</span>
-          <span className="hidden sm:block w-40 shrink-0">更新日時</span>
-          <span className="hidden sm:block w-20 shrink-0 text-right">サイズ</span>
-          <span className="w-2 shrink-0" />
+          <span className="hidden sm:block w-44 shrink-0">更新日時</span>
+          <span className="hidden sm:block w-16 shrink-0 text-right">サイズ</span>
+          <span className="hidden sm:block w-52 shrink-0 text-right pr-1">操作</span>
         </div>
 
-        {subFolders.length === 0 && curFiles.length === 0 ? (
-          <p className="text-sm text-gray-400 py-10 text-center">
-            このフォルダは空です。{canAddFiles ? '「＋ ファイル追加」から資料を追加できます。' : ''}
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {/* フォルダ行 */}
-            {subFolders.map((f) => (
-              <li key={f.id} className="flex items-center gap-2 px-3 py-2.5 hover:bg-amber-50/40">
-                {enableAiAsk && <span className="w-5 shrink-0" />}
-                {renaming === f.id ? (
-                  <div className="flex items-center gap-2 flex-1">
-                    <FolderIcon color={FOLDER_COLOR.sub} />
+        {/* 本文（8ファイル分の高さを確保・超過分はスクロール） */}
+        <div className="overflow-y-auto" style={{ height: 360 }}>
+          {subFolders.length === 0 && curFiles.length === 0 ? (
+            <div className="h-full flex items-center justify-center">
+              <p className="text-sm text-gray-400 text-center px-4">
+                このフォルダは空です。{canAddFiles ? '「＋ ファイル追加」から資料を追加できます。' : ''}
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {/* フォルダ行 */}
+              {subFolders.map((f) => (
+                <li key={f.id} className="flex items-center px-3 py-2.5 hover:bg-amber-50/40">
+                  <span className="w-8 shrink-0" />
+                  {renaming === f.id ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <FolderIcon color={FOLDER_COLOR.sub} />
+                      <input
+                        autoFocus
+                        value={renameName}
+                        onChange={(e) => setRenameName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') submitRename(f); if (e.key === 'Escape') setRenaming(null) }}
+                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <button onClick={() => submitRename(f)} disabled={busy} className="px-2 py-1 text-xs bg-blue-600 text-white rounded">保存</button>
+                      <button onClick={() => setRenaming(null)} className="px-2 py-1 text-xs text-gray-500">取消</button>
+                    </div>
+                  ) : (
+                    <>
+                      <button onClick={() => setCurrentId(f.id)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+                        <FolderIcon color={FOLDER_COLOR.sub} size={20} />
+                        <span className="text-sm font-medium text-gray-800 truncate">{f.name}</span>
+                      </button>
+                      <span className="hidden sm:block w-44 shrink-0 text-[11px] text-gray-400">{f.createdAt ? new Date(f.createdAt).toLocaleString('ja-JP') : ''}</span>
+                      <span className="hidden sm:block w-16 shrink-0 text-right text-[11px] text-gray-400">—</span>
+                      <span className="shrink-0 sm:w-52 flex justify-end gap-1">
+                        {canManageFolders && (
+                          <>
+                            <button onClick={() => { setRenaming(f.id); setRenameName(f.name) }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">改名</button>
+                            <button onClick={() => removeFolder(f)} disabled={busy} className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
+                          </>
+                        )}
+                      </span>
+                    </>
+                  )}
+                </li>
+              ))}
+              {/* ファイル行 */}
+              {curFiles.map((f) => (
+                <li key={f.id} className="flex items-start px-3 py-2.5 hover:bg-blue-50/40">
+                  <span className="w-8 shrink-0 pt-0.5">
                     <input
-                      autoFocus
-                      value={renameName}
-                      onChange={(e) => setRenameName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') submitRename(f); if (e.key === 'Escape') setRenaming(null) }}
-                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded"
+                      type="checkbox"
+                      checked={selected.has(f.id)}
+                      onChange={() => toggleSelect(f.id)}
+                      className="w-4 h-4"
+                      title="選択"
                     />
-                    <button onClick={() => submitRename(f)} disabled={busy} className="px-2 py-1 text-xs bg-blue-600 text-white rounded">保存</button>
-                    <button onClick={() => setRenaming(null)} className="px-2 py-1 text-xs text-gray-500">取消</button>
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
+                      <FileTypeBadge name={f.name} />
+                      <span className="truncate">{f.name}</span>
+                      {renderFileBadges?.(f)}
+                    </div>
+                    <div className="sm:hidden text-[11px] text-gray-400 mt-0.5">
+                      {new Date(f.at).toLocaleString('ja-JP')}・{fmtSize(f.size)}{f.member ? `・👤${f.member}` : ''}
+                    </div>
+                    {f.member && <div className="hidden sm:block text-[11px] text-gray-400">👤{f.member}</div>}
+                    {f.comment && (
+                      <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">💬 {f.comment}</div>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    <button onClick={() => setCurrentId(f.id)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
-                      <FolderIcon color={FOLDER_COLOR.sub} size={20} />
-                      <span className="text-sm font-medium text-gray-800 truncate">{f.name}</span>
-                    </button>
-                    <span className="hidden sm:block w-40 shrink-0 text-[11px] text-gray-400">{f.createdAt ? new Date(f.createdAt).toLocaleString('ja-JP') : ''}</span>
-                    <span className="hidden sm:block w-20 shrink-0 text-right text-[11px] text-gray-400">—</span>
-                    <span className="inline-flex gap-1 shrink-0">
-                      {canManageFolders && (
-                        <>
-                          <button onClick={() => { setRenaming(f.id); setRenameName(f.name) }} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">改名</button>
-                          <button onClick={() => removeFolder(f)} disabled={busy} className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
-                        </>
-                      )}
-                    </span>
-                  </>
-                )}
-              </li>
-            ))}
-            {/* ファイル行 */}
-            {curFiles.map((f) => (
-              <li key={f.id} className="flex items-start gap-2 px-3 py-2.5 hover:bg-blue-50/40">
-                {enableAiAsk && (
-                  <input
-                    type="checkbox"
-                    checked={selected.has(f.id)}
-                    onChange={() => toggleSelect(f.id)}
-                    className="shrink-0 w-4 h-4 mt-1"
-                    title="AI質問の対象に選択"
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
-                    <FileTypeBadge name={f.name} />
-                    <span className="truncate">{f.name}</span>
-                    {renderFileBadges?.(f)}
-                  </div>
-                  <div className="sm:hidden text-[11px] text-gray-400 mt-0.5">
-                    {new Date(f.at).toLocaleString('ja-JP')}・{fmtSize(f.size)}{f.member ? `・👤${f.member}` : ''}
-                  </div>
-                  {f.member && <div className="hidden sm:block text-[11px] text-gray-400">👤{f.member}</div>}
-                  {f.comment && (
-                    <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">💬 {f.comment}</div>
-                  )}
-                </div>
-                <span className="hidden sm:block w-40 shrink-0 text-[11px] text-gray-500 pt-0.5">{new Date(f.at).toLocaleString('ja-JP')}</span>
-                <span className="hidden sm:block w-20 shrink-0 text-right text-[11px] text-gray-500 pt-0.5">{fmtSize(f.size)}</span>
-                <span className="inline-flex gap-1.5 shrink-0">
-                  {onGetBlob && (
-                    <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">👁</button>
-                  )}
-                  <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
-                  {onDeleteFile && (
-                    <button onClick={() => removeFile(f)} className="px-2.5 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                  <span className="hidden sm:block w-44 shrink-0 text-[11px] text-gray-500 pt-0.5">{new Date(f.at).toLocaleString('ja-JP')}</span>
+                  <span className="hidden sm:block w-16 shrink-0 text-right text-[11px] text-gray-500 pt-0.5">{fmtSize(f.size)}</span>
+                  <span className="shrink-0 sm:w-52 flex justify-end gap-1.5">
+                    {onGetBlob && (
+                      <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">👁</button>
+                    )}
+                    <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
+                    {onDeleteFile && (
+                      <button onClick={() => removeFile(f)} className="px-2.5 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       {/* ファイル追加モーダル（D&D＋ファイル選択） */}
