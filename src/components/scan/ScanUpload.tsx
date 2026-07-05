@@ -15,6 +15,7 @@ import {
   createScanFolder,
   renameScanFolder,
   deleteScanFolder,
+  moveScanFile,
   SCAN_FILE_MAX_BYTES,
   SCAN_FILE_MAX_TOTAL,
   type ScanInboxFile,
@@ -525,6 +526,9 @@ export default function ScanUpload() {
                     }}
                     onAddFiles={async (parentId, addFiles, comment) => {
                       await submitFilesPublic(uploadToken, addFiles, undefined, parentId, memberName || undefined, comment)
+                    }}
+                    onMoveFile={async (f, targetFolderId) => {
+                      await moveScanFile(uploadToken, (f.raw as ScanFile).id, targetFolderId)
                     }}
                     onGetBlob={async (f) => getScanFileBlob(f.raw as ScanFile)}
                     onDownload={async (f) => {

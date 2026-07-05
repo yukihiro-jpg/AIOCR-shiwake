@@ -515,6 +515,12 @@ export async function deleteInboxFile(token: string, file: ScanInboxFile): Promi
   await remove(ref(db, publicPath(token, 'inbox', file.id)))
 }
 
+/** 受信ファイルの所属フォルダを変更（フォルダ間移動）。folderId=null で最上位へ */
+export async function moveInboxFile(token: string, id: string, folderId: string | null): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'inbox', id)), { folderId: folderId })
+}
+
 /** 事務所がDLした印を付ける */
 export async function markFileDownloaded(token: string, id: string): Promise<void> {
   const { db, ref, update } = await dbfns()
@@ -542,6 +548,12 @@ export async function deleteScanFile(token: string, file: ScanFile): Promise<voi
   try { await deleteObject(sref(st, file.path)) } catch { /* 既に無い等は無視 */ }
   const { db, ref, remove } = await dbfns()
   await remove(ref(db, publicPath(token, 'files', file.id)))
+}
+
+/** ファイルの所属フォルダを変更（フォルダ間移動）。folderId=null で最上位へ */
+export async function moveScanFile(token: string, id: string, folderId: string | null): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'files', id)), { folderId: folderId })
 }
 
 export async function getScanFileBlob(file: ScanFile): Promise<Blob> {

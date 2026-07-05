@@ -27,6 +27,8 @@ import {
   sendInboxFile,
   loadInbox,
   deleteInboxFile,
+  moveScanFile,
+  moveInboxFile,
   getInboxBlob,
   loadScanFolders,
   createScanFolder,
@@ -1728,6 +1730,11 @@ function FilesPanel({
             const raw = f.raw as { file: ScanInboxFile; token: string }
             await deleteInboxFile(raw.token, raw.file)
           }}
+          onMoveFile={async (f, targetFolderId) => {
+            const raw = f.raw as { file: ScanInboxFile; token: string }
+            await moveInboxFile(raw.token, raw.file.id, targetFolderId)
+            setSentRefresh((v) => v + 1)
+          }}
           renderFileBadges={(f) => {
             const raw = f.raw as { file: ScanInboxFile; recipient: string }
             const dls = Object.keys(raw.file.downloads || {})
@@ -1776,6 +1783,9 @@ function FilesPanel({
           }}
           onDownload={async (f) => downloadOne(f.raw as ScanFile)}
           onDeleteFile={async (f) => removeOne(f.raw as ScanFile)}
+          onMoveFile={async (f, targetFolderId) => {
+            await moveScanFile(company.token, (f.raw as ScanFile).id, targetFolderId)
+          }}
           renderFileBadges={(f) => {
             const raw = f.raw as ScanFile
             const left = daysLeft(raw)

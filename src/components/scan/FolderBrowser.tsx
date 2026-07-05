@@ -6,6 +6,17 @@
 import { useMemo, useState } from 'react'
 import type { ScanFolder } from '@/lib/scan/store'
 
+// ドラッグ中のファイル移動情報を保持（一覧⇔サイドバーツリーの橋渡し用モジュール変数）
+export interface ScanDragItem {
+  root: 'toOffice' | 'toClient'
+  label: string
+  move: (targetFolderId: string | null) => Promise<void>
+}
+let _scanDrag: ScanDragItem | null = null
+export function scanDragSet(d: ScanDragItem | null) { _scanDrag = d }
+export function scanDragGet(): ScanDragItem | null { return _scanDrag }
+export function scanDragClear() { _scanDrag = null }
+
 export interface BrowserFile {
   id: string
   name: string
@@ -33,6 +44,7 @@ export interface FolderBrowserProps {
   recipients?: { id: string; name: string }[] // 指定すると「＋ファイル追加」に宛先選択を表示（税理士→顧問先用）
   onDownload: (file: BrowserFile) => Promise<void>
   onDeleteFile?: (file: BrowserFile) => Promise<void>
+  onMoveFile?: (file: BrowserFile, targetFolderId: string | null) => Promise<void> // 指定するとフォルダ間移動（ボタン＋D&D）を有効化
   renderFileBadges?: (file: BrowserFile) => React.ReactNode
   onChanged: () => void
   maxFileBytes?: number
@@ -115,6 +127,7 @@ export default function FolderBrowser({
   recipients,
   onDownload,
   onDeleteFile,
+  onMoveFile,
   renderFileBadges,
   onChanged,
   maxFileBytes,
@@ -151,6 +164,9 @@ export default function FolderBrowser({
   // AI質問（選択）
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [ai, setAi] = useState<{ files: BrowserFile[]; label: string } | null>(null)
+  // ファイル移動
+  const [movePicker, setMovePicker] = useState<BrowserFile | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null | 'root'>(null) // 一覧内サブフォルダへのドロップ強調
 
   const byId = useMemo(() => {
     const m = new Map<string, ScanFolder>()
@@ -373,6 +389,30 @@ export default function FolderBrowser({
     setBusy(false)
   }
 
+  async function doMove(file: BrowserFile, targetFolderId: string | null) {
+    if (!onMoveFile) return
+    if ((file.folderId || null) === targetFolderId) return
+    try {
+      await onMoveFile(file, targetFolderId)
+      onChanged()
+    } catch (e) {
+      alert('移動に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  // 移動先選択用：フォルダを階層順に平坦化（深さ付き）
+  function flattenFolders(): { folder: ScanFolder; depth: number }[] {
+    const out: { folder: ScanFolder; depth: number }[] = []
+    const walk = (parentId: string | null, depth: number) => {
+      folders
+        .filter((f) => (f.parentId || null) === parentId)
+        .sort((a, b) => naturalName(a.name, b.name))
+        .forEach((f) => { out.push({ folder: f, depth }); walk(f.id, depth + 1) })
+    }
+    walk(null, 0)
+    return out
+  }
+
   const rootColor = FOLDER_COLOR[rootKey]
 
   return (
@@ -381,7 +421,10 @@ export default function FolderBrowser({
       <div className="flex items-center flex-wrap gap-1 text-sm mb-3">
         <button
           onClick={() => setCurrentId(null)}
-          className={`inline-flex items-center gap-1 px-2 py-1 rounded ${currentId === null ? 'bg-gray-100 font-semibold text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+          onDragOver={onMoveFile ? (e) => { if (scanDragGet()?.root === rootKey) { e.preventDefault(); setDropTarget('root') } } : undefined}
+          onDragLeave={onMoveFile ? () => setDropTarget((t) => (t === 'root' ? null : t)) : undefined}
+          onDrop={onMoveFile ? (e) => { e.preventDefault(); const d = scanDragGet(); setDropTarget(null); if (d && d.root === rootKey) d.move(null).finally(() => scanDragClear()) } : undefined}
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded ${dropTarget === 'root' ? 'bg-blue-100 ring-2 ring-blue-400' : currentId === null ? 'bg-gray-100 font-semibold text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
         >
           <FolderIcon color={rootColor} size={16} />
           {rootLabel}
@@ -391,7 +434,10 @@ export default function FolderBrowser({
             <span className="text-gray-300">／</span>
             <button
               onClick={() => setCurrentId(c.id)}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded ${currentId === c.id ? 'bg-gray-100 font-semibold text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
+              onDragOver={onMoveFile ? (e) => { if (scanDragGet()?.root === rootKey) { e.preventDefault(); setDropTarget(c.id) } } : undefined}
+              onDragLeave={onMoveFile ? () => setDropTarget((t) => (t === c.id ? null : t)) : undefined}
+              onDrop={onMoveFile ? (e) => { e.preventDefault(); const d = scanDragGet(); setDropTarget(null); if (d && d.root === rootKey) d.move(c.id).finally(() => scanDragClear()) } : undefined}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded ${dropTarget === c.id ? 'bg-blue-100 ring-2 ring-blue-400' : currentId === c.id ? 'bg-gray-100 font-semibold text-gray-800' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               <FolderIcon color={FOLDER_COLOR.sub} size={16} />
               {c.name}
@@ -518,7 +564,13 @@ export default function FolderBrowser({
             <ul className="divide-y divide-gray-100">
               {/* フォルダ行 */}
               {subFolders.map((f) => (
-                <li key={f.id} className="flex items-center px-3 py-2.5 hover:bg-amber-50/40">
+                <li
+                  key={f.id}
+                  onDragOver={onMoveFile ? (e) => { if (scanDragGet()?.root === rootKey) { e.preventDefault(); setDropTarget(f.id) } } : undefined}
+                  onDragLeave={onMoveFile ? () => setDropTarget((t) => (t === f.id ? null : t)) : undefined}
+                  onDrop={onMoveFile ? (e) => { e.preventDefault(); const d = scanDragGet(); setDropTarget(null); if (d && d.root === rootKey) d.move(f.id).finally(() => scanDragClear()) } : undefined}
+                  className={`flex items-center px-3 py-2.5 ${dropTarget === f.id ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'hover:bg-amber-50/40'}`}
+                >
                   <span className="w-8 shrink-0" />
                   {renaming === f.id ? (
                     <div className="flex items-center gap-2 flex-1">
@@ -555,7 +607,13 @@ export default function FolderBrowser({
               ))}
               {/* ファイル行 */}
               {curFiles.map((f) => (
-                <li key={f.id} className="flex items-start px-3 py-2.5 hover:bg-blue-50/40">
+                <li
+                  key={f.id}
+                  draggable={!!onMoveFile}
+                  onDragStart={onMoveFile ? (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f.name); scanDragSet({ root: rootKey, label: f.name, move: (tid) => doMove(f, tid) }) } : undefined}
+                  onDragEnd={onMoveFile ? () => scanDragClear() : undefined}
+                  className={`flex items-start px-3 py-2.5 hover:bg-blue-50/40 ${onMoveFile ? 'cursor-move' : ''}`}
+                >
                   <span className="w-8 shrink-0 pt-0.5">
                     <input
                       type="checkbox"
@@ -584,6 +642,9 @@ export default function FolderBrowser({
                   <span className="shrink-0 sm:w-52 flex justify-end gap-1.5">
                     {onGetBlob && (
                       <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">👁</button>
+                    )}
+                    {onMoveFile && (
+                      <button onClick={() => setMovePicker(f)} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50" title="別のフォルダへ移動">↪</button>
                     )}
                     <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
                     {onDeleteFile && (
@@ -683,6 +744,46 @@ export default function FolderBrowser({
 
       {preview && <PreviewModal preview={preview} onClose={closePreview} onDownload={() => { /* DLは一覧から */ }} />}
       {ai && onAiAsk && <AiAskModal target={ai} onAsk={onAiAsk} onClose={() => setAi(null)} />}
+
+      {/* 移動先選択モーダル */}
+      {movePicker && onMoveFile && (
+        <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={() => setMovePicker(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+              <div className="font-bold text-gray-800 truncate">↪ 移動先を選択</div>
+              <button onClick={() => setMovePicker(null)} className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-1">×</button>
+            </div>
+            <div className="px-5 pt-2 pb-1 text-[11px] text-gray-500 truncate">「{movePicker.name}」を移動します</div>
+            <div className="overflow-auto p-2">
+              <button
+                onClick={() => { const f = movePicker; setMovePicker(null); doMove(f, null) }}
+                disabled={(movePicker.folderId || null) === null}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left rounded hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                <FolderIcon color={rootColor} size={18} />
+                <span className="truncate">{rootLabel}（最上位）</span>
+                {(movePicker.folderId || null) === null && <span className="text-[10px] text-gray-400 ml-auto">現在ここ</span>}
+              </button>
+              {flattenFolders().map(({ folder, depth }) => {
+                const here = (movePicker.folderId || null) === folder.id
+                return (
+                  <button
+                    key={folder.id}
+                    onClick={() => { const f = movePicker; setMovePicker(null); doMove(f, folder.id) }}
+                    disabled={here}
+                    style={{ paddingLeft: 12 + depth * 18 }}
+                    className="w-full flex items-center gap-2 pr-3 py-2 text-sm text-left rounded hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <FolderIcon color={FOLDER_COLOR.sub} size={16} />
+                    <span className="truncate">{folder.name}</span>
+                    {here && <span className="text-[10px] text-gray-400 ml-auto shrink-0">現在ここ</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

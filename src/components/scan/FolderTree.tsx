@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import type { ScanFolder } from '@/lib/scan/store'
-import { FolderIcon, FOLDER_COLOR, naturalName } from '@/components/scan/FolderBrowser'
+import { FolderIcon, FOLDER_COLOR, naturalName, scanDragGet, scanDragClear } from '@/components/scan/FolderBrowser'
 
 export type RootKey = 'toOffice' | 'toClient'
 
@@ -41,6 +41,20 @@ function RootLabel({ label, color }: { label: string; color: string }) {
 
 export default function FolderTree({ roots, currentRoot, currentId, onSelect }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [dragOver, setDragOver] = useState<string | null>(null) // ドロップ強調（folderId or `root:${key}`）
+
+  function dropProps(rootKey: RootKey, targetFolderId: string | null, hlKey: string) {
+    return {
+      onDragOver: (e: React.DragEvent) => { if (scanDragGet()?.root === rootKey) { e.preventDefault(); setDragOver(hlKey) } },
+      onDragLeave: () => setDragOver((o) => (o === hlKey ? null : o)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault()
+        const d = scanDragGet()
+        setDragOver(null)
+        if (d && d.root === rootKey) d.move(targetFolderId).finally(() => scanDragClear())
+      },
+    }
+  }
 
   // 現在フォルダの祖先は常に開いておく
   const openIds = useMemo(() => {
@@ -75,7 +89,8 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
     return (
       <li key={folder.id}>
         <div
-          className={`flex items-center gap-1 rounded-md ${selected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+          {...dropProps(root.key, folder.id, folder.id)}
+          className={`flex items-center gap-1 rounded-md ${dragOver === folder.id ? 'bg-blue-100 ring-2 ring-blue-400' : selected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
           style={{ paddingLeft: 4 + depth * 16 }}
         >
           {children.length > 0 ? (
@@ -127,7 +142,8 @@ export default function FolderTree({ roots, currentRoot, currentId, onSelect }: 
           <li key={root.key}>
             <button
               onClick={() => onSelect(root.key, null)}
-              className={`w-full flex items-center gap-2 pl-2 pr-1.5 py-2.5 rounded-md text-left text-sm border-l-4 ${rootSelected ? 'bg-blue-50 font-bold text-blue-800' : 'text-gray-800 hover:bg-gray-50 font-semibold'}`}
+              {...dropProps(root.key, null, `root:${root.key}`)}
+              className={`w-full flex items-center gap-2 pl-2 pr-1.5 py-2.5 rounded-md text-left text-sm border-l-4 ${dragOver === `root:${root.key}` ? 'bg-blue-100 ring-2 ring-blue-400' : rootSelected ? 'bg-blue-50 font-bold text-blue-800' : 'text-gray-800 hover:bg-gray-50 font-semibold'}`}
               style={{ borderLeftColor: FOLDER_COLOR[root.key] }}
             >
               <FolderIcon color={FOLDER_COLOR[root.key]} size={18} />
