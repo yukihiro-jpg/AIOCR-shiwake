@@ -410,7 +410,7 @@ export function InboxModal({
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
   const [transferBatch, setTransferBatch] = useState<ScanBatch | null>(null)
-  const [showDone, setShowDone] = useState(false)
+  const [showDone, setShowDone] = useState(true) // 処理済みも既定で表示（処理済みにしても解析データ内に残す）
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
   // 共有フォルダ（DocuWorks風ツリー・顧問先版と同一のフォルダを双方向で共有）
   const [browseRoot, setBrowseRoot] = useState<'select' | 'toClient' | 'toOffice'>('select')
@@ -706,9 +706,18 @@ export function InboxModal({
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <button onClick={() => setOpenBatch(b)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-                            開く
-                          </button>
+                          <span className="inline-flex gap-1.5 justify-end">
+                            <button onClick={() => setOpenBatch(b)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+                              開く
+                            </button>
+                            <button
+                              onClick={() => removeBatch(b)}
+                              className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50"
+                              title="このアプリ・Firebaseから完全に削除します"
+                            >
+                              削除
+                            </button>
+                          </span>
                         </td>
                       </tr>
                     ))}
