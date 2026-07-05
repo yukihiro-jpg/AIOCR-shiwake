@@ -86,6 +86,7 @@ export default function ScanContent() {
   const [inbox, setInbox] = useState<{ client: SharedClient; company: ScanCompany; fullPage?: boolean } | null>(null)
   const openedFromParam = useRef(false)
   const [membersFor, setMembersFor] = useState<{ client: SharedClient; company: ScanCompany } | null>(null)
+  const [mailDlg, setMailDlg] = useState<{ title: string; text: string } | null>(null)
 
   // 常駐の自動AI解析エンジン（layout.tsx で全ページ起動）の状態を表示に反映
   const [engineMsg, setEngineMsg] = useState('')
@@ -208,14 +209,9 @@ export default function ScanContent() {
     if (!ok) setMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度お試しください。')
   }
 
-  async function copyMail(company: ScanCompany) {
+  function copyMail(company: ScanCompany) {
     const text = buildScanMailText({ companyName: company.name, url: buildScanUrl(company) })
-    try {
-      await navigator.clipboard.writeText(text)
-      setMsg('メール文をコピーしました。メールに貼り付けて送信してください。')
-    } catch {
-      window.prompt('メール文をコピーしてください', text)
-    }
+    setMailDlg({ title: `${company.name} 宛メール文`, text })
   }
 
   if (!ready) {
@@ -363,6 +359,47 @@ export default function ScanContent() {
           onChanged={reload}
         />
       )}
+
+      {mailDlg && <MailTextDialog title={mailDlg.title} initialText={mailDlg.text} onClose={() => setMailDlg(null)} />}
+    </div>
+  )
+}
+
+// メール文の確認・修正・コピー用ダイアログ
+function MailTextDialog({ title, initialText, onClose }: { title: string; initialText: string; onClose: () => void }) {
+  const [text, setText] = useState(initialText)
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch {
+      window.prompt('コピーしてください', text)
+    }
+  }
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+          <div className="font-bold text-gray-800">✉️ {title}</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-1">×</button>
+        </div>
+        <div className="p-5 overflow-auto">
+          <p className="text-[11px] text-gray-500 mb-2">内容を確認し、必要なら修正してから「コピー」を押してください。修正はこの画面のみに反映されます。</p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={14}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg leading-relaxed"
+          />
+          <div className="flex items-center gap-2 mt-3">
+            <button onClick={copy} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">📋 コピー</button>
+            {copied && <span className="text-xs text-green-700 font-semibold">✅ コピーしました</span>}
+            <button onClick={() => setText(initialText)} className="ml-auto text-xs text-gray-500 hover:text-gray-700">元の文面に戻す</button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1756,6 +1793,7 @@ function MembersDialog({
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
+  const [mailDlg, setMailDlg] = useState<{ title: string; text: string } | null>(null)
 
   async function add() {
     const name = newName.trim()
@@ -1815,14 +1853,9 @@ function MembersDialog({
     if (!ok) setMsg('ポップアップがブロックされました。ブラウザで許可してからお試しください。')
   }
 
-  async function copyMail(m: ScanMember) {
+  function copyMail(m: ScanMember) {
     const text = buildScanMailText({ companyName: client.name, memberName: m.name, url: buildScanUrlFromToken(m.token) })
-    try {
-      await navigator.clipboard.writeText(text)
-      setMsg(`${m.name} さん宛のメール文をコピーしました。`)
-    } catch {
-      window.prompt('メール文をコピーしてください', text)
-    }
+    setMailDlg({ title: `${client.name}／${m.name} 様 宛メール文`, text })
   }
 
   return (
@@ -1876,6 +1909,8 @@ function MembersDialog({
           <button onClick={() => setQr(null)} className="mt-2 text-xs text-gray-500">QRを閉じる</button>
         </div>
       )}
+
+      {mailDlg && <MailTextDialog title={mailDlg.title} initialText={mailDlg.text} onClose={() => setMailDlg(null)} />}
     </Overlay>
   )
 }
