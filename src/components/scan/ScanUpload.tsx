@@ -371,12 +371,12 @@ export default function ScanUpload() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
-      <header className="bg-blue-600 text-white px-4 py-3">
+      <header className="text-white px-4 py-3" style={{ background: '#0f2740' }}>
         <div className="max-w-5xl mx-auto">
-          <div className="text-xs opacity-80">書類スキャン・ファイル便</div>
+          <div className="text-[11px] text-slate-300">書類スキャン・ファイル便</div>
           <div className="font-bold text-lg">
             {companyName}
-            {memberName && <span className="text-sm font-normal opacity-90">｜{memberName} 様</span>}
+            {memberName && <span className="text-sm font-normal text-slate-200">｜{memberName} 様</span>}
           </div>
         </div>
       </header>

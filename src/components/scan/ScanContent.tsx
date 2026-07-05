@@ -61,6 +61,7 @@ import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import FolderBrowser, { type BrowserFile } from '@/components/scan/FolderBrowser'
+import FolderTree from '@/components/scan/FolderTree'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
 
 type SharedClient = ScanClient
@@ -230,7 +231,7 @@ export default function ScanContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="scan" />
-      <div className="flex-1 p-6 max-w-5xl w-full mx-auto">
+      <div className="flex-1 p-6 max-w-7xl w-full mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <h1 className="text-xl font-bold text-gray-800">書類スキャン受信 — 顧問先スマホ撮影の回収</h1>
           <button onClick={reload} disabled={busy} className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">
@@ -254,7 +255,8 @@ export default function ScanContent() {
               対象会社がありません。「顧問先情報登録」の「アプリ利用」で対象会社の<strong>書類スキャン受信</strong>を<strong>利用</strong>に設定してください。
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[900px]">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="text-left px-4 py-2 font-semibold">コード</th>
@@ -284,7 +286,7 @@ export default function ScanContent() {
                         <span className="font-semibold text-blue-700">{cnt.file}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 justify-end flex-wrap">
+                        <div className="flex items-center gap-2 justify-end flex-nowrap whitespace-nowrap">
                           <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
                             URLコピー
                           </button>
@@ -301,7 +303,7 @@ export default function ScanContent() {
                             👥 メンバー{company.members && Object.keys(company.members).length ? `（${Object.keys(company.members).length}）` : ''}
                           </button>
                           <button onClick={() => setInbox({ client, company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-                            受信箱を開く
+                            📁 共有フォルダ
                           </button>
                         </div>
                       </td>
@@ -310,6 +312,7 @@ export default function ScanContent() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>
@@ -377,32 +380,39 @@ function InboxModal({
   onClose: () => void
   onChanged: () => void
 }) {
-  const [tab, setTab] = useState<'batches' | 'cash' | 'files'>('batches')
+  const [view, setView] = useState<'files' | 'batches' | 'cash'>('files')
   const [batches, setBatches] = useState<Record<string, ScanBatch>>({})
   const [cash, setCash] = useState<Record<string, ScanCashEntry>>({})
   const [files, setFiles] = useState<Record<string, ScanFile>>({})
-  const [fileDriveOpen, setFileDriveOpen] = useState(false)
-  const [fileMsg, setFileMsg] = useState('')
+  const [companyInbox, setCompanyInbox] = useState<Record<string, ScanInboxFile>>({})
+  const [folders, setFolders] = useState<ScanFolder[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
   const [showDone, setShowDone] = useState(false)
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
+  // 共有フォルダ（DocuWorks風ツリー・顧問先版と同一のフォルダを双方向で共有）
+  const [browseRoot, setBrowseRoot] = useState<'select' | 'toClient' | 'toOffice'>('select')
+  const [folderId, setFolderId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     try {
-      const [b, c, a, f] = await Promise.all([
+      const [b, c, a, f, inbox, fol] = await Promise.all([
         loadBatches(company.token),
         loadCashEntries(company.token),
         loadAnalyses(company.token),
         loadFiles(company.token),
+        loadInbox(company.token),
+        loadScanFolders(company.token),
       ])
       setBatches(b)
       setCash(c)
       setAnalyses(a)
       setFiles(f)
+      setCompanyInbox(inbox)
+      setFolders(Object.values(fol))
     } catch (e) {
       setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     } finally {
@@ -491,159 +501,208 @@ function InboxModal({
     .filter((c) => showDone || c.status !== 'done')
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
 
-  return (
-    <Overlay onClose={onClose} wide>
-      <h2 className="font-bold text-gray-800 mb-1">{client.name} — 受信箱</h2>
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTab('batches')}
-            className={`px-3 py-1.5 text-sm rounded ${tab === 'batches' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
-          >
-            撮影バッチ
-          </button>
-          <button
-            onClick={() => setTab('cash')}
-            className={`px-3 py-1.5 text-sm rounded ${tab === 'cash' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
-          >
-            現金引出・預入
-          </button>
-          <button
-            onClick={() => setTab('files')}
-            className={`px-3 py-1.5 text-sm rounded ${tab === 'files' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
-          >
-            📎 ファイル
-          </button>
-        </div>
-        <label className="flex items-center gap-1.5 text-xs text-gray-500">
-          <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
-          処理済みも表示
-        </label>
-      </div>
+  const toClientFolders = folders.filter((f) => f.root === 'toClient')
+  const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
+  const newUploads = Object.values(files).filter((f) => !f.downloadedAt && !f.driveSavedAt && f.status !== 'done').length
+  const batchNew = Object.values(batches).filter((b) => b.status !== 'done').length
+  const cashNew = Object.values(cash).filter((c) => c.status !== 'done').length
 
-      {err && <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">{err}</div>}
-      {loading ? (
-        <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
-      ) : tab === 'batches' ? (
-        batchList.length === 0 ? (
-          <p className="text-sm text-gray-500 py-6 text-center">バッチがありません。</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500">
-                <th className="text-left px-3 py-2">日時</th>
-                <th className="text-left px-3 py-2">書類種類</th>
-                <th className="text-left px-3 py-2">ページ数</th>
-                <th className="text-left px-3 py-2">AI解析</th>
-                <th className="text-left px-3 py-2">状態</th>
-                <th className="text-right px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {batchList.map((b) => (
-                <tr key={b.id} className="border-t border-gray-100">
-                  <td className="px-3 py-2 text-gray-600">{new Date(b.submittedAt).toLocaleString('ja-JP')}</td>
-                  <td className="px-3 py-2 text-gray-800">
-                    {b.docType}
-                    {b.bankName ? `（${b.bankName} ${b.accountNumber || ''}）` : ''}
-                    {b.userName ? `（${b.userName}）` : ''}
-                    {b.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{b.member}</span>}
-                  </td>
-                  <td className="px-3 py-2 text-gray-600">{b.pageCount}枚</td>
-                  <td className="px-3 py-2">
-                    {analyzingIds.has(b.id) ? (
-                      <span className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-0.5 animate-pulse">解析中…</span>
-                    ) : analyses[b.id] ? (
-                      <span className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-0.5">解析済み（{(analyses[b.id].rows || []).length}行）</span>
-                    ) : docTypeToKind(b.docType) === null ? (
-                      <span className="text-xs text-gray-300" title="この書類種類のAI解析は準備中です">対象外</span>
-                    ) : (
-                      <span className="text-xs text-gray-400">未解析</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {b.status === 'done' ? (
-                      <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
-                    ) : (
-                      <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => setOpenBatch(b)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
-                      開く
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )
-      ) : tab === 'files' ? (
-        <FilesTab
-          client={client}
-          company={company}
-          files={files}
-          showDone={showDone}
-          msg={fileMsg}
-          setMsg={setFileMsg}
-          driveOpen={fileDriveOpen}
-          setDriveOpen={setFileDriveOpen}
-          onChanged={async () => {
-            await load()
-            onChanged()
-          }}
-        />
-      ) : cashList.length === 0 ? (
-        <p className="text-sm text-gray-500 py-6 text-center">現金の登録がありません。</p>
-      ) : (
-        <>
-          <div className="text-right mb-2">
-            <button onClick={cashCsv} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
-              CSV出力
-            </button>
+  function selectFolder(root: 'toClient' | 'toOffice', id: string | null) {
+    setView('files')
+    setBrowseRoot(root)
+    setFolderId(id)
+  }
+
+  const NAV = [
+    { key: 'files' as const, icon: '📁', label: '共有フォルダ', desc: 'ファイルの受取・送付', badge: newUploads },
+    { key: 'batches' as const, icon: '📷', label: '撮影バッチ', desc: 'スマホ撮影の解析', badge: batchNew },
+    { key: 'cash' as const, icon: '💴', label: '現金引出・預入', desc: '現金の登録', badge: cashNew },
+  ]
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* ヘッダー（Taxsys風ネイビー） */}
+        <header className="px-5 py-3 flex items-center justify-between text-white shrink-0" style={{ background: '#0f2740' }}>
+          <div>
+            <div className="text-[11px] text-slate-300">書類スキャン受信</div>
+            <div className="font-bold text-lg">{client.name}</div>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500">
-                <th className="text-left px-3 py-2">日付</th>
-                <th className="text-left px-3 py-2">種別</th>
-                <th className="text-left px-3 py-2">銀行</th>
-                <th className="text-right px-3 py-2">金額</th>
-                <th className="text-left px-3 py-2">状態</th>
-                <th className="text-right px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {cashList.map((c) => (
-                <tr key={c.id} className="border-t border-gray-100">
-                  <td className="px-3 py-2 text-gray-600">{c.date}</td>
-                  <td className="px-3 py-2 text-gray-800">
-                    {c.entryType}
-                    {c.depositType ? `（${c.depositType}）` : ''}
-                    {c.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{c.member}</span>}
-                  </td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {c.bankName} {c.accountNumber || ''}
-                  </td>
-                  <td className="px-3 py-2 text-right text-gray-800">{c.amount.toLocaleString('ja-JP')}円</td>
-                  <td className="px-3 py-2">
-                    {c.status === 'done' ? (
-                      <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
-                    ) : (
-                      <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button onClick={() => toggleCashDone(c)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
-                      {c.status === 'done' ? '未処理に戻す' : '処理済みにする'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-slate-200">
+              <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
+              処理済みも表示
+            </label>
+            <button onClick={onClose} className="text-slate-200 hover:text-white text-2xl leading-none px-1" aria-label="閉じる">×</button>
+          </div>
+        </header>
+
+        <div className="flex-1 flex min-h-0">
+          {/* 左サイドバー（顧問先版と同じ構成） */}
+          <aside className="w-56 shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-3 space-y-1.5">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                onClick={() => setView(n.key)}
+                className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center gap-3 border ${view === n.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+              >
+                <span className="text-xl leading-none">{n.icon}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-semibold">{n.label}</span>
+                  <span className={`block text-[11px] ${view === n.key ? 'text-blue-100' : 'text-gray-400'}`}>{n.desc}</span>
+                </span>
+                {n.badge > 0 && (
+                  <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{n.badge}</span>
+                )}
+              </button>
+            ))}
+
+            {view === 'files' && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="text-[11px] font-semibold text-gray-400 px-1.5 mb-1.5">フォルダ</div>
+                <FolderTree
+                  roots={[
+                    { key: 'toClient', label: '税理士事務所 → 顧問先', folders: toClientFolders },
+                    { key: 'toOffice', label: '顧問先 → 税理士事務所', folders: toOfficeFolders, badge: newUploads },
+                  ]}
+                  currentRoot={browseRoot}
+                  currentId={folderId}
+                  onSelect={selectFolder}
+                />
+              </div>
+            )}
+          </aside>
+
+          {/* 右コンテンツ */}
+          <div className="flex-1 min-w-0 overflow-auto p-5">
+            {err && <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">{err}</div>}
+
+            {loading ? (
+              <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+            ) : view === 'files' ? (
+              <FilesPanel
+                client={client}
+                company={company}
+                files={files}
+                companyInbox={companyInbox}
+                folders={folders}
+                showDone={showDone}
+                browseRoot={browseRoot}
+                folderId={folderId}
+                setFolderId={setFolderId}
+                onChanged={async () => {
+                  await load()
+                  onChanged()
+                }}
+              />
+            ) : view === 'batches' ? (
+              batchList.length === 0 ? (
+                <p className="text-sm text-gray-500 py-6 text-center">バッチがありません。</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500">
+                      <th className="text-left px-3 py-2">日時</th>
+                      <th className="text-left px-3 py-2">書類種類</th>
+                      <th className="text-left px-3 py-2">ページ数</th>
+                      <th className="text-left px-3 py-2">AI解析</th>
+                      <th className="text-left px-3 py-2">状態</th>
+                      <th className="text-right px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchList.map((b) => (
+                      <tr key={b.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2 text-gray-600">{new Date(b.submittedAt).toLocaleString('ja-JP')}</td>
+                        <td className="px-3 py-2 text-gray-800">
+                          {b.docType}
+                          {b.bankName ? `（${b.bankName} ${b.accountNumber || ''}）` : ''}
+                          {b.userName ? `（${b.userName}）` : ''}
+                          {b.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{b.member}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">{b.pageCount}枚</td>
+                        <td className="px-3 py-2">
+                          {analyzingIds.has(b.id) ? (
+                            <span className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-0.5 animate-pulse">解析中…</span>
+                          ) : analyses[b.id] ? (
+                            <span className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-0.5">解析済み（{(analyses[b.id].rows || []).length}行）</span>
+                          ) : docTypeToKind(b.docType) === null ? (
+                            <span className="text-xs text-gray-300" title="この書類種類のAI解析は準備中です">対象外</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">未解析</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {b.status === 'done' ? (
+                            <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
+                          ) : (
+                            <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button onClick={() => setOpenBatch(b)} className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">
+                            開く
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            ) : cashList.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">現金の登録がありません。</p>
+            ) : (
+              <>
+                <div className="text-right mb-2">
+                  <button onClick={cashCsv} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                    CSV出力
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500">
+                      <th className="text-left px-3 py-2">日付</th>
+                      <th className="text-left px-3 py-2">種別</th>
+                      <th className="text-left px-3 py-2">銀行</th>
+                      <th className="text-right px-3 py-2">金額</th>
+                      <th className="text-left px-3 py-2">状態</th>
+                      <th className="text-right px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashList.map((c) => (
+                      <tr key={c.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2 text-gray-600">{c.date}</td>
+                        <td className="px-3 py-2 text-gray-800">
+                          {c.entryType}
+                          {c.depositType ? `（${c.depositType}）` : ''}
+                          {c.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{c.member}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-gray-600">
+                          {c.bankName} {c.accountNumber || ''}
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-800">{c.amount.toLocaleString('ja-JP')}円</td>
+                        <td className="px-3 py-2">
+                          {c.status === 'done' ? (
+                            <span className="text-xs text-green-700 bg-green-50 rounded px-2 py-0.5">処理済み</span>
+                          ) : (
+                            <span className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">未処理</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button onClick={() => toggleCashDone(c)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                            {c.status === 'done' ? '未処理に戻す' : '処理済みにする'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
       {openBatch && (
         <BatchDetail
@@ -659,7 +718,7 @@ function InboxModal({
           onDelete={() => removeBatch(openBatch)}
         />
       )}
-    </Overlay>
+    </div>
   )
 }
 
@@ -1272,59 +1331,48 @@ function TransferDialog({
   )
 }
 
-/** 受信箱の「📎 ファイル」タブ（ファイル便）。DL・ZIP一括DL・Drive保存・処理済み管理・削除。
+/** 共有フォルダパネル（事務所側）。サイドバーツリーで選んだルート（税理士→顧問先／顧問先→税理士）の
+ *  フォルダブラウザを表示。DL・ZIP一括DL・Drive保存・処理済み管理・削除・メンバー個別送信つき。
  *  削除は受け渡し箱（Firebase上のコピー）のみで、顧問先の元ファイルには影響しない。 */
-function FilesTab({
+function FilesPanel({
   client,
   company,
   files,
+  companyInbox,
+  folders,
   showDone,
-  msg,
-  setMsg,
-  driveOpen,
-  setDriveOpen,
+  browseRoot,
+  folderId,
+  setFolderId,
   onChanged,
 }: {
   client: SharedClient
   company: ScanCompany
   files: Record<string, ScanFile>
+  companyInbox: Record<string, ScanInboxFile>
+  folders: ScanFolder[]
   showDone: boolean
-  msg: string
-  setMsg: (m: string) => void
-  driveOpen: boolean
-  setDriveOpen: (v: boolean) => void
+  browseRoot: 'select' | 'toClient' | 'toOffice'
+  folderId: string | null
+  setFolderId: (id: string | null) => void
   onChanged: () => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
   const [sendOpen, setSendOpen] = useState(false)
+  const [driveOpen, setDriveOpen] = useState(false)
   const [sentRefresh, setSentRefresh] = useState(0)
-  const [sub, setSub] = useState<'toClient' | 'toOffice'>('toClient')
-  const [folders, setFolders] = useState<ScanFolder[]>([])
-  const [companyInbox, setCompanyInbox] = useState<Record<string, ScanInboxFile>>({})
-
-  const loadExtra = useCallback(async () => {
-    try {
-      const [f, inbox] = await Promise.all([loadScanFolders(company.token), loadInbox(company.token)])
-      setFolders(Object.values(f))
-      setCompanyInbox(inbox)
-    } catch { /* ignore */ }
-  }, [company.token])
-
-  useEffect(() => {
-    loadExtra()
-  }, [loadExtra, sentRefresh])
 
   const toClientFolders = folders.filter((f) => f.root === 'toClient')
-  const toClientFiles: BrowserFile[] = Object.values(companyInbox)
-    .map((f) => ({
-      id: f.id,
-      name: f.name,
-      size: f.size,
-      folderId: f.folderId || null,
-      at: f.sentAt,
-      comment: f.comment,
-      raw: f,
-    }))
+  const toClientFiles: BrowserFile[] = Object.values(companyInbox).map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    folderId: f.folderId || null,
+    at: f.sentAt,
+    comment: f.comment,
+    raw: f,
+  }))
 
   const toOfficeFolders = folders.filter((f) => f.root === 'toOffice')
   const list = Object.values(files)
@@ -1340,11 +1388,6 @@ function FilesTab({
     member: f.member,
     raw: f,
   }))
-
-  function fmtSize(bytes: number): string {
-    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + 'MB'
-    return Math.max(1, Math.round(bytes / 1024)) + 'KB'
-  }
 
   // 削除までの残り日数（90日保存）
   function daysLeft(f: ScanFile): number {
@@ -1388,7 +1431,6 @@ function FilesTab({
       const out = await zip.generateAsync({ type: 'blob' })
       downloadBlob(out, `${safe(client.name)}_ファイル便_${new Date().toISOString().slice(0, 10)}.zip`)
       setMsg('')
-      // 含まれた全ファイルにDL済みマーク
       for (const f of list) {
         try { await markFileDownloaded(company.token, f.id) } catch { /* ignore */ }
       }
@@ -1418,24 +1460,20 @@ function FilesTab({
     }
   }
 
+  if (browseRoot === 'select') {
+    return (
+      <div className="text-center text-gray-400 py-24 text-sm">
+        ← 左の「フォルダ」から<br />
+        <span className="text-blue-600 font-semibold">税理士事務所 → 顧問先</span>／<span className="text-green-600 font-semibold">顧問先 → 税理士事務所</span> を選択してください
+      </div>
+    )
+  }
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setSub('toClient')}
-            className={`px-3 py-1.5 text-xs rounded ${sub === 'toClient' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
-          >
-            📁 税理士事務所 → 顧問先
-          </button>
-          <button
-            onClick={() => setSub('toOffice')}
-            className={`px-3 py-1.5 text-xs rounded ${sub === 'toOffice' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600'}`}
-          >
-            📁 顧問先 → 税理士事務所
-          </button>
-        </div>
-        {sub === 'toClient' && (
+      {/* ルート別ツールバー */}
+      <div className="flex items-center justify-end gap-2 mb-3 flex-wrap">
+        {browseRoot === 'toClient' && (
           <button
             onClick={() => setSendOpen(true)}
             className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
@@ -1443,8 +1481,8 @@ function FilesTab({
             👤 メンバー個別宛に送る
           </button>
         )}
-        {sub === 'toOffice' && (
-          <div className="flex gap-2">
+        {browseRoot === 'toOffice' && (
+          <>
             <button
               onClick={() => setDriveOpen(true)}
               disabled={busy || list.length === 0}
@@ -1459,19 +1497,21 @@ function FilesTab({
             >
               一括DL（ZIP）
             </button>
-          </div>
+          </>
         )}
       </div>
 
       {msg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{msg}</div>}
       <p className="text-xs text-gray-500 mb-2">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
 
-      {sub === 'toClient' ? (
+      {browseRoot === 'toClient' ? (
         <FolderBrowser
           rootKey="toClient"
           rootLabel="税理士事務所 → 顧問先"
           folders={toClientFolders}
           files={toClientFiles}
+          controlledId={folderId}
+          onNavigate={setFolderId}
           canManageFolders
           canAddFiles
           addFilesLabel="顧問先へ送る"
@@ -1514,7 +1554,7 @@ function FilesTab({
               <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">未受領</span>
             )
           }}
-          onChanged={loadExtra}
+          onChanged={onChanged}
         />
       ) : (
         <FolderBrowser
@@ -1522,6 +1562,8 @@ function FilesTab({
           rootLabel="顧問先 → 税理士事務所"
           folders={toOfficeFolders}
           files={toOfficeFiles}
+          controlledId={folderId}
+          onNavigate={setFolderId}
           canManageFolders={false}
           canAddFiles={false}
           addFilesLabel=""
@@ -1565,14 +1607,14 @@ function FilesTab({
         />
       )}
 
-      <SentFilesSection company={company} refresh={sentRefresh} />
+      {browseRoot === 'toClient' && <SentFilesSection company={company} refresh={sentRefresh} />}
 
       {sendOpen && (
         <SendFilesDialog
           client={client}
           company={company}
           onClose={() => setSendOpen(false)}
-          onSent={() => setSentRefresh((v) => v + 1)}
+          onSent={async () => { setSentRefresh((v) => v + 1); await onChanged() }}
         />
       )}
 
@@ -1588,7 +1630,6 @@ function FilesTab({
             return out
           }}
           onSaved={async () => {
-            // 保存に成功した全ファイルへDrive保存済みマーク
             for (const f of list) {
               try { await markFileDriveSaved(company.token, f.id) } catch { /* ignore */ }
             }
