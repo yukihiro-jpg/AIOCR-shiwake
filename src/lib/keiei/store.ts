@@ -118,6 +118,33 @@ export async function saveSettings(cid: string, s: KeieiSettings): Promise<void>
   }
 }
 
+/** 設定をリアルタイム購読する。リモート変更を都度反映し、他端末の保存で
+ *  手元が古いまま上書き保存（last-write-wins）してしまう巻き戻りを防ぐ。 */
+export async function subscribeSettings(cid: string, cb: (s: KeieiSettings) => void): Promise<() => void> {
+  if (!hasRoom() || !cid) {
+    // 合言葉未設定時はローカルのみ（1回だけ返す）
+    if (typeof window !== 'undefined' && cid) {
+      try { const raw = localStorage.getItem(lsSettings(cid)); if (raw) cb({ ...defaultSettings(), ...JSON.parse(raw) }) } catch { /* ignore */ }
+    }
+    return () => { /* noop */ }
+  }
+  try {
+    const { db, ref, onValue } = await dbfns()
+    const r = ref(db, await modulePath(MODULE_KEY, cid, 'settings'))
+    const unsub = onValue(r, (snap) => {
+      const v = snap.val() as KeieiSettings | null
+      if (v) { saveSettingsLocal(cid, v); cb({ ...defaultSettings(), ...v }) }
+    })
+    return () => { try { unsub() } catch { /* ignore */ } }
+  } catch {
+    // 購読失敗時はローカルにフォールバック
+    if (typeof window !== 'undefined') {
+      try { const raw = localStorage.getItem(lsSettings(cid)); if (raw) cb({ ...defaultSettings(), ...JSON.parse(raw) }) } catch { /* ignore */ }
+    }
+    return () => { /* noop */ }
+  }
+}
+
 const SEL_KEY = 'keiei-selected-client'
 export function getSelectedClientId(): string {
   if (typeof window === 'undefined') return ''

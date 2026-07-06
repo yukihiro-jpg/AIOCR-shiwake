@@ -39,6 +39,7 @@ import type {
   ColumnMapping,
 } from '@/lib/bank-statement/types'
 import { parseFile, applyColumnMapping } from '@/lib/bank-statement/transaction-extractor'
+import { saveExcelMapping, loadExcelMapping } from '@/lib/bank-statement/excel-mapping-store'
 import { creditCardOcr, receiptOcrParallel, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
@@ -876,13 +877,11 @@ export default function BankStatementContent() {
     async (mapping: ColumnMapping, options?: { expandAbbreviations?: boolean }) => {
       if (!rawPages || !pendingSourceType || !uploadConfig) return
 
-      // 列マッピングを科目CD別に学習保存（Excel/CSV/PDF表 すべて対象）
+      // 列マッピングを科目CD別に学習保存（Excel/CSV/PDF表 すべて対象）。
+      // 顧問先ごと1キーに集約し、Firebase同期・ZIPバックアップの対象にする。
       if (uploadConfig.accountCode) {
-        try {
-          const cid = localStorage.getItem('bank-statement-selected-client') || ''
-          const key = `bs-excel-mapping-${cid}-${uploadConfig.accountCode}`
-          localStorage.setItem(key, JSON.stringify(mapping))
-        } catch { /* ignore */ }
+        const cid = localStorage.getItem('bank-statement-selected-client') || ''
+        saveExcelMapping(cid, uploadConfig.accountCode, mapping)
       }
 
       setShowColumnMapping(false)
@@ -1713,12 +1712,8 @@ export default function BankStatementContent() {
           accountMaster={accountMaster}
           initialMapping={(() => {
             if (!uploadConfig?.accountCode) return undefined
-            try {
-              const cid = localStorage.getItem('bank-statement-selected-client') || ''
-              const key = `bs-excel-mapping-${cid}-${uploadConfig.accountCode}`
-              const saved = localStorage.getItem(key)
-              return saved ? JSON.parse(saved) : undefined
-            } catch { return undefined }
+            const cid = localStorage.getItem('bank-statement-selected-client') || ''
+            return loadExcelMapping(cid, uploadConfig.accountCode)
           })()}
           onConfirm={handleColumnMappingConfirm}
           onCancel={() => {

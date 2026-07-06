@@ -15,7 +15,7 @@ import {
 } from '@/lib/keiei/calc'
 import { fmtYen, fmtShort, fmtPct, fmtPctSigned } from '@/lib/keiei/format'
 import { ComboBarLine, GroupedBars } from './charts'
-import { loadSettings, saveSettings } from '@/lib/keiei/store'
+import { saveSettings, subscribeSettings } from '@/lib/keiei/store'
 import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
 import SectionDetail from './SectionDetail'
 import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
@@ -68,7 +68,10 @@ export default function KeieiContent() {
     if (!clientId) { setYears({}); return }
     setSelectedClientId(clientId)
     setView('overview')
-    loadSettings(clientId).then(setSettings)
+    // 設定はリアルタイム購読（他端末の変更を都度反映し、古い値での上書き＝巻き戻りを防ぐ）
+    let unsub = () => { /* noop */ }
+    let alive = true
+    subscribeSettings(clientId, (s) => setSettings(s)).then((u) => { if (alive) unsub = u; else u() })
     setLoading(true)
     loadYears(clientId).then((y) => {
       setYears(y)
@@ -77,6 +80,7 @@ export default function KeieiContent() {
       if (newest) { setYearId(newest.id); setMonthIdx(newest.lastFilledIndex) }
       else { setYearId(''); }
     }).finally(() => setLoading(false))
+    return () => { alive = false; unsub() }
   }, [clientId])
 
   const changeSettings = useCallback((s: KeieiSettings) => {
