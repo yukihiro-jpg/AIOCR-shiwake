@@ -5175,7 +5175,7 @@ function downloadContract(){
   visible.forEach(h=>{
     const label=h.isRepresentative?'委任者の代表（甲）相続人':'委任者　相続人';
     sigs+='<div class="sig-line"><div class="sig-row"><span class="sl">住所</span><span class="sv">'+esc(h.address||'')+'</span></div>'
-      +'<div class="sig-row"><span class="sl">'+label+'　'+esc(h.name)+'</span><span class="seal">印</span></div></div>';
+      +'<div class="sig-row"><span class="sl">'+label+'</span><span class="sv">'+esc(h.name)+'</span><span class="seal">印</span></div></div>';
   });
   const styles=DOC_STYLE_BASE+`
     .intro{text-indent:1em;margin-bottom:14px;}
