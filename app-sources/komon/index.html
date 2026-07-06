@@ -1009,11 +1009,11 @@ function renderRewardRows(){ const el=document.getElementById('cl_rewardRows'); 
 function addRewardRow(){ _rewardEdit.push({month:1,name:'',amount:''}); renderRewardRows(); }
 function removeRewardRow(i){ _rewardEdit.splice(i,1); saveRewardYearFromForm(); renderRewardRows(); }
 function updateRewardRow(i,f,v){ if(_rewardEdit[i]){ _rewardEdit[i][f]=v; saveRewardYearFromForm(); } }
-function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
-  // 各モジュール（月次・共有フォルダ・年調・仕訳作成・相続）へ削除を伝播する。
-  // 「未利用」に切り替えたときと同じ経路（syncClientExternal）で null／墓標を書き込む。
-  // これをしないと削除済み顧問先が他モジュールのピッカーに残り続ける。
-  try{ syncClientExternal(Object.assign({},c,{useShiwake:'未利用',useSouzoku:'未利用',useNenmatsu:'未利用',useKeiei:'未利用',useScan:'未利用'})); }catch(e){ console.warn('[komon] 削除連携',e); }
+async function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
+  // 各モジュール（月次・共有フォルダ・年調・仕訳作成・相続）の実体まで確実に削除する。
+  // _clients を消すだけでは、年調の会社ノード（全年度）・共有フォルダの会社ノード・公開データが
+  // 残り、ピッカー等に出続けるため、await して実体を掃除する。
+  try{ await purgeClientExternal(c); }catch(e){ console.warn('[komon] 削除連携',e); }
   if(!data.clientTombstones)data.clientTombstones={}; data.clientTombstones[id]=Date.now(); // 全端末へ削除を伝播する墓標
   data.clients=data.clients.filter(x=>x.id!==id);
   Object.keys(data.filings).forEach(k=>{ if(k.endsWith('__'+id))delete data.filings[k]; });
@@ -2000,6 +2000,44 @@ async function syncClientToNenmatsu(c){ const core=_core(); if(!core||!core.hasR
 async function syncClientToKeiei(c){ const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns; const r=F.ref(db, await core.modulePath('keiei','_clients', c.id)); if(c.useKeiei==='利用'){ const o={id:c.id,name:c.name||''}; if(c.code)o.code=String(c.code).trim(); await F.set(r,o); } else { await F.set(r,null); } }
 async function syncClientToScan(c){ const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns; const r=F.ref(db, await core.modulePath('scan','_clients', c.id)); if(c.useScan==='利用'){ const o={id:c.id,name:c.name||''}; if(c.code)o.code=String(c.code).trim(); await F.set(r,o); } else { await F.set(r,null); } }
 function syncClientExternal(c){ if(!c)return; Promise.resolve().then(()=>syncClientToShiwake(c)).catch(e=>console.warn('[komon] shiwake連携',e)); Promise.resolve().then(()=>syncClientToSouzoku(c)).catch(e=>console.warn('[komon] souzoku連携',e)); Promise.resolve().then(()=>syncClientToNenmatsu(c)).catch(e=>console.warn('[komon] nenmatsu連携',e)); Promise.resolve().then(()=>syncClientToKeiei(c)).catch(e=>console.warn('[komon] keiei連携',e)); Promise.resolve().then(()=>syncClientToScan(c)).catch(e=>console.warn('[komon] scan連携',e)); }
+// 顧問先削除時：各モジュールの「実体」まで確実に削除する（await 前提）。
+// _clients（各ピッカー元）／仕訳作成の clients_v2＋墓標／相続案件／年調の会社ノード（全年度）＋公開名簿／
+// 共有フォルダの会社ノード＋公開データ（会社・メンバーのトークン）を掃除する。
+async function purgeClientExternal(c){
+  if(!c) return; const core=_core(); if(!core||!core.hasRoom()) return;
+  const db=await core.getDb(); const F=core.dbfns;
+  const rm=async(path)=>{ try{ await F.set(F.ref(db, path), null); }catch(e){} };
+  // 月次レポート
+  await rm(await core.modulePath('keiei','_clients', c.id));
+  // 仕訳作成（clients_v2 削除＋墓標で復活防止）
+  try{ const tid=c.shiwakeClientId||c.id;
+    await F.update(F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_v2')), {[tid]:null});
+    await F.update(F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_deleted')), {[tid]:Date.now()});
+  }catch(e){ console.warn('[komon] shiwake削除',e); }
+  // 相続管理（案件削除＋墓標）
+  try{ const caseId=_szCaseId(c.id);
+    await F.update(F.ref(db, await core.modulePath('souzoku')), {['_cases/'+_szEnc(caseId)]:null, ['_tomb/'+_szEnc(caseId)]:true});
+  }catch(e){ console.warn('[komon] souzoku削除',e); }
+  // 年調（_clients＋全年度の会社ノード＋公開名簿トークン）
+  await rm(await core.modulePath('nenmatsu','_clients', c.id));
+  try{ const ys=await F.get(F.ref(db, await core.modulePath('nenmatsu')));
+    const yv=(ys&&ys.exists()&&ys.val())||{};
+    for(const y in yv){ if(y==='_clients') continue;
+      try{ const comp=yv[y]&&yv[y].companies&&yv[y].companies[c.id];
+        if(comp&&comp.token) await rm('nenmatsu-public/'+comp.token);
+      }catch(e){}
+      await rm(await core.modulePath('nenmatsu', y, 'companies', c.id));
+    }
+  }catch(e){ console.warn('[komon] nenmatsu削除',e); }
+  // 共有フォルダ（_clients＋会社ノード＋公開データ：会社・メンバートークン）
+  await rm(await core.modulePath('scan','_clients', c.id));
+  try{ const cs=await F.get(F.ref(db, await core.modulePath('scan','companies', c.id)));
+    const comp=(cs&&cs.exists()&&cs.val())||null;
+    if(comp&&comp.token) await rm('scan-public/'+comp.token);
+    if(comp&&comp.members){ for(const mid in comp.members){ const m=comp.members[mid]; if(m&&m.token) await rm('scan-public/'+m.token); } }
+  }catch(e){ console.warn('[komon] scan削除',e); }
+  await rm(await core.modulePath('scan','companies', c.id));
+}
 function toggleClientUse(id,field){ const c=clientById(id); if(!c)return; c[field]=(c[field]==='利用')?'未利用':'利用'; persist(); renderClients(); syncClientExternal(c); const lbl=(field==='useShiwake'?'仕訳作成':(field==='useSouzoku'?'相続管理':(field==='useNenmatsu'?'年調データ受信':(field==='useKeiei'?'月次レポート':(field==='useScan'?'書類スキャン受信':''))))); toast(lbl+'：'+c[field]+'に設定しました','ok'); }
 // 仕訳作成に既に登録済みの顧問先を、顧問先情報へ取り込む（同じidで紐付け＝二重登録を防ぐ）
 async function importClientsFromShiwake(){
