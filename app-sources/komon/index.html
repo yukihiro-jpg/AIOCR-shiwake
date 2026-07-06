@@ -1010,6 +1010,10 @@ function addRewardRow(){ _rewardEdit.push({month:1,name:'',amount:''}); renderRe
 function removeRewardRow(i){ _rewardEdit.splice(i,1); saveRewardYearFromForm(); renderRewardRows(); }
 function updateRewardRow(i,f,v){ if(_rewardEdit[i]){ _rewardEdit[i][f]=v; saveRewardYearFromForm(); } }
 function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
+  // 各モジュール（月次・共有フォルダ・年調・仕訳作成・相続）へ削除を伝播する。
+  // 「未利用」に切り替えたときと同じ経路（syncClientExternal）で null／墓標を書き込む。
+  // これをしないと削除済み顧問先が他モジュールのピッカーに残り続ける。
+  try{ syncClientExternal(Object.assign({},c,{useShiwake:'未利用',useSouzoku:'未利用',useNenmatsu:'未利用',useKeiei:'未利用',useScan:'未利用'})); }catch(e){ console.warn('[komon] 削除連携',e); }
   if(!data.clientTombstones)data.clientTombstones={}; data.clientTombstones[id]=Date.now(); // 全端末へ削除を伝播する墓標
   data.clients=data.clients.filter(x=>x.id!==id);
   Object.keys(data.filings).forEach(k=>{ if(k.endsWith('__'+id))delete data.filings[k]; });
