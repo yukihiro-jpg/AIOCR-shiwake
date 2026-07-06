@@ -413,11 +413,14 @@ export default function BankStatementContent() {
       setUploadConfig(config)
       uploadConfigRef.current = config
 
+      // 経過時間タイマーは try の外で保持し、finally で必ず停止する。
+      // （途中でエラー／通信ハングが起きても秒数カウンターが動き続けないようにする）
+      let progressTimer: ReturnType<typeof setInterval> | null = null
       try {
         setLoadingProgress(15)
         setParseElapsed(null)
         const startTime = Date.now()
-        const progressTimer = setInterval(() => {
+        progressTimer = setInterval(() => {
           const elapsed = (Date.now() - startTime) / 1000
           const progress = Math.min(15 + 80 * (1 - Math.exp(-elapsed / 8)), 95)
           setLoadingProgress(Math.round(progress))
@@ -824,6 +827,7 @@ export default function BankStatementContent() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'ファイルの解析に失敗しました')
       } finally {
+        if (progressTimer) clearInterval(progressTimer) // どの経路でも必ずタイマーを止める
         setIsLoading(false)
         setLoadingProgress(0)
       }
