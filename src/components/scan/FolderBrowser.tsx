@@ -189,7 +189,13 @@ export default function FolderBrowser({
     .filter((f) => (f.parentId || null) === currentId)
     .sort((a, b) => naturalName(a.name, b.name))
   const curFiles = files
-    .filter((f) => (f.folderId || null) === currentId)
+    // 最上位では、所属フォルダが削除済み等で存在しない「孤立ファイル」もここに拾う。
+    // （そうしないと folderId が宙に浮いたファイルがどのビューにも出ず、事務所からも顧問先からも見えなくなる）
+    .filter((f) => {
+      const fid = f.folderId || null
+      if (currentId === null) return fid === null || !byId.has(fid)
+      return fid === currentId
+    })
     .sort((a, b) => b.at.localeCompare(a.at))
 
   // 「このフォルダごと」＝現在フォルダ＋その配下すべてのファイル

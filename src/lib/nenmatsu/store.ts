@@ -85,8 +85,26 @@ export async function registerCompany(
 }
 
 export async function unregisterCompany(yearId: string, clientId: string): Promise<void> {
-  const { db, ref, remove } = await dbfns()
+  const { db, ref, get, remove } = await dbfns()
   const path = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+  // 公開領域（名簿PII・提出データ）と提出画像の Storage も削除する。
+  // これをしないと、登録解除後も旧トークンの保持者が全従業員の名簿（生年月日・住所）や
+  // 提出画像を読めてしまう。
+  try {
+    const comp = (await get(ref(db, path))).val() as NenmatsuCompany | null
+    if (comp && comp.token) {
+      try {
+        const subs = await loadSubmissions(yearId, clientId)
+        const { st, ref: sref, deleteObject } = await storageFns()
+        for (const rec of Object.values(subs)) {
+          for (const p of rec.paths || []) {
+            try { await deleteObject(sref(st, p)) } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+      try { await remove(ref(db, publicPath(comp.token))) } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
   await remove(ref(db, path))
 }
 

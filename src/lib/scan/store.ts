@@ -188,8 +188,30 @@ export function buildScanUrlFromToken(token: string): string {
   return `${origin}${base}/scan-upload/?${new URLSearchParams({ t: token }).toString()}`
 }
 
+/** 公開トークン配下の Storage（ファイル・受信箱・バッチ）と公開サブツリーを丸ごと削除する。 */
+async function purgeScanToken(token: string): Promise<void> {
+  if (!token) return
+  const { db, ref, remove } = await dbfns()
+  try { const files = await loadFiles(token); for (const f of Object.values(files)) { try { await deleteScanFile(token, f) } catch { /* ignore */ } } } catch { /* ignore */ }
+  try { const inbox = await loadInbox(token); for (const f of Object.values(inbox)) { try { await deleteInboxFile(token, f) } catch { /* ignore */ } } } catch { /* ignore */ }
+  try { const batches = await loadBatches(token); for (const b of Object.values(batches)) { try { await deleteBatch(token, b) } catch { /* ignore */ } } } catch { /* ignore */ }
+  try { await remove(ref(db, publicPath(token))) } catch { /* ignore */ }
+}
+
 export async function unregisterScanCompany(clientId: string): Promise<void> {
   const { db, ref, remove } = await dbfns()
+  // 公開領域（会社トークン＋各メンバートークン）のデータと Storage も削除する。
+  // これをしないと、登録解除後も旧トークンの保持者が公開ファイル・受信箱を読めてしまう。
+  try {
+    const companies = await loadScanCompanies()
+    const company = companies[clientId]
+    if (company) {
+      if (company.token) await purgeScanToken(company.token)
+      for (const m of Object.values(company.members || {})) {
+        if (m && m.token) await purgeScanToken(m.token)
+      }
+    }
+  } catch { /* ignore */ }
   const path = await modulePath(SCAN_KEY, 'companies', clientId)
   await remove(ref(db, path))
 }
