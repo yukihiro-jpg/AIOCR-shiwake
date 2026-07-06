@@ -907,6 +907,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         <div class="card-sub">初回面談でお渡し・記入いただく書類です。税理士氏名は「設定 → 事務所・税理士情報」で登録した氏名が印字されます。</div>
         <div class="btn-row">
           <button class="btn primary" onclick="downloadDeceasedOutlinePDF()">被相続人の概要・経歴書 PDF</button>
+          <button class="btn" onclick="downloadSoudanGuide()">相続の流れ ご案内資料 PDF</button>
           <button class="btn" onclick="downloadRiyoConsentPDF()">利用者識別番号 利用同意書（お持ちの場合）PDF</button>
           <button class="btn" onclick="downloadRiyoRequestPDF()">利用者識別番号 取得依頼書（お持ちでない場合）PDF</button>
         </div>
@@ -5206,6 +5207,158 @@ function downloadContract(){
     +'<div class="juninsha"><div class="sig-row"><span class="sl">事務所所在地</span><span class="sv">茨城県水戸市姫子1-820-6ヴィラエスポワールⅠ-1F</span></div>'
     +'<div class="sig-row"><span class="sl">受任者（乙）</span><span class="sv">税理士　日下部幸広</span><span class="seal">印</span></div></div>';
   openPrintWindow('委任契約書_'+d.name, body, styles);
+}
+
+// ============================================================
+//  Document: 相続の流れ ご案内資料（初回面談用・宛名＝相続人代表）
+// ============================================================
+function downloadSoudanGuide(){
+  if(!currentCase){ toast('案件がありません', true); return; }
+  syncUIToCase(); applyOfficeSettings();
+  const d=currentCase.deceased||{};
+  const rep=(currentCase.heirs||[]).find(h=>h.isRepresentative);
+  const addr=(rep&&rep.name&&rep.name.trim())?esc(rep.name.trim())+' 様':'ご遺族の皆さま';
+  const ofcName=esc(OFFICE.name||'日下部税理士事務所');
+  const ofcTel=esc(OFFICE.tel||'');
+  const ofcMail='yukihiro@kskac.com';
+  const foot='<div class="pgfoot"><span>相続税申告の流れとご準備</span><span>'+ofcName+'</span></div>';
+  const styles=`
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#2a2f37;font-size:11.5px;line-height:1.75;background:#eef1f5;}
+    @page{size:A4;margin:0;}
+    .gp{width:210mm;min-height:297mm;padding:18mm 16mm;page-break-after:always;position:relative;overflow:hidden;background:#fff;margin:0 auto;}
+    .gp:last-child{page-break-after:auto;}
+    .gold-rule{width:54px;height:3px;background:#c7a24b;}
+    /* 表紙 */
+    .cover{background:#14273f;color:#fff;display:flex;flex-direction:column;}
+    .cov-top{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:2px;color:#aeb7c4;}
+    .cov-main{flex:1;display:flex;flex-direction:column;justify-content:center;}
+    .cov-addr{align-self:flex-start;font-size:22px;font-weight:500;letter-spacing:3px;color:#fff;border-bottom:1px solid rgba(199,162,75,.55);padding:0 6px 10px;margin-bottom:30px;}
+    .cover .eyebrow{letter-spacing:6px;font-size:11.5px;color:#c7a24b;margin:14px 0;}
+    .cov-title{font-size:40px;font-weight:800;line-height:1.35;letter-spacing:3px;margin-bottom:22px;}
+    .cov-intro{max-width:140mm;color:#d3d8e0;font-size:12.5px;line-height:2.05;}
+    .cov-foot{display:flex;justify-content:space-between;align-items:flex-end;font-size:10.5px;color:#aeb7c4;}
+    .cov-foot b{color:#fff;font-weight:500;}
+    /* セクション見出し */
+    .sec-h{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #1F3A5F;padding-bottom:9px;margin-bottom:4px;}
+    .sec-h .n{color:#c7a24b;font-size:24px;font-weight:800;}
+    .sec-h h2{font-size:22px;font-weight:800;color:#1F3A5F;letter-spacing:1px;}
+    .lead{color:#4b5563;font-size:12px;margin:12px 0 20px;line-height:1.95;}
+    /* タイムライン */
+    .tl{border-left:2px solid #dfe3ea;margin-left:8px;padding-left:24px;}
+    .tl-item{position:relative;padding-bottom:20px;}
+    .tl-item:last-child{padding-bottom:0;}
+    .tl-item::before{content:'';position:absolute;left:-31px;top:2px;width:12px;height:12px;border-radius:50%;background:#c7a24b;box-shadow:0 0 0 3px #fff,0 0 0 4px #ecdcb6;}
+    .tl-badge{display:inline-block;background:#1F3A5F;color:#fff;font-size:10px;font-weight:700;padding:2px 9px;border-radius:3px;margin-right:9px;vertical-align:2px;}
+    .tl-ttl{font-size:15px;font-weight:700;color:#243042;}
+    .tl-desc{color:#5b6675;font-size:11.5px;margin-top:5px;line-height:1.85;}
+    /* STEPカード */
+    .step{display:flex;gap:16px;border:1px solid #e5e7ec;border-left:4px solid #c7a24b;border-radius:8px;padding:14px 18px;margin-bottom:12px;}
+    .step-n{font-size:26px;font-weight:800;color:#1F3A5F;line-height:1;min-width:36px;text-align:center;}
+    .step-n small{display:block;font-size:8.5px;letter-spacing:2px;color:#9aa3ad;font-weight:600;margin-top:4px;}
+    .st-h{display:flex;align-items:center;gap:10px;}
+    .st-h b{font-size:14.5px;color:#243042;}
+    .st-tag{background:#f3eddc;color:#9a7320;font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;}
+    .step-b p{color:#5b6675;font-size:11.5px;margin-top:5px;line-height:1.85;}
+    /* 税額ページ */
+    .navybox{background:#14273f;color:#fff;border-radius:10px;padding:16px 20px;margin:4px 0 18px;}
+    .navybox .cap{color:#c7a24b;font-size:10.5px;letter-spacing:2px;margin-bottom:6px;}
+    .navybox .eq{font-size:20px;font-weight:800;letter-spacing:1px;}
+    .navybox .ex{color:#cdd3dc;font-size:11px;margin-top:9px;line-height:1.85;}
+    .navybox .ex b{color:#fff;}
+    .flowrow{display:flex;align-items:flex-start;gap:12px;border:1px solid #eceef2;border-radius:8px;padding:10px 14px;margin-bottom:8px;}
+    .flow-n{width:22px;height:22px;border-radius:50%;background:#f3eddc;color:#9a7320;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .flow-t b{font-size:12.5px;color:#243042;} .flow-t span{display:block;color:#5b6675;font-size:11px;margin-top:2px;line-height:1.7;}
+    .subh{font-size:13px;font-weight:700;color:#1F3A5F;margin:18px 0 8px;}
+    table.rate{width:100%;border-collapse:collapse;font-size:11.5px;}
+    table.rate th{background:#1F3A5F;color:#fff;padding:7px 12px;text-align:left;font-weight:700;}
+    table.rate th:not(:first-child),table.rate td:not(:first-child){text-align:right;}
+    table.rate td{border-bottom:1px solid #e9ecf1;padding:6px 12px;}
+    table.rate tbody tr:nth-child(even){background:#f7f9fc;}
+    table.rate td b{color:#1F3A5F;}
+    .note{color:#7b8697;font-size:10.5px;margin-top:9px;line-height:1.7;}
+    /* まとめ（ネイビー） */
+    .dark{background:#14273f;color:#fff;display:flex;flex-direction:column;}
+    .dark h2{font-size:26px;font-weight:800;letter-spacing:2px;margin:14px 0 22px;}
+    .three .row{display:flex;gap:18px;padding:15px 0;border-top:1px solid rgba(255,255,255,.13);}
+    .three .row:first-child{border-top:none;}
+    .three .num{font-size:26px;font-weight:800;color:#c7a24b;line-height:1;min-width:26px;}
+    .three .tt b{font-size:15px;color:#fff;} .three .tt p{color:#c3cad4;font-size:11.5px;margin-top:6px;line-height:1.95;}
+    .contact{margin-top:auto;border:1px solid rgba(199,162,75,.5);border-radius:10px;padding:18px 22px;display:flex;justify-content:space-between;align-items:flex-end;}
+    .contact .cc-cap{color:#c7a24b;font-size:10.5px;letter-spacing:2px;margin-bottom:10px;}
+    .contact .cc-office{font-size:22px;font-weight:700;color:#fff;letter-spacing:2px;}
+    .contact .cc-r{font-size:11px;color:#d3d8e0;text-align:right;line-height:2;}
+    .pgfoot{position:absolute;left:16mm;right:16mm;bottom:11mm;display:flex;justify-content:space-between;font-size:9.5px;color:#9aa3ad;border-top:1px solid #eceef2;padding-top:6px;}
+  `;
+  const body=
+    // 表紙
+    '<section class="gp cover">'
+    +'<div class="cov-top"><span>'+ofcName+'</span><span>相続サポート資料</span></div>'
+    +'<div class="cov-main">'
+    +'<div class="cov-addr">'+addr+'</div>'
+    +'<div class="gold-rule"></div>'
+    +'<div class="eyebrow">はじめて相続を迎えられるご遺族の皆さまへ</div>'
+    +'<div class="cov-title">相続税申告の<br>流れとご準備</div>'
+    +'<div class="cov-intro">大切なご家族を亡くされ、慣れない手続きにご不安を感じておられることと存じます。本資料では、相続の開始から相続税の申告・納付までの流れを、期限とともにわかりやすくご説明いたします。</div>'
+    +'</div>'
+    +'<div class="cov-foot"><div><b>'+ofcName+'</b><br>ご相談窓口｜'+ofcTel+'</div><div>相続開始 → 10か月以内に申告・納付</div></div>'
+    +'</section>'
+    // 01 全体スケジュール
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">01</span><h2>全体スケジュール</h2></div>'
+    +'<div class="lead">相続税の申告・納付には <b>「相続の開始を知った日の翌日から10か月以内」</b> という期限があります。まずは全体の流れと、それぞれの期限を確認しましょう。</div>'
+    +'<div class="tl">'
+    +'<div class="tl-item"><div><span class="tl-badge">相続開始</span><span class="tl-ttl">相続の開始（ご逝去）</span></div><div class="tl-desc">被相続人（亡くなられた方）が亡くなった日が、すべての手続きの起算日となります。まずはご家族の状況を落ち着いて整理しましょう。</div></div>'
+    +'<div class="tl-item"><div><span class="tl-badge">7日以内</span><span class="tl-ttl">死亡届の提出</span></div><div class="tl-desc">医師の死亡診断書を添えて、市区町村役場へ死亡届を提出します。あわせて葬儀・埋葬の手配を進めます。</div></div>'
+    +'<div class="tl-item"><div><span class="tl-badge">3か月以内</span><span class="tl-ttl">相続の承認・放棄の判断</span></div><div class="tl-desc">借入金など負債が多い場合は、相続放棄や限定承認を家庭裁判所へ申述できます。期限を過ぎると原則すべてを相続したものとみなされます。</div></div>'
+    +'<div class="tl-item"><div><span class="tl-badge">4か月以内</span><span class="tl-ttl">所得税の準確定申告</span></div><div class="tl-desc">亡くなられた方に事業所得や一定の収入があった場合、その年の所得を相続人が申告・納付します。</div></div>'
+    +'<div class="tl-item"><div><span class="tl-badge">10か月以内</span><span class="tl-ttl">相続税の申告・納付</span></div><div class="tl-desc">遺産分割協議をまとめ、相続税を申告し、納付します。現金一括納付が原則で、期限内の準備が重要です。</div></div>'
+    +'</div>'+foot+'</section>'
+    // 02 各ステップの手続き詳細
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">02</span><h2>各ステップの手続き詳細</h2></div>'
+    +'<div class="lead">それぞれの段階で、ご遺族に行っていただくこと・ご準備いただく書類の目安です。ご不明な点は、その都度お気軽にお尋ねください。</div>'
+    +'<div class="step"><div class="step-n">1<small>STEP</small></div><div class="step-b"><div class="st-h"><b>相続人・財産の確定</b><span class="st-tag">〜3か月</span></div><p>戸籍謄本を収集して相続人を確定し、不動産・預貯金・有価証券・負債などの財産目録を作成します。名寄帳や残高証明書などをご準備いただきます。</p></div></div>'
+    +'<div class="step"><div class="step-n">2<small>STEP</small></div><div class="step-b"><div class="st-h"><b>財産評価</b><span class="st-tag">〜6か月目安</span></div><p>土地・建物・株式などを法令に基づいて評価します。評価方法によって税額が変わるため、専門的な判断が必要となる部分です。</p></div></div>'
+    +'<div class="step"><div class="step-n">3<small>STEP</small></div><div class="step-b"><div class="st-h"><b>遺産分割協議</b><span class="st-tag">〜8か月目安</span></div><p>相続人全員で財産の分け方を話し合い、遺産分割協議書を作成・押印します。特例の適用にも関わる大切な工程です。</p></div></div>'
+    +'<div class="step"><div class="step-n">4<small>STEP</small></div><div class="step-b"><div class="st-h"><b>申告書の作成・提出・納付</b><span class="st-tag">〜10か月</span></div><p>相続税申告書を作成し、被相続人の住所地を管轄する税務署へ提出。あわせて相続税を納付します。</p></div></div>'
+    +foot+'</section>'
+    // 03 税額計算の基本イメージ
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">03</span><h2>税額計算の基本イメージ</h2></div>'
+    +'<div class="lead">相続税は「遺産の総額」そのものにかかるのではなく、<b>基礎控除を差し引いた後の金額</b>に対してかかります。まずは基礎控除の考え方を押さえましょう。</div>'
+    +'<div class="navybox"><div class="cap">基礎控除額の計算式</div><div class="eq">3,000万円 ＋（600万円 × 法定相続人の数）</div><div class="ex">例：配偶者と子ども2人（相続人3人）の場合 … 3,000万円＋600万円×3人＝<b>4,800万円</b>。遺産総額がこの金額以下であれば、原則として相続税はかかりません。</div></div>'
+    +'<div class="subh">税額が決まるまでの流れ</div>'
+    +'<div class="flowrow"><div class="flow-n">1</div><div class="flow-t"><b>遺産の総額を求める</b><span>プラスの財産から借入金・葬式費用などを差し引いた正味の遺産額を計算します。</span></div></div>'
+    +'<div class="flowrow"><div class="flow-n">2</div><div class="flow-t"><b>基礎控除を差し引く</b><span>正味の遺産額から基礎控除額を引いた残りが「課税遺産総額」です。</span></div></div>'
+    +'<div class="flowrow"><div class="flow-n">3</div><div class="flow-t"><b>相続税の総額を計算</b><span>課税遺産総額を法定相続分で分けたと仮定し、速算表の税率を適用して全体の税額を求めます。</span></div></div>'
+    +'<div class="flowrow"><div class="flow-n">4</div><div class="flow-t"><b>各人の税額を按分・調整</b><span>実際に取得した割合で按分し、配偶者の税額軽減などの各種控除を適用して、納付税額が確定します。</span></div></div>'
+    +'<div class="subh">相続税の速算表</div>'
+    +'<table class="rate"><thead><tr><th>取得金額（法定相続分に応じる取得金額）</th><th>税率</th><th>控除額</th></tr></thead><tbody>'
+    +'<tr><td>1,000万円以下</td><td><b>10%</b></td><td>—</td></tr>'
+    +'<tr><td>3,000万円以下</td><td><b>15%</b></td><td>50万円</td></tr>'
+    +'<tr><td>5,000万円以下</td><td><b>20%</b></td><td>200万円</td></tr>'
+    +'<tr><td>1億円以下</td><td><b>30%</b></td><td>700万円</td></tr>'
+    +'<tr><td>2億円以下</td><td><b>40%</b></td><td>1,700万円</td></tr>'
+    +'<tr><td>3億円以下</td><td><b>45%</b></td><td>2,700万円</td></tr>'
+    +'<tr><td>6億円以下</td><td><b>50%</b></td><td>4,200万円</td></tr>'
+    +'<tr><td>6億円超</td><td><b>55%</b></td><td>7,200万円</td></tr>'
+    +'</tbody></table>'
+    +'<div class="note">※ 配偶者の税額軽減や小規模宅地等の特例など、税額を大きく軽減できる制度があります。適用には申告が要件となる場合があり、当事務所で最適な方法をご提案いたします。</div>'
+    +foot+'</section>'
+    // まとめ（ネイビー）
+    +'<section class="gp dark">'
+    +'<div class="gold-rule"></div>'
+    +'<h2>まず押さえておきたい3つのこと</h2>'
+    +'<div class="three">'
+    +'<div class="row"><div class="num">1</div><div class="tt"><b>期限は「10か月以内」</b><p>相続の開始を知った日の翌日から10か月。書類収集や協議には想像以上に時間がかかるため、早めの着手が安心につながります。</p></div></div>'
+    +'<div class="row"><div class="num">2</div><div class="tt"><b>基礎控除以下なら申告不要の場合も</b><p>遺産総額が基礎控除額以下であれば、原則として相続税はかかりません。ただし特例の適用時は申告が必要です。</p></div></div>'
+    +'<div class="row"><div class="num">3</div><div class="tt"><b>迷ったら、まずご相談を</b><p>何から手をつければよいか分からない段階でも大丈夫です。現状をお聞きし、必要な手続きと進め方を整理してご案内します。</p></div></div>'
+    +'</div>'
+    +'<div class="contact"><div><div class="cc-cap">お困りごとは、どうぞご相談ください</div><div class="cc-office">'+ofcName+'</div></div>'
+    +'<div class="cc-r">TEL｜'+ofcTel+'<br>MAIL｜'+ofcMail+'<br>受付｜平日 9:00 – 18:00</div></div>'
+    +'</section>';
+  openPrintWindow('相続の流れご案内_'+(d.name||'案件'), body, styles);
 }
 
 // ============================================================
