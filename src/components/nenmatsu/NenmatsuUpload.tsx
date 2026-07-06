@@ -5,9 +5,10 @@ import {
   loadCompanyPublic,
   submitDocsPublic,
   getSubmissionPublic,
+  sha256Hex,
   type NenmatsuEmployee,
+  type PublicEmployee,
 } from '@/lib/nenmatsu/store'
-import { normalizeBirth } from '@/lib/nenmatsu/jdl-csv'
 import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
@@ -25,7 +26,7 @@ export default function NenmatsuUpload() {
   const [errMsg, setErrMsg] = useState('')
   const [params, setParams] = useState<Params | null>(null)
   const [companyName, setCompanyName] = useState('')
-  const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
+  const [employees, setEmployees] = useState<PublicEmployee[]>([])
   const [empId, setEmpId] = useState('')
   const [by, setBy] = useState('')
   const [bm, setBm] = useState('')
@@ -95,23 +96,29 @@ export default function NenmatsuUpload() {
     setPhase('declare')
   }
 
-  function verify() {
+  async function verify() {
     setVerifyErr('')
     const emp = employees.find((e) => e.id === empId)
     if (!emp) return setVerifyErr('お名前を選択してください。')
     if (!by || !bm || !bd) return setVerifyErr('生年月日を選択してください。')
     const input = `${by}-${String(Number(bm)).padStart(2, '0')}-${String(Number(bd)).padStart(2, '0')}`
-    const stored = emp.birth || normalizeBirth(emp.birthRaw)
-    if (stored && stored !== input) return setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
-    setMe(emp)
-    // 前年情報（CSVから取れる範囲）をプリセット
+    // 公開名簿には生年月日のハッシュのみを載せているため、入力値をハッシュ化して照合する
+    if (emp.birthHash) {
+      const h = await sha256Hex(input)
+      if (h !== emp.birthHash) return setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
+    }
+    // 提出用に本人情報を確定（住所・生CSV等は公開名簿に無いので本人入力に委ねる）
+    const { birthHash, ...rest } = emp
+    void birthHash
+    setMe({ ...rest, birth: input, birthRaw: input, address: '' })
+    // 氏名・カナは公開名簿から、生年月日は入力値をプリセット
     const d = emptyDeclaration(false)
     d.lastName = emp.lastName
     d.firstName = emp.firstName
     d.kanaLast = emp.kanaLast
     d.kanaFirst = emp.kanaFirst
-    d.birth = stored || input
-    d.address = emp.address || ''
+    d.birth = input
+    d.address = ''
     setDecl(d)
     setNoChange(false)
     setPhase('declare')

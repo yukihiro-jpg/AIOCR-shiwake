@@ -9,6 +9,7 @@ import {
   loadNenmatsuClients,
   loadCompanies,
   registerCompany,
+  republishRosters,
   saveEmployees,
   loadEmployees,
   loadSubmissions,
@@ -80,6 +81,15 @@ export default function NenmatsuContent() {
       const clients = await loadNenmatsuClients()
       // 利用クライアントごとに会社（トークン）を自動用意
       await Promise.all(clients.map((c) => registerCompany(yearId, c)))
+      // 旧仕様（生年月日・住所を平文公開）で発行済みの公開名簿を、安全な仕様（ハッシュ化・PII非公開）へ
+      // 一度だけ再発行して移行する（端末×年度ごとに1回）。
+      try {
+        const migKey = `nenmatsu-roster-migrated-v2-${yearId}`
+        if (typeof window !== 'undefined' && !localStorage.getItem(migKey)) {
+          await republishRosters(yearId)
+          localStorage.setItem(migKey, '1')
+        }
+      } catch { /* ignore */ }
       const comps = await loadCompanies(yearId)
       const next: Row[] = []
       for (const c of clients) {

@@ -4,8 +4,16 @@
 
 import { getDb } from '@/core/firebase'
 import { roomKey, modulePath } from '@/core/room'
+import { normalizeBirth } from './jdl-csv'
 
 export const NENMATSU_KEY = 'nenmatsu'
+
+/** 生年月日など照合値を一方向ハッシュ化するための SHA-256（16進）。 */
+export async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input)
+  const buf = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 export interface SharedClient {
   id: string
@@ -24,6 +32,20 @@ export interface NenmatsuEmployee {
   birthRaw: string // CSVの生の値
   address?: string // 住所（取込内容確認用）
   rawCells?: string[] // CSVの行データ（列番号で内容を確認するため）
+  isNewHire?: boolean
+}
+
+/** 公開名簿（従業員ページが読む）に載せる最小限の情報。
+ *  【厳守】生年月日・住所・CSV生データなどの平文PIIは載せない。
+ *  本人確認は生年月日の SHA-256 ハッシュ（birthHash）との照合で行う。 */
+export interface PublicEmployee {
+  id: string
+  code: string
+  lastName: string
+  firstName: string
+  kanaLast: string
+  kanaFirst: string
+  birthHash: string // SHA-256(正規化生年月日)。空＝生年月日未取得（照合スキップ）
   isNewHire?: boolean
 }
 
@@ -52,6 +74,19 @@ export async function loadSharedClients(): Promise<SharedClient[]> {
     .map((c: any) => ({ id: c.id, name: c.name, code: c.code }))
     .filter((c: SharedClient) => c && c.id && c.name)
     .sort((a, b) => (a.code || '').localeCompare(b.code || '', 'ja', { numeric: true }))
+}
+
+/** 既存の全登録会社の公開名簿を最新仕様（生年月日ハッシュ化・住所等のPII非公開）で再発行する。
+ *  旧仕様（平文PIIを公開）で発行済みの名簿を安全な形へ移行し、生年月日ハッシュも付け直す。 */
+export async function republishRosters(yearId: string): Promise<void> {
+  const companies = await loadCompanies(yearId)
+  for (const comp of Object.values(companies)) {
+    if (!comp || !comp.token) continue
+    try {
+      const employees = await loadEmployees(yearId, comp.clientId)
+      await publishRoster(yearId, comp, employees)
+    } catch { /* ignore */ }
+  }
 }
 
 /** 年度の登録会社一覧 */
@@ -155,7 +190,10 @@ function publicPath(token: string, ...seg: string[]): string {
   return `nenmatsu-public/${token}${seg.length ? '/' + seg.join('/') : ''}`
 }
 
-/** 会社の名簿を公開領域へ書き出す（roomKey・clientId等の内部情報は含めない） */
+/** 会社の名簿を公開領域へ書き出す。
+ *  【厳守】公開領域は「会社トークン1本」を全従業員が共有するため、生年月日・住所・CSV生データ等の
+ *  平文PIIは載せない。本人確認に使う生年月日は SHA-256 ハッシュ（birthHash）だけを公開する。
+ *  事務所側は rooms/{roomKey}/nenmatsu/... に完全な情報を保持しているため、ここは最小限で足りる。 */
 export async function publishRoster(
   yearId: string,
   company: NenmatsuCompany,
@@ -163,8 +201,21 @@ export async function publishRoster(
 ): Promise<void> {
   if (!company.token) return
   const { db, ref, set } = await dbfns()
-  const map: Record<string, NenmatsuEmployee> = {}
-  employees.forEach((e) => (map[e.id] = e))
+  const map: Record<string, PublicEmployee> = {}
+  for (const e of employees) {
+    const norm = e.birth || normalizeBirth(e.birthRaw || '')
+    const pub: PublicEmployee = {
+      id: e.id,
+      code: e.code,
+      lastName: e.lastName,
+      firstName: e.firstName,
+      kanaLast: e.kanaLast,
+      kanaFirst: e.kanaFirst,
+      birthHash: norm ? await sha256Hex(norm) : '',
+    }
+    if (e.isNewHire) pub.isNewHire = true
+    map[e.id] = pub
+  }
   await set(ref(db, publicPath(company.token, 'roster')), {
     name: company.name,
     yearId,
@@ -186,11 +237,11 @@ function randomToken(): string {
 /** 会社名と名簿を取得（従業員ページ用）。token が無効なら null */
 export async function loadCompanyPublic(
   token: string,
-): Promise<{ companyName: string; yearId: string; employees: NenmatsuEmployee[] } | null> {
+): Promise<{ companyName: string; yearId: string; employees: PublicEmployee[] } | null> {
   if (!token) return null
   const { db, ref, get } = await dbfns()
   const roster = (await get(ref(db, publicPath(token, 'roster')))).val() as
-    | { name: string; yearId: string; employees?: Record<string, NenmatsuEmployee> }
+    | { name: string; yearId: string; employees?: Record<string, PublicEmployee> }
     | null
   if (!roster || !roster.name) return null
   return {
