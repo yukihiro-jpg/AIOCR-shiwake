@@ -401,15 +401,19 @@ export default function ProcessingStatusTable({ clientId, refreshKey, accountMas
         }
 
         const clientName = client?.name || '顧問先'
+        // dangerouslySetInnerHTML に流すため、可変値は必ずHTMLエスケープする
+        const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+        ))
 
         const htmlContent = `
-<p>${clientName} 御中</p>
+<p>${esc(clientName)} 御中</p>
 <p>お世話になっております。<br>下記の資料について、ご準備をお願いいたします。</p>
 ${groupOrder.filter((g) => groups[g]?.length).map((g) => `
-<p><strong>■ ${groupLabels[g]}</strong></p>
+<p><strong>■ ${esc(groupLabels[g])}</strong></p>
 <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:14px;border-color:#ccc;">
 <tr style="background:#f0f0f0;"><th style="text-align:left;">資料名</th><th style="text-align:left;">必要な期間</th></tr>
-${groups[g].map((i) => `<tr><td>${i.name}</td><td>${i.nextPeriod}最新分</td></tr>`).join('')}
+${groups[g].map((i) => `<tr><td>${esc(i.name)}</td><td>${esc(i.nextPeriod)}最新分</td></tr>`).join('')}
 </table>`).join('')}
 <p>お手数をおかけしますが、ご対応のほどよろしくお願いいたします。</p>`
 
