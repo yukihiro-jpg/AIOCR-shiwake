@@ -612,15 +612,31 @@ export default function FolderBrowser({
                 </li>
               ))}
               {/* ファイル行 */}
-              {curFiles.map((f) => (
+              {curFiles.map((f) => {
+                // 操作ボタン群（スマホでは名前の下に、PCでは右側の列に表示するため2箇所で使う）
+                const actionButtons = (
+                  <>
+                    {onGetBlob && (
+                      <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">プレビュー</button>
+                    )}
+                    {onMoveFile && (
+                      <button onClick={() => setMovePicker(f)} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50" title="別のフォルダへ移動（ドラッグ＆ドロップでも移動できます）">ファイル移動</button>
+                    )}
+                    <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
+                    {onDeleteFile && (
+                      <button onClick={() => removeFile(f)} className="px-2.5 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
+                    )}
+                  </>
+                )
+                return (
                 <li
                   key={f.id}
                   draggable={!!onMoveFile}
                   onDragStart={onMoveFile ? (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f.name); scanDragSet({ root: rootKey, label: f.name, move: (tid) => doMove(f, tid) }) } : undefined}
                   onDragEnd={onMoveFile ? () => scanDragClear() : undefined}
-                  className={`flex items-start px-3 py-2.5 hover:bg-blue-50/40 ${onMoveFile ? 'cursor-move' : ''}`}
+                  className={`flex items-start gap-2 px-3 py-2.5 hover:bg-blue-50/40 ${onMoveFile ? 'cursor-move' : ''}`}
                 >
-                  <span className="w-8 shrink-0 pt-0.5">
+                  <span className="w-6 sm:w-8 shrink-0 pt-0.5">
                     <input
                       type="checkbox"
                       checked={selected.has(f.id)}
@@ -632,7 +648,7 @@ export default function FolderBrowser({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-gray-800 flex items-center gap-1.5 flex-wrap">
                       <FileTypeBadge name={f.name} />
-                      <span className="truncate">{f.name}</span>
+                      <span className="break-all sm:truncate">{f.name}</span>
                       {renderFileBadges?.(f)}
                     </div>
                     <div className="sm:hidden text-[11px] text-gray-400 mt-0.5">
@@ -642,23 +658,17 @@ export default function FolderBrowser({
                     {f.comment && (
                       <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">💬 {f.comment}</div>
                     )}
+                    {/* スマホ: 操作ボタンは名前の下に折り返して表示（PC列は非表示） */}
+                    <div className="flex sm:hidden flex-wrap gap-1.5 mt-2">{actionButtons}</div>
                   </div>
                   <span className="hidden sm:block w-44 shrink-0 text-[11px] text-gray-500 pt-0.5">{new Date(f.at).toLocaleString('ja-JP')}</span>
                   <span className="hidden sm:block w-16 shrink-0 text-right text-[11px] text-gray-500 pt-0.5">{fmtSize(f.size)}</span>
-                  <span className="shrink-0 sm:w-80 flex justify-end gap-1.5">
-                    {onGetBlob && (
-                      <button onClick={() => openPreview(f)} disabled={previewLoading} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">プレビュー</button>
-                    )}
-                    {onMoveFile && (
-                      <button onClick={() => setMovePicker(f)} className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50" title="別のフォルダへ移動（ドラッグ＆ドロップでも移動できます）">ファイル移動</button>
-                    )}
-                    <button onClick={() => onDownload(f)} className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">⬇ DL</button>
-                    {onDeleteFile && (
-                      <button onClick={() => removeFile(f)} className="px-2.5 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50">削除</button>
-                    )}
+                  <span className="hidden sm:flex w-80 shrink-0 justify-end gap-1.5">
+                    {actionButtons}
                   </span>
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </div>
