@@ -14,16 +14,25 @@ function periodToDefaultPayDate(period: string): string {
   return `${gy}-${String(mo).padStart(2, '0')}-${String(last).padStart(2, '0')}`
 }
 
-/** 給与明細一覧表OCR結果 → PayrollData（貼り付け解析と同じ構造） */
+/** 給与明細一覧表OCR結果 → PayrollData（貼り付け解析と同じ構造）。
+ *  同名項目は出現順で (2)(3) を付けて一意化し、従業員側も同じ出現順で対応付ける。 */
 export function payrollOcrToData(r: PayrollSummaryOcr): PayrollData {
-  const payHeaders = (r.payItemOrder || []).filter(Boolean)
-  const deductHeaders = (r.deductItemOrder || []).filter(Boolean)
+  const payHeaders = uniquifyNames((r.payItemOrder || []).filter(Boolean))
+  const deductHeaders = uniquifyNames((r.deductItemOrder || []).filter(Boolean))
+  const uniqEntries = (list: { item: string; amount: number }[]) => {
+    const seen = new Map<string, number>()
+    return (list || []).map((p) => {
+      const c = (seen.get(p.item) || 0) + 1
+      seen.set(p.item, c)
+      return { key: norm(c === 1 ? p.item : `${p.item}(${c})`), amount: toNum(p.amount) }
+    })
+  }
   const employees: PayrollEmployee[] = (r.employees || [])
     .map((e, idx) => {
       const payMap = new Map<string, number>()
-      for (const p of e.pay || []) payMap.set(norm(p.item), toNum(p.amount))
+      for (const p of uniqEntries(e.pay || [])) payMap.set(p.key, p.amount)
       const dedMap = new Map<string, number>()
-      for (const p of e.deduct || []) dedMap.set(norm(p.item), toNum(p.amount))
+      for (const p of uniqEntries(e.deduct || [])) dedMap.set(p.key, p.amount)
       const items = [
         ...payHeaders.map((h) => ({ name: h, amount: payMap.get(norm(h)) ?? 0 })),
         ...deductHeaders.map((h) => ({ name: h, amount: dedMap.get(norm(h)) ?? 0 })),
@@ -216,6 +225,17 @@ function normPayDate(v: string): string {
   return ''
 }
 
+/** 同名ヘッダを「名前(2)」「名前(3)」に改名して一意化する。
+ *  同名のままだと mapper/ダイアログの name 突合で「先頭列の二重計上＋2列目の消失」が起きるため必須。 */
+function uniquifyNames(names: string[]): string[] {
+  const seen = new Map<string, number>()
+  return names.map((n) => {
+    const c = (seen.get(n) || 0) + 1
+    seen.set(n, c)
+    return c === 1 ? n : `${n}(${c})`
+  })
+}
+
 /** ヘッダ名から列位置を特定して解析（氏名ラベルがある一般的なCSV/Excel形式）。
  *  条件を満たさなければ null を返し、従来の位置ベース解析にフォールバックする。 */
 function parseByHeader(
@@ -258,6 +278,12 @@ function parseByHeader(
   }
   if (!payCols.length) return null
 
+  // 同名ヘッダ（例:「手当」が2列）を (2)(3) 付きで一意化してから name 突合に使う
+  const payNames = uniquifyNames(payCols.map((c) => c.name))
+  payCols.forEach((c, i) => { c.name = payNames[i] })
+  const dedNames = uniquifyNames(dedCols.map((c) => c.name))
+  dedCols.forEach((c, i) => { c.name = dedNames[i] })
+
   const payHeaders = payCols.map((c) => c.name)
   const deductHeaders = dedCols.map((c) => c.name)
   const employees: PayrollEmployee[] = []
@@ -280,6 +306,12 @@ function parseByHeader(
     employees.push({ no, name, isExecutive: false, items, totalPay, totalDeductions, netPay })
   }
   if (!employees.length) return null
+  // 列ズレ検知（安全弁）：支給合計/差引の列があるのに全員0なら、ヘッダとデータ行の列が
+  // 揃っていない可能性が高い → null を返して従来の位置ベース解析へフォールバックする。
+  if ((payTotalIdx >= 0 || netIdx >= 0) &&
+      employees.every((e) => e.totalPay === 0 && e.netPay === 0 && e.items.every((it) => it.amount === 0))) {
+    return null
+  }
 
   let period = meta.period
   if (!period && paymentDate) { const mm = paymentDate.match(/^(\d{4})-(\d{2})/); if (mm) period = `${mm[1]}-${mm[2]}` }

@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node tools/check-invariants.mjs && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check": "node tools/check-invariants.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

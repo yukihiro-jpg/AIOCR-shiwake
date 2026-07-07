@@ -63,6 +63,17 @@ export default function KeieiContent() {
     loadKeieiClients().then((cs) => setClients(cs)).catch(() => setClients([]))
   }, [roomReady])
 
+  // 設定保存のデバウンス（コメント欄などキーストローク毎に全設定を書くとRTDB書込が膨れ、
+  // 自分のエコーとカーソルが競合するため、600ms まとめて保存する）
+  const settingsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSettingsRef = useRef<KeieiSettings | null>(null)
+  const lastAppliedJsonRef = useRef<string>('')
+  const flushSettings = useCallback((cid: string) => {
+    if (settingsSaveTimer.current) { clearTimeout(settingsSaveTimer.current); settingsSaveTimer.current = null }
+    const s = pendingSettingsRef.current
+    if (s) { pendingSettingsRef.current = null; lastAppliedJsonRef.current = JSON.stringify(s); saveSettings(cid, s) }
+  }, [])
+
   // 顧問先の年度データ読み込み
   useEffect(() => {
     if (!clientId) { setYears({}); return }
@@ -71,7 +82,13 @@ export default function KeieiContent() {
     // 設定はリアルタイム購読（他端末の変更を都度反映し、古い値での上書き＝巻き戻りを防ぐ）
     let unsub = () => { /* noop */ }
     let alive = true
-    subscribeSettings(clientId, (s) => setSettings(s)).then((u) => { if (alive) unsub = u; else u() })
+    subscribeSettings(clientId, (s) => {
+      // 自分の保存のエコー（同一内容）は無視して、入力中の再レンダー・カーソル競合を防ぐ
+      const j = JSON.stringify(s)
+      if (j === lastAppliedJsonRef.current) return
+      lastAppliedJsonRef.current = j
+      setSettings(s)
+    }).then((u) => { if (alive) unsub = u; else u() })
     setLoading(true)
     loadYears(clientId).then((y) => {
       setYears(y)
@@ -80,13 +97,18 @@ export default function KeieiContent() {
       if (newest) { setYearId(newest.id); setMonthIdx(newest.lastFilledIndex) }
       else { setYearId(''); }
     }).finally(() => setLoading(false))
-    return () => { alive = false; unsub() }
-  }, [clientId])
+    const cid = clientId
+    return () => { alive = false; unsub(); flushSettings(cid) }
+  }, [clientId, flushSettings])
 
   const changeSettings = useCallback((s: KeieiSettings) => {
     setSettings(s)
-    if (clientId) saveSettings(clientId, s)
-  }, [clientId])
+    lastAppliedJsonRef.current = JSON.stringify(s)
+    if (!clientId) return
+    pendingSettingsRef.current = s
+    if (settingsSaveTimer.current) clearTimeout(settingsSaveTimer.current)
+    settingsSaveTimer.current = setTimeout(() => flushSettings(clientId), 600)
+  }, [clientId, flushSettings])
 
   const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]

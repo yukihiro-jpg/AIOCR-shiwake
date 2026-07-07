@@ -10,6 +10,7 @@ import {
   loadCompanies,
   registerCompany,
   republishRosters,
+  processNenmatsuPurgeQueue,
   saveEmployees,
   loadEmployees,
   loadSubmissions,
@@ -78,16 +79,23 @@ export default function NenmatsuContent() {
     setBusy(true)
     setMsg('')
     try {
+      // 顧問先削除の purge キューを処理（削除済み顧問先の公開名簿・提出画像を確実に消す）
+      try { await processNenmatsuPurgeQueue() } catch { /* 次回に再試行 */ }
       const clients = await loadNenmatsuClients()
       // 利用クライアントごとに会社（トークン）を自動用意
       await Promise.all(clients.map((c) => registerCompany(yearId, c)))
-      // 旧仕様（生年月日・住所を平文公開）で発行済みの公開名簿を、安全な仕様（ハッシュ化・PII非公開）へ
-      // 一度だけ再発行して移行する（端末×年度ごとに1回）。
+      // 旧仕様（生年月日・住所を平文公開）で発行済みの公開名簿を、安全な仕様（ハッシュ化・PII非公開）へ移行。
+      // 【重要】選択中の年度だけでなく全年度を対象にする（過去年度の平文名簿を残さない）。
+      // 失敗した年度はフラグを立てず、次回開いたときに再試行する。
       try {
-        const migKey = `nenmatsu-roster-migrated-v2-${yearId}`
-        if (typeof window !== 'undefined' && !localStorage.getItem(migKey)) {
-          await republishRosters(yearId)
-          localStorage.setItem(migKey, '1')
+        if (typeof window !== 'undefined') {
+          for (const fy of Object.keys(FY_BY_ID)) {
+            const migKey = `nenmatsu-roster-migrated-v2-${fy}`
+            if (!localStorage.getItem(migKey)) {
+              const ok = await republishRosters(fy)
+              if (ok) localStorage.setItem(migKey, '1')
+            }
+          }
         }
       } catch { /* ignore */ }
       const comps = await loadCompanies(yearId)
@@ -524,7 +532,13 @@ function ImportCheck({
                         {e.kanaLast} {e.kanaFirst}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{e.birth || e.birthRaw || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {e.birth || e.birthRaw || '—'}
+                      {!e.birth && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[10px] font-bold whitespace-nowrap"
+                          title="生年月日を読み取れないため、この従業員は公開ページで本人確認できず提出がブロックされます。CSVの生年月日をご確認ください。">⚠ 本人確認不可</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-gray-600">{postal || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{e.address || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">
@@ -650,6 +664,19 @@ function CompanyDetail({
   const [zipMsg, setZipMsg] = useState('')
   const [driveOpen, setDriveOpen] = useState(false)
 
+  // 本年入社（新規）提出者：CSV名簿に存在しない empId（n_…）の提出を一覧・DLに含める。
+  // これをしないと新入社員の提出が事務所側から一切見えないまま保存期限で消えてしまう。
+  const knownIds = new Set(employees.map((e) => e.id))
+  const newHires: NenmatsuEmployee[] = Object.entries(subs)
+    .filter(([id]) => !knownIds.has(id))
+    .map(([id, rec]) => ({
+      id, code: '',
+      lastName: rec.name || '(氏名不明)', firstName: '',
+      kanaLast: rec.kana || '', kanaFirst: '',
+      birth: '', birthRaw: '', isNewHire: true,
+    }))
+  const displayEmployees: NenmatsuEmployee[] = [...employees, ...newHires]
+
   async function viewFiles(emp: NenmatsuEmployee) {
     try {
       const items = await listEmployeeFiles(yearId, company.clientId, emp.id)
@@ -675,7 +702,7 @@ function CompanyDetail({
   }
 
   async function downloadAll() {
-    const targets = employees
+    const targets = displayEmployees
       .map((e) => ({ e, rec: subs[e.id] }))
       .filter((x) => x.rec && (x.rec.paths || []).length > 0)
     if (!targets.length) {
@@ -730,7 +757,7 @@ function CompanyDetail({
         <DriveSaveDialog
           title={`${company.name}／年末調整（${yearId}）の提出ファイルを、従業員ごとのフォルダに分けて保存します`}
           getFiles={async (onProgress) => {
-            const targets = employees
+            const targets = displayEmployees
               .map((e) => ({ e, rec: subs[e.id] }))
               .filter((x) => x.rec && (x.rec.paths || []).length > 0)
             if (!targets.length) throw new Error('保存できるファイルがありません（提出済みの従業員がいません）')
@@ -760,7 +787,7 @@ function CompanyDetail({
       )}
       {loading ? (
         <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
-      ) : employees.length === 0 ? (
+      ) : displayEmployees.length === 0 ? (
         <p className="text-sm text-gray-500 py-6 text-center">
           従業員が未取込です。CSVを取り込んでください。
         </p>
@@ -774,12 +801,15 @@ function CompanyDetail({
             </tr>
           </thead>
           <tbody>
-            {employees.map((e) => {
+            {displayEmployees.map((e) => {
               const rec = subs[e.id]
               return (
                 <tr key={e.id} className="border-t border-gray-100">
                   <td className="px-3 py-2 text-gray-800">
                     {e.lastName} {e.firstName}
+                    {e.isNewHire && (
+                      <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold align-middle">本年入社</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-600">
                     {rec ? (

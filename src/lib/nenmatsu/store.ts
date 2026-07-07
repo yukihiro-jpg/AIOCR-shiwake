@@ -77,16 +77,65 @@ export async function loadSharedClients(): Promise<SharedClient[]> {
 }
 
 /** 既存の全登録会社の公開名簿を最新仕様（生年月日ハッシュ化・住所等のPII非公開）で再発行する。
- *  旧仕様（平文PIIを公開）で発行済みの名簿を安全な形へ移行し、生年月日ハッシュも付け直す。 */
-export async function republishRosters(yearId: string): Promise<void> {
+ *  旧仕様（平文PIIを公開）で発行済みの名簿を安全な形へ移行し、生年月日ハッシュも付け直す。
+ *  戻り値: 全社成功なら true（呼び出し側は false のとき移行完了フラグを立てないこと）。 */
+export async function republishRosters(yearId: string): Promise<boolean> {
   const companies = await loadCompanies(yearId)
+  let ok = true
   for (const comp of Object.values(companies)) {
     if (!comp || !comp.token) continue
     try {
       const employees = await loadEmployees(yearId, comp.clientId)
       await publishRoster(yearId, comp, employees)
-    } catch { /* ignore */ }
+    } catch { ok = false /* 失敗分は次回リトライ（フラグを立てない） */ }
   }
+  return ok
+}
+
+/** 顧問先削除の purge キュー処理（nenmatsu/_purgeQueue/{clientId} = { years: {yearId: token|''}, at }）。
+ *  komon（iframe内・Storage SDKなし）は削除時にキュー登録のみ行い、Storage を消せる
+ *  事務所側のこの画面が、公開データ＋提出画像（Storage）＋従業員名簿＋旧形式提出を確実に削除する。
+ *  【開発ルール】公開トークン/Storage を持つモジュールは必ずこの方式で削除する（RTDBのみの削除は禁止）。 */
+export async function processNenmatsuPurgeQueue(): Promise<number> {
+  const { db, ref, get, remove } = await dbfns()
+  const qPath = await modulePath(NENMATSU_KEY, '_purgeQueue')
+  const snap = await get(ref(db, qPath))
+  const entries = (snap.val() as Record<string, { years?: Record<string, string>; at?: number }> | null) || {}
+  let done = 0
+  for (const [cid, e] of Object.entries(entries)) {
+    try {
+      const years = e?.years || {}
+      for (const [yearId, token] of Object.entries(years)) {
+        // 1) 公開領域: 提出画像Storage → 公開サブツリー
+        if (token) {
+          try {
+            const pub = ((await get(ref(db, publicPath(token, 'submissions')))).val() as Record<string, SubmissionRecord>) || {}
+            const { st, ref: sref, deleteObject } = await storageFns()
+            for (const rec of Object.values(pub)) {
+              for (const p of rec?.paths || []) { try { await deleteObject(sref(st, p)) } catch { /* ignore */ } }
+            }
+          } catch { /* ignore */ }
+          try { await remove(ref(db, publicPath(token))) } catch { /* ignore */ }
+        }
+        // 2) 旧形式提出（rooms側）: Storage → ノード
+        try {
+          const legacyPath = await modulePath(NENMATSU_KEY, yearId, 'submissions', cid)
+          const legacy = ((await get(ref(db, legacyPath))).val() as Record<string, SubmissionRecord>) || {}
+          const { st, ref: sref, deleteObject } = await storageFns()
+          for (const rec of Object.values(legacy)) {
+            for (const p of rec?.paths || []) { try { await deleteObject(sref(st, p)) } catch { /* ignore */ } }
+          }
+          await remove(ref(db, legacyPath))
+        } catch { /* ignore */ }
+        // 3) 従業員名簿（生年月日・住所等PII）と会社ノード
+        try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'employees', cid))) } catch { /* ignore */ }
+        try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', cid))) } catch { /* ignore */ }
+      }
+      await remove(ref(db, `${qPath}/${cid}`))
+      done++
+    } catch { /* 失敗分はキューに残し、次回開いたときに再試行 */ }
+  }
+  return done
 }
 
 /** 年度の登録会社一覧 */

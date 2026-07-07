@@ -8,8 +8,53 @@ interface ItemAccount {
 export interface PayrollGenerateOptions {
   // 給与手当を従業員ごとの明細行にする（既定＝合計1行）
   salaryIndividual?: boolean
-  // 控除項目を「補助科目ごと（個人別）」で計上する。{ 項目名: { 従業員名: {subCode, subName} } }
+  // 控除項目を「補助科目ごと（個人別）」で計上する。{ 項目名: { 従業員キー: {subCode, subName} } }
   perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
+}
+
+/** 従業員の一意キー。同姓同名がいる場合のみ NO を付けて区別する（補助科目割当・摘要用）。
+ *  ダイアログのUIと mapper で必ず同じキーを使うこと。 */
+export function payrollPersonKey(emp: { name: string; no: number }, all: { name: string }[]): string {
+  const dup = all.filter((e) => e.name === emp.name).length > 1
+  return dup ? `${emp.name}(${emp.no})` : emp.name
+}
+
+/** 仕訳生成前の貸借バランス検証。
+ *  未設定の項目があると、後段の複合仕訳の自動調整（applyCompoundAutoAmounts）が
+ *  差額を「差引支給額（引落口座）」行へ黙って押し込み、通帳と一致しない金額で
+ *  出力されてしまうため、生成前に必ずこの検証を通すこと（不一致なら生成をブロック）。 */
+export function payrollBalanceCheck(
+  data: PayrollData,
+  itemAccounts: Record<string, ItemAccount>,
+  options?: PayrollGenerateOptions,
+): { debitTotal: number; creditTotal: number; netPayTotal: number; diff: number; unmapped: { name: string; amount: number }[] } {
+  const taxableOf = (e: { items: { name: string; amount: number }[] }) => e.items.find((i) => i.name === '課税分合計')?.amount || 0
+  let debitTotal = 0
+  if (itemAccounts['役員報酬']?.code) {
+    for (const e of data.employees.filter((x) => x.isExecutive)) debitTotal += taxableOf(e)
+  }
+  if (itemAccounts['給与手当']?.code) {
+    for (const e of data.employees.filter((x) => !x.isExecutive)) debitTotal += taxableOf(e)
+  }
+  const sumItem = (h: string) => data.employees.reduce((s, e) => s + (e.items.find((i) => i.name === h)?.amount || 0), 0)
+  const unmapped: { name: string; amount: number }[] = []
+  for (const h of data.payHeaders) {
+    if (['支給合計額', '課税分合計', '控除合計額'].includes(h)) continue // 集計列は対象外
+    const t = sumItem(h)
+    if (itemAccounts[h]?.code) debitTotal += t
+    else if (t > 0 && h === '非課税額') unmapped.push({ name: h, amount: t }) // 非課税は要マッピング（通勤手当等）
+  }
+  let creditTotal = 0
+  for (const h of data.deductHeaders) {
+    if (['控除合計額', '社会保険料合計', '課税対象額', '差引支給額'].includes(h)) continue
+    const t = sumItem(h)
+    if (itemAccounts[h]?.code) creditTotal += t
+    else if (t > 0) unmapped.push({ name: h, amount: t })
+  }
+  const netPayTotal = data.employees.reduce((s, e) => s + e.netPay, 0)
+  const diff = debitTotal - (creditTotal + netPayTotal)
+  void options
+  return { debitTotal, creditTotal, netPayTotal, diff, unmapped }
 }
 
 export function payrollToEntries(
@@ -40,13 +85,13 @@ export function payrollToEntries(
   // 科目設定済みの項目のみ仕訳化
   const lines: { name: string; amount: number; isDebit: boolean; code: string; accName: string; subCode: string; subName: string }[] = []
 
-  // 役員報酬（借方）— 役員は「一人ずつ個別の金額」で仕訳（摘要に氏名を入れる）
+  // 役員報酬（借方）— 役員は「一人ずつ個別の金額」で仕訳（摘要に氏名を入れる。同姓同名はNO付き）
   const execAcc = itemAccounts['役員報酬']
   if (execAcc?.code) {
     for (const e of data.employees.filter((x) => x.isExecutive)) {
       const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
       if (amt > 0) {
-        lines.push({ name: `役員報酬 ${e.name}`, amount: amt, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+        lines.push({ name: `役員報酬 ${payrollPersonKey(e, data.employees)}`, amount: amt, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
       }
     }
   }
@@ -59,7 +104,7 @@ export function payrollToEntries(
       for (const e of emps) {
         const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
         if (amt > 0) {
-          lines.push({ name: `給与手当 ${e.name}`, amount: amt, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
+          lines.push({ name: `給与手当 ${payrollPersonKey(e, data.employees)}`, amount: amt, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
         }
       }
     } else {
@@ -93,8 +138,9 @@ export function payrollToEntries(
       for (const emp of data.employees) {
         const amt = emp.items.find((i) => i.name === h)?.amount || 0
         if (amt <= 0) continue
-        const sub = perPerson[emp.name] || { subCode: acc.subCode || '', subName: acc.subName || '' }
-        lines.push({ name: `${h} ${emp.name}`, amount: amt, isDebit: false, code: acc.code, accName: acc.name, subCode: sub.subCode || '', subName: sub.subName || '' })
+        const key = payrollPersonKey(emp, data.employees)
+        const sub = perPerson[key] || perPerson[emp.name] || { subCode: acc.subCode || '', subName: acc.subName || '' }
+        lines.push({ name: `${h} ${key}`, amount: amt, isDebit: false, code: acc.code, accName: acc.name, subCode: sub.subCode || '', subName: sub.subName || '' })
       }
     } else {
       let total = 0

@@ -82,7 +82,7 @@ export default function NenmatsuUpload() {
   const years = useMemo(() => {
     const now = new Date().getFullYear()
     const arr: number[] = []
-    for (let y = now - 15; y >= now - 90; y--) arr.push(y)
+    for (let y = now - 14; y >= now - 100; y--) arr.push(y) // 14〜100歳をカバー（範囲外で本人確認不能にならないよう広めに）
     return arr
   }, [])
 
@@ -102,11 +102,14 @@ export default function NenmatsuUpload() {
     if (!emp) return setVerifyErr('お名前を選択してください。')
     if (!by || !bm || !bd) return setVerifyErr('生年月日を選択してください。')
     const input = `${by}-${String(Number(bm)).padStart(2, '0')}-${String(Number(bd)).padStart(2, '0')}`
-    // 公開名簿には生年月日のハッシュのみを載せているため、入力値をハッシュ化して照合する
-    if (emp.birthHash) {
-      const h = await sha256Hex(input)
-      if (h !== emp.birthHash) return setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
+    // 公開名簿には生年月日のハッシュのみを載せているため、入力値をハッシュ化して照合する。
+    // 【厳守】ハッシュ未登録（=生年月日を読み取れなかった従業員）は本人確認ができないため、
+    // 照合スキップで通さずブロックする（スキップ可にすると他人へのなりすまし提出が可能になる）。
+    if (!emp.birthHash) {
+      return setVerifyErr('この方は本人確認用の生年月日が登録されていないため、こちらから提出できません。お手数ですが会社のご担当者（または税理士事務所）へご連絡ください。')
     }
+    const h = await sha256Hex(input)
+    if (h !== emp.birthHash) return setVerifyErr('生年月日が一致しません。もう一度ご確認ください。')
     // 提出用に本人情報を確定（住所・生CSV等は公開名簿に無いので本人入力に委ねる）
     const { birthHash, ...rest } = emp
     void birthHash

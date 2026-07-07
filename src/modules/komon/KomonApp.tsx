@@ -53,6 +53,7 @@ export default function KomonApp({ view }: { view?: KomonView } = {}) {
           set: dbfns.set,
           update: dbfns.update,
           remove: dbfns.remove,
+          runTransaction: dbfns.runTransaction, // 確認・依頼メモ等の同時編集で消失しないための原子的更新
         },
       };
       const inject = () => {

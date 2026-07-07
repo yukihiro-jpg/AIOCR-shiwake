@@ -34,6 +34,8 @@ import {
   createScanFolder,
   renameScanFolder,
   deleteScanFolder,
+  collectFolderDescendantIds,
+  processScanPurgeQueue,
   type ScanMember,
   type ScanInboxFile,
   type ScanFolder,
@@ -109,6 +111,8 @@ export default function ScanContent() {
     setBusy(true)
     setMsg('')
     try {
+      // 顧問先削除の purge キューを処理（削除済み顧問先の公開データ・Storage実体を確実に消す）
+      try { await processScanPurgeQueue() } catch { /* 次回に再試行 */ }
       // 顧問先情報で「書類スキャン受信＝利用」にした会社のみ対象。トークン未発行なら自動発行。
       // 公開領域(scan-public)の会社名も毎回書き直す（ルール不備からの自己修復）
       const cl = await loadScanClients()
@@ -1702,7 +1706,19 @@ function FilesPanel({
             await renameScanFolder(company.token, folder.id, name)
           }}
           onDeleteFolder={async (folder) => {
+            // メンバー個別宛ファイル（各メンバートークン配下）も、削除対象フォルダ配下なら先に削除する。
+            // deleteScanFolder は会社トークンのファイルしか消せないため、ここで補完しないと
+            // 「中のファイルもすべて削除」の約束に反してメンバー宛だけ残ってしまう。
+            const ids = collectFolderDescendantIds(folder, toClientFolders)
+            for (const mi of memberInbox) {
+              for (const f of mi.files) {
+                if (f.folderId && ids.has(f.folderId)) {
+                  try { await deleteInboxFile(mi.token, f) } catch { /* ignore */ }
+                }
+              }
+            }
             await deleteScanFolder(company.token, folder, toClientFolders, Object.values(companyInbox))
+            setSentRefresh((v) => v + 1)
           }}
           recipients={memberList.map((m) => ({ id: m.id, name: m.name }))}
           onAddFiles={async (parentId, addFiles, comment, recipientIds) => {

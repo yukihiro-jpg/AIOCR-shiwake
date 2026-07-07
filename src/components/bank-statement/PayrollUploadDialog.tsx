@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { PayrollData, PayrollLedger, AccountItem, SubAccountItem, JournalEntry, AccountTaxItem } from '@/lib/bank-statement/types'
 import type { LedgerDateRule } from '@/lib/bank-statement/payroll-ledger-mapper'
-import type { PayrollGenerateOptions } from '@/lib/bank-statement/payroll-mapper'
+import { payrollBalanceCheck, payrollPersonKey, type PayrollGenerateOptions } from '@/lib/bank-statement/payroll-mapper'
 
 // 賃金台帳の学習データ（localStorage）
 interface PayrollSettings {
@@ -282,11 +282,27 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
 
   const handleGenerate = () => {
     if (!parsed || !bankCode) return
+    setError('')
+    // 【必須】支給日：空だと日付なし伝票になり、CSV出力で黙って除外される
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parsed.paymentDate || '')) {
+      setError('支給日を設定してください（上部の「支給日」欄）。仕訳の伝票日付になります。')
+      return
+    }
     const allAccounts = { ...accounts }
     // 「補助科目ごと（個人別）」に指定された控除項目だけを options.perPersonSubs に渡す
     const ppSubs: Record<string, Record<string, { subCode: string; subName: string }>> = {}
     for (const h of Array.from(perPersonItems)) {
       if (accounts[h]?.code) ppSubs[h] = perPersonSubs[h] || {}
+    }
+    // 【必須】貸借バランス検証：未設定項目があると差額が「差引支給額（引落口座）」行へ
+    // 自動調整で押し込まれ、通帳と一致しない金額でCSV出力されてしまうため、ここでブロックする。
+    const bal = payrollBalanceCheck(parsed, allAccounts, { salaryIndividual, perPersonSubs: ppSubs })
+    if (bal.diff !== 0) {
+      const hint = bal.unmapped.length
+        ? `科目未設定: ${bal.unmapped.map((u) => `${u.name}（¥${u.amount.toLocaleString()}）`).join('、')}`
+        : '設定済み項目の組み合わせが重複／不足していないかご確認ください（例: 課税分合計系と基本給などの二重設定）。'
+      setError(`貸借が一致しません（差額 ¥${Math.abs(bal.diff).toLocaleString()}）。このまま作成すると引落口座の金額が通帳と合わなくなります。${hint}`)
+      return
     }
     // 学習データを保存
     savePayrollSettings({
@@ -463,12 +479,14 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-1.5">
                         {emps.map((e) => {
                           const amt = e.items.find((i) => i.name === h)?.amount || 0
-                          const cur = perPersonSubs[h]?.[e.name]
+                          // 同姓同名がいる場合は NO 付きキーで区別（mapper と共通の payrollPersonKey）
+                          const pk = payrollPersonKey(e, parsed.employees)
+                          const cur = perPersonSubs[h]?.[pk] || perPersonSubs[h]?.[e.name]
                           return (
-                            <div key={e.name} className="flex items-center gap-2 text-xs">
-                              <span className="min-w-[72px] truncate">{e.name}</span>
+                            <div key={pk} className="flex items-center gap-2 text-xs">
+                              <span className="min-w-[72px] truncate">{pk}</span>
                               <span className="text-gray-500 tabular-nums w-16 text-right">¥{amt.toLocaleString()}</span>
-                              <select value={cur?.subCode || ''} onChange={(ev) => { const s = subs.find((x) => x.subCode === ev.target.value); setPersonSub(h, e.name, ev.target.value, s?.shortName || s?.name || '') }}
+                              <select value={cur?.subCode || ''} onChange={(ev) => { const s = subs.find((x) => x.subCode === ev.target.value); setPersonSub(h, pk, ev.target.value, s?.shortName || s?.name || '') }}
                                 className="px-1 py-1 border rounded flex-1 min-w-0">
                                 <option value="">補助科目を選択</option>
                                 {subs.map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
@@ -518,7 +536,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
 
             <div className="flex gap-2 justify-end">
               <button onClick={() => setParsed(null)} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">戻る</button>
-              <button onClick={handleGenerate} disabled={!bankCode}
+              <button onClick={handleGenerate} disabled={!bankCode || !parsed.paymentDate}
+                title={!parsed.paymentDate ? '支給日を設定してください' : !bankCode ? '引落口座を設定してください' : ''}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">仕訳作成</button>
             </div>
           </div>

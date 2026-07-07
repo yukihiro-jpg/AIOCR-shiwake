@@ -1082,7 +1082,11 @@ function renderRewardRows(){ const el=document.getElementById('cl_rewardRows'); 
 function addRewardRow(){ _rewardEdit.push({month:1,name:'',amount:''}); renderRewardRows(); }
 function removeRewardRow(i){ _rewardEdit.splice(i,1); saveRewardYearFromForm(); renderRewardRows(); }
 function updateRewardRow(i,f,v){ if(_rewardEdit[i]){ _rewardEdit[i][f]=v; saveRewardYearFromForm(); } }
-async function deleteClient(id){ const c=clientById(id); if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
+let _deletingClient=false;
+async function deleteClient(id){ if(_deletingClient) return; const c=clientById(id); if(!c) return;
+  if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
+  _deletingClient=true; try{ await _deleteClientInner(c,id); } finally { _deletingClient=false; } }
+async function _deleteClientInner(c,id){
   // 各モジュール（月次・共有フォルダ・年調・仕訳作成・相続）の実体まで確実に削除する。
   // _clients を消すだけでは、年調の会社ノード（全年度）・共有フォルダの会社ノード・公開データが
   // 残り、ピッカー等に出続けるため、await して実体を掃除する。
@@ -2012,7 +2016,21 @@ function kakuninKey(c){ return (c && (c.shiwakeClientId||c.id))||''; }
 let kkItems=[]; let kkCid=''; let kkEditId='';
 async function kkRef(){ const core=_core(); if(!core||!core.hasRoom())return null; const c=clientById(kkCid); if(!c)return null; const db=await core.getDb(); const F=core.dbfns; return { F, ref:F.ref(db, await core.modulePath('kakunin', kakuninKey(c))) }; }
 async function kkLoad(){ kkItems=[]; kkEditId=''; const h=await kkRef(); if(h){ try{ const s=await h.F.get(h.ref); const v=(s&&s.exists()&&s.val())||[]; kkItems=Array.isArray(v)?v.filter(Boolean):Object.values(v); }catch(e){} } renderKakunin(); }
-async function kkPersist(){ const h=await kkRef(); if(h){ try{ await h.F.set(h.ref, kkItems); }catch(e){ toast('保存に失敗しました','err'); } } }
+// 【設計ルール】確認・依頼メモの更新は必ず runTransaction の「配列変換」で行う（丸ごと set 禁止）。
+// 仕訳作成のクイック追加や他端末と同時に編集しても、互いの追加・変更が消えないようにするため。
+async function kkMutate(fn){
+  const h=await kkRef(); if(!h){ toast('保存できません（合言葉未設定か、顧問先が見つかりません）','err'); return false; }
+  try{
+    const res=await h.F.runTransaction(h.ref,(cur)=>{
+      const list=Array.isArray(cur)?cur.filter(Boolean):Object.values(cur||{});
+      return fn(list);
+    });
+    const v=res&&res.snapshot&&res.snapshot.val();
+    kkItems=Array.isArray(v)?v.filter(Boolean):Object.values(v||{});
+    renderKakunin();
+    return true;
+  }catch(e){ toast('保存に失敗しました','err'); return false; }
+}
 // 顧問先の入力補完（議事録と同方式）
 function filterKkClients(){
   const inp=document.getElementById('kkClientInput'); const list=document.getElementById('kkClientList'); if(!inp||!list)return;
@@ -2047,10 +2065,15 @@ function renderKakunin(){ const el=document.getElementById('kkTable'); if(!el)re
 }
 function kkStartEdit(id){ kkEditId=id; renderKakunin(); const el=document.getElementById('kk_ed_text'); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } }
 function kkCancelEdit(){ kkEditId=''; renderKakunin(); }
-async function kkSaveEdit(id){ const it=kkItems.find(x=>x.id===id); if(!it)return; const el=document.getElementById('kk_ed_text'); const t=(el?el.value:'').trim(); if(!t){ toast('内容を入力してください','err'); return; } it.text=t; const ks=document.getElementById('kk_ed_kind'); if(ks)it.kind=ks.value; kkEditId=''; renderKakunin(); await kkPersist(); toast('保存しました','ok'); }
-async function kkAdd(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } const ti=document.getElementById('kk_text'); const t=ti.value.trim(); if(!t){ toast('内容を入力してください','err'); return; } const kind=document.getElementById('kk_kind').value; kkItems.push({id:uid(),kind,text:t,status:'open',createdAt:todayISO()}); ti.value=''; ti.focus(); renderKakunin(); await kkPersist(); toast('追加しました','ok'); }
-async function kkSetStatus(id,st){ const it=kkItems.find(x=>x.id===id); if(it){ it.status=st; renderKakunin(); await kkPersist(); } }
-async function kkDelete(id){ if(!confirm('この項目を削除しますか？'))return; kkItems=kkItems.filter(x=>x.id!==id); renderKakunin(); await kkPersist(); }
+async function kkSaveEdit(id){ const el=document.getElementById('kk_ed_text'); const t=(el?el.value:'').trim(); if(!t){ toast('内容を入力してください','err'); return; } const ks=document.getElementById('kk_ed_kind'); const kind=ks?ks.value:''; kkEditId='';
+  const ok=await kkMutate(list=>list.map(x=>x&&x.id===id?Object.assign({},x,{text:t},kind?{kind}:{}) : x));
+  if(ok) toast('保存しました','ok'); }
+async function kkAdd(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } const ti=document.getElementById('kk_text'); const t=ti.value.trim(); if(!t){ toast('内容を入力してください','err'); return; } const kind=document.getElementById('kk_kind').value;
+  const item={id:uid(),kind,text:t,status:'open',createdAt:todayISO()};
+  const ok=await kkMutate(list=>list.concat([item]));
+  if(ok){ ti.value=''; ti.focus(); toast('追加しました','ok'); } }
+async function kkSetStatus(id,st){ await kkMutate(list=>list.map(x=>x&&x.id===id?Object.assign({},x,{status:st}):x)); }
+async function kkDelete(id){ if(!confirm('この項目を削除しますか？'))return; await kkMutate(list=>list.filter(x=>x&&x.id!==id)); }
 function kkOpenItems(){ return kkItems.filter(it=>it.status!=='done'); }
 function kkBuildMail(){ const c=clientById(kkCid); const nm=c?c.name:''; const open=kkOpenItems();
   const confirmItems=open.filter(it=>it.kind!=='資料'); const docItems=open.filter(it=>it.kind==='資料');
@@ -2076,7 +2099,9 @@ async function kkAiPolishMail(){ const ta=document.getElementById('kkMailBody');
 }
 function kkCopyMail(){ const ta=document.getElementById('kkMailBody'); ta.select(); try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} } toast('コピーしました','ok'); }
 function kkOpenMailto(){ const c=clientById(kkCid); if(!c||!c.email){ toast('この顧問先にメールアドレスが未登録です','err'); return; } const subj='【'+(c.name||'')+'様】ご確認・ご依頼のお願い'; const body=document.getElementById('kkMailBody').value; window.location.href='mailto:'+encodeURIComponent(c.email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body); }
-async function kkMarkNotified(){ let n=0; kkItems.forEach(it=>{ if(it.status==='open'){ it.status='sent'; n++; } }); renderKakunin(); await kkPersist(); closeModal('kakuninMailModal'); toast(n?`${n}件を「連絡済」にしました`:'更新しました','ok'); }
+async function kkMarkNotified(){ let n=0;
+  const ok=await kkMutate(list=>list.map(x=>{ if(x&&x.status==='open'){ n++; return Object.assign({},x,{status:'sent'}); } return x; }));
+  closeModal('kakuninMailModal'); if(ok) toast(n?`${n}件を「連絡済」にしました`:'更新しました','ok'); }
 
 /* ===== 仕訳作成・相続管理 への自動連携（利用/未利用） =====
    顧問先で「利用」にすると、その顧問先を各モジュールへ自動登録する。
@@ -2146,40 +2171,57 @@ async function syncClientToKeiei(c){ const core=_core(); if(!core||!core.hasRoom
 async function syncClientToScan(c){ const core=_core(); if(!core||!core.hasRoom())return; const db=await core.getDb(); const F=core.dbfns; const r=F.ref(db, await core.modulePath('scan','_clients', c.id)); if(c.useScan==='利用'){ const o={id:c.id,name:c.name||''}; if(c.code)o.code=String(c.code).trim(); await F.set(r,o); } else { await F.set(r,null); } }
 function syncClientExternal(c){ if(!c)return; Promise.resolve().then(()=>syncClientToShiwake(c)).catch(e=>console.warn('[komon] shiwake連携',e)); Promise.resolve().then(()=>syncClientToSouzoku(c)).catch(e=>console.warn('[komon] souzoku連携',e)); Promise.resolve().then(()=>syncClientToNenmatsu(c)).catch(e=>console.warn('[komon] nenmatsu連携',e)); Promise.resolve().then(()=>syncClientToKeiei(c)).catch(e=>console.warn('[komon] keiei連携',e)); Promise.resolve().then(()=>syncClientToScan(c)).catch(e=>console.warn('[komon] scan連携',e)); }
 // 顧問先削除時：各モジュールの「実体」まで確実に削除する（await 前提）。
-// _clients（各ピッカー元）／仕訳作成の clients_v2＋墓標／相続案件／年調の会社ノード（全年度）＋公開名簿／
-// 共有フォルダの会社ノード＋公開データ（会社・メンバーのトークン）を掃除する。
+// 【設計ルール】komon（iframe内）は Storage SDK を持たないため、公開トークン配下に
+// Storage 実体（画像・ファイル）を持つ scan / nenmatsu は「purge キュー」への登録だけを行い、
+// 実削除（Storage→RTDBの順）は各モジュールの事務所画面（processXxxPurgeQueue）が行う。
+// RTDBのみのノード（keiei・aiocr-shiwake・kakunin・souzoku等）はここで直接削除する。
+// 新しい per-client ノードを追加したら tools/check-invariants.mjs の登録表にも追加すること。
 async function purgeClientExternal(c){
   if(!c) return; const core=_core(); if(!core||!core.hasRoom()) return;
   const db=await core.getDb(); const F=core.dbfns;
   const rm=async(path)=>{ try{ await F.set(F.ref(db, path), null); }catch(e){} };
-  // 月次レポート
+  const tid=c.shiwakeClientId||c.id;
+  // 月次レポート（ピッカー＋年度データ・設定まるごと）
   await rm(await core.modulePath('keiei','_clients', c.id));
-  // 仕訳作成（clients_v2 削除＋墓標で復活防止）
-  try{ const tid=c.shiwakeClientId||c.id;
+  await rm(await core.modulePath('keiei', c.id));
+  // 仕訳作成（clients_v2 削除＋墓標で復活防止＋per-client同期データまるごと）
+  try{
     await F.update(F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_v2')), {[tid]:null});
     await F.update(F.ref(db, await core.modulePath('aiocr-shiwake','_global','clients_deleted')), {[tid]:Date.now()});
+    await rm(await core.modulePath('aiocr-shiwake', tid));
   }catch(e){ console.warn('[komon] shiwake削除',e); }
+  // 確認・依頼メモ（tid と komon内部id の両キーを掃除）
+  await rm(await core.modulePath('kakunin', tid));
+  if(tid!==c.id) await rm(await core.modulePath('kakunin', c.id));
   // 相続管理（案件削除＋墓標）
   try{ const caseId=_szCaseId(c.id);
     await F.update(F.ref(db, await core.modulePath('souzoku')), {['_cases/'+_szEnc(caseId)]:null, ['_tomb/'+_szEnc(caseId)]:true});
   }catch(e){ console.warn('[komon] souzoku削除',e); }
-  // 年調（_clients＋全年度の会社ノード＋公開名簿トークン）
+  // 年調：_clients を消し、年度→トークンの一覧を purge キューへ（実削除は年調画面が実施）
   await rm(await core.modulePath('nenmatsu','_clients', c.id));
   try{ const ys=await F.get(F.ref(db, await core.modulePath('nenmatsu')));
     const yv=(ys&&ys.exists()&&ys.val())||{};
-    for(const y in yv){ if(y==='_clients') continue;
-      try{ const comp=yv[y]&&yv[y].companies&&yv[y].companies[c.id];
-        if(comp&&comp.token) await rm('nenmatsu-public/'+comp.token);
-      }catch(e){}
-      await rm(await core.modulePath('nenmatsu', y, 'companies', c.id));
+    const years={};
+    for(const y in yv){ if(y==='_clients'||y==='_purgeQueue') continue;
+      const comp=yv[y]&&yv[y].companies&&yv[y].companies[c.id];
+      const hasEmp=yv[y]&&yv[y].employees&&yv[y].employees[c.id];
+      const hasLegacy=yv[y]&&yv[y].submissions&&yv[y].submissions[c.id];
+      if(comp||hasEmp||hasLegacy) years[y]=(comp&&comp.token)||'';
+    }
+    if(Object.keys(years).length){
+      await F.set(F.ref(db, await core.modulePath('nenmatsu','_purgeQueue', c.id)), { years, at: Date.now() });
     }
   }catch(e){ console.warn('[komon] nenmatsu削除',e); }
-  // 共有フォルダ（_clients＋会社ノード＋公開データ：会社・メンバートークン）
+  // 共有フォルダ：_clients を消し、会社＋メンバーのトークンを purge キューへ（実削除は共有フォルダ画面）
   await rm(await core.modulePath('scan','_clients', c.id));
   try{ const cs=await F.get(F.ref(db, await core.modulePath('scan','companies', c.id)));
     const comp=(cs&&cs.exists()&&cs.val())||null;
-    if(comp&&comp.token) await rm('scan-public/'+comp.token);
-    if(comp&&comp.members){ for(const mid in comp.members){ const m=comp.members[mid]; if(m&&m.token) await rm('scan-public/'+m.token); } }
+    const tokens=[];
+    if(comp&&comp.token) tokens.push(comp.token);
+    if(comp&&comp.members){ for(const mid in comp.members){ const m=comp.members[mid]; if(m&&m.token) tokens.push(m.token); } }
+    if(tokens.length){
+      await F.set(F.ref(db, await core.modulePath('scan','_purgeQueue', c.id)), { tokens, at: Date.now() });
+    }
   }catch(e){ console.warn('[komon] scan削除',e); }
   await rm(await core.modulePath('scan','companies', c.id));
 }

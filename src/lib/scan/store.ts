@@ -4,7 +4,7 @@
 // パターンは src/lib/nenmatsu/store.ts を踏襲。
 
 import { getDb } from '@/core/firebase'
-import { modulePath } from '@/core/room'
+import { modulePath, hasRoom } from '@/core/room'
 
 export const SCAN_KEY = 'scan'
 
@@ -198,6 +198,31 @@ async function purgeScanToken(token: string): Promise<void> {
   try { await remove(ref(db, publicPath(token))) } catch { /* ignore */ }
 }
 
+/** 顧問先削除の purge キュー（scan/_purgeQueue/{clientId} = { tokens: string[], at }）。
+ *  komon（iframe内・Storage SDKなし）は削除時にキューへ登録だけ行い、
+ *  Storage を消せる事務所側のこの画面がキューを処理して実体（画像・ファイル）ごと削除する。
+ *  【開発ルール】公開トークン配下にデータを持つモジュールを増やす場合は、必ず同様の
+ *  キュー＋processPurgeQueue を用意する（RTDBだけ消すとStorageが永久に残る）。 */
+export async function processScanPurgeQueue(): Promise<number> {
+  if (!hasRoom()) return 0
+  const { db, ref, get, remove } = await dbfns()
+  const qPath = await modulePath(SCAN_KEY, '_purgeQueue')
+  const snap = await get(ref(db, qPath))
+  const entries = (snap.val() as Record<string, { tokens?: string[]; clientId?: string; at?: number }> | null) || {}
+  let done = 0
+  for (const [cid, e] of Object.entries(entries)) {
+    try {
+      for (const t of e?.tokens || []) {
+        if (t) await purgeScanToken(t)
+      }
+      try { await remove(ref(db, await modulePath(SCAN_KEY, 'prefs', cid))) } catch { /* ignore */ }
+      await remove(ref(db, `${qPath}/${cid}`))
+      done++
+    } catch { /* 失敗分はキューに残し、次回開いたときに再試行 */ }
+  }
+  return done
+}
+
 export async function unregisterScanCompany(clientId: string): Promise<void> {
   const { db, ref, remove } = await dbfns()
   // 公開領域（会社トークン＋各メンバートークン）のデータと Storage も削除する。
@@ -256,6 +281,8 @@ export async function submitScanBatchPublic(
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
   if (!images || images.length === 0) throw new Error('画像がありません')
+  if (images.length > 200) throw new Error('1回の送信は200枚までにしてください')
+  assertUploadSizes(images.map((b, i) => ({ size: b.size, name: `${i + 1}枚目` })))
   const { st, ref: sref, uploadBytes } = await storageFns()
   const batchId = genId()
   const paths: string[] = []
@@ -375,15 +402,8 @@ export async function renameScanFolder(token: string, id: string, name: string):
   await update(ref(db, publicPath(token, 'folders', id)), { name: trimmed })
 }
 
-/** フォルダを削除。配下の子フォルダ・ファイルも再帰的に削除してから、フォルダ本体を削除する。
- *  allFolders / filesInRoot は呼び出し側が渡す（該当rootの全フォルダ・全ファイル）。 */
-export async function deleteScanFolder(
-  token: string,
-  folder: ScanFolder,
-  allFolders: ScanFolder[],
-  filesInRoot: (ScanFile | ScanInboxFile)[],
-): Promise<void> {
-  // 配下の子孫フォルダIDを収集（folder自身含む）
+/** フォルダ自身＋配下の子孫フォルダIDを収集（フォルダ削除時の対象判定に使う） */
+export function collectFolderDescendantIds(folder: ScanFolder, allFolders: ScanFolder[]): Set<string> {
   const targetIds = new Set<string>([folder.id])
   let changed = true
   while (changed) {
@@ -395,6 +415,20 @@ export async function deleteScanFolder(
       }
     }
   }
+  return targetIds
+}
+
+/** フォルダを削除。配下の子フォルダ・ファイルも再帰的に削除してから、フォルダ本体を削除する。
+ *  allFolders / filesInRoot は呼び出し側が渡す（該当rootの全フォルダ・全ファイル）。
+ *  【注意】メンバー個別宛ファイル（別トークン配下）は含まれないため、呼び出し側で
+ *  collectFolderDescendantIds を使って先に削除すること（ScanContent の toClient 削除参照）。 */
+export async function deleteScanFolder(
+  token: string,
+  folder: ScanFolder,
+  allFolders: ScanFolder[],
+  filesInRoot: (ScanFile | ScanInboxFile)[],
+): Promise<void> {
+  const targetIds = collectFolderDescendantIds(folder, allFolders)
   // 対象フォルダ配下の全ファイルを削除
   for (const f of filesInRoot) {
     const fid = f.folderId
@@ -418,6 +452,20 @@ function safeFileName(name: string): string {
   return (name || 'file').replace(/[\\/:*?"<>|#\[\]]/g, '_').slice(0, 120)
 }
 
+/** アップロードサイズ上限の強制（UI側の表示チェックとは別に、書き込み関数側でも必ず検証する） */
+function assertUploadSizes(files: { size: number; name?: string }[]): void {
+  let total = 0
+  for (const f of files) {
+    if (f.size > SCAN_FILE_MAX_BYTES) {
+      throw new Error(`「${f.name || 'ファイル'}」が1ファイル上限（${Math.round(SCAN_FILE_MAX_BYTES / 1024 / 1024)}MB）を超えています`)
+    }
+    total += f.size
+  }
+  if (total > SCAN_FILE_MAX_TOTAL) {
+    throw new Error(`合計サイズが上限（${Math.round(SCAN_FILE_MAX_TOTAL / 1024 / 1024)}MB）を超えています`)
+  }
+}
+
 /** 顧問先側：ファイルを送信（1件ずつStorageへ・RTDBに記録）。実際の成否を返す */
 export async function submitFilesPublic(
   token: string,
@@ -430,6 +478,8 @@ export async function submitFilesPublic(
 ): Promise<void> {
   if (!token) throw new Error('トークンがありません')
   if (!files.length) throw new Error('ファイルがありません')
+  // サイズ上限はUIだけでなく書き込み関数側でも強制する（UI迂回・改造クライアント対策の最低限）
+  assertUploadSizes(files)
   const folderName = safeFileName((folder || '').trim()).slice(0, 40)
   const { st, ref: sref, uploadBytes } = await storageFns()
   const { db, ref, set } = await dbfns()
@@ -489,6 +539,7 @@ export async function sendInboxFile(
   folderId?: string | null,
   comment?: string,
 ): Promise<void> {
+  assertUploadSizes([{ size: blob.size, name: fileName }])
   const { st, ref: sref, uploadBytes } = await storageFns()
   const { db, ref, set } = await dbfns()
   const id = genId()

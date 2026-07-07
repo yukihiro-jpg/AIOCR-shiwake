@@ -978,6 +978,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <div class="field" style="grid-column:1/3;"><label>住所</label><input type="text" id="set_officeAddr" placeholder="例：茨城県水戸市〇〇" oninput="onOfficeInput()"></div>
           <div class="field"><label>電話</label><input type="text" id="set_officeTel" placeholder="例：029-000-0000" oninput="onOfficeInput()"></div>
           <div class="field"><label>FAX</label><input type="text" id="set_officeFax" placeholder="例：029-000-0000" oninput="onOfficeInput()"></div>
+          <div class="field"><label>メールアドレス（ご案内資料の連絡先に印字）</label><input type="text" id="set_officeMail" placeholder="例：info@example.com" oninput="onOfficeInput()"></div>
         </div>
       </div>
 
@@ -1338,6 +1339,7 @@ function loadSettings(){
   if(!settings.officeAddr) settings.officeAddr='茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F';
   if(!settings.officeTel) settings.officeTel='029-215-9400';
   if(!settings.officeFax) settings.officeFax='029-311-4151';
+  if(!settings.officeMail) settings.officeMail='yukihiro@kskac.com';
   // 財産一覧の選択肢（未設定なら初期値）
   if(!Array.isArray(settings.optUnlistedEval)) settings.optUnlistedEval=['原則評価','配当還元','額面'];
   if(!Array.isArray(settings.optCashType)) settings.optCashType=['現金','普通預金','当座預金','定期預金','通常貯金','定額貯金','定期積金'];
@@ -1347,7 +1349,7 @@ function loadSettings(){
   if($('set_gasUrl')) $('set_gasUrl').value=settings.gasUrl||'';
   if($('set_fbConfig')) $('set_fbConfig').value=settings.fbConfig||'';
   if($('set_fbRoom')) $('set_fbRoom').value=settings.fbRoom||'';
-  ['taxName','officeName','officeAddr','officeTel','officeFax'].forEach(k=>{ const el=$('set_'+k); if(el) el.value=settings[k]||''; });
+  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail'].forEach(k=>{ const el=$('set_'+k); if(el) el.value=settings[k]||''; });
   applyOfficeSettings();
   renderOptionEditors();
   updateFolderStatus();
@@ -1365,7 +1367,7 @@ function addOpt(key){ const el=$('addopt-'+key); if(!el) return; const v=(el.val
 function removeOpt(key,idx){ if(!Array.isArray(settings[key])) return; settings[key].splice(idx,1); saveSettings(); renderOptList(key); if(currentCase) renderAssetDetail(); }
 function onGasUrlInput(){ settings.gasUrl=$('set_gasUrl').value.trim(); saveSettings(); }
 function onOfficeInput(){
-  ['taxName','officeName','officeAddr','officeTel','officeFax'].forEach(k=>{ const el=$('set_'+k); if(el) settings[k]=el.value; });
+  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail'].forEach(k=>{ const el=$('set_'+k); if(el) settings[k]=el.value; });
   applyOfficeSettings(); saveSettings();
 }
 function saveSettings(){ localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); }
@@ -4124,7 +4126,7 @@ function updSaving(id,field,val){ const s=(currentCase.savings||[]).find(x=>x.id
 // ============================================================
 //  財産診断書（PDF / Excel）
 // ============================================================
-const OFFICE={taxName:'日下部 幸広',name:'日下部税理士事務所',addr:'茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F',tel:'029-215-9400',fax:'029-311-4151'};
+const OFFICE={taxName:'日下部 幸広',name:'日下部税理士事務所',addr:'茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F',tel:'029-215-9400',fax:'029-311-4151',mail:'yukihiro@kskac.com'};
 // 設定（事務所・税理士情報）をOFFICEへ反映
 function applyOfficeSettings(){
   if(settings.taxName) OFFICE.taxName=settings.taxName;
@@ -4132,6 +4134,7 @@ function applyOfficeSettings(){
   if(settings.officeAddr) OFFICE.addr=settings.officeAddr;
   if(settings.officeTel) OFFICE.tel=settings.officeTel;
   if(settings.officeFax) OFFICE.fax=settings.officeFax;
+  if(settings.officeMail) OFFICE.mail=settings.officeMail;
 }
 // ===== 報告書PDF 共通テーマ（デザインA：ネイビー&ゴールド） =====
 const REPORT_CHART_THEME={grid:'#eef0f4',bar:'#cdd7e6',min:'#C8A24B',minStroke:'#a07d28',minLabel:'#a07d28',cur:'#2F9E8F',curStroke:'#1f6f64',curLabel:'#1f6f64',tickL:'#1F3A5F',tickR:'#9a7320',line1:'#1F3A5F',line2:'#b88a2e',titleL:'#1F3A5F',titleR:'#9a7320'};
@@ -5220,7 +5223,7 @@ function downloadSoudanGuide(){
   const addr=(rep&&rep.name&&rep.name.trim())?esc(rep.name.trim())+' 様':'ご遺族の皆さま';
   const ofcName=esc(OFFICE.name||'日下部税理士事務所');
   const ofcTel=esc(OFFICE.tel||'');
-  const ofcMail='yukihiro@kskac.com';
+  const ofcMail=esc(OFFICE.mail||'yukihiro@kskac.com');
   const foot='<div class="pgfoot"><span>相続税申告の流れとご準備</span><span>'+ofcName+'</span></div>';
   const styles=`
     *{margin:0;padding:0;box-sizing:border-box;}

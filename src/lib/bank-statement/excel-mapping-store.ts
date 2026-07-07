@@ -22,6 +22,10 @@ export function saveExcelMapping(cid: string, accountCode: string, mapping: Colu
     const all = loadAll(cid)
     all[accountCode] = mapping
     localStorage.setItem(keyOf(cid), JSON.stringify(all))
+    // 他端末へも配信（受信は firebase-sync の STORAGE_KEY_MAP 経由）。push を忘れると受信専用になる
+    if (cid) {
+      import('./firebase-sync').then((m) => m.schedulePushToFirebase(cid, 'excel-mapping', all)).catch(() => { /* ignore */ })
+    }
   } catch { /* ignore */ }
 }
 

@@ -22,7 +22,8 @@ function getApiKey(): string {
  */
 export async function polishSummaryStory(raw: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(getApiKey())
-  const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL })
+  // 通信ハングで「仕上げ中…」が永遠に終わらないのを防ぐ（120秒で自動中断）
+  const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL }, { timeout: 120000 })
   const prompt = [
     'あなたは中小企業の社長に月次決算を分かりやすく説明する、財務・資金に精通した税理士です。',
     '以下は自動生成した「今月の経営サマリー」の草案です。社長が読むだけで経営状況が腹落ちするよう、',

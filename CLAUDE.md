@@ -44,6 +44,32 @@
 ### デプロイ
 `claude/festive-einstein-08owfb` ブランチで開発しコミット → `git push -u origin claude/festive-einstein-08owfb` → mainへff-onlyマージしpush（ユーザー承認済みの公開手順）→ GitHub Actions が Pages へ自動デプロイ（数分）。
 
+## 開発チェックリスト（不変条件・再発防止）
+
+`npm run build` の先頭で `tools/check-invariants.mjs` が自動実行され、以下の違反はビルドが失敗する。
+新機能を足すときは該当する登録表への追記まで含めて1つの変更とすること。
+
+1. **新しい per-client Firebaseノード**（`modulePath('X', clientId, …)`）を追加したら：
+   - `tools/check-invariants.mjs` の `REGISTRY` に追加し、削除経路を決める
+   - RTDBのみ → komon `purgeClientExternal` に直削除を追加（`komon-direct`）
+   - **Storage実体（画像・ファイル）を持つ** → RTDB直削除は禁止。`X/_purgeQueue` へ登録し、
+     Storage SDKを持つ事務所画面の `processXxxPurgeQueue()` が Storage→RTDB の順に実削除する
+     （scan / nenmatsu が実装例。komonはiframe内でStorageを消せないため）
+2. **仕訳作成の per-client localStorageキー**を追加したら：`STORAGE_KEY_MAP`（同期・バックアップ対象）
+   か、意図的ローカルなら check-invariants の `ALLOW_LOCAL` に理由コメント付きで追加
+3. **komonの新タブ**は `nav.tabs` ＋ `<section id="page-*">` ＋ `KOMON_ONLY`（顧問先情報ビューに出すか）を3点セットで
+4. **Gemini呼び出し**は必ずタイムアウト付き（bank-statementは `gm()` 経由、その他は
+   `getGenerativeModel(params, { timeout: 120000 })`）。**AIの応答が空でもユーザーの入力文を消さない**
+5. **公開トークン配下のデータ**には保存期限（sweep）と削除経路（purgeキュー）を必ず両方用意する
+6. Firebaseコンソールのルールは `docs/firebase-rules-recommended.md` と一致させる（変更時に見比べる）
+7. 確認・依頼メモ（kakunin）の更新は `runTransaction` の配列変換のみ（丸ごと `set` 禁止・同時編集で消える）
+
+### 設計メモ（意図した仕様）
+- モジュール「利用→未利用」の切替では公開URL・データは削除しない（誤操作でのデータ消失防止）。
+  失効させたいときは顧問先削除（purgeキューが実体まで削除）を使う。
+- 年調は1社1URL（トークン）方式。同じ会社の従業員同士は提出物が相互に見える設計上のトレードオフがある
+  （本人確認は生年月日ハッシュ。ハッシュ未登録者は提出ブロック）。
+
 ## データ同期の設計（最重要）
 
 - **合言葉（パスフレーズ）**が唯一の共有キー。`localStorage['suite-room-passphrase']` に端末ごとに保存し、`roomKey = SHA-256(合言葉)` を RTDB パス `rooms/{roomKey}/{module}/...` に用いる（`src/core/room.ts`）。
