@@ -2267,7 +2267,7 @@ function applyKomonView(){
     // ビューに応じてアプリのタイトルを変更
     var title=(v==='komon')?'顧問先情報':'進捗管理';
     var h=document.querySelector('.appbar-top h1'); if(h)h.textContent=title; try{ document.title=title; }catch(e){}
-    var KOMON_ONLY=['clients','minutes']; // 顧問先情報登録ビューで表示するタブ（議事録を含む）
+    var KOMON_ONLY=['clients','minutes','kakunin']; // 顧問先情報登録ビューで表示するタブ（議事録・確認依頼を含む）
     var nav=document.querySelector('nav.tabs'); if(!nav)return;
     var first=null;
     nav.querySelectorAll('[data-page]').forEach(function(a){
