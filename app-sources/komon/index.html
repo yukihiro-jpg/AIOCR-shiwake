@@ -319,7 +319,10 @@
       <div class="toolbar"><button class="primary" onclick="kkComposeMail()">✉ 連絡メール文を作成</button></div></div>
     <div class="card-sub">会計処理中に出た疑問・顧問先へ確認したいこと・請求したい資料をメモし、まとめてメール文にできます。仕訳作成の画面からも同じ顧問先に追加できます。</div>
     <div class="filters">
-      <select id="kkFilterClient" onchange="kkOnClientChange()" style="max-width:280px"></select>
+      <div style="position:relative;max-width:340px;width:100%">
+        <input id="kkClientInput" autocomplete="off" placeholder="顧問先名を入力して選択" oninput="filterKkClients()" onfocus="filterKkClients()" onblur="setTimeout(function(){var l=document.getElementById('kkClientList');if(l)l.style.display='none';},150)" style="width:100%;box-sizing:border-box">
+        <div id="kkClientList" style="display:none;position:absolute;z-index:50;left:0;right:0;top:100%;max-height:260px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12)"></div>
+      </div>
     </div>
     <div class="card pad" id="kkAddWrap" style="margin-bottom:14px;display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -789,7 +792,7 @@ function showPage(p){ document.querySelectorAll('.page').forEach(s=>s.classList.
   if(MODULES.some(m=>m.key===p)) renderModule(p);
   else if(p==='gensen') renderGensen(); else if(p==='nencho') renderNencho(); else if(p==='analysis') renderAnalysis();
   else if(p==='monthly') renderMonthly(); else if(p==='sonota') renderCustom('sonota'); else if(p==='docs') renderCustom('docs');
-  else if(p==='kakunin'){ populateClientSelects(); kkOnClientChange(); } }
+  else if(p==='kakunin'){ kkOnShow(); } }
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 let toastTimer=null;
@@ -807,7 +810,6 @@ function populateClientSelects(){
   const el=document.getElementById('mn_client'); if(el){ const c=el.value; el.innerHTML=opt; el.value=c; }
   const all='<option value="">全顧問先</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const fe=document.getElementById('minFilterClient'); if(fe){ const c=fe.value; fe.innerHTML=all; fe.value=c; }
-  const ke=document.getElementById('kkFilterClient'); if(ke){ const c=ke.value; ke.innerHTML='<option value="">顧問先を選択</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''); ke.value=c; }
 }
 function initMonthSelects(){ document.getElementById('cl_fiscal').innerHTML='<option value=""></option>'+MONTHS.map(m=>`<option>${m}</option>`).join('');
   const pd=document.getElementById('cl_payDay'); if(pd)pd.innerHTML='<option value=""></option>'+Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('')+'<option value="末日">末日</option>'; }
@@ -2007,26 +2009,45 @@ function openClientMinutes(cid){ showPage('minutes'); const sel=document.getElem
 /* ===== 確認・依頼メモ（顧問先ごと・仕訳作成と共有。Firebaseノード kakunin/{key}） ===== */
 // キーは shiwakeClientId（仕訳作成と共有）優先。無ければ komon内部ID。
 function kakuninKey(c){ return (c && (c.shiwakeClientId||c.id))||''; }
-let kkItems=[]; let kkCid='';
+let kkItems=[]; let kkCid=''; let kkEditId='';
 async function kkRef(){ const core=_core(); if(!core||!core.hasRoom())return null; const c=clientById(kkCid); if(!c)return null; const db=await core.getDb(); const F=core.dbfns; return { F, ref:F.ref(db, await core.modulePath('kakunin', kakuninKey(c))) }; }
-async function kkLoad(){ kkItems=[]; const h=await kkRef(); if(h){ try{ const s=await h.F.get(h.ref); const v=(s&&s.exists()&&s.val())||[]; kkItems=Array.isArray(v)?v.filter(Boolean):Object.values(v); }catch(e){} } renderKakunin(); }
+async function kkLoad(){ kkItems=[]; kkEditId=''; const h=await kkRef(); if(h){ try{ const s=await h.F.get(h.ref); const v=(s&&s.exists()&&s.val())||[]; kkItems=Array.isArray(v)?v.filter(Boolean):Object.values(v); }catch(e){} } renderKakunin(); }
 async function kkPersist(){ const h=await kkRef(); if(h){ try{ await h.F.set(h.ref, kkItems); }catch(e){ toast('保存に失敗しました','err'); } } }
-function kkOnClientChange(){ const sel=document.getElementById('kkFilterClient'); kkCid=sel?sel.value:''; const w=document.getElementById('kkAddWrap'); if(w)w.style.display=kkCid?'':'none'; if(kkCid) kkLoad(); else { kkItems=[]; renderKakunin(); } }
+// 顧問先の入力補完（議事録と同方式）
+function filterKkClients(){
+  const inp=document.getElementById('kkClientInput'); const list=document.getElementById('kkClientList'); if(!inp||!list)return;
+  const q=(inp.value||'').trim().toLowerCase();
+  const items=data.clients.filter(c=>!q||(c.name||'').toLowerCase().includes(q)||(c.kana||'').toLowerCase().includes(q)||String(c.code||'').toLowerCase().includes(q));
+  list.innerHTML=items.slice(0,50).map(c=>`<div onmousedown="kkPickClient('${c.id}')" style="padding:6px 10px;cursor:pointer" onmouseover="this.style.background='#eef5ff'" onmouseout="this.style.background=''">${esc(c.name)}${c.code?` <span style="color:#999">(${esc(c.code)})</span>`:''}</div>`).join('')||'<div style="padding:6px 10px;color:#999">該当なし</div>';
+  list.style.display='block';
+}
+function kkPickClient(id){ const c=clientById(id); kkCid=id; const inp=document.getElementById('kkClientInput'); if(inp)inp.value=c?c.name:''; const l=document.getElementById('kkClientList'); if(l)l.style.display='none'; const w=document.getElementById('kkAddWrap'); if(w)w.style.display=kkCid?'':'none'; kkLoad(); }
+function kkOnShow(){ const inp=document.getElementById('kkClientInput'); const c=clientById(kkCid); if(inp)inp.value=c?c.name:''; const w=document.getElementById('kkAddWrap'); if(w)w.style.display=kkCid?'':'none'; if(kkCid)kkLoad(); else renderKakunin(); }
 const KK_KIND={確認:{l:'確認',c:'#b4690e',bg:'#fff4e5'},質問:{l:'質問',c:'#1a56db',bg:'#e8f0fe'},資料:{l:'資料請求',c:'#0f7b3f',bg:'#e6f4ea'}};
 const KK_ST={open:'未対応',sent:'連絡済',done:'解決'};
+function kkKindOptions(sel){ return ['確認','質問','資料'].map(kd=>`<option value="${kd}"${sel===kd?' selected':''}>${kd==='資料'?'資料の請求':kd==='質問'?'質問・疑問':'確認したいこと'}</option>`).join(''); }
 function renderKakunin(){ const el=document.getElementById('kkTable'); if(!el)return;
   if(!kkCid){ el.innerHTML='<div class="empty">顧問先を選択してください。</div>'; return; }
   const order={open:0,sent:1,done:2};
   const items=kkItems.slice().sort((a,b)=>(order[a.status]-order[b.status])||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   if(!items.length){ el.innerHTML='<div class="empty"><div class="big">📝</div>まだ項目がありません。上の欄から追加してください。</div>'; return; }
-  el.innerHTML='<table><thead><tr><th style="width:84px">種別</th><th>内容</th><th style="width:104px">状態</th><th style="width:96px">気づいた日</th><th style="width:70px"></th></tr></thead><tbody>'+
+  el.innerHTML='<table><thead><tr><th style="width:110px">種別</th><th>内容</th><th style="width:104px">状態</th><th style="width:96px">気づいた日</th><th style="width:120px"></th></tr></thead><tbody>'+
     items.map(it=>{ const k=KK_KIND[it.kind]||KK_KIND['確認']; const done=it.status==='done';
+      if(it.id===kkEditId){
+        return `<tr><td><select id="kk_ed_kind" style="font-size:12px;padding:2px 4px">${kkKindOptions(it.kind)}</select></td>`+
+          `<td><input id="kk_ed_text" value="${esc(it.text||'')}" style="width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')kkSaveEdit('${it.id}')"></td>`+
+          `<td colspan="2" class="muted" style="font-size:12px">${esc(it.createdAt||'')}</td>`+
+          `<td class="actions"><button class="text sm" onclick="kkSaveEdit('${it.id}')">保存</button> <button class="text sm" onclick="kkCancelEdit()">取消</button></td></tr>`;
+      }
       return `<tr${done?' style="opacity:.5"':''}><td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:${k.c};background:${k.bg}">${k.l}</span></td>`+
       `<td style="white-space:normal">${esc(it.text||'')}</td>`+
       `<td><select onchange="kkSetStatus('${it.id}',this.value)" style="font-size:12px;padding:2px 4px">`+Object.keys(KK_ST).map(s=>`<option value="${s}"${it.status===s?' selected':''}>${KK_ST[s]}</option>`).join('')+`</select></td>`+
       `<td class="muted" style="font-size:12px">${esc(it.createdAt||'')}</td>`+
-      `<td class="actions"><button class="text sm danger" onclick="kkDelete('${it.id}')">削除</button></td></tr>`; }).join('')+'</tbody></table>';
+      `<td class="actions"><button class="text sm" onclick="kkStartEdit('${it.id}')">編集</button> <button class="text sm danger" onclick="kkDelete('${it.id}')">削除</button></td></tr>`; }).join('')+'</tbody></table>';
 }
+function kkStartEdit(id){ kkEditId=id; renderKakunin(); const el=document.getElementById('kk_ed_text'); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } }
+function kkCancelEdit(){ kkEditId=''; renderKakunin(); }
+async function kkSaveEdit(id){ const it=kkItems.find(x=>x.id===id); if(!it)return; const el=document.getElementById('kk_ed_text'); const t=(el?el.value:'').trim(); if(!t){ toast('内容を入力してください','err'); return; } it.text=t; const ks=document.getElementById('kk_ed_kind'); if(ks)it.kind=ks.value; kkEditId=''; renderKakunin(); await kkPersist(); toast('保存しました','ok'); }
 async function kkAdd(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } const ti=document.getElementById('kk_text'); const t=ti.value.trim(); if(!t){ toast('内容を入力してください','err'); return; } const kind=document.getElementById('kk_kind').value; kkItems.push({id:uid(),kind,text:t,status:'open',createdAt:todayISO()}); ti.value=''; ti.focus(); renderKakunin(); await kkPersist(); toast('追加しました','ok'); }
 async function kkSetStatus(id,st){ const it=kkItems.find(x=>x.id===id); if(it){ it.status=st; renderKakunin(); await kkPersist(); } }
 async function kkDelete(id){ if(!confirm('この項目を削除しますか？'))return; kkItems=kkItems.filter(x=>x.id!==id); renderKakunin(); await kkPersist(); }
