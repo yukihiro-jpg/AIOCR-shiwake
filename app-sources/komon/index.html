@@ -2061,7 +2061,19 @@ function kkBuildMail(){ const c=clientById(kkCid); const nm=c?c.name:''; const o
   return b;
 }
 function kkComposeMail(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } if(!kkOpenItems().length){ toast('未対応・連絡中の項目がありません','err'); return; } const c=clientById(kkCid); document.getElementById('kkMailTitle').textContent='連絡メール文　'+(c?c.name:''); document.getElementById('kkMailBody').value=kkBuildMail(); const mb=document.getElementById('kkMailtoBtn'); if(mb)mb.style.display=(c&&c.email)?'':'none'; openModal('kakuninMailModal'); }
-async function kkAiPolishMail(){ const ta=document.getElementById('kkMailBody'); const src=ta.value.trim(); if(!src)return; toast('AIが整えています…'); try{ const out=await callAI('あなたは税理士事務所の担当者です。顧問先へ送る確認・依頼メールの下書きを、内容・項目を一切増減させず、丁寧で分かりやすい日本語に整えます。箇条書きの項目はそのまま残し、宛名と結びの体裁を整える程度にします。出力は本文のみ。', src, 1500); if(out)ta.value=out; toast('整えました','ok'); }catch(e){ toast(e.message||'AI整形に失敗しました','err'); } }
+async function kkAiPolishMail(){ const ta=document.getElementById('kkMailBody'); if(!ta)return;
+  // 本文が空なら、まず項目から下書きを作り直してから整える（AIで消えても再生成できるように）
+  let src=(ta.value||'').trim();
+  if(!src){ src=kkBuildMail(); ta.value=src; }
+  if(!src){ toast('先に顧問先と項目を用意してください','err'); return; }
+  toast('AIが整えています…');
+  try{
+    const out=await callAI('あなたは税理士事務所の担当者です。顧問先へ送る確認・依頼メールの下書きを、内容・項目を一切増減させず、丁寧で分かりやすい日本語に整えます。箇条書きの項目はそのまま残し、宛名と結びの体裁を整える程度にします。出力は本文のみ。', src, 4000);
+    // 空応答（Gemini思考トークンで出力枠切れ等）でも文面は絶対に消さない
+    if(out&&out.trim()){ ta.value=out.trim(); toast('整えました','ok'); }
+    else { toast('AIの応答が空でした。文面はそのまま残しています。もう一度お試しください','err'); }
+  }catch(e){ toast(e.message||'AI整形に失敗しました','err'); }
+}
 function kkCopyMail(){ const ta=document.getElementById('kkMailBody'); ta.select(); try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} } toast('コピーしました','ok'); }
 function kkOpenMailto(){ const c=clientById(kkCid); if(!c||!c.email){ toast('この顧問先にメールアドレスが未登録です','err'); return; } const subj='【'+(c.name||'')+'様】ご確認・ご依頼のお願い'; const body=document.getElementById('kkMailBody').value; window.location.href='mailto:'+encodeURIComponent(c.email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body); }
 async function kkMarkNotified(){ let n=0; kkItems.forEach(it=>{ if(it.status==='open'){ it.status='sent'; n++; } }); renderKakunin(); await kkPersist(); closeModal('kakuninMailModal'); toast(n?`${n}件を「連絡済」にしました`:'更新しました','ok'); }
