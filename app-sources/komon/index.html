@@ -266,6 +266,7 @@
     <a data-page="sonota" onclick="showPage('sonota')">その他</a>
     <a data-page="docs" onclick="showPage('docs')">資料回収</a>
     <a data-page="minutes" onclick="showPage('minutes')">議事録</a>
+    <a data-page="kakunin" onclick="showPage('kakunin')">確認・依頼</a>
   </nav>
 </header>
 
@@ -311,6 +312,25 @@
     <div class="filters"><select id="minFilterClient" style="max-width:240px" onchange="renderMinutes()"></select>
       <input class="search" id="minSearch" placeholder="🔍 件名で検索" oninput="renderMinutes()"></div>
     <div class="card"><div id="minuteTable"></div></div>
+  </section>
+
+  <section id="page-kakunin" class="page">
+    <div class="page-head"><h2>確認・依頼</h2>
+      <div class="toolbar"><button class="primary" onclick="kkComposeMail()">✉ 連絡メール文を作成</button></div></div>
+    <div class="card-sub">会計処理中に出た疑問・顧問先へ確認したいこと・請求したい資料をメモし、まとめてメール文にできます。仕訳作成の画面からも同じ顧問先に追加できます。</div>
+    <div class="filters">
+      <select id="kkFilterClient" onchange="kkOnClientChange()" style="max-width:280px"></select>
+    </div>
+    <div class="card pad" id="kkAddWrap" style="margin-bottom:14px;display:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div><label style="font-size:12px;color:var(--muted)">種別</label><br>
+          <select id="kk_kind"><option value="確認">確認したいこと</option><option value="質問">質問・疑問</option><option value="資料">資料の請求</option></select></div>
+        <div style="flex:1;min-width:220px"><label style="font-size:12px;color:var(--muted)">内容</label>
+          <input id="kk_text" placeholder="例）5月の売上に計上漏れがないかご確認ください／通帳のコピーをご送付ください" onkeydown="if(event.key==='Enter')kkAdd()"></div>
+        <button class="primary" onclick="kkAdd()">＋ 追加</button>
+      </div>
+    </div>
+    <div class="card"><div id="kkTable"></div></div>
   </section>
 
   <section id="page-settings" class="page">
@@ -626,6 +646,21 @@
   <div class="modal-foot"><button class="text" onclick="closeModal('mnAiModal')">キャンセル</button><button class="primary" onclick="applyMnAi()">この内容で反映</button></div>
 </div></div>
 
+<!-- 確認・依頼 メール文モーダル -->
+<div class="modal-bg" id="kakuninMailModal"><div class="modal wide">
+  <div class="modal-head"><h3 id="kkMailTitle">連絡メール文</h3><button class="icon x" onclick="closeModal('kakuninMailModal')">✕</button></div>
+  <div class="modal-body">
+    <div class="hint" style="margin-bottom:10px">未対応・連絡中の項目から文面を作成しました。修正のうえコピー、またはメールソフトで開いてください。「送信済みにする」で対象を「連絡済」に更新します。</div>
+    <div class="field full"><textarea id="kkMailBody" rows="14"></textarea></div>
+  </div>
+  <div class="modal-foot">
+    <button onclick="kkAiPolishMail()">🪄 AIで整える</button>
+    <button onclick="kkCopyMail()">📋 コピー</button>
+    <button id="kkMailtoBtn" onclick="kkOpenMailto()">✉ メールソフトで開く</button>
+    <button class="primary" onclick="kkMarkNotified()">送信済みにする（連絡済へ）</button>
+  </div>
+</div></div>
+
 <!-- 議事録まとめモーダル -->
 <div class="modal-bg" id="summaryModal"><div class="modal wide">
   <div class="modal-head"><h3 id="summaryModalTitle">議事録まとめ</h3><button class="icon x" onclick="closeModal('summaryModal')">✕</button></div>
@@ -753,7 +788,8 @@ function refreshAll(){ renderDashboard(); renderClients(); renderFiling(); rende
 function showPage(p){ document.querySelectorAll('.page').forEach(s=>s.classList.remove('active')); document.getElementById('page-'+p).classList.add('active'); document.querySelectorAll('[data-page]').forEach(a=>a.classList.toggle('active',a.dataset.page===p));
   if(MODULES.some(m=>m.key===p)) renderModule(p);
   else if(p==='gensen') renderGensen(); else if(p==='nencho') renderNencho(); else if(p==='analysis') renderAnalysis();
-  else if(p==='monthly') renderMonthly(); else if(p==='sonota') renderCustom('sonota'); else if(p==='docs') renderCustom('docs'); }
+  else if(p==='monthly') renderMonthly(); else if(p==='sonota') renderCustom('sonota'); else if(p==='docs') renderCustom('docs');
+  else if(p==='kakunin'){ populateClientSelects(); kkOnClientChange(); } }
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 let toastTimer=null;
@@ -771,6 +807,7 @@ function populateClientSelects(){
   const el=document.getElementById('mn_client'); if(el){ const c=el.value; el.innerHTML=opt; el.value=c; }
   const all='<option value="">全顧問先</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const fe=document.getElementById('minFilterClient'); if(fe){ const c=fe.value; fe.innerHTML=all; fe.value=c; }
+  const ke=document.getElementById('kkFilterClient'); if(ke){ const c=ke.value; ke.innerHTML='<option value="">顧問先を選択</option>'+data.clients.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''); ke.value=c; }
 }
 function initMonthSelects(){ document.getElementById('cl_fiscal').innerHTML='<option value=""></option>'+MONTHS.map(m=>`<option>${m}</option>`).join('');
   const pd=document.getElementById('cl_payDay'); if(pd)pd.innerHTML='<option value=""></option>'+Array.from({length:31},(_,i)=>`<option value="${i+1}">${i+1}日</option>`).join('')+'<option value="末日">末日</option>'; }
@@ -1966,6 +2003,47 @@ function renderMinutes(){ const fc=document.getElementById('minFilterClient').va
       <td class="actions"><button class="text sm" onclick="openMinuteModal('${m.id}')">編集</button><button class="text sm danger" onclick="deleteMinute('${m.id}')">削除</button></td></tr>`).join('')+`</tbody></table>`; }
 // 顧問先一覧の各行から、その顧問先で絞り込んだ議事録ページを開く
 function openClientMinutes(cid){ showPage('minutes'); const sel=document.getElementById('minFilterClient'); if(sel){ if(!Array.from(sel.options).some(o=>o.value===cid)) populateClientSelects(); sel.value=cid; } const sq=document.getElementById('minSearch'); if(sq) sq.value=''; renderMinutes(); }
+
+/* ===== 確認・依頼メモ（顧問先ごと・仕訳作成と共有。Firebaseノード kakunin/{key}） ===== */
+// キーは shiwakeClientId（仕訳作成と共有）優先。無ければ komon内部ID。
+function kakuninKey(c){ return (c && (c.shiwakeClientId||c.id))||''; }
+let kkItems=[]; let kkCid='';
+async function kkRef(){ const core=_core(); if(!core||!core.hasRoom())return null; const c=clientById(kkCid); if(!c)return null; const db=await core.getDb(); const F=core.dbfns; return { F, ref:F.ref(db, await core.modulePath('kakunin', kakuninKey(c))) }; }
+async function kkLoad(){ kkItems=[]; const h=await kkRef(); if(h){ try{ const s=await h.F.get(h.ref); const v=(s&&s.exists()&&s.val())||[]; kkItems=Array.isArray(v)?v.filter(Boolean):Object.values(v); }catch(e){} } renderKakunin(); }
+async function kkPersist(){ const h=await kkRef(); if(h){ try{ await h.F.set(h.ref, kkItems); }catch(e){ toast('保存に失敗しました','err'); } } }
+function kkOnClientChange(){ const sel=document.getElementById('kkFilterClient'); kkCid=sel?sel.value:''; const w=document.getElementById('kkAddWrap'); if(w)w.style.display=kkCid?'':'none'; if(kkCid) kkLoad(); else { kkItems=[]; renderKakunin(); } }
+const KK_KIND={確認:{l:'確認',c:'#b4690e',bg:'#fff4e5'},質問:{l:'質問',c:'#1a56db',bg:'#e8f0fe'},資料:{l:'資料請求',c:'#0f7b3f',bg:'#e6f4ea'}};
+const KK_ST={open:'未対応',sent:'連絡済',done:'解決'};
+function renderKakunin(){ const el=document.getElementById('kkTable'); if(!el)return;
+  if(!kkCid){ el.innerHTML='<div class="empty">顧問先を選択してください。</div>'; return; }
+  const order={open:0,sent:1,done:2};
+  const items=kkItems.slice().sort((a,b)=>(order[a.status]-order[b.status])||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  if(!items.length){ el.innerHTML='<div class="empty"><div class="big">📝</div>まだ項目がありません。上の欄から追加してください。</div>'; return; }
+  el.innerHTML='<table><thead><tr><th style="width:84px">種別</th><th>内容</th><th style="width:104px">状態</th><th style="width:96px">気づいた日</th><th style="width:70px"></th></tr></thead><tbody>'+
+    items.map(it=>{ const k=KK_KIND[it.kind]||KK_KIND['確認']; const done=it.status==='done';
+      return `<tr${done?' style="opacity:.5"':''}><td><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:${k.c};background:${k.bg}">${k.l}</span></td>`+
+      `<td style="white-space:normal">${esc(it.text||'')}</td>`+
+      `<td><select onchange="kkSetStatus('${it.id}',this.value)" style="font-size:12px;padding:2px 4px">`+Object.keys(KK_ST).map(s=>`<option value="${s}"${it.status===s?' selected':''}>${KK_ST[s]}</option>`).join('')+`</select></td>`+
+      `<td class="muted" style="font-size:12px">${esc(it.createdAt||'')}</td>`+
+      `<td class="actions"><button class="text sm danger" onclick="kkDelete('${it.id}')">削除</button></td></tr>`; }).join('')+'</tbody></table>';
+}
+async function kkAdd(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } const ti=document.getElementById('kk_text'); const t=ti.value.trim(); if(!t){ toast('内容を入力してください','err'); return; } const kind=document.getElementById('kk_kind').value; kkItems.push({id:uid(),kind,text:t,status:'open',createdAt:todayISO()}); ti.value=''; ti.focus(); renderKakunin(); await kkPersist(); toast('追加しました','ok'); }
+async function kkSetStatus(id,st){ const it=kkItems.find(x=>x.id===id); if(it){ it.status=st; renderKakunin(); await kkPersist(); } }
+async function kkDelete(id){ if(!confirm('この項目を削除しますか？'))return; kkItems=kkItems.filter(x=>x.id!==id); renderKakunin(); await kkPersist(); }
+function kkOpenItems(){ return kkItems.filter(it=>it.status!=='done'); }
+function kkBuildMail(){ const c=clientById(kkCid); const nm=c?c.name:''; const open=kkOpenItems();
+  const confirmItems=open.filter(it=>it.kind!=='資料'); const docItems=open.filter(it=>it.kind==='資料');
+  let b=`${nm} 様\n\nいつもお世話になっております。\n月次の処理にあたり、下記についてご確認・ご対応をお願いできますでしょうか。\n`;
+  if(confirmItems.length) b+='\n【ご確認・ご質問】\n'+confirmItems.map(it=>'・'+it.text).join('\n')+'\n';
+  if(docItems.length) b+='\n【ご送付・ご準備をお願いしたい資料】\n'+docItems.map(it=>'・'+it.text).join('\n')+'\n';
+  b+='\nお忙しいところ恐れ入りますが、よろしくお願いいたします。';
+  return b;
+}
+function kkComposeMail(){ if(!kkCid){ toast('顧問先を選択してください','err'); return; } if(!kkOpenItems().length){ toast('未対応・連絡中の項目がありません','err'); return; } const c=clientById(kkCid); document.getElementById('kkMailTitle').textContent='連絡メール文　'+(c?c.name:''); document.getElementById('kkMailBody').value=kkBuildMail(); const mb=document.getElementById('kkMailtoBtn'); if(mb)mb.style.display=(c&&c.email)?'':'none'; openModal('kakuninMailModal'); }
+async function kkAiPolishMail(){ const ta=document.getElementById('kkMailBody'); const src=ta.value.trim(); if(!src)return; toast('AIが整えています…'); try{ const out=await callAI('あなたは税理士事務所の担当者です。顧問先へ送る確認・依頼メールの下書きを、内容・項目を一切増減させず、丁寧で分かりやすい日本語に整えます。箇条書きの項目はそのまま残し、宛名と結びの体裁を整える程度にします。出力は本文のみ。', src, 1500); if(out)ta.value=out; toast('整えました','ok'); }catch(e){ toast(e.message||'AI整形に失敗しました','err'); } }
+function kkCopyMail(){ const ta=document.getElementById('kkMailBody'); ta.select(); try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} } toast('コピーしました','ok'); }
+function kkOpenMailto(){ const c=clientById(kkCid); if(!c||!c.email){ toast('この顧問先にメールアドレスが未登録です','err'); return; } const subj='【'+(c.name||'')+'様】ご確認・ご依頼のお願い'; const body=document.getElementById('kkMailBody').value; window.location.href='mailto:'+encodeURIComponent(c.email)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body); }
+async function kkMarkNotified(){ let n=0; kkItems.forEach(it=>{ if(it.status==='open'){ it.status='sent'; n++; } }); renderKakunin(); await kkPersist(); closeModal('kakuninMailModal'); toast(n?`${n}件を「連絡済」にしました`:'更新しました','ok'); }
 
 /* ===== 仕訳作成・相続管理 への自動連携（利用/未利用） =====
    顧問先で「利用」にすると、その顧問先を各モジュールへ自動登録する。

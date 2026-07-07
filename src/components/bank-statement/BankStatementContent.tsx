@@ -20,6 +20,7 @@ import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
 import GlobalNav from '@/core/ui/GlobalNav'
 import BackupButton from '@/components/bank-statement/BackupButton'
+import KakuninQuickAdd from '@/components/bank-statement/KakuninQuickAdd'
 import FirebaseRoomDialog from '@/components/bank-statement/FirebaseRoomDialog'
 import HeaderMenuDropdown from '@/components/bank-statement/HeaderMenuDropdown'
 import { hasRoom, testFirebaseConnection, startFirebaseSync, stopFirebaseSync, startClientsSync, stopClientsSync } from '@/lib/bank-statement/firebase-sync'
@@ -1400,6 +1401,8 @@ export default function BankStatementContent() {
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {/* 会計入力中に顧問先へ確認・依頼をメモ（顧問先情報の「確認・依頼」に集約） */}
+          {selectedClient && <KakuninQuickAdd clientId={selectedClient.id} clientName={selectedClient.name} />}
           {/* バックアップ（全データZIP出力・復元）＋前回バックアップ日 */}
           <BackupButton />
           {/* リアルタイム共有（Firebase 合言葉） */}
