@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { PayrollData, PayrollLedger, AccountItem, SubAccountItem, JournalEntry, AccountTaxItem } from '@/lib/bank-statement/types'
 import type { LedgerDateRule } from '@/lib/bank-statement/payroll-ledger-mapper'
+import type { PayrollGenerateOptions } from '@/lib/bank-statement/payroll-mapper'
 
 // 賃金台帳の学習データ（localStorage）
 interface PayrollSettings {
@@ -11,6 +12,9 @@ interface PayrollSettings {
   bankName: string
   bankSubCode: string
   bankSubName: string
+  salaryIndividual?: boolean
+  perPersonItems?: string[]
+  perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
 }
 
 function getPayrollSettingsKey(): string {
@@ -35,7 +39,7 @@ interface Props {
   accountMaster: AccountItem[]
   subAccountMaster: SubAccountItem[]
   accountTaxMaster?: AccountTaxItem[]
-  onGenerate: (data: PayrollData, bankCode: string, bankName: string, deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>, bankSubCode?: string, bankSubName?: string) => void
+  onGenerate: (data: PayrollData, bankCode: string, bankName: string, deductionAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>, bankSubCode?: string, bankSubName?: string, options?: PayrollGenerateOptions) => void
   onGenerateEntries?: (entries: JournalEntry[], info: string) => void
 }
 
@@ -60,6 +64,12 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [resSub, setResSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState('')
+  // 給与手当を個人別明細にするか（既定＝合計）
+  const [salaryIndividual, setSalaryIndividual] = useState(false)
+  // 補助科目ごと（個人別）に計上する控除項目
+  const [perPersonItems, setPerPersonItems] = useState<Set<string>>(new Set())
+  // 控除項目 → 従業員名 → 補助科目
+  const [perPersonSubs, setPerPersonSubs] = useState<Record<string, Record<string, { subCode: string; subName: string }>>>({})
 
   // ダイアログを開く度にテキストと解析結果をリセット
   useEffect(() => {
@@ -80,6 +90,9 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       setBankName(saved.bankName || '')
       setBankSubCode(saved.bankSubCode || '')
       setBankSubName(saved.bankSubName || '')
+      setSalaryIndividual(!!saved.salaryIndividual)
+      setPerPersonItems(new Set(saved.perPersonItems || []))
+      setPerPersonSubs(saved.perPersonSubs || {})
     }
   }, [])
 
@@ -239,6 +252,13 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     setAccounts((prev) => ({ ...prev, [itemName]: { ...prev[itemName], subCode, subName } }))
   }
 
+  const togglePerPerson = (item: string) => {
+    setPerPersonItems((prev) => { const n = new Set(prev); if (n.has(item)) n.delete(item); else n.add(item); return n })
+  }
+  const setPersonSub = (item: string, empName: string, subCode: string, subName: string) => {
+    setPerPersonSubs((prev) => ({ ...prev, [item]: { ...(prev[item] || {}), [empName]: { subCode, subName } } }))
+  }
+
   const renderAccountInput = (name: string) => {
     const acc = accounts[name]
     const subs = acc?.code ? subAccountMaster.filter((s) => s.parentCode === acc.code) : []
@@ -263,13 +283,24 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const handleGenerate = () => {
     if (!parsed || !bankCode) return
     const allAccounts = { ...accounts }
+    // 「補助科目ごと（個人別）」に指定された控除項目だけを options.perPersonSubs に渡す
+    const ppSubs: Record<string, Record<string, { subCode: string; subName: string }>> = {}
+    for (const h of Array.from(perPersonItems)) {
+      if (accounts[h]?.code) ppSubs[h] = perPersonSubs[h] || {}
+    }
     // 学習データを保存
     savePayrollSettings({
       executiveNames: parsed.employees.filter((e) => e.isExecutive).map((e) => e.name),
       itemAccounts: allAccounts,
       bankCode, bankName, bankSubCode, bankSubName,
+      salaryIndividual,
+      perPersonItems: Array.from(perPersonItems),
+      perPersonSubs,
     })
-    onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined)
+    onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, {
+      salaryIndividual,
+      perPersonSubs: ppSubs,
+    })
     onClose()
   }
 
@@ -323,7 +354,10 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
           <div className="px-6 py-4 space-y-5">
             {/* メタ情報 */}
             <div className="flex gap-6 text-sm items-center flex-wrap">
-              <span><b>期間:</b> {parsed.period || '—'}</span>
+              <label className="flex items-center gap-1"><b>期間:</b>
+                <input type="text" value={parsed.period || ''} onChange={(e) => setParsed({ ...parsed, period: e.target.value })}
+                  className="px-2 py-1 border rounded text-sm w-32" placeholder="例: 2025-09" title="仕訳の摘要に入ります" />
+              </label>
               <label className="flex items-center gap-1"><b>支給日:</b>
                 <input type="date" value={parsed.paymentDate || ''} onChange={(e) => setParsed({ ...parsed, paymentDate: e.target.value })}
                   className="px-2 py-1 border rounded text-sm" />
@@ -388,6 +422,9 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                     <div className="text-xs font-bold text-blue-700">給与手当</div>
                     <div className="text-xs text-gray-500">¥{employeeTotal.toLocaleString()}</div>
                     {renderAccountInput('給与手当')}
+                    <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600 cursor-pointer" title="ONで従業員ごとの明細行（摘要に氏名）。OFFで合計1行">
+                      <input type="checkbox" checked={salaryIndividual} onChange={(e) => setSalaryIndividual(e.target.checked)} />個人別に明細
+                    </label>
                   </div>
                 </div>
               </div>
@@ -399,15 +436,51 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                   {parsed.deductHeaders.map((h) => {
                     const total = itemTotals.get(h) || 0
                     if (total === 0 && h !== '控除合計額') return null
+                    const acc = accounts[h]
+                    const hasSubs = acc?.code ? subAccountMaster.some((s) => s.parentCode === acc.code) : false
                     return (
                       <div key={h}>
                         <div className="text-xs font-bold">{h}</div>
                         <div className="text-xs text-gray-500">¥{total.toLocaleString()}</div>
                         {renderAccountInput(h)}
+                        {hasSubs && (
+                          <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600 cursor-pointer" title="ONで、金額のある従業員ごとに補助科目を割り当てて個別計上（天引き貯蓄など会社独自の項目向け）">
+                            <input type="checkbox" checked={perPersonItems.has(h)} onChange={() => togglePerPerson(h)} />補助を個人別
+                          </label>
+                        )}
                       </div>
                     )
                   })}
                 </div>
+
+                {/* 補助科目ごと（個人別）の割り当てパネル */}
+                {Array.from(perPersonItems).filter((h) => accounts[h]?.code && parsed.deductHeaders.includes(h)).map((h) => {
+                  const subs = subAccountMaster.filter((s) => s.parentCode === accounts[h].code)
+                  const emps = parsed.employees.filter((e) => (e.items.find((i) => i.name === h)?.amount || 0) > 0)
+                  return (
+                    <div key={h} className="mt-3 p-3 bg-white rounded-lg border border-red-300">
+                      <div className="text-sm font-bold text-red-800 mb-2">「{h}」を補助科目ごとに個別計上（{emps.length}名）</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-1.5">
+                        {emps.map((e) => {
+                          const amt = e.items.find((i) => i.name === h)?.amount || 0
+                          const cur = perPersonSubs[h]?.[e.name]
+                          return (
+                            <div key={e.name} className="flex items-center gap-2 text-xs">
+                              <span className="min-w-[72px] truncate">{e.name}</span>
+                              <span className="text-gray-500 tabular-nums w-16 text-right">¥{amt.toLocaleString()}</span>
+                              <select value={cur?.subCode || ''} onChange={(ev) => { const s = subs.find((x) => x.subCode === ev.target.value); setPersonSub(h, e.name, ev.target.value, s?.shortName || s?.name || '') }}
+                                className="px-1 py-1 border rounded flex-1 min-w-0">
+                                <option value="">補助科目を選択</option>
+                                {subs.map((s) => <option key={s.subCode} value={s.subCode}>{s.shortName || s.name}</option>)}
+                              </select>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="text-[11px] text-gray-400 mt-1">※ 補助科目未選択の人は、上の「{h}」で選んだ補助科目（既定）で計上されます。</div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
 

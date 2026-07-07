@@ -5,6 +5,13 @@ interface ItemAccount {
   code: string; name: string; subCode?: string; subName?: string
 }
 
+export interface PayrollGenerateOptions {
+  // 給与手当を従業員ごとの明細行にする（既定＝合計1行）
+  salaryIndividual?: boolean
+  // 控除項目を「補助科目ごと（個人別）」で計上する。{ 項目名: { 従業員名: {subCode, subName} } }
+  perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
+}
+
 export function payrollToEntries(
   data: PayrollData,
   bankAccountCode: string,
@@ -13,6 +20,7 @@ export function payrollToEntries(
   bankSubCode?: string,
   bankSubName?: string,
   accountTaxMaster?: AccountTaxItem[],
+  options?: PayrollGenerateOptions,
 ): JournalEntry[] {
   const date = data.paymentDate.replace(/-/g, '')
   const isBonus = data.period.includes('賞与')
@@ -42,13 +50,22 @@ export function payrollToEntries(
     }
   }
 
-  // 給与手当（借方）
+  // 給与手当（借方）— 既定は合計1行。options.salaryIndividual で従業員ごとの明細行に
   const empAcc = itemAccounts['給与手当']
   if (empAcc?.code) {
-    const empTotal = data.employees.filter((e) => !e.isExecutive)
-      .reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
-    if (empTotal > 0) {
-      lines.push({ name: '給与手当', amount: empTotal, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
+    const emps = data.employees.filter((e) => !e.isExecutive)
+    if (options?.salaryIndividual) {
+      for (const e of emps) {
+        const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
+        if (amt > 0) {
+          lines.push({ name: `給与手当 ${e.name}`, amount: amt, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
+        }
+      }
+    } else {
+      const empTotal = emps.reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
+      if (empTotal > 0) {
+        lines.push({ name: '給与手当', amount: empTotal, isDebit: true, code: empAcc.code, accName: empAcc.name, subCode: empAcc.subCode || '', subName: empAcc.subName || '' })
+      }
     }
   }
 
@@ -69,12 +86,23 @@ export function payrollToEntries(
   for (const h of data.deductHeaders) {
     const acc = itemAccounts[h]
     if (!acc?.code) continue
-    let total = 0
-    for (const emp of data.employees) {
-      total += emp.items.find((i) => i.name === h)?.amount || 0
-    }
-    if (total > 0) {
-      lines.push({ name: h, amount: total, isDebit: false, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+    const perPerson = options?.perPersonSubs?.[h]
+    if (perPerson) {
+      // 補助科目ごと（個人別）：金額がある従業員だけ、各人の補助科目で1行ずつ（摘要に氏名）
+      for (const emp of data.employees) {
+        const amt = emp.items.find((i) => i.name === h)?.amount || 0
+        if (amt <= 0) continue
+        const sub = perPerson[emp.name] || { subCode: acc.subCode || '', subName: acc.subName || '' }
+        lines.push({ name: `${h} ${emp.name}`, amount: amt, isDebit: false, code: acc.code, accName: acc.name, subCode: sub.subCode || '', subName: sub.subName || '' })
+      }
+    } else {
+      let total = 0
+      for (const emp of data.employees) {
+        total += emp.items.find((i) => i.name === h)?.amount || 0
+      }
+      if (total > 0) {
+        lines.push({ name: h, amount: total, isDebit: false, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+      }
     }
   }
 
