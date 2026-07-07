@@ -1,4 +1,47 @@
 import type { PayrollData, PayrollEmployee, PayrollLedger, PayrollLedgerEmployee, PayrollLedgerMonth } from './types'
+import type { PayrollSummaryOcr } from './gemini-client'
+
+/** 令和などの和暦「令和7年8月」→ 既定の支給日（月末日 YYYY-MM-DD）を推定 */
+function periodToDefaultPayDate(period: string): string {
+  const m = (period || '').match(/(令和|平成|R|H)?\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月/)
+  if (!m) return ''
+  const era = m[1] || '令和'
+  const y = parseInt(m[2], 10), mo = parseInt(m[3], 10)
+  if (!y || !mo) return ''
+  const base = era === '平成' || era === 'H' ? 1988 : 2018 // 令和1=2019 → 2018+年
+  const gy = base + y
+  const last = new Date(gy, mo, 0).getDate() // 当月末日
+  return `${gy}-${String(mo).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+}
+
+/** 給与明細一覧表OCR結果 → PayrollData（貼り付け解析と同じ構造） */
+export function payrollOcrToData(r: PayrollSummaryOcr): PayrollData {
+  const payHeaders = (r.payItemOrder || []).filter(Boolean)
+  const deductHeaders = (r.deductItemOrder || []).filter(Boolean)
+  const employees: PayrollEmployee[] = (r.employees || [])
+    .map((e, idx) => {
+      const payMap = new Map<string, number>()
+      for (const p of e.pay || []) payMap.set(norm(p.item), toNum(p.amount))
+      const dedMap = new Map<string, number>()
+      for (const p of e.deduct || []) dedMap.set(norm(p.item), toNum(p.amount))
+      const items = [
+        ...payHeaders.map((h) => ({ name: h, amount: payMap.get(norm(h)) ?? 0 })),
+        ...deductHeaders.map((h) => ({ name: h, amount: dedMap.get(norm(h)) ?? 0 })),
+      ]
+      const totalPay = toNum(e.totalPay) || items.find((i) => norm(i.name) === norm('支給合計額'))?.amount || 0
+      const totalDeductions = toNum(e.totalDeductions) || items.find((i) => norm(i.name) === norm('控除合計額'))?.amount || 0
+      const netPay = toNum(e.netPay) || items.find((i) => norm(i.name) === norm('差引支給額'))?.amount || (totalPay - totalDeductions)
+      return { no: Number(e.no) || idx + 1, name: String(e.name || '').trim(), isExecutive: false, items, totalPay, totalDeductions, netPay }
+    })
+    .filter((e) => e.name && !/^(合計|計|総合計)$/.test(e.name))
+  return {
+    period: String(r.period || ''),
+    paymentDate: r.paymentDate && /\d{4}-\d{2}-\d{2}/.test(r.paymentDate) ? r.paymentDate : periodToDefaultPayDate(r.period),
+    companyName: String(r.companyName || ''),
+    employeeCount: employees.length,
+    employees, payHeaders, deductHeaders,
+  }
+}
 
 // ===== 年間・従業員別シート・月列形式の賃金台帳 =====
 const Z2H = (s: string) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))

@@ -483,6 +483,100 @@ function imagesToParts(images: string[]): any[] {
 }
 
 // ============================================================
+// 給与明細一覧表（賃金台帳）OCR … 列＝従業員 / 行＝項目 の表
+// ============================================================
+
+export interface PayrollSummaryOcr {
+  period: string
+  paymentDate: string
+  companyName: string
+  payItemOrder: string[]
+  deductItemOrder: string[]
+  employees: {
+    no?: number
+    name: string
+    totalPay?: number
+    totalDeductions?: number
+    netPay?: number
+    pay: { item: string; amount: number }[]
+    deduct: { item: string; amount: number }[]
+  }[]
+}
+
+const PAYROLL_SUMMARY_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    period: { type: SchemaType.STRING },
+    paymentDate: { type: SchemaType.STRING },
+    companyName: { type: SchemaType.STRING },
+    payItemOrder: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    deductItemOrder: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    employees: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          no: { type: SchemaType.NUMBER },
+          name: { type: SchemaType.STRING },
+          totalPay: { type: SchemaType.NUMBER },
+          totalDeductions: { type: SchemaType.NUMBER },
+          netPay: { type: SchemaType.NUMBER },
+          pay: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.OBJECT, properties: { item: { type: SchemaType.STRING }, amount: { type: SchemaType.NUMBER } }, required: ['item', 'amount'] },
+          },
+          deduct: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.OBJECT, properties: { item: { type: SchemaType.STRING }, amount: { type: SchemaType.NUMBER } }, required: ['item', 'amount'] },
+          },
+        },
+        required: ['name', 'pay', 'deduct'],
+      },
+    },
+  },
+  required: ['employees'],
+}
+
+const PROMPT_PAYROLL_SUMMARY = `この画像は「給与明細一覧表（賃金台帳）」です。多くの場合、列が従業員（一人一列）、行が項目の表になっています。次を正確に抽出してJSONで返してください。
+
+- period: 表題の対象期間（例「令和7年8月」）。読み取れなければ空文字。
+- paymentDate: 支給日・支払日が記載されていれば YYYY-MM-DD。無ければ空文字。
+- companyName: 会社名（無ければ空文字）。
+- payItemOrder: 【支給項目】の行見出しを、上から現れる順に配列で。基本給・各種手当に加え「支給合計額」「非課税額」「課税分合計」も含める。勤怠項目（出勤日数・欠勤日数・有休日数・労働時間・残業時間・深夜労働時間・休日労働時間 等）は絶対に含めない。
+- deductItemOrder: 【控除項目】の行見出しを、上から現れる順に配列で。健康保険料・厚生年金・雇用保険料・所得税・住民税 等に加え「控除合計額」「差引支給額」も含める。
+- employees: 従業員（各列）ごとに次のオブジェクト。
+  - no: 列番号または社員コード（数値。無ければ通し番号）
+  - name: 氏名
+  - pay: 支給項目の [{item, amount}]（payItemOrder の各項目の金額）
+  - deduct: 控除項目の [{item, amount}]（deductItemOrder の各項目の金額）
+  - totalPay: 支給合計額、totalDeductions: 控除合計額、netPay: 差引支給額
+
+【注意】
+- 金額はカンマ・円記号・空白を除いた数値のみ。空欄は 0。
+- 「計」「合計」「総合計」など従業員でない集計列は employees に含めない。
+- 項目名は表記どおり（例「厚生年金等」）に。同じ項目名は payItemOrder / deductItemOrder と employees で一致させる。
+JSONのみを出力してください。`
+
+export async function payrollSummaryOcr(images: string[], geminiModel?: string): Promise<PayrollSummaryOcr> {
+  if (!images || images.length === 0) throw new Error('画像データがありません')
+  const model = gm({ model: resolveModel(geminiModel), generationConfig: { temperature: 0, maxOutputTokens: 32000, responseMimeType: 'application/json', responseSchema: PAYROLL_SUMMARY_SCHEMA } })
+  const parts = imagesToParts(images)
+  const result = await model.generateContent([PROMPT_PAYROLL_SUMMARY, ...parts])
+  const text = result.response.text()
+  const m = text.match(/\{[\s\S]*\}/)
+  if (!m) throw new Error('給与明細一覧表を読み取れませんでした')
+  const j = JSON.parse(m[0])
+  return {
+    period: String(j.period || ''),
+    paymentDate: String(j.paymentDate || ''),
+    companyName: String(j.companyName || ''),
+    payItemOrder: Array.isArray(j.payItemOrder) ? j.payItemOrder.map((s: unknown) => String(s)).filter(Boolean) : [],
+    deductItemOrder: Array.isArray(j.deductItemOrder) ? j.deductItemOrder.map((s: unknown) => String(s)).filter(Boolean) : [],
+    employees: Array.isArray(j.employees) ? j.employees : [],
+  }
+}
+
+// ============================================================
 // クレジットカード明細 OCR … 旧 /api/bank-statement/credit-card
 // ============================================================
 

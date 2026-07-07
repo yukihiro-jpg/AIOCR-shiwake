@@ -59,6 +59,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [incSub, setIncSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
   const [resSub, setResSub] = useState<{ code: string; name: string }>({ code: '', name: '' })
   const [dragOver, setDragOver] = useState(false)
+  const [busy, setBusy] = useState('')
 
   // ダイアログを開く度にテキストと解析結果をリセット
   useEffect(() => {
@@ -139,8 +140,27 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const processFile = async (file: File) => {
     setError('')
     const lower = file.name.toLowerCase()
+    // PDF：給与明細一覧表（列＝従業員/行＝項目）を Gemini でOCR → PayrollData
+    if (lower.endsWith('.pdf') || file.type === 'application/pdf') {
+      try {
+        setBusy('PDFを画像化しています…')
+        const { renderAllPdfPages } = await import('@/lib/bank-statement/pdf-text-parser')
+        const images = await renderAllPdfPages(file, 2)
+        setBusy(`給与明細一覧表を解析しています…（${images.length}ページ）`)
+        const model = (typeof window !== 'undefined' && localStorage.getItem('bs-gemini-model')) || undefined
+        const { payrollSummaryOcr } = await import('@/lib/bank-statement/gemini-client')
+        const raw = await payrollSummaryOcr(images, model || undefined)
+        const { payrollOcrToData } = await import('@/lib/bank-statement/payroll-parser')
+        const data = payrollOcrToData(raw)
+        if (data.employees.length === 0) throw new Error('従業員データを読み取れませんでした。PDFの向き・解像度をご確認ください。')
+        setParsed(data)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'PDFの解析に失敗しました')
+      } finally { setBusy('') }
+      return
+    }
     if (!(lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv'))) {
-      setError('Excel（.xlsx / .xls）または .csv ファイルを選択してください'); return
+      setError('PDF・Excel（.xlsx / .xls）・.csv のいずれかを選択してください'); return
     }
     try {
       const mod = await import('@/lib/bank-statement/payroll-parser')
@@ -274,7 +294,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
               <button onClick={() => setMode('paste')} className={`px-3 py-1.5 text-sm rounded ${mode === 'paste' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>テキスト貼り付け</button>
               <button onClick={() => setMode('file')} className={`px-3 py-1.5 text-sm rounded ${mode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>ファイル選択</button>
             </div>
-            <div className="text-[11px] text-gray-500">※ 従業員別シート・月列形式の「年間賃金台帳」Excelを選ぶと、人別×月別の複合仕訳を作成します。</div>
+            <div className="text-[11px] text-gray-500">※ 給与明細一覧表の<b>PDF</b>も取り込めます（列＝従業員／行＝項目の表をAIで読み取り）。従業員別シート・月列形式の「年間賃金台帳」Excelは人別×月別の複合仕訳を作成します。</div>
+            {busy && <div className="text-sm text-blue-700 bg-blue-50 p-2 rounded flex items-center gap-2"><span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></span>{busy}</div>}
             {mode === 'paste' ? (
               <>
                 <div className="text-xs text-gray-600">Excelの給与明細一覧表をコピーして貼り付けてください</div>
@@ -292,8 +313,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                 className={`flex flex-col items-center justify-center gap-2 w-full py-10 px-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}`}>
                 <div className="text-3xl">📥</div>
                 <div className="text-sm text-gray-700 font-medium">ここに賃金台帳ファイルをドラッグ&ドロップ</div>
-                <div className="text-xs text-gray-500">またはクリックして選択（.xlsx / .xls / .csv）</div>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+                <div className="text-xs text-gray-500">またはクリックして選択（.pdf / .xlsx / .xls / .csv）</div>
+                <input type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
               </label>
             )}
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
@@ -301,10 +322,13 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
         ) : (
           <div className="px-6 py-4 space-y-5">
             {/* メタ情報 */}
-            <div className="flex gap-6 text-sm">
-              <span><b>期間:</b> {parsed.period}</span>
-              <span><b>支給日:</b> {parsed.paymentDate}</span>
-              <span><b>会社:</b> {parsed.companyName}</span>
+            <div className="flex gap-6 text-sm items-center flex-wrap">
+              <span><b>期間:</b> {parsed.period || '—'}</span>
+              <label className="flex items-center gap-1"><b>支給日:</b>
+                <input type="date" value={parsed.paymentDate || ''} onChange={(e) => setParsed({ ...parsed, paymentDate: e.target.value })}
+                  className="px-2 py-1 border rounded text-sm" />
+              </label>
+              <span><b>会社:</b> {parsed.companyName || '—'}</span>
               <span><b>人数:</b> {parsed.employees.length}名</span>
             </div>
 

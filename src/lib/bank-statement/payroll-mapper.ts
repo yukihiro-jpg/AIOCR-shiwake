@@ -31,13 +31,14 @@ export function payrollToEntries(
   // 科目設定済みの項目のみ仕訳化
   const lines: { name: string; amount: number; isDebit: boolean; code: string; accName: string; subCode: string; subName: string }[] = []
 
-  // 役員報酬（借方）
+  // 役員報酬（借方）— 役員は「一人ずつ個別の金額」で仕訳（摘要に氏名を入れる）
   const execAcc = itemAccounts['役員報酬']
   if (execAcc?.code) {
-    const execTotal = data.employees.filter((e) => e.isExecutive)
-      .reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
-    if (execTotal > 0) {
-      lines.push({ name: '役員報酬', amount: execTotal, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+    for (const e of data.employees.filter((x) => x.isExecutive)) {
+      const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
+      if (amt > 0) {
+        lines.push({ name: `役員報酬 ${e.name}`, amount: amt, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+      }
     }
   }
 
@@ -91,9 +92,11 @@ export function payrollToEntries(
   const entries: JournalEntry[] = []
   const parent = createBlankEntry()
   parent.date = date
-  parent.description = desc
-  parent.originalDescription = desc
   const first = lines[0]
+  // 先頭行が役員報酬（氏名付き）等の場合は摘要に反映
+  const parentDesc = first.name && first.name !== '差引支給額' ? `${desc} ${first.name}` : desc
+  parent.description = parentDesc
+  parent.originalDescription = parentDesc
   const firstTax = getTaxInfo(first.code)
   if (first.isDebit) {
     parent.debitCode = first.code; parent.debitName = first.accName
