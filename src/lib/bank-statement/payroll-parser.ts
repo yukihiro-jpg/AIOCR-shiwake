@@ -228,22 +228,29 @@ function parseByHeader(
     return -1
   }
   const nameIdx = find((h) => /^(氏名|名前|従業員名|社員名|従業員氏名)$/.test(h))
-  const basicIdx = find((h) => h === '基本給')
-  if (nameIdx < 0 || basicIdx < 0) return null
+  if (nameIdx < 0) return null
   const payTotalIdx = find((h) => h === '支給合計額' || h === '総支給額' || h === '支給合計')
   const taxableIdx = find((h) => h === '課税分合計' || h === '課税支給額' || h === '課税合計')
   const dedEndIdx = find((h) => h === '控除合計額' || h === '控除合計')
   const netIdx = find((h) => h === '差引支給額' || h === '差引支給' || h === '差引支給額計')
   const payDateIdx = find((h) => /支給日|支払日/.test(h))
   const noIdx = find((h) => /^(no|№|社員番号|従業員番号|社員コード|従業員コード|コード)$/i.test(h))
-  // 支給項目の末尾＝課税分合計（無ければ支給合計額）。控除開始＝その次にある最初の非空ヘッダ
+  // 支給項目の末尾＝課税分合計（無ければ支給合計額）
   const payEndAnchor = taxableIdx >= 0 ? taxableIdx : payTotalIdx
+  // 給与でも賞与でも扱えるよう、支給項目の開始＝「氏名」の次にある最初の非空ヘッダとする
+  // （給与＝基本給、賞与＝賞与 など。会社ごとの先頭列差にも強い）
+  let payStartIdx = -1
+  for (let i = nameIdx + 1; i < H.length; i++) { if (nz(H[i])) { payStartIdx = i; break } }
+  if (payStartIdx < 0) return null
+  // 賃金台帳として妥当か（支給合計/課税分合計・控除合計/差引支給額のいずれかが必要）
+  if (payEndAnchor < 0 && dedEndIdx < 0 && netIdx < 0) return null
+  const isBonus = /賞与|賞与額|一時金/.test(nz(H[payStartIdx])) || (find((h) => h === '基本給') < 0 && find((h) => /賞与/.test(h), nameIdx + 1) >= 0)
   let dedStartIdx = -1
-  const anchor = payEndAnchor >= 0 ? payEndAnchor : basicIdx
+  const anchor = payEndAnchor >= 0 ? payEndAnchor : payStartIdx
   for (let i = anchor + 1; i < H.length; i++) { if (nz(H[i]) && i !== payTotalIdx) { dedStartIdx = i; break } }
   const payEnd = payEndAnchor >= 0 ? payEndAnchor : (dedStartIdx >= 0 ? dedStartIdx - 1 : H.length - 1)
   const payCols: { name: string; idx: number }[] = []
-  for (let i = basicIdx; i <= payEnd && i < H.length; i++) { if (nz(H[i])) payCols.push({ name: H[i].trim(), idx: i }) }
+  for (let i = payStartIdx; i <= payEnd && i < H.length; i++) { if (nz(H[i])) payCols.push({ name: H[i].trim(), idx: i }) }
   const dedCols: { name: string; idx: number }[] = []
   if (dedStartIdx >= 0) {
     const end = dedEndIdx >= 0 ? dedEndIdx : H.length - 1
@@ -276,7 +283,7 @@ function parseByHeader(
 
   let period = meta.period
   if (!period && paymentDate) { const mm = paymentDate.match(/^(\d{4})-(\d{2})/); if (mm) period = `${mm[1]}-${mm[2]}` }
-  return { period, paymentDate, companyName: meta.companyName, employeeCount: employees.length, employees, payHeaders, deductHeaders }
+  return { period, paymentDate, companyName: meta.companyName, employeeCount: employees.length, employees, payHeaders, deductHeaders, isBonus }
 }
 
 function parsePayrollRows(rows: string[][]): PayrollData {

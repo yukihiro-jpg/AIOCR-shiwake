@@ -256,6 +256,7 @@ export interface PayrollData {
   employees: PayrollEmployee[]
   payHeaders: string[]
   deductHeaders: string[]
+  isBonus?: boolean // 賞与データ（摘要を「賞与」にする）
 }
 
 // 賃金台帳（年間・従業員別シート・月列形式）— 人別×月別に複合仕訳を作る

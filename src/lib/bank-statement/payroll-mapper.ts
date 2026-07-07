@@ -23,8 +23,9 @@ export function payrollToEntries(
   options?: PayrollGenerateOptions,
 ): JournalEntry[] {
   const date = data.paymentDate.replace(/-/g, '')
-  const isBonus = data.period.includes('賞与')
-  const desc = `${data.period} ${isBonus ? '賞与' : '給与'}`
+  const isBonus = !!data.isBonus || data.period.includes('賞与')
+  const suffix = isBonus ? '賞与' : '給与'
+  const desc = data.period.includes(suffix) ? data.period : `${data.period} ${suffix}`
   const SHOKUCHI = '997'
   const SHOKUCHI_NAME = '諸口'
 
