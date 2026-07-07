@@ -176,10 +176,107 @@ export async function parsePayrollFile(file: File): Promise<PayrollData> {
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   } catch {
-    text = new TextDecoder('shift_jis').decode(bytes)
+    text = new TextDecoder('shift_jis').decode(bytes) // 会計ソフトのCSVはShift-JISが多い
   }
-  const lines = text.split('\n').map((l) => l.replace(/\r$/, '').split(/\t/))
-  return parsePayrollRows(lines)
+  text = text.replace(/^﻿/, '')
+  const rawLines = text.split(/\r?\n/).filter((l) => l.length > 0)
+  // 区切り文字を自動判定（タブ or カンマ）。CSVはカンマ、貼り付け由来はタブ。
+  const sample = rawLines.find((l) => l.includes('基本給')) || rawLines[0] || ''
+  const useTab = sample.split('\t').length > sample.split(',').length
+  const rows = rawLines.map((l) => (useTab ? l.split('\t') : splitCsvLine(l)))
+  return parsePayrollRows(rows)
+}
+
+/** CSV1行を分割（ダブルクォート対応） */
+function splitCsvLine(line: string): string[] {
+  const cols: string[] = []
+  let field = ''
+  let inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (inQuote) {
+      if (c === '"') { if (line[i + 1] === '"') { field += '"'; i++ } else inQuote = false } else field += c
+    } else {
+      if (c === '"') inQuote = true
+      else if (c === ',') { cols.push(field); field = '' }
+      else field += c
+    }
+  }
+  cols.push(field)
+  return cols
+}
+
+/** 「2026/07/05」「2026-7-5」「令和8年7月5日」→ YYYY-MM-DD */
+function normPayDate(v: string): string {
+  const s = Z2H(String(v ?? '')).trim()
+  let m = s.match(/(\d{4})[/\-年.](\d{1,2})[/\-月.](\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  m = s.match(/令和(\d+)年(\d{1,2})月(\d{1,2})日/)
+  if (m) return `${2018 + parseInt(m[1], 10)}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  return ''
+}
+
+/** ヘッダ名から列位置を特定して解析（氏名ラベルがある一般的なCSV/Excel形式）。
+ *  条件を満たさなければ null を返し、従来の位置ベース解析にフォールバックする。 */
+function parseByHeader(
+  rows: string[][], detailRowIdx: number, H: string[],
+  meta: { period: string; paymentDate: string; companyName: string },
+): PayrollData | null {
+  const nz = (s: string) => (s || '').replace(/[\s　]/g, '')
+  const find = (pred: (h: string) => boolean, from = 0) => {
+    for (let i = from; i < H.length; i++) { if (H[i] && pred(nz(H[i]))) return i }
+    return -1
+  }
+  const nameIdx = find((h) => /^(氏名|名前|従業員名|社員名|従業員氏名)$/.test(h))
+  const basicIdx = find((h) => h === '基本給')
+  if (nameIdx < 0 || basicIdx < 0) return null
+  const payTotalIdx = find((h) => h === '支給合計額' || h === '総支給額' || h === '支給合計')
+  const taxableIdx = find((h) => h === '課税分合計' || h === '課税支給額' || h === '課税合計')
+  const dedEndIdx = find((h) => h === '控除合計額' || h === '控除合計')
+  const netIdx = find((h) => h === '差引支給額' || h === '差引支給' || h === '差引支給額計')
+  const payDateIdx = find((h) => /支給日|支払日/.test(h))
+  const noIdx = find((h) => /^(no|№|社員番号|従業員番号|社員コード|従業員コード|コード)$/i.test(h))
+  // 支給項目の末尾＝課税分合計（無ければ支給合計額）。控除開始＝その次にある最初の非空ヘッダ
+  const payEndAnchor = taxableIdx >= 0 ? taxableIdx : payTotalIdx
+  let dedStartIdx = -1
+  const anchor = payEndAnchor >= 0 ? payEndAnchor : basicIdx
+  for (let i = anchor + 1; i < H.length; i++) { if (nz(H[i]) && i !== payTotalIdx) { dedStartIdx = i; break } }
+  const payEnd = payEndAnchor >= 0 ? payEndAnchor : (dedStartIdx >= 0 ? dedStartIdx - 1 : H.length - 1)
+  const payCols: { name: string; idx: number }[] = []
+  for (let i = basicIdx; i <= payEnd && i < H.length; i++) { if (nz(H[i])) payCols.push({ name: H[i].trim(), idx: i }) }
+  const dedCols: { name: string; idx: number }[] = []
+  if (dedStartIdx >= 0) {
+    const end = dedEndIdx >= 0 ? dedEndIdx : H.length - 1
+    for (let i = dedStartIdx; i <= end && i < H.length; i++) { if (nz(H[i])) dedCols.push({ name: H[i].trim(), idx: i }) }
+  }
+  if (!payCols.length) return null
+
+  const payHeaders = payCols.map((c) => c.name)
+  const deductHeaders = dedCols.map((c) => c.name)
+  const employees: PayrollEmployee[] = []
+  let paymentDate = meta.paymentDate
+  for (let i = detailRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row) continue
+    const name = (row[nameIdx] || '').trim()
+    if (/^(合計|計|総合計|合計欄)$/.test(name)) break
+    if (!name) continue
+    const items = [
+      ...payCols.map((c) => ({ name: c.name, amount: parseNum(row[c.idx]) })),
+      ...dedCols.map((c) => ({ name: c.name, amount: parseNum(row[c.idx]) })),
+    ]
+    const totalPay = payTotalIdx >= 0 ? parseNum(row[payTotalIdx]) : 0
+    const totalDeductions = dedEndIdx >= 0 ? parseNum(row[dedEndIdx]) : 0
+    const netPay = netIdx >= 0 ? parseNum(row[netIdx]) : (totalPay - totalDeductions)
+    const no = noIdx >= 0 ? (parseInt((row[noIdx] || '').replace(/[^\d]/g, ''), 10) || employees.length + 1) : employees.length + 1
+    if (!paymentDate && payDateIdx >= 0) paymentDate = normPayDate(row[payDateIdx])
+    employees.push({ no, name, isExecutive: false, items, totalPay, totalDeductions, netPay })
+  }
+  if (!employees.length) return null
+
+  let period = meta.period
+  if (!period && paymentDate) { const mm = paymentDate.match(/^(\d{4})-(\d{2})/); if (mm) period = `${mm[1]}-${mm[2]}` }
+  return { period, paymentDate, companyName: meta.companyName, employeeCount: employees.length, employees, payHeaders, deductHeaders }
 }
 
 function parsePayrollRows(rows: string[][]): PayrollData {
@@ -221,6 +318,11 @@ function parsePayrollRows(rows: string[][]): PayrollData {
   if (detailRowIdx < 0) throw new Error('ヘッダ行（基本給/賞与）が見つかりません')
 
   const detailHeaders = rows[detailRowIdx].map((c) => c.trim())
+
+  // ヘッダ行に「氏名」ラベルがある形式（例: 給与,NO,従業員コード,氏名,基本給,…）は
+  // 列位置をヘッダ名から特定して解析する（会社ごとのヘッダ差・先頭メタ列に強い）。
+  const byHeader = parseByHeader(rows, detailRowIdx, detailHeaders, { period, paymentDate, companyName })
+  if (byHeader) return byHeader
 
   // 3. オフセットを計算
   // データ行のcol数 - ヘッダ行のcol数（NO+氏名の分）、または支給合計額の位置で検証
