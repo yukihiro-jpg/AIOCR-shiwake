@@ -711,10 +711,10 @@ function clientLink(c){ return `<b>${esc(c.code||'')}</b> <a class="link" onclic
 function yen(n){ return (n||0).toLocaleString('ja-JP')+'円'; }
 const MONTHS=[...Array(12)].map((_,i)=>(i+1)+'月');
 function wareki(y){ if(y>=2019)return '令和'+(y-2018)+'年'; if(y>=1989)return '平成'+(y-1988)+'年'; return y+'年'; }
-const DEFAULT_STEPS=['資料受取','会計入力','申告書作成','申告書チェック','申告書セット','押印・納付書','申告','返却用セット','返却'];
+const DEFAULT_STEPS=['資料受取','申告書作成','申告書チェック','申告書セット','押印・納付書','申告','返却用セット','返却'];
 function migrateFilingSteps(){
   Object.keys(data.filingSteps||{}).forEach(mk=>{ const arr=data.filingSteps[mk]; if(!Array.isArray(arr))return;
-    data.filingSteps[mk]=arr.filter(s=>s.name!=='申告書チェック_2回目').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s); });
+    data.filingSteps[mk]=arr.filter(s=>s.name!=='申告書チェック_2回目'&&s.name!=='会計入力').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s); });
   Object.values(data.filings||{}).forEach(f=>{ if(f&&f.cells){ if(f.cells['申告書チェック_1回目']!=null&&f.cells['申告書チェック']==null)f.cells['申告書チェック']=f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_2回目']; } });
 }
 function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones','cellMemos','memoShow','kessanMemos'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
