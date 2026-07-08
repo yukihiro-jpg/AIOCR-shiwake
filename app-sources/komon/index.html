@@ -1971,9 +1971,11 @@ async function aiSummarizeFY(cid,encKey){
 /* ===== 任意進捗（その他／資料回収）共通 ===== */
 const CUSTOM_DEFS={
   sonota:{label:'その他',view:'sonotaView',store:'sonotaTables',colWord:'工程',def:['対応事項','対応中','レビュー','完了'],titlePh:'例: 2026年 任意の管理表'},
-  docs:{label:'資料回収',view:'docsView',store:'docTables',colWord:'資料項目',def:['源泉徴収簿','給与データ','固定資産台帳'],titlePh:'例: 2026年3月期 決算資料回収',items:true}
+  docs:{label:'資料回収',view:'docsView',store:'docTables',colWord:'資料項目',def:['源泉徴収簿','給与データ','固定資産台帳'],titlePh:'例: 2026年 決算資料回収（先頭を「西暦＋年」にすると翌年度更新で自動繰上げ）',items:true}
 };
 let customCurrent={sonota:null,docs:null};
+let docsListFilter='active'; // 資料回収一覧の絞り込み（'active'=利用中 / 'closed'=終了分）
+function setDocsFilter(v){ docsListFilter=v; renderCustom('docs'); }
 function cStore(kind){ if(!data[CUSTOM_DEFS[kind].store])data[CUSTOM_DEFS[kind].store]=[]; return data[CUSTOM_DEFS[kind].store]; }
 function cTable(kind,id){ return cStore(kind).find(t=>t.id===id); }
 function resolveSel(sel){ const A=activeClients();
@@ -1997,17 +1999,36 @@ function tableProgress(kind,t){ const cs=resolveSel(t.sel); const cols=t.cols||[
   cs.forEach(c=>{ const r=t.rows&&t.rows[c.id]; cols.forEach(col=>{ if(kind==='docs'){ if(r&&r.status&&r.status[col.name])done++; } else { if(r&&r.cells&&r.cells[col.name])done++; } }); });
   return {total,done,pct:total?Math.round(done/total*100):0}; }
 function renderCustom(kind){ if(customCurrent[kind]&&cTable(kind,customCurrent[kind])){ if(kind==='docs')renderDocsDetail(); else renderCustomDetail(kind); } else { customCurrent[kind]=null; renderCustomList(kind); } }
-function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(kind);
-  const tools=(kind==='docs'?`<button onclick="openDocTemplate()">📝 案内文作成</button>`:'')+`<button class="primary" onclick="openCustomCreate('${kind}')">＋ 新規作成</button>`;
-  let html=`<div class="page-head"><h2>${def.label}</h2><div class="toolbar">${tools}</div></div>`;
-  if(!list.length){ html+=`<div class="card"><div class="empty"><div class="big">🗂</div>${def.label}がありません。「＋ 新規作成」からタイトルと対象顧問先を指定して作成してください。</div></div>`; document.getElementById(def.view).innerHTML=html; return; }
+function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(kind); const isDocs=kind==='docs';
+  const tools=(isDocs?`<button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button>`:'')+`<button class="primary" onclick="openCustomCreate('${kind}')">＋ 新規作成</button>`;
+  // 資料回収は「利用中／終了分」で絞り込み（翌年度更新で終了分へ移動）
+  let tabs='', shown=list;
+  if(isDocs){ const active=list.filter(t=>!t.closed), closed=list.filter(t=>t.closed);
+    shown=docsListFilter==='closed'?closed:active;
+    tabs=`<div class="seg" style="margin-left:12px"><button class="seg-btn${docsListFilter!=='closed'?' on':''}" onclick="setDocsFilter('active')">利用中 ${active.length}</button><button class="seg-btn${docsListFilter==='closed'?' on':''}" onclick="setDocsFilter('closed')">終了分 ${closed.length}</button></div>`; }
+  let html=`<div class="page-head"><h2>${def.label}</h2>${tabs}<div class="toolbar">${tools}</div></div>`;
+  if(!shown.length){ const msg=(isDocs&&docsListFilter==='closed')?'終了分の資料回収はありません（翌年度更新を行うとここに移動します）。':`${def.label}がありません。「＋ 新規作成」からタイトルと対象顧問先を指定して作成してください。`;
+    html+=`<div class="card"><div class="empty"><div class="big">🗂</div>${msg}</div></div>`; document.getElementById(def.view).innerHTML=html; return; }
   html+=`<div class="card"><table><thead><tr><th>タイトル</th><th>対象</th><th>対象社数</th><th>${def.colWord}数</th><th>進捗</th><th></th></tr></thead><tbody>`+
-    list.map(t=>{ const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress(kind,t);
-      const pdfBtn=kind==='docs'?`<button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
-      return `<tr><td><a class="link" onclick="openCustomTable('${kind}','${t.id}')">${esc(t.title)}</a></td><td class="muted">${esc(selSummary(t.sel))}</td><td>${cs.length}社</td><td>${cols.length}</td>
+    shown.map(t=>{ const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress(kind,t);
+      const pdfBtn=isDocs?`<button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
+      const rollBtn=(isDocs&&!t.closed)?`<button class="text sm" onclick="rolloverDocs('${t.id}')" title="このリストを踏襲した翌年度の新規リストを作成し、このリストは終了分へ移動します">🔄 翌年度更新</button>`:'';
+      return `<tr><td><a class="link" onclick="openCustomTable('${kind}','${t.id}')">${esc(t.title)}</a>${t.closed?' <span class="chip gray">終了分</span>':''}</td><td class="muted">${esc(selSummary(t.sel))}</td><td>${cs.length}社</td><td>${cols.length}</td>
         <td><div class="pbar"><span style="width:${pr.pct}%"></span></div> ${pr.pct}%</td>
-        <td class="actions">${pdfBtn}<button class="text sm" onclick="openCustomTable('${kind}','${t.id}')">開く</button><button class="text sm" onclick="openCustomCreate('${kind}','${t.id}')">編集</button><button class="text sm danger" onclick="deleteCustomTable('${kind}','${t.id}')">削除</button></td></tr>`; }).join('')+`</tbody></table></div>`;
+        <td class="actions">${pdfBtn}${rollBtn}<button class="text sm" onclick="openCustomTable('${kind}','${t.id}')">開く</button><button class="text sm" onclick="openCustomCreate('${kind}','${t.id}')">編集</button><button class="text sm danger" onclick="deleteCustomTable('${kind}','${t.id}')">削除</button></td></tr>`; }).join('')+`</tbody></table></div>`;
   document.getElementById(def.view).innerHTML=html;
+}
+/* 翌年度更新：既存リストを踏襲した新規リストを作成。タイトル先頭の西暦を＋1し、
+   進捗（回収状況）はリセット、期限は1年後へずらす。元リストは終了分へ移動する。 */
+function rolloverDocs(id){ const t=cTable('docs',id); if(!t)return;
+  const newTitle=String(t.title||'').replace(/(\d{4})(?=年)/, (m,y)=>String(+y+1));
+  if(newTitle===t.title && !/\d{4}年/.test(t.title||'')){ if(!confirm('タイトルに「西暦＋年」（例: 2026年）が見つかりません。年度を繰り上げずに複製しますか？'))return; }
+  if(!confirm(`「${t.title}」を踏襲して\n「${newTitle}」を新規作成します。\n（回収状況はリセット、期限は1年後にずらします）\nこのリストは「終了分」へ移動します。よろしいですか？`))return;
+  const shiftYear=d=>d?String(d).replace(/^(\d{4})/, (m,y)=>String(+y+1)):d;
+  const cols=(t.cols||[]).map(c=>Object.assign({},c,{due:shiftYear(c.due)}));
+  const nt={id:uid(),title:newTitle,sel:JSON.parse(JSON.stringify(t.sel||{type:'all'})),cols,rows:{}};
+  t.closed=true; cStore('docs').push(nt); customCurrent.docs=null; docsListFilter='active';
+  persist(); renderCustom('docs'); toast('翌年度分を作成しました（元リストは終了分へ移動）','ok');
 }
 function openCustomTable(kind,id){ customCurrent[kind]=id; renderCustom(kind); }
 function backCustom(kind){ customCurrent[kind]=null; renderCustom(kind); }
@@ -2081,7 +2102,7 @@ function toggleDocStatus(id,cid,encName){ const name=decodeURIComponent(encName)
 function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress('docs',t);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('docs')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="openDocTemplate()">📝 案内文作成</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button>${bulkBtn()}<button onclick="openCustomCreate('docs','${t.id}')">⚙ 編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
+    <div class="toolbar"><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; document.getElementById('docsView').innerHTML=html; return; }
   // 資料項目の一覧（メモ含む・所内参照用）
