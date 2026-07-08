@@ -533,7 +533,10 @@
       <div class="field"></div>
       <div class="field"><label>確定法人税（国税）</label><input id="tx_corp" class="amt" inputmode="numeric" placeholder="円"></div>
       <div class="field"><label>確定地方法人税（国税）</label><input id="tx_localCorp" class="amt" inputmode="numeric" placeholder="円"></div>
-      <div class="field full"><label>確定消費税【国税のみ・地方消費税を除く】</label><input id="tx_cons" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>確定消費税【国税のみ・地方消費税を除く】</label><input id="tx_cons" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>確定地方消費税<span class="hint" style="font-weight:400">（空欄なら国税×22/78で自動計算）</span></label><input id="tx_localCons" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>当期中間納付済（法人税等の合計）<span class="hint" style="font-weight:400">※決算確認書（案内PDF）用</span></label><input id="tx_midCorp" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>当期中間納付済（消費税等の合計）<span class="hint" style="font-weight:400">※決算確認書（案内PDF）用</span></label><input id="tx_midCons" class="amt" inputmode="numeric" placeholder="円"></div>
     </div>
     <div class="row-flex" style="justify-content:space-between;margin-top:16px"><b style="font-size:13px">都道府県（県民税法人税割・均等割／事業税／特別法人事業税）</b><button class="sm" onclick="addPrefRow()">＋ 県を追加</button></div>
     <div class="multi-rows pref"><div class="mr"><span class="h">都道府県名</span><span class="h">県民税(法人税割)</span><span class="h">県民税(均等割)</span><span class="h">事業税</span><span class="h">特別法人事業税</span><span></span></div></div>
@@ -966,8 +969,9 @@ function calcInterim(tax){
 function confirmedCorpTotal(tax){ if(!tax)return 0; let t=num(tax.corp)+num(tax.localCorp);
   (tax.pref||[]).forEach(p=>{ t+=num(p.kenminTax!=null?p.kenminTax:p.kenmin)+num(p.kenminKinto)+num(p.jigyo)+num(p.tokubetsu); });
   (tax.city||[]).forEach(c=>{ t+=num(c.shiTax!=null?c.shiTax:c.shi)+num(c.shiKinto); }); return t; }
-/* 確定消費税＝国税＋地方消費税(国税×22/78) */
-function confirmedConsTotal(tax){ const n=tax?num(tax.consumption):0; return n?n+Math.floor(n*22/78):0; }
+/* 確定消費税等＝国税＋地方消費税（入力があれば実額、なければ国税×22/78の概算） */
+function confirmedConsTotal(tax){ const n=tax?num(tax.consumption):0; if(!n)return num(tax&&tax.localCons)||0;
+  const loc=num(tax&&tax.localCons)||Math.floor(n*22/78); return n+loc; }
 /* 中間納付イベント（暦年月ごと）を生成。base=決算の絶対月index */
 function interimEvents(tax, M, Y){
   if(!M) return [];
@@ -1257,7 +1261,7 @@ function renderFilingDetail(){
       return pcTd('filing|'+filingYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); }).join('');
     const flag=res.subject?'<span class="chip amber">対象</span>':((corpTot||consTot)?'<span class="chip gray">対象外</span>':'<span class="chip gray">未入力</span>');
     row+=`<td class="yen tax-mini">${corpTot?yen(corpTot):'－'}</td><td class="yen tax-mini">${consTot?yen(consTot):'－'}</td>
-      <td>${flag} <button class="text sm" onclick="openTax('${c.id}')">計算/入力</button></td>`;
+      <td style="white-space:nowrap">${flag} <button class="text sm" onclick="openTax('${c.id}')">計算/入力</button><button class="text sm" onclick="printKessanGuide('${c.id}')" title="決算確認書（税額のご案内・署名欄付き）をPDF印刷">📄 案内PDF</button></td>`;
     return `<tr>${row}</tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="hint" style="margin-top:12px">※ セルをクリックで完了日を入力。「計算/入力」で確定税額を入力すると翌期の中間申告が自動計算され、<b>中間申告</b>に反映されます。ヘッダをクリックで並び替え、各列の🔍で絞り込みできます。</div>`;
@@ -1342,6 +1346,7 @@ function openTax(cid){ const c=clientById(cid); const M=fiscalMonthNum(c.fiscal)
   document.getElementById('taxModalTitle').textContent=`確定税額・中間申告　${c.name}（${M||'?'}月決算）`;
   document.getElementById('tx_fyInfo').innerHTML=M?`決算月：<b>${M}月</b>。法人税・地方税・消費税(年1回)の6月中間は <b>${((M-1+8)%12)+1}月</b>が申告納付期限の目安です。`:'この顧問先の決算月が未設定です。顧問先情報で決算月を設定してください。';
   setVal('tx_months',tx.months||12); setAmt('tx_corp',tx.corp); setAmt('tx_localCorp',tx.localCorp); setAmt('tx_cons',tx.consumption);
+  setAmt('tx_localCons',tx.localCons); setAmt('tx_midCorp',tx.midCorp); setAmt('tx_midCons',tx.midCons);
   document.getElementById('tx_pref').innerHTML=''; document.getElementById('tx_city').innerHTML='';
   (tx.pref&&tx.pref.length?tx.pref:[{}]).forEach(p=>addPrefRow(p)); (tx.city&&tx.city.length?tx.city:[{}]).forEach(p=>addCityRow(p));
   calcAndRender(); openModal('taxModal'); }
@@ -1354,7 +1359,8 @@ function addCityRow(p={}){ const box=document.getElementById('tx_city'); const d
 function gatherTax(){ const months=num(val('tx_months'))||12;
   const pref=[...document.querySelectorAll('#tx_pref .mr')].map(d=>({name:d.querySelector('.pr_name').value.trim(),kenminTax:numC(d.querySelector('.pr_kt').value),kenminKinto:numC(d.querySelector('.pr_kk').value),jigyo:numC(d.querySelector('.pr_jigyo').value),tokubetsu:numC(d.querySelector('.pr_tok').value)})).filter(p=>p.name||p.kenminTax||p.kenminKinto||p.jigyo||p.tokubetsu);
   const city=[...document.querySelectorAll('#tx_city .mr')].map(d=>({name:d.querySelector('.ci_name').value.trim(),shiTax:numC(d.querySelector('.ci_st').value),shiKinto:numC(d.querySelector('.ci_sk').value)})).filter(p=>p.name||p.shiTax||p.shiKinto);
-  return { months, corp:numC(val('tx_corp')), localCorp:numC(val('tx_localCorp')), consumption:numC(val('tx_cons')), pref, city }; }
+  return { months, corp:numC(val('tx_corp')), localCorp:numC(val('tx_localCorp')), consumption:numC(val('tx_cons')),
+    localCons:numC(val('tx_localCons')), midCorp:numC(val('tx_midCorp')), midCons:numC(val('tx_midCons')), pref, city }; }
 function calcAndRender(){ const c=clientById(val('tx_clientId')); const M=c?fiscalMonthNum(c.fiscal):0; const r=calcInterim(gatherTax());
   const dueMonth=M?(((M-1+8)%12)+1):null;
   let consLabel='中間申告なし（前期国税48万円以下）'; if(r.consTimes===1)consLabel='年1回'; else if(r.consTimes===3)consLabel='年3回'; else if(r.consTimes===11)consLabel='年11回（毎月）';
@@ -1379,6 +1385,123 @@ function calcAndRender(){ const c=clientById(val('tx_clientId')); const M=c?fisc
   h+=`<div class="hint" style="margin-top:8px">金額は概算（100円未満切捨て・前期実績基準）。仮決算中間申告や均等割・端数処理等により実額と差異が生じる場合があります。</div>`;
   document.getElementById('tx_result').innerHTML=h; }
 function saveTax(){ const cid=val('tx_clientId'); const f=ensureFiling(filingYear,cid); f.tax=gatherTax(); persist(); closeModal('taxModal'); renderFiling(); renderInterim(); renderDashboard(); toast('税額を保存しました','ok'); }
+
+/* ===== 決算確認書（案内PDF・モノクロ印刷対応） =====
+   申告書への押印に代えて、本書へ代表者の署名をもらう運用のための出力。
+   ①当期の確定税額（年税額・中間納付済・差引） ②翌期の中間納税予定
+   ③ダイレクト納付の案内（顧問先情報の納付方法が「ダイレクト納付」の場合）
+   ④翌期が簡易課税の場合の案内（出力時にユーザーへ質問） */
+function komonPrintWindow(title,bodyHtml,styles){
+  const iframe=document.createElement('iframe');
+  iframe.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:none;z-index:99999;background:#fff;';
+  document.body.appendChild(iframe);
+  const doc=iframe.contentDocument||iframe.contentWindow.document;
+  const btns='.np-btns{position:fixed;top:12px;right:12px;z-index:100;display:flex;gap:8px;}.np-btns button{padding:9px 18px;border:1px solid #333;border-radius:8px;cursor:pointer;font-weight:600;background:#fff;font-size:14px;}@media print{.np-btns{display:none;}}';
+  doc.open();
+  doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><style>'+styles+btns+'</style></head><body>'
+    +'<div class="np-btns"><button id="bp">印刷 / PDF保存</button><button id="bc">閉じる</button></div>'+bodyHtml+'</body></html>');
+  doc.close();
+  setTimeout(()=>{ const d=iframe.contentDocument;
+    d.getElementById('bp').onclick=()=>{ let topDoc; try{ topDoc=window.top.document; }catch(e){ topDoc=document; }
+      const prev=topDoc.title; topDoc.title=title; const restore=()=>{ try{ topDoc.title=prev; }catch(e){} };
+      try{ iframe.contentWindow.addEventListener('afterprint',restore,{once:true}); }catch(e){}
+      iframe.contentWindow.print(); setTimeout(restore,60000); };
+    d.getElementById('bc').onclick=()=>iframe.remove();
+  },200);
+}
+function lastDayStr(y,m){ const d=new Date(y,m,0).getDate(); return y+'年'+m+'月'+d+'日'; }
+function printKessanGuide(cid){
+  const c=clientById(cid); if(!c) return;
+  const M=fiscalMonthNum(c.fiscal);
+  if(!M){ toast('決算月が未設定です（顧問先情報で設定してください）','err'); return; }
+  const f=getFiling(filingYear,cid); const tx=f.tax||{};
+  const corpTot=confirmedCorpTotal(tx), consTot=confirmedConsTotal(tx);
+  if(!corpTot&&!consTot){ toast('先に「計算/入力」で確定税額を入力してください','err'); return; }
+  // 当期・翌期の事業年度（12か月決算前提の年月表示）
+  const csM=M===12?1:M+1, csY=M===12?filingYear:filingYear-1;
+  const curPeriod=csY+'年'+csM+'月～'+filingYear+'年'+M+'月';
+  const nsM=M===12?1:M+1, nsY=M===12?filingYear+1:filingYear;
+  const nextPeriod=nsY+'年'+nsM+'月～'+(filingYear+1)+'年'+M+'月';
+  // ④ 簡易課税（消費税がある場合のみ出力時に質問）
+  let kanni=false;
+  if(num(tx.consumption)>0){
+    kanni=confirm('【簡易課税の確認】\n翌事業年度（'+nextPeriod+'）は消費税の簡易課税に該当しますか？\n\nOK＝該当する（案内文を記載します）\nキャンセル＝該当しない');
+  }
+  // ③ ダイレクト納付（顧問先情報の納付方法）
+  const isDirect=String(c.payMethod||'').indexOf('ダイレクト')>=0;
+  const midCorp=num(tx.midCorp), midCons=num(tx.midCons);
+  const dCorp=corpTot-midCorp, dCons=consTot-midCons;
+  const yenS=v=>v<0?('△'+yen(-v)+'（還付）'):yen(v);
+  // ② 翌期の中間納税予定（前期実績基準・interimEvents を再利用）
+  const evs=interimEvents(tx,M,filingYear).filter(e=>e.total>0).sort((a,b)=>a.absIdx-b.absIdx);
+  let rows2='';
+  evs.forEach(e=>{
+    const due=lastDayStr(e.year,e.month);
+    const corpAmt=e.corp+e.localCorp+e.kenmin+e.jigyo+e.shi;
+    if(corpAmt>0) rows2+='<tr><td style="text-align:center">'+due+'</td><td>法人税・住民税・事業税等（予定申告）</td><td class="yen">'+yen(corpAmt)+'</td></tr>';
+    if(e.cons>0){ const lab=e.consLabel?('（第'+e.consLabel.replace('/','回／全')+'回）'):'';
+      rows2+='<tr><td style="text-align:center">'+due+'</td><td>消費税及び地方消費税'+lab+'</td><td class="yen">'+yen(e.cons)+'</td></tr>'; }
+  });
+  const today=new Date();
+  const styles=[
+    '*{margin:0;padding:0;box-sizing:border-box;}',
+    'body{font-family:"Yu Mincho","Hiragino Mincho ProN","MS Mincho",serif;color:#000;font-size:11pt;line-height:1.8;padding:16mm 15mm;background:#fff;}',
+    '@media print{body{padding:0}@page{size:A4;margin:16mm 15mm}}',
+    '.issue{text-align:right;font-size:9.5pt}',
+    'h1{font-size:16pt;text-align:center;letter-spacing:8px;margin:4px 0 2px;font-weight:600}',
+    '.rule{border-top:2px solid #000;border-bottom:1px solid #000;height:4px;margin:8px 0 14px}',
+    '.to{font-size:12pt;margin-bottom:2px}.to b{font-size:13.5pt}',
+    '.meta{font-size:10pt;margin:6px 0 10px}',
+    'p.lead{font-size:10pt;margin-bottom:12px;text-indent:1em}',
+    'h2{font-size:11pt;margin:14px 0 6px;padding-left:8px;border-left:4px solid #000;font-weight:600}',
+    'table{width:100%;border-collapse:collapse;font-size:10pt}',
+    'th,td{border:1px solid #000;padding:4px 8px}',
+    'th{background:#e8e8e8;font-weight:600;text-align:center}',
+    'td.yen{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}',
+    'tr.total td{background:#f2f2f2;font-weight:600}',
+    '.note{font-size:8.5pt;margin-top:3px}',
+    '.box{border:1px solid #000;padding:7px 11px;margin-top:8px;font-size:10pt}',
+    '.box b{display:block;margin-bottom:2px}',
+    '.sign{margin-top:16px;border:2px solid #000;padding:10px 14px 14px;page-break-inside:avoid}',
+    '.sign .t{font-size:10pt;margin-bottom:4px}',
+    '.sign .row{display:flex;gap:12px;align-items:flex-end;margin-top:12px}',
+    '.sign .lab{font-size:9.5pt;white-space:nowrap;padding-bottom:2px}',
+    '.sign .line{flex:1;border-bottom:1px solid #000;min-height:24px;font-size:11pt;padding:0 6px}',
+    '.foot{font-size:8.5pt;margin-top:8px;text-align:center}',
+  ].join('');
+  let body='<div class="issue">発行日：'+today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日</div>'
+    +'<h1>決算のご確認とご案内</h1><div class="rule"></div>'
+    +'<div class="to"><b>'+esc(c.name)+'</b>　御中</div>'
+    +(c.rep?'<div class="to">代表者　'+esc(c.rep)+' 様</div>':'')
+    +'<div class="meta">対象事業年度：'+curPeriod+'（'+M+'月決算）</div>'
+    +'<p class="lead">当期の決算に基づく税額と、今後の納税予定を下記のとおりご案内いたします。内容をご確認のうえ、末尾の確認欄にご署名をお願いいたします。<b>本書へのご署名をもちまして、申告書への押印に代えさせていただきます。</b></p>'
+    +'<h2>１．当期の確定税額</h2>'
+    +'<table><thead><tr><th style="width:32%">税目</th><th>年税額</th><th>中間納付済税額</th><th>差引 確定税額（今回納付）</th></tr></thead><tbody>'
+    +'<tr><td>法人税等（法人税・住民税・事業税等）</td><td class="yen">'+yen(corpTot)+'</td><td class="yen">'+yen(midCorp)+'</td><td class="yen"><b>'+yenS(dCorp)+'</b></td></tr>'
+    +'<tr><td>消費税等（地方消費税を含む）</td><td class="yen">'+yen(consTot)+'</td><td class="yen">'+yen(midCons)+'</td><td class="yen"><b>'+yenS(dCons)+'</b></td></tr>'
+    +'<tr class="total"><td>合計</td><td class="yen">'+yen(corpTot+consTot)+'</td><td class="yen">'+yen(midCorp+midCons)+'</td><td class="yen">'+yenS(dCorp+dCons)+'</td></tr>'
+    +'</tbody></table>'
+    +'<div class="note">※ 中間納付済税額が年税額を上回る場合、差引はマイナス（還付）となります。</div>'
+    +'<h2>２．翌事業年度（'+nextPeriod+'）の中間納税の予定</h2>'
+    +(rows2
+      ?('<table><thead><tr><th style="width:26%">納期限</th><th>税目</th><th style="width:22%">納税額（概算）</th></tr></thead><tbody>'+rows2+'</tbody></table>'
+        +'<div class="note">※ 納期限が土日祝日の場合は翌開庁日となります。金額は前期実績基準による概算です（仮決算による中間申告を行う場合や税制改正等により変動します）。</div>')
+      :'<div class="box">前期実績基準では、翌事業年度の中間申告・納税の予定はありません。</div>')
+    +(isDirect
+      ?'<h2>３．納付手続きについて（ダイレクト納付）</h2><div class="box">上記の税額は、<b style="display:inline">ダイレクト納付</b>により、弊社にて法定納期限に納付手続きを行います。法定納期限での引き落としをご希望でない場合（納付日を早めたい等）は、あらかじめご連絡ください。</div>'
+      :'')
+    +(kanni
+      ?('<h2>'+(isDirect?'４':'３')+'．消費税（簡易課税）のご案内</h2><div class="box">'+nextPeriod+'の事業年度は、消費税の<b style="display:inline">簡易課税制度</b>に該当します。この期間中は、車両・機械・建物等を購入されても消費税の納税額には影響しませんので、設備投資をご検討の際はご留意ください。</div>')
+      :'')
+    +'<div class="sign">'
+    +'<div class="t">上記の決算内容および納税等のご案内について説明を受け、内容を確認しました。</div>'
+    +'<div class="row"><span class="lab">確認日</span><span class="line" style="max-width:230px;text-align:center"></span><span class="lab" style="margin-left:-6px"></span></div>'
+    +'<div class="row"><span class="lab">会社名</span><span class="line">'+esc(c.name)+'</span></div>'
+    +'<div class="row"><span class="lab">代表者署名</span><span class="line"></span></div>'
+    +'</div>'
+    +'<div class="foot">本確認書は申告書控とあわせて保管してください。</div>';
+  komonPrintWindow('決算確認書_'+c.name+'_'+filingYear+'年'+M+'月期', body, styles);
+}
 
 /* ===== 中間申告 ===== */
 function changeInterimYear(d){ interimYear+=d; renderInterim(); }
