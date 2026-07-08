@@ -137,9 +137,13 @@ html = rangeReplace(html,
 html = rangeReplace(html, '<details class="help"><summary>Googleドライブ連携の設定手順</summary>', '</details>', '');
 
 // ---- T7: iframe 起動待ち（__komonCore がセットされたら __komonBoot を実行） ----
+// 【重要】必ず「最後の </body>」（文書末尾）に注入する。first-match の replace だと、
+// スクリプト内の文字列（例: doc.write('…</body></html>')）に誤マッチして
+// <script> の真ん中に </script> ごと注入され、ページが壊れる（実際に発生したバグ）。
 const WAITER = `<script>(function w(){ if(window.__komonCore && typeof window.__komonBoot==='function'){ try{ window.__komonBoot(); }catch(e){ console.error(e); } } else { setTimeout(w,30); } })();</script>`;
-html = must(html, '</body>');
-html = html.replace('</body>', WAITER + '\n</body>');
+const bodyCloseIdx = html.lastIndexOf('</body>');
+if (bodyCloseIdx < 0) throw new Error('anchor not found: </body>');
+html = html.slice(0, bodyCloseIdx) + WAITER + '\n' + html.slice(bodyCloseIdx);
 
 // 念のため、変換漏れ（旧Realtime/旧DriveSync IIFE）が無いか検査
 if (/const Realtime=\(function/.test(html)) throw new Error('Realtime IIFE が残っています');

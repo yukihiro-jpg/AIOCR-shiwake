@@ -4995,7 +4995,7 @@ function openPrintWindow(title, bodyHtml, styles){
   doc.open();
   doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet"><style>'+colorFix+styles+btns+'</style></head><body>'
     +'<div class="np-btns"><button id="bp" style="background:#0071e3">印刷 / PDF保存</button><button id="bc" style="background:#8e8e93">閉じる</button></div>'
-    +bodyHtml+'</body></html>');
+    +bodyHtml+'</'+'body></'+'html>');
   doc.close();
   setTimeout(()=>{ const d=iframe.contentDocument;
     d.getElementById('bp').onclick=()=>{
@@ -5161,7 +5161,7 @@ function downloadAgreementWord(){
   const r=buildAgreement(); if(!r) return;
   const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'+esc(r.title)+'</title>'
     +'<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->'
-    +'<style>@page{size:A4;margin:20mm;} body{font-family:"Yu Mincho","游明朝","MS Mincho",serif;}'+r.styles+'</style></head><body>'+r.body+'</body></html>';
+    +'<style>@page{size:A4;margin:20mm;} body{font-family:"Yu Mincho","游明朝","MS Mincho",serif;}'+r.styles+'</'+'style></'+'head><body>'+r.body+'</'+'body></'+'html>';
   saveAs(new Blob(['﻿'+html],{type:'application/msword'}), r.title+'.doc');
 }
 

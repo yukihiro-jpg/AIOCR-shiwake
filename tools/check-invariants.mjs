@@ -174,6 +174,14 @@ const REGISTRY = {
     writeFileSync(p, best)
     try { execFileSync(process.execPath, ['--check', p], { stdio: 'pipe' }) }
     catch (e) { fail(`[E] app-sources/${name}/index.html の <script> が構文エラーです:\n${String(e.stderr || e.message).slice(0, 500)}`) }
+    // スクリプト内のJS文字列に閉じタグをそのまま書くと、ブラウザ解析やビルドツールの
+    // アンカー（例: 旧仕様の first-match </body> 注入）に誤マッチしてページが壊れる。
+    // doc.write 等で必要な場合は '</'+'body>' のように分割して書くこと（過去に実バグ）。
+    for (const tag of ['</script', '</body>', '</html>']) {
+      if (best.toLowerCase().includes(tag)) {
+        fail(`[E] app-sources/${name}/index.html のスクリプト内に閉じタグ「${tag}」がそのまま含まれています。'</'+'…' のように分割してください（HTML解析・ビルド注入の誤マッチでページが壊れます）。`)
+      }
+    }
   }
 }
 

@@ -1398,8 +1398,10 @@ function komonPrintWindow(title,bodyHtml,styles){
   const doc=iframe.contentDocument||iframe.contentWindow.document;
   const btns='.np-btns{position:fixed;top:12px;right:12px;z-index:100;display:flex;gap:8px;}.np-btns button{padding:9px 18px;border:1px solid #333;border-radius:8px;cursor:pointer;font-weight:600;background:#fff;font-size:14px;}@media print{.np-btns{display:none;}}';
   doc.open();
-  doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><style>'+styles+btns+'</style></head><body>'
-    +'<div class="np-btns"><button id="bp">印刷 / PDF保存</button><button id="bc">閉じる</button></div>'+bodyHtml+'</body></html>');
+  // 【注意】閉じタグ（bodyやscriptの終了タグ）をJS文字列にそのまま書かない（ビルドツールのアンカーや
+  // ブラウザのHTML解析に誤マッチしてページが壊れるため、必ず分割して書く）
+  doc.write('<html lang="ja"><head><meta charset="UTF-8"><title>'+title+'</title><style>'+styles+btns+'</'+'style></'+'head><body>'
+    +'<div class="np-btns"><button id="bp">印刷 / PDF保存</button><button id="bc">閉じる</button></div>'+bodyHtml+'</'+'body></'+'html>');
   doc.close();
   setTimeout(()=>{ const d=iframe.contentDocument;
     d.getElementById('bp').onclick=()=>{ let topDoc; try{ topDoc=window.top.document; }catch(e){ topDoc=document; }
