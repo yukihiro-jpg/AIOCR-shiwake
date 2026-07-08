@@ -1662,8 +1662,19 @@ function getGensenSteps(){ if(!Array.isArray(data.gensenSteps))data.gensenSteps=
 function openGensenSteps(){ stepsCtx={type:'gensen'}; document.getElementById('stepsModalTitle').textContent='工程の編集（源泉税）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getGensenSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
 function gmPeek(year,month,cid){ return data.gensenMonthly[year+'__'+month+'__'+cid]||{}; }
 function gmEnsure(year,month,cid){ const k=year+'__'+month+'__'+cid; if(!data.gensenMonthly[k])data.gensenMonthly[k]={}; return data.gensenMonthly[k]; }
-function gmCarry(year,month,cid){ if(month<=1)return nenchoDeduction(year,cid); return gmCarry(year,month-1,cid)+num(gmPeek(year,month-1,cid).current); } // 未済繰越額＝前月の翌月繰越未済額（1月は前年の年末調整控除未済額）
+/* 未済繰越額＝年末調整の還付超過分（控除未済額）のうち、まだ源泉税から控除しきれていない残り。
+   正の値のみ（納付額から差し引ける残額）。1月分は前年の年末調整で控除しきれなかった還付額
+   ＝max(0, 還付額−当月源泉税額−不足額)、2月分以降は前月の繰越から前月の源泉税額・調整額を
+   控除した残り。以前は「繰越＋当月税額」と加算していたが、これは控除の向きが逆で、
+   繰越が無くても当月税額がそのまま翌期未済として表示される誤り（実バグ）だったため修正。 */
+function gmCarry(year,month,cid){ if(month<=1)return Math.max(0,-nenchoDeduction(year,cid));
+  const p=gmPeek(year,month-1,cid); return Math.max(0, gmCarry(year,month-1,cid)-num(p.current)-num(p.adjust)); }
+/* 納付額・翌繰越の共通計算：納付額＝max(0, 税額＋調整額−未済繰越)、翌繰越＝max(0, 未済繰越−税額−調整額)。
+   調整額は月次・本決算で未納源泉を発見したとき（＋）や過払いを発見したとき（−）の補正入力 */
+function gensenCalc(carry,r){ const cur=num(r.current), adj=num(r.adjust);
+  return { pay:Math.max(0,cur+adj-carry), fwd:Math.max(0,carry-cur-adj), any:!!(cur||adj||carry) }; }
 function setGmCurrent(year,month,cid,raw){ const r=gmEnsure(year,month,cid); const v=String(raw).replace(/[^0-9-]/g,''); if(v)r.current=v; else delete r.current; persist(); renderGensen(); }
+function setGmAdjust(year,month,cid,raw){ const r=gmEnsure(year,month,cid); const v=String(raw).replace(/[^0-9-]/g,''); if(v)r.adjust=v; else delete r.adjust; persist(); renderGensen(); }
 function setGmNote(year,month,cid,v){ const r=gmEnsure(year,month,cid); v=(v==null?'':String(v).trim()); if(v)r.note=v; else delete r.note; persist(); }
 function editGmCell(e,month,cid,encStep){ const step=decodeURIComponent(encStep); const r=gmPeek(gensenYear,month,cid); openCellEditor(e,(r.cells&&r.cells[step])||'',v=>{ const rr=gmEnsure(gensenYear,month,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells[step]=v; else delete rr.cells[step]; persist(); renderGensen(); }); }
 /* 顧問先の給与支払日（1〜31=「N日」、末日はそのまま）を表示用文字列に */
@@ -1676,18 +1687,20 @@ function renderGensenMonthly(){ const cs=gensenMonthlyClients(); const steps=get
     `<div class="gm-months">`+Array.from({length:11},(_,i)=>{ const mm=i+1; return `<button class="${mm===m?'on':''}" onclick="openGensenMonth(${mm})">${mm}月</button>`; }).join('')+`</div>`+
     `<div class="hint" style="margin:0 0 14px"><b>${gensenDueLabel(m)}</b>・${cs.length}社（12月分（翌1/10納付）は年末調整で対応します）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>毎月納付の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
-  let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>給与支払日</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">翌月繰越未済額</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>備考</th></tr>`;
-  let body=cs.map(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id); const fwd=carry+num(r.current);
+  let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>給与支払日</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right" title="未納・過払いの源泉を発見したときの補正（＋加算／−減算）">調整額</th><th style="text-align:right">納付額</th><th style="text-align:right">翌月繰越未済額</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th>備考</th></tr>`;
+  let body=cs.map(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id); const gc=gensenCalc(carry,r);
     const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|m'+m+'|'+gensenYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editGmCell(event,${m},'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); };
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${esc(c.taxOffice||'')}</td><td>${payChip(c)}</td><td>${esc(payDayLabel(c))}</td><td>${esc(c.payrollSoftware||'')}</td>
-      <td class="yen" style="text-align:right" title="${m===1?'前年の年末調整 控除未済額より自動':'前月の翌月繰越未済額より自動'}">${carry?fmtAmtSigned(carry):'－'}</td>
+      <td class="yen" style="text-align:right" title="${m===1?'前年の年末調整 控除未済額（還付の未控除分）より自動':'前月の翌月繰越未済額より自動'}">${carry?fmtAmt(carry):'－'}</td>
       <td style="text-align:right">${amtInput(r.current,`setGmCurrent(${gensenYear},${m},'${c.id}',this.value)`)}</td>
-      <td class="yen" style="text-align:right">${fwd?fmtAmtSigned(fwd):'－'}</td>
+      <td style="text-align:right">${amtInput(r.adjust,`setGmAdjust(${gensenYear},${m},'${c.id}',this.value)`)}</td>
+      <td class="yen" style="text-align:right;font-weight:600">${gc.any?fmtAmt(gc.pay):'－'}</td>
+      <td class="yen" style="text-align:right">${gc.fwd?fmtAmt(gc.fwd):'－'}</td>
       ${steps.map(s=>dcell(s)).join('')}
       <td><input style="min-width:120px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setGmNote(${gensenYear},${m},'${c.id}',this.value)"></td></tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
-    <div class="hint" style="margin-top:12px">※ 翌月繰越未済額＝未済繰越額＋当月源泉税額（自動）。未済繰越額は前月の翌月繰越未済額（1月分は前年の年末調整「控除未済額」）から自動連動します。</div>`;
+    <div class="hint" style="margin-top:12px">※ 納付額＝当月源泉税額＋調整額−未済繰越額（マイナスなら0）。翌月繰越未済額＝未済繰越額から当月源泉税額・調整額を控除しきれなかった残り（自動）。調整額は月次・本決算で未納源泉を発見したとき（＋）や過払いを発見したとき（−）に入力します。未済繰越額は前月の翌月繰越未済額（1月分は前年の年末調整で控除しきれなかった還付額）から自動連動します。</div>`;
   document.getElementById('gensenView').innerHTML=html;
   setBulk('gensen',{colWord:'工程',valueType:'date',cols:steps.map(s=>({name:s.name})),cids:cs.map(c=>c.id),get:cid=>{ const r=gmEnsure(gensenYear,m,cid); if(!r.cells)r.cells={}; return r.cells; },render:()=>renderGensen()});
   enhanceGrid(document.querySelector('#gensenView table.grid'),'gensenM'+m);
@@ -1696,24 +1709,27 @@ function renderGensenMonthly(){ const cs=gensenMonthlyClients(); const steps=get
 function gsPeek(year,cid){ return data.gensenSpecial[year+'__'+cid]||{}; }
 function gsEnsure(year,cid){ const k=year+'__'+cid; if(!data.gensenSpecial[k])data.gensenSpecial[k]={}; return data.gensenSpecial[k]; }
 function setGsCurrent(cid,raw){ const r=gsEnsure(gensenYear,cid); const v=String(raw).replace(/[^0-9-]/g,''); if(v)r.current=v; else delete r.current; persist(); renderGensen(); }
+function setGsAdjust(cid,raw){ const r=gsEnsure(gensenYear,cid); const v=String(raw).replace(/[^0-9-]/g,''); if(v)r.adjust=v; else delete r.adjust; persist(); renderGensen(); }
 function setGsNote(cid,v){ const r=gsEnsure(gensenYear,cid); v=(v==null?'':String(v).trim()); if(v)r.note=v; else delete r.note; persist(); }
 function editGsCell(e,cid,encStep){ const step=decodeURIComponent(encStep); const r=gsPeek(gensenYear,cid); openCellEditor(e,(r.cells&&r.cells[step])||'',v=>{ const rr=gsEnsure(gensenYear,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells[step]=v; else delete rr.cells[step]; persist(); renderGensen(); }); }
 function renderGensenSpecial(){ const cs=gensenSpecialClients(); const steps=getGensenSteps(); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><h2>源泉税</h2>${gensenYearNav()}<div class="toolbar">${memoToggleBtn('gensen','renderGensen()')}<button onclick="openGensenSteps()">⚙ 工程を編集</button><button onclick="openGensenMethods()">⚙ 方法の選択肢</button>${bulkBtn()}<button onclick="exportGensen()">📤 Excel出力</button></div></div>`+gensenTabs()+
-    `<div class="hint" style="margin-bottom:14px">納期特例：1〜6月分（納付期限 7/10）の進捗管理です。7〜12月分は年末調整で対応します。前年完了日・前年方法は前年の「今回分」から自動連動します。未済繰越額は前年の年末調整「控除未済額」から自動セットされます。</div>`;
+    `<div class="hint" style="margin-bottom:14px">納期特例：1〜6月分（納付期限 7/10）の進捗管理です。7〜12月分は年末調整で対応します。前年完了日・前年方法は前年の「今回分」から自動連動します。未済繰越額は前年の年末調整で控除しきれなかった還付額（控除未済額）から自動セットされ、納付額＝源泉税額＋調整額−未済繰越額（マイナスなら0）、翌期繰越未済額＝控除しきれなかった残りを自動計算します。調整額は未納・過払いの源泉を発見したときの補正入力（＋／−）です。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>納期特例の対象顧問先がありません。顧問先情報の「源泉税納付ステータス」をご確認ください。</div></div>`; document.getElementById('gensenView').innerHTML=html; return; }
-  let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>給与支払日</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">源泉税額(1〜6月)</th><th style="text-align:right">翌期繰越未済額</th>`+
+  let head=`<tr><th class="name">顧問先名</th><th>所轄税務署</th><th>納付方法</th><th>給与支払日</th><th>給与ソフト</th><th style="text-align:right">未済繰越額</th><th style="text-align:right">源泉税額(1〜6月)</th><th style="text-align:right" title="未納・過払いの源泉を発見したときの補正（＋加算／−減算）">調整額</th><th style="text-align:right">納付額</th><th style="text-align:right">翌期繰越未済額</th>`+
     steps.map(s=>{ const due=s.due?`<span class="due">${fmtMD(s.due)}</span>`:''; if(s.name==='今回分'){ return `<th>前年完了日</th><th>前年方法</th><th class="step">今回分${due}</th><th>今回方法</th>`; } return `<th class="step">${esc(s.name)}${due}</th>`; }).join('')+`<th>備考</th></tr>`;
-  let body=cs.map(c=>{ const r=gsPeek(gensenYear,c.id); const carry=nenchoDeduction(gensenYear,c.id); const fwd=carry+num(r.current);
+  let body=cs.map(c=>{ const r=gsPeek(gensenYear,c.id); const carry=Math.max(0,-nenchoDeduction(gensenYear,c.id)); const gc=gensenCalc(carry,r);
     const prev=gsPeek(gensenYear-1,c.id); const prevDate=gsKongaiVal(prev); const prevMethod=prev.method||'';
     const dcell=(s)=>{ const v=r.cells&&r.cells[s.name]; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(s.due){cls=(new Date(s.due)<today)?'over':'todo';txt='未('+fmtMD(s.due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|s|'+gensenYear+'|'+c.id+'|'+s.name,`<span class="cell ${cls}" onclick="editGsCell(event,'${c.id}','${encodeURIComponent(s.name)}')">${txt}</span>`); };
     const kongaiCell=()=>{ const v=gsKongaiVal(r); const due=(steps.find(s=>s.name==='今回分')||{}).due; let cls='todo',txt='－'; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(due){cls=(new Date(due)<today)?'over':'todo';txt='未('+fmtMD(due)+')';} else {cls='todo';txt='未';} return pcTd('gensen|s|'+gensenYear+'|'+c.id+'|今回分',`<span class="cell ${cls}" onclick="editGsKongai(event,'${c.id}')">${txt}</span>`); };
     const stepCells=steps.map(s=>{ if(s.name==='今回分'){ return `<td class="yen" title="前年の今回分 完了日（自動連動）">${prevDate&&prevDate!=='対象外'?fmtMD(prevDate):(prevDate==='対象外'?'対象外':'－')}</td><td>${prevMethod?esc(prevMethod):'－'}</td>`+kongaiCell()+`<td>${gsMethodSelect(c.id,r.method)}</td>`; } return dcell(s); }).join('');
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${esc(c.taxOffice||'')}</td><td>${payChip(c)}</td><td>${esc(payDayLabel(c))}</td><td>${esc(c.payrollSoftware||'')}</td>
-      <td class="yen" style="text-align:right" title="前年の年末調整 控除未済額より自動">${carry?fmtAmtSigned(carry):'－'}</td>
+      <td class="yen" style="text-align:right" title="前年の年末調整 控除未済額（還付の未控除分）より自動">${carry?fmtAmt(carry):'－'}</td>
       <td style="text-align:right">${amtInput(r.current,`setGsCurrent('${c.id}',this.value)`)}</td>
-      <td class="yen" style="text-align:right">${fwd?fmtAmtSigned(fwd):'－'}</td>
+      <td style="text-align:right">${amtInput(r.adjust,`setGsAdjust('${c.id}',this.value)`)}</td>
+      <td class="yen" style="text-align:right;font-weight:600">${gc.any?fmtAmt(gc.pay):'－'}</td>
+      <td class="yen" style="text-align:right">${gc.fwd?fmtAmt(gc.fwd):'－'}</td>
       ${stepCells}
       <td><input style="min-width:120px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setGsNote('${c.id}',this.value)"></td></tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
@@ -1723,14 +1739,14 @@ function renderGensenSpecial(){ const cs=gensenSpecialClients(); const steps=get
 }
 function exportGensen(){ const steps=getGensenSteps(); const dv=(r,name)=>{ const v=r.cells&&r.cells[name]; return v==='対象外'?'対象外':(v?fmtMD(v):''); };
   if(gensenTab==='special'){
-    const cs=gensenSpecialClients(); const head=['コード','顧問先名','所轄税務署','納付方法','給与支払日','給与ソフト','未済繰越額','源泉税額(1〜6月)','翌期繰越未済額',...steps.map(s=>s.name),'備考']; const aoa=[head];
-    cs.forEach(c=>{ const r=gsPeek(gensenYear,c.id); const cy=nenchoDeduction(gensenYear,c.id);
-      aoa.push([c.code||'',c.name,c.taxOffice||'',c.payMethod||'',payDayLabel(c),c.payrollSoftware||'',cy||'',num(r.current)||'',(cy+num(r.current))||'',...steps.map(s=>dv(r,s.name)),r.note||'']); });
+    const cs=gensenSpecialClients(); const head=['コード','顧問先名','所轄税務署','納付方法','給与支払日','給与ソフト','未済繰越額','源泉税額(1〜6月)','調整額','納付額','翌期繰越未済額',...steps.map(s=>s.name),'備考']; const aoa=[head];
+    cs.forEach(c=>{ const r=gsPeek(gensenYear,c.id); const cy=Math.max(0,-nenchoDeduction(gensenYear,c.id)); const gc=gensenCalc(cy,r);
+      aoa.push([c.code||'',c.name,c.taxOffice||'',c.payMethod||'',payDayLabel(c),c.payrollSoftware||'',cy||'',num(r.current)||'',num(r.adjust)||'',gc.pay||'',gc.fwd||'',...steps.map(s=>dv(r,s.name)),r.note||'']); });
     const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'納期特例1-6月'); XLSX.writeFile(wb,`源泉税_納期特例_${gensenYear}年_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); return; }
   const m=gensenMonth; if(!m){ toast('月分カードを開いてから出力してください','err'); return; } const cs=gensenMonthlyClients();
-  const head=['コード','顧問先名','所轄税務署','納付方法','給与支払日','給与ソフト','未済繰越額','当月源泉税額','翌月繰越未済額',...steps.map(s=>s.name),'備考'];
-  const aoa=[head]; cs.forEach(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id);
-    aoa.push([c.code||'',c.name,c.taxOffice||'',c.payMethod||'',payDayLabel(c),c.payrollSoftware||'',carry||'',num(r.current)||'',(carry+num(r.current))||'',...steps.map(s=>dv(r,s.name)),r.note||'']); });
+  const head=['コード','顧問先名','所轄税務署','納付方法','給与支払日','給与ソフト','未済繰越額','当月源泉税額','調整額','納付額','翌月繰越未済額',...steps.map(s=>s.name),'備考'];
+  const aoa=[head]; cs.forEach(c=>{ const r=gmPeek(gensenYear,m,c.id); const carry=gmCarry(gensenYear,m,c.id); const gc=gensenCalc(carry,r);
+    aoa.push([c.code||'',c.name,c.taxOffice||'',c.payMethod||'',payDayLabel(c),c.payrollSoftware||'',carry||'',num(r.current)||'',num(r.adjust)||'',gc.pay||'',gc.fwd||'',...steps.map(s=>dv(r,s.name)),r.note||'']); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,`${m}月分`);
   XLSX.writeFile(wb,`源泉税_毎月納付_${gensenYear}年${m}月分_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
 
@@ -1762,7 +1778,7 @@ function renderNencho(){
       <td style="text-align:right"><span class="amt-wrap"><span class="pre">△</span><input type="text" inputmode="numeric" class="amt" style="min-width:62px" value="${fmtAmt(r.refund)}" onchange="setNenchoAmt('${c.id}','refund',this.value)"></span></td>
       <td class="yen" style="text-align:right;font-weight:600;white-space:nowrap;padding-right:18px">${fmtAmtSigned(ded)}</td></tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
-    <div class="hint" style="margin-top:12px">※ 当月源泉税額・年末調整不足額・年末調整還付額は正の金額で入力します（還付額は△表示で減算）。控除未済額＝当月源泉税額＋年末調整不足額−年末調整還付額で自動計算し、源泉税（毎月納付の翌年1月分／納期特例の1〜6月分）の未済繰越額に連携します。</div>`;
+    <div class="hint" style="margin-top:12px">※ 当月源泉税額・年末調整不足額・年末調整還付額は正の金額で入力します（還付額は△表示で減算）。控除未済額＝当月源泉税額＋年末調整不足額−年末調整還付額で自動計算します。この値がマイナス（還付額が上回り控除しきれない）の場合に限り、その残額が源泉税（毎月納付の翌年1月分／納期特例の1〜6月分）の未済繰越額へ連携します。</div>`;
   document.getElementById('nenchoView').innerHTML=html;
   setBulk('nencho',{colWord:'工程',valueType:'date',cols:[{name:'collect',label:'申告書登録'},{name:'payroll',label:'給与登録'},{name:'confirm',label:'年調確定'},{name:'send',label:'源泉徴収票等送付'}],cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
   enhanceGrid(document.querySelector('#nenchoView table.grid'),'nencho');
