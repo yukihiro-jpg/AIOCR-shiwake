@@ -84,10 +84,11 @@ interface GroupedProps {
   groups: { label: string; values: (number | null)[] }[]
   seriesLabels: string[]
   colors?: string[]
+  staggerLabels?: boolean // 月次12グループ×2系列など、隣接バーの数値ラベルが重なる場合に高さを系列ごとにずらす
 }
 
 /** グループ化棒グラフ（例: 指標ごと(売上/粗利/営業利益…) × 3期） */
-export function GroupedBars({ groups, seriesLabels, colors = PALETTE }: GroupedProps) {
+export function GroupedBars({ groups, seriesLabels, colors = PALETTE, staggerLabels }: GroupedProps) {
   const W = 760, H = 260, padL = 16, padR = 16, padT = 26, padB = 30
   const n = groups.length
   const s = seriesLabels.length
@@ -117,10 +118,11 @@ export function GroupedBars({ groups, seriesLabels, colors = PALETTE }: GroupedP
                 const x = gx + barW * si
                 const top = Math.min(y(v), zero)
                 const h = Math.abs(y(v) - zero)
+                const dy = staggerLabels ? (s - 1 - si) * 11 : 0
                 return (
                   <g key={si}>
                     <rect x={x} y={top} width={barW * 0.86} height={h} rx={2} fill={colors[si % colors.length]} />
-                    <text x={x + barW * 0.43} y={v >= 0 ? top - 4 : top + h + 10} textAnchor="middle" fontSize={9.5} fontWeight={600} fill="#334155" stroke="#fff" strokeWidth={2.5} paintOrder="stroke">{fmtShort(v)}</text>
+                    <text x={x + barW * 0.43} y={v >= 0 ? top - 4 - dy : top + h + 10 + dy} textAnchor="middle" fontSize={9.5} fontWeight={600} fill="#334155" stroke="#fff" strokeWidth={2.5} paintOrder="stroke">{fmtShort(v)}</text>
                   </g>
                 )
               })}

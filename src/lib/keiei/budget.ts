@@ -46,6 +46,31 @@ function seasonality(years: Record<string, FiscalYearData>, fy: FiscalYearData):
   return m.map((v) => v / total)
 }
 
+/** 月次の予算配分（売上・粗利は季節性、販管費は均等）と実績の系列。予実推移グラフ用 */
+export interface MonthlyBudgetSeries {
+  salesBudget: number[]   // 12ヶ月分の売上予算
+  opBudget: number[]      // 12ヶ月分の営業利益予算（粗利×季節性 − 販管費/12）
+  salesActual: (number | null)[] // 実績（選択月より後はnull＝未経過）
+  opActual: (number | null)[]
+}
+export function monthlyBudgetSeries(
+  years: Record<string, FiscalYearData>,
+  fy: FiscalYearData,
+  monthIdx: number,
+  budget: YearBudget,
+): MonthlyBudgetSeries {
+  const season = seasonality(years, fy)
+  const grossFull = budget.sales * (budget.grossMargin / 100)
+  const salesBudget = season.map((s) => budget.sales * s)
+  const opBudget = season.map((s) => grossFull * s - budget.sgna / 12)
+  const salesRow = getRow(fy, CODES.sales)
+  const opRow = getRow(fy, CODES.opProfit)
+  const act = (row: typeof salesRow, i: number): number | null => (i > monthIdx ? null : (row?.monthly[i] ?? 0))
+  const salesActual = Array.from({ length: 12 }, (_, i) => act(salesRow, i))
+  const opActual = Array.from({ length: 12 }, (_, i) => act(opRow, i))
+  return { salesBudget, opBudget, salesActual, opActual }
+}
+
 export interface BudgetLine {
   label: string
   budgetYtd: number

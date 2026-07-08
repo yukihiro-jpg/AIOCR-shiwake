@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { FiscalYearData } from '@/lib/keiei/types'
-import { suggestBudget, budgetVsActual } from '@/lib/keiei/budget'
+import { suggestBudget, budgetVsActual, monthlyBudgetSeries } from '@/lib/keiei/budget'
 import type { KeieiSettings, YearBudget } from '@/lib/keiei/analysis'
 import { fmtYen, fmtShort, fmtPct } from '@/lib/keiei/format'
 import { GroupedBars } from './charts'
@@ -74,6 +74,7 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
   const grossFull = budget.sales * (budget.grossMargin / 100)
   const opFull = grossFull - budget.sgna
   const va = budgetVsActual(years, fy, monthIdx, budget)
+  const ms = monthlyBudgetSeries(years, fy, monthIdx, budget)
   const auto = buildBudgetComment(va, monthLabel)
   const comment = budget.comment ?? auto
 
@@ -153,6 +154,24 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
           />
         </div>
         <div className="text-[11px] text-gray-400 mt-2">※ 予算(YTD)＝通期予算 × 進捗（売上・粗利は季節性配分、販管費は月数按分 {va.months}/12）。達成率＝実績÷予算。</div>
+      </Section>
+
+      {/* 月次の予実推移（棒グラフ） */}
+      <Section title="月次売上の予実推移" note={`各月の売上予算（${va.hasPriorSeason ? '前年の季節性で配分' : '均等配分'}）と実績。${monthLabel}まで実績表示`}>
+        <GroupedBars
+          groups={fy.fiscalMonths.map((m, i) => ({ label: `${m}月`, values: [ms.salesBudget[i], ms.salesActual[i]] }))}
+          seriesLabels={['予算', '実績']}
+          colors={['#94a3b8', '#1a73e8']}
+          staggerLabels
+        />
+      </Section>
+      <Section title="月次営業利益の予実推移" note={`各月の営業利益予算（粗利×季節性 − 販管費/12）と実績。${monthLabel}まで実績表示`}>
+        <GroupedBars
+          groups={fy.fiscalMonths.map((m, i) => ({ label: `${m}月`, values: [ms.opBudget[i], ms.opActual[i]] }))}
+          seriesLabels={['予算', '実績']}
+          colors={['#94a3b8', '#1F3A5F']}
+          staggerLabels
+        />
       </Section>
 
       {/* 通期予算 vs 着地見込み */}

@@ -24,14 +24,16 @@ function esc(s: string): string {
 }
 
 interface DataRow { r: AggRow; cells: string[] }
-function tableHtml(headers: string[], rows: DataRow[]): string {
+// colWidths: 科目列を除く各列の幅（%表記など）。列幅を揃えたい表（3期比較）で指定する
+function tableHtml(headers: string[], rows: DataRow[], colWidths?: string[]): string {
+  const colgroup = colWidths ? `<colgroup><col>${colWidths.map((w) => `<col style="width:${w}">`).join('')}</colgroup>` : ''
   const head = `<tr><th class="name">科目</th>${headers.map((h) => `<th class="num">${esc(h)}</th>`).join('')}</tr>`
   const body = rows.map(({ r, cells }) => {
     const cls = r.isSubtotal ? (r.bracket === 'profit' ? 'sub profit' : 'sub') : ''
     const pad = 4 + r.level * 10
     return `<tr class="${cls}"><th class="name" style="padding-left:${pad}px">${esc(r.name)}</th>${cells.map((c) => `<td class="num">${c}</td>`).join('')}</tr>`
   }).join('')
-  return `<table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>`
+  return `<table class="grid"${colWidths ? ' style="table-layout:fixed"' : ''}>${colgroup}<thead>${head}</thead><tbody>${body}</tbody></table>`
 }
 
 interface OneReport { title: string; sub: string; table: string }
@@ -66,10 +68,13 @@ function buildOne(key: ReportKey, fy: FiscalYearData, comp: FiscalYearData[], mo
     const data = rows.filter((r) => r.statement === statement).map((r) => {
       const vCur = valFor(iC, r) ?? 0; const vP = iP >= 0 ? valFor(iP, r) : null; const vP2 = iP2 >= 0 ? valFor(iP2, r) : null
       const diff = vP != null ? vCur - vP : null; const rate = vP != null && vP !== 0 ? (vCur - vP) / Math.abs(vP) * 100 : null
-      return { r, cells: [vP2 == null ? '—' : fmtAcct(vP2), vP == null ? '—' : fmtAcct(vP), fmtAcct(vCur), diff == null ? '—' : fmtAcct(diff), rate == null ? '—' : pct(rate)] }
+      const diff2 = vP2 != null ? vCur - vP2 : null; const rate2 = vP2 != null && vP2 !== 0 ? (vCur - vP2) / Math.abs(vP2) * 100 : null
+      return { r, cells: [vP2 == null ? '—' : fmtAcct(vP2), vP == null ? '—' : fmtAcct(vP), fmtAcct(vCur), diff2 == null ? '—' : fmtAcct(diff2), diff == null ? '—' : fmtAcct(diff), rate2 == null ? '—' : pct(rate2), rate == null ? '—' : pct(rate)] }
     })
-    const headers = [prev2 ? prev2.label : '前々期', prev ? prev.label : '前期', `${cur.label}（当期）`, '前期比増減', '増減率']
-    return { title: `${statement === 'PL' ? '損益計算書' : '貸借対照表'}（3期比較）`, sub: statement === 'PL' ? `期首〜${monthLabel}累計` : `${monthLabel}末残高`, table: tableHtml(headers, data) }
+    const headers = [prev2 ? prev2.label : '前々期', prev ? prev.label : '前期', `${cur.label}（当期）`, '前々期比増減', '前期比増減', '前々期比増減率', '前期比増減率']
+    // 金額5列は同幅（12.6%×5）、増減率2列は同幅かつ短く（8%×2）。残りが科目列
+    const widths = ['12.6%', '12.6%', '12.6%', '12.6%', '12.6%', '8%', '8%']
+    return { title: `${statement === 'PL' ? '損益計算書' : '貸借対照表'}（3期比較）`, sub: statement === 'PL' ? `期首〜${monthLabel}累計` : `${monthLabel}末残高`, table: tableHtml(headers, data, widths) }
   }
   if (key === 'trend3PL') return buildTrend3(comp, monthIdx)
   // trendPL / trendBS

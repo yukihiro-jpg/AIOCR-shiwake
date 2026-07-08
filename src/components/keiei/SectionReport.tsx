@@ -39,11 +39,11 @@ function rowBorder(r: { isSubtotal: boolean; bracket: string }): string {
     : '[&>td]:border-y [&>td]:border-slate-300'
 }
 
-function NumTh({ children, accent, center }: { children: React.ReactNode; accent?: boolean; center?: boolean }) {
-  return <th className={`${center ? 'text-center' : 'text-right'} px-3 py-1.5 font-semibold ${accent ? 'bg-[#16304f]' : ''}`} style={{ minWidth: 96 }}>{children}</th>
+function NumTh({ children, accent, center, w }: { children: React.ReactNode; accent?: boolean; center?: boolean; w?: number }) {
+  return <th className={`${center ? 'text-center' : 'text-right'} px-3 py-1.5 font-semibold ${accent ? 'bg-[#16304f]' : ''}`} style={{ minWidth: w ?? 96, width: w }}>{children}</th>
 }
-function NumTd({ children, cls = '', strong }: { children: React.ReactNode; cls?: string; strong?: boolean }) {
-  return <td className={`text-right px-3 py-1 tabular-nums whitespace-nowrap ${strong ? 'font-bold text-gray-900' : ''} ${cls}`} style={{ minWidth: 96 }}>{children}</td>
+function NumTd({ children, cls = '', strong, w }: { children: React.ReactNode; cls?: string; strong?: boolean; w?: number }) {
+  return <td className={`text-right px-3 py-1 tabular-nums whitespace-nowrap ${strong ? 'font-bold text-gray-900' : ''} ${cls}`} style={{ minWidth: w ?? 96, width: w }}>{children}</td>
 }
 
 function GTable({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
@@ -281,7 +281,17 @@ export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearDat
   )
 }
 
-function CompareView({ statement, rows, comp, monthIdx, monthLabel, mode, setMode }: {
+// 3期比較の列幅：金額5列（前々期/前期/当期/前々期比増減/前期比増減）は同幅、増減率2列は同幅で短く
+const AMT_W = 104
+const RATE_W = 76
+function RateTd({ rate }: { rate: number | null }) {
+  return (
+    <td className={`text-right px-3 py-1 whitespace-nowrap ${rate == null ? 'text-gray-400' : rate >= 0 ? 'text-green-600' : 'text-red-500'}`}
+      style={{ minWidth: RATE_W, width: RATE_W }}>{rate == null ? '—' : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}%`}</td>
+  )
+}
+
+export function CompareView({ statement, rows, comp, monthIdx, monthLabel, mode, setMode }: {
   statement: 'PL' | 'BS'; rows: AggRow[]; comp: FiscalYearData[]; monthIdx: number; monthLabel: string
   mode: 'single' | 'cum'; setMode: (m: 'single' | 'cum') => void
 }) {
@@ -312,27 +322,34 @@ function CompareView({ statement, rows, comp, monthIdx, monthLabel, mode, setMod
       {comp.length < 2 && <div className="text-xs text-amber-600 mb-2">比較できる前期データがありません。前期・前々期のCSVも取り込んでください。</div>}
       <GTable head={<tr>
         <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 220 }}>科目</th>
-        <NumTh>{prev2 ? prev2.label : '前々期'}</NumTh>
-        <NumTh>{prev ? prev.label : '前期'}</NumTh>
-        <NumTh accent>{cur.label}（当期）</NumTh>
-        <NumTh>前期比増減</NumTh>
-        <NumTh>増減率</NumTh>
+        {/* 金額5列（前々期/前期/当期/前々期比増減/前期比増減）は同幅、増減率2列は同幅かつ金額列より短く */}
+        <NumTh w={AMT_W}>{prev2 ? prev2.label : '前々期'}</NumTh>
+        <NumTh w={AMT_W}>{prev ? prev.label : '前期'}</NumTh>
+        <NumTh accent w={AMT_W}>{cur.label}（当期）</NumTh>
+        <NumTh w={AMT_W}>前々期比増減</NumTh>
+        <NumTh w={AMT_W}>前期比増減</NumTh>
+        <NumTh w={RATE_W}>前々期比<br />増減率</NumTh>
+        <NumTh w={RATE_W}>前期比<br />増減率</NumTh>
       </tr>}>
         {rows.map((r, i) => {
           const vCur = valFor(idxCur, r) ?? 0
           const vPrev = idxPrev >= 0 ? valFor(idxPrev, r) : null
           const vPrev2 = idxPrev2 >= 0 ? valFor(idxPrev2, r) : null
           const diff = vPrev != null ? vCur - vPrev : null
+          const diff2 = vPrev2 != null ? vCur - vPrev2 : null
           const rate = vPrev != null && vPrev !== 0 ? ((vCur - vPrev) / Math.abs(vPrev)) * 100 : null
+          const rate2 = vPrev2 != null && vPrev2 !== 0 ? ((vCur - vPrev2) / Math.abs(vPrev2)) * 100 : null
           const even = i % 2 === 1
           return (
             <tr key={i} className={`border-b border-gray-100 ${rowBorder(r)}`} style={{ background: bgHex(r, even) }}>
               <NameTd r={r} even={even} />
-              <NumTd cls="text-gray-500">{vPrev2 == null ? '—' : fmtN(vPrev2)}</NumTd>
-              <NumTd cls="text-gray-500">{vPrev == null ? '—' : fmtN(vPrev)}</NumTd>
-              <NumTd strong>{fmtN(vCur)}</NumTd>
-              <NumTd cls={diff != null && diff < 0 ? 'text-red-500' : ''}>{diff == null ? '—' : fmtN(diff)}</NumTd>
-              <td className={`text-right px-3 py-1 ${rate == null ? 'text-gray-400' : rate >= 0 ? 'text-green-600' : 'text-red-500'}`} style={{ minWidth: 72 }}>{rate == null ? '—' : `${rate >= 0 ? '+' : ''}${rate.toFixed(1)}%`}</td>
+              <NumTd w={AMT_W} cls="text-gray-500">{vPrev2 == null ? '—' : fmtN(vPrev2)}</NumTd>
+              <NumTd w={AMT_W} cls="text-gray-500">{vPrev == null ? '—' : fmtN(vPrev)}</NumTd>
+              <NumTd w={AMT_W} strong>{fmtN(vCur)}</NumTd>
+              <NumTd w={AMT_W} cls={diff2 != null && diff2 < 0 ? 'text-red-500' : ''}>{diff2 == null ? '—' : fmtN(diff2)}</NumTd>
+              <NumTd w={AMT_W} cls={diff != null && diff < 0 ? 'text-red-500' : ''}>{diff == null ? '—' : fmtN(diff)}</NumTd>
+              <RateTd rate={rate2} />
+              <RateTd rate={rate} />
             </tr>
           )
         })}
