@@ -712,10 +712,15 @@ function yen(n){ return (n||0).toLocaleString('ja-JP')+'円'; }
 const MONTHS=[...Array(12)].map((_,i)=>(i+1)+'月');
 function wareki(y){ if(y>=2019)return '令和'+(y-2018)+'年'; if(y>=1989)return '平成'+(y-1988)+'年'; return y+'年'; }
 const DEFAULT_STEPS=['資料受取','申告書作成','申告書チェック','申告書セット','押印・納付書','申告','返却用セット','返却'];
-function migrateFilingSteps(){
+/* 進捗工程の移行（廃止した工程の除去・改名）。ローカル読込時だけでなく、
+   Firebaseのリモート受信後にも必ず実行すること（リモートに旧工程が残っていると復活するため）。
+   変更があった場合 true を返す（呼び出し側でリモートへ押し戻す判断に使う）。 */
+function migrateFilingSteps(){ let changed=false;
   Object.keys(data.filingSteps||{}).forEach(mk=>{ const arr=data.filingSteps[mk]; if(!Array.isArray(arr))return;
-    data.filingSteps[mk]=arr.filter(s=>s.name!=='申告書チェック_2回目'&&s.name!=='会計入力').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s); });
+    const next=arr.filter(s=>s.name!=='申告書チェック_2回目'&&s.name!=='会計入力').map(s=>s.name==='申告書チェック_1回目'?Object.assign({},s,{name:'申告書チェック'}):s);
+    if(JSON.stringify(next)!==JSON.stringify(arr)){ data.filingSteps[mk]=next; changed=true; } });
   Object.values(data.filings||{}).forEach(f=>{ if(f&&f.cells){ if(f.cells['申告書チェック_1回目']!=null&&f.cells['申告書チェック']==null)f.cells['申告書チェック']=f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_1回目']; delete f.cells['申告書チェック_2回目']; } });
+  return changed;
 }
 function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones','cellMemos','memoShow','kessanMemos'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
 /* ===== リアルタイム共同編集（Firebase Realtime Database） ===== */
@@ -764,7 +769,7 @@ const Realtime=(function(){
       try{ if(firebase.auth)await firebase.auth().signInAnonymously(); }catch(ae){ console.warn('anon auth',ae); }
       ref=firebase.database().ref('rooms/'+enc(room));
       const snap=await ref.once('value'); const remote=snap.val();
-      if(remote){ const d=decodeTree(remote); mergeRemote(d); lastSnap=clone(d); saveLocal(); refreshAll(); pushNow(false); /* ローカルのみの新規をリモートへ反映 */ }
+      if(remote){ const d=decodeTree(remote); mergeRemote(d); migrateFilingSteps(); lastSnap=clone(d); saveLocal(); refreshAll(); pushNow(false); /* ローカルのみの新規・移行結果をリモートへ反映 */ }
       else { lastSnap={}; pushNow(true); }
       ready=true; setStatus('on','共同編集中'); toast('リアルタイム同期に接続しました','ok');
       ref.on('value',onRemote);
@@ -772,7 +777,11 @@ const Realtime=(function(){
   }
   function onRemote(snap){ if(!ready)return; const remote=snap.val(); if(!remote)return; const d=decodeTree(remote);
     let changed=false; SYNC_KEYS.forEach(k=>{ if(d[k]!==undefined&&JSON.stringify(d[k])!==JSON.stringify(data[k])){ data[k]=d[k]; changed=true; } });
-    lastSnap=clone(syncedView()); if(changed){ saveLocal(); rerender(); } }
+    lastSnap=clone(syncedView());
+    // リモートに廃止済み工程が残っていた場合はここで除去し、リモートへも押し戻す
+    // （lastSnapは移行前の状態なので、push()の差分計算で除去がRTDBへ反映される）
+    if(migrateFilingSteps()){ changed=true; push(); }
+    if(changed){ saveLocal(); rerender(); } }
   function pushNow(seed){ if(!ref)return; const up={}; const cur=syncedView(); const prev=seed?{}:lastSnap;
     SYNC_KEYS.forEach(k=>diffInto(up,enc(k),cur[k],(prev||{})[k])); lastSnap=clone(cur);
     if(Object.keys(up).length)ref.update(up).catch(e=>{ console.error(e); setStatus('err','保存エラー'); }); }
@@ -1474,8 +1483,9 @@ function printKessanGuide(cid){
   ].join('');
   let body='<div class="issue">発行日：'+today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日</div>'
     +'<h1>決算のご確認とご案内</h1><div class="rule"></div>'
-    +'<div class="to"><b>'+esc(c.name)+'</b>　御中</div>'
-    +(c.rep?'<div class="to">代表者　'+esc(c.rep)+' 様</div>':'')
+    // 宛名：代表者名があるときは「法人名＋代表者氏名 様」、無いときのみ「法人名 御中」
+    +'<div class="to"><b>'+esc(c.name)+'</b>'+(c.rep?'':'　御中')+'</div>'
+    +(c.rep?'<div class="to">'+esc(c.rep)+'　様</div>':'')
     +'<div class="meta">対象事業年度：'+curPeriod+'（'+M+'月決算）</div>'
     +'<p class="lead">当期の決算に基づく税額と、今後の納税予定を下記のとおりご案内いたします。内容をご確認のうえ、末尾の確認欄にご署名をお願いいたします。<b>本書へのご署名をもちまして、申告書への押印に代えさせていただきます。</b></p>'
     +'<h2>１．当期の確定税額</h2>'
@@ -2103,8 +2113,10 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   let addr=''; // 窓付き封筒の窓位置に合わせて上部に配置
   if(af.zip&&c.zip)addr+=`<div style="font-size:15px;letter-spacing:1px">〒${esc(c.zip)}</div>`;
   if(af.addr&&c.addr)addr+=`<div style="font-size:15px;margin-top:2px">${esc(c.addr)}</div>`;
-  if(af.name&&c.name)addr+=`<div style="font-size:21px;font-weight:700;margin-top:8px">${esc(c.name)}　御中</div>`;
-  if(af.rep&&c.rep)addr+=`<div style="font-size:16px;margin-top:3px">${esc(c.rep)}　様</div>`;
+  // 宛名：代表者名を表示するときは「法人名＋代表者氏名 様」、法人名のみのときは「法人名 御中」
+  const showRep=af.rep&&c.rep;
+  if(af.name&&c.name)addr+=`<div style="font-size:21px;font-weight:700;margin-top:8px">${esc(c.name)}${showRep?'':'　御中'}</div>`;
+  if(showRep)addr+=`<div style="font-size:16px;margin-top:3px">${esc(c.rep)}　様</div>`;
   const items=(t.cols||[]).map(it=>`<tr><td style="border:1px solid #888;padding:7px 10px">${esc(it.name)}</td><td style="border:1px solid #888;padding:7px 10px">${esc(it.detail||'')}</td><td style="border:1px solid #888;padding:7px 10px;text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
   wrap.innerHTML=`<div style="height:38mm"></div>
     <div style="padding-left:8mm;min-height:30mm">${addr}</div>
