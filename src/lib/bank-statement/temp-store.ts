@@ -19,6 +19,12 @@ export function getTempEntries(): JournalEntry[] {
 export function saveTempEntries(entries: JournalEntry[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getTempKey(), JSON.stringify(entries))
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./firebase-sync')
+      .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, 'temp-entries', entries))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 export function appendTempEntries(newEntries: JournalEntry[]): number {

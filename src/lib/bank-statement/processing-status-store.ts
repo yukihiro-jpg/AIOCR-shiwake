@@ -50,6 +50,14 @@ function normalizeStatus(s: ProcessingStatus): ProcessingStatus {
 export function saveProcessingStatuses(statuses: ProcessingStatus[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getKey(), JSON.stringify(statuses))
+  // 進捗管理表を全端末で共有する（受信側は firebase-sync が localStorage へ反映済み）。
+  // 保存＝push が STORAGE_KEY_MAP キーの約束（push漏れは端末間非同期の実バグになる）
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./firebase-sync')
+      .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, 'processing-status', statuses))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 /**

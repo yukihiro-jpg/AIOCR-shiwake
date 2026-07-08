@@ -31,6 +31,12 @@ function loadPayrollSettings(): PayrollSettings | null {
 
 function savePayrollSettings(settings: PayrollSettings): void {
   try { localStorage.setItem(getPayrollSettingsKey(), JSON.stringify(settings)) } catch {}
+  const cid = typeof window !== 'undefined' ? localStorage.getItem('bank-statement-selected-client') || '' : ''
+  if (cid) {
+    import('@/lib/bank-statement/firebase-sync')
+      .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, 'payroll-settings', settings))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 interface Props {

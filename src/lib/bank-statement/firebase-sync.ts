@@ -228,16 +228,31 @@ export async function startClientsSync(onChange: () => void): Promise<void> {
         const incoming = Object.values(mapObj).filter((c) => c && c.id && !isDeleted(c.id))
         const local = readLocalClients().filter((c) => c && c.id && !isDeleted(c.id))
 
-        // id で union マージ（リモート優先で上書き、手元の項目は残す）
-        const byId = new Map<string, ClientLike>()
+        // id で union マージ（リモート優先で上書き、手元の項目は残す）。
+        // lastCsvExportAt（直前の処理日）だけは「新しい方」を採用する：
+        // clients_v2 は顧問先オブジェクト丸ごとの last-writer-wins のため、別端末が
+        // 古い一覧を push すると新しい処理日が巻き戻る事故があった（実バグ）。
+        const newerIso = (a?: string, b?: string): string | undefined =>
+          !a ? b : !b ? a : (a >= b ? a : b)
+        const byId = new Map<string, ClientLike & { lastCsvExportAt?: string }>()
         for (const c of local) if (c && c.id) byId.set(c.id, c)
-        for (const c of incoming) if (c && c.id) byId.set(c.id, { ...byId.get(c.id), ...c })
+        for (const c of incoming) if (c && c.id) {
+          const loc = byId.get(c.id) as (ClientLike & { lastCsvExportAt?: string }) | undefined
+          const m = { ...loc, ...c } as ClientLike & { lastCsvExportAt?: string }
+          const mx = newerIso(loc?.lastCsvExportAt, (c as { lastCsvExportAt?: string }).lastCsvExportAt)
+          if (mx) m.lastCsvExportAt = mx
+          byId.set(c.id, m)
+        }
         const merged = Array.from(byId.values())
 
-        // Firebase にまだ無い手元の顧問先を寄与（墓標分は除外済み・union 収束）
-        const incomingIds = new Set(incoming.map((c) => c.id))
-        const localOnly = local.filter((c) => c && c.id && !incomingIds.has(c.id))
-        if (localOnly.length) pushClientsToFirebase(localOnly).catch(() => { /* ignore */ })
+        // Firebase にまだ無い手元の顧問先と、手元の方が処理日が新しい顧問先を寄与し直す
+        // （寄与→受信→一致で収束。これで全端末の「直前の処理」が最新に揃う）
+        const contribute = merged.filter((c) => {
+          const inc = mapObj[c.id] as (ClientLike & { lastCsvExportAt?: string }) | undefined
+          if (!inc) return true
+          return !!c.lastCsvExportAt && c.lastCsvExportAt !== inc.lastCsvExportAt
+        })
+        if (contribute.length) pushClientsToFirebase(contribute).catch(() => { /* ignore */ })
 
         // 墓標により手元から消える分も含め、localStorage を merged に更新
         const mergedJson = JSON.stringify(merged)

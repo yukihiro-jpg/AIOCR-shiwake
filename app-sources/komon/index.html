@@ -590,6 +590,20 @@
   <div class="modal-foot"><button class="text" onclick="closeModal('docTplModal')">キャンセル</button><button class="primary" onclick="saveDocTemplate()">保存</button></div>
 </div></div>
 
+<!-- 資料回収 個別PDFモーダル（チェックした顧問先だけPDF作成） -->
+<div class="modal-bg" id="docsPickModal"><div class="modal">
+  <div class="modal-head"><h3>個別PDF作成（顧問先を選択）</h3><button class="icon x" onclick="closeModal('docsPickModal')">✕</button></div>
+  <div class="modal-body">
+    <div class="hint" style="margin-bottom:10px">PDFを作成する顧問先にチェックを付けてください（1社につき1ファイル）。</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="text sm" onclick="docsPickAll(true)">全選択</button>
+      <button class="text sm" onclick="docsPickAll(false)">全解除</button>
+    </div>
+    <div class="add-row-list" id="docsPickList" style="max-height:340px;overflow:auto"></div>
+  </div>
+  <div class="modal-foot"><button class="text" onclick="closeModal('docsPickModal')">キャンセル</button><button class="primary" onclick="runDocsPickPdf()">選択した顧問先のPDFを作成</button></div>
+</div></div>
+
 <!-- 一括入力モーダル -->
 <div class="modal-bg" id="bulkModal"><div class="modal">
   <div class="modal-head"><h3>一括入力</h3><button class="icon x" onclick="closeModal('bulkModal')">✕</button></div>
@@ -2027,7 +2041,7 @@ function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(
     html+=`<div class="card"><div class="empty"><div class="big">🗂</div>${msg}</div></div>`; document.getElementById(def.view).innerHTML=html; return; }
   html+=`<div class="card"><table><thead><tr><th>タイトル</th><th>対象</th><th>対象社数</th><th>${def.colWord}数</th><th>進捗</th><th></th></tr></thead><tbody>`+
     shown.map(t=>{ const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress(kind,t);
-      const pdfBtn=isDocs?`<button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
+      const pdfBtn=isDocs?`<button class="text sm" onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
       const rollBtn=(isDocs&&!t.closed)?`<button class="text sm" onclick="rolloverDocs('${t.id}')" title="このリストを踏襲した翌年度の新規リストを作成し、このリストは終了分へ移動します">🔄 翌年度更新</button>`:'';
       return `<tr><td><a class="link" onclick="openCustomTable('${kind}','${t.id}')">${esc(t.title)}</a>${t.closed?' <span class="chip gray">終了分</span>':''}</td><td class="muted">${esc(selSummary(t.sel))}</td><td>${cs.length}社</td><td>${cols.length}</td>
         <td><div class="pbar"><span style="width:${pr.pct}%"></span></div> ${pr.pct}%</td>
@@ -2118,7 +2132,7 @@ function toggleDocStatus(id,cid,encName){ const name=decodeURIComponent(encName)
 function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress('docs',t);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('docs')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
+    <div class="toolbar"><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; document.getElementById('docsView').innerHTML=html; return; }
   // 資料項目の一覧（メモ含む・所内参照用）
@@ -2130,7 +2144,7 @@ function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs
     const pct=cols.length?Math.round(done/cols.length*100):0;
     return `<tr><td class="name">${clientLink(c)}</td>${cells}<td style="white-space:nowrap"><div class="pbar"><span style="width:${pct}%"></span></div> ${pct}%</td></tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
-    <div class="hint" style="margin-top:12px">※ セルをクリックで「回収済／未回収」を切替（進捗バーに反映）。所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します。</div>`;
+    <div class="hint" style="margin-top:12px">※ セルをクリックで「回収済／未回収」を切替（進捗バーに反映）。所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します（一部の顧問先だけ作成したい場合は「個別PDF」）。</div>`;
   document.getElementById('docsView').innerHTML=html;
   setBulk('docs',{colWord:'資料項目',valueType:'docstatus',cols:cols.map(col=>({name:col.name})),cids:cs.map(c=>c.id),get:cid=>{ const r=cRow(t,cid); if(!r.status)r.status={}; return r.status; },render:()=>renderDocsDetail()});
   enhanceGrid(document.querySelector('#docsView table.grid'),'docs_'+t.id);
@@ -2163,7 +2177,21 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
     <table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="border:1px solid #888;padding:7px 10px;background:#eef;text-align:left;width:30%">資料名</th><th style="border:1px solid #888;padding:7px 10px;background:#eef;text-align:left">詳細</th><th style="border:1px solid #888;padding:7px 10px;background:#eef;width:90px">期限</th></tr></thead><tbody>${items}</tbody></table>
     <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin-top:20px">${esc(tpl.footer||'')}</div>`;
   return wrap; }
-async function generateDocsPDFs(id){ const t=cTable('docs',id); const cs=resolveSel(t.sel); if(!cs.length){ toast('対象顧問先がありません','err'); return; }
+/* 個別PDF：リスト内の顧問先をチェックボックスで選び、選んだ分だけPDFを作成する */
+let docsPickTableId=null;
+function openDocsPickPdf(id){ const t=cTable('docs',id); if(!t)return; const cs=resolveSel(t.sel);
+  if(!cs.length){ toast('対象顧問先がありません','err'); return; }
+  docsPickTableId=id;
+  document.getElementById('docsPickList').innerHTML=cs.map(c=>`<label><input type="checkbox" class="docsPickC" value="${c.id}" style="width:auto"> <b>${esc(c.code||'')}</b> ${esc(c.name)}</label>`).join('');
+  openModal('docsPickModal'); }
+function docsPickAll(on){ document.querySelectorAll('.docsPickC').forEach(i=>{ i.checked=on; }); }
+function runDocsPickPdf(){ const ids=[...document.querySelectorAll('.docsPickC:checked')].map(i=>i.value);
+  if(!ids.length){ toast('顧問先にチェックを付けてください','err'); return; }
+  closeModal('docsPickModal'); generateDocsPDFs(docsPickTableId,ids); }
+/* cids を渡すとその顧問先だけ（個別PDF）、省略時はリスト全社（一括PDF） */
+async function generateDocsPDFs(id,cids){ const t=cTable('docs',id); let cs=resolveSel(t.sel);
+  if(Array.isArray(cids)&&cids.length)cs=cs.filter(c=>cids.includes(c.id));
+  if(!cs.length){ toast('対象顧問先がありません','err'); return; }
   if(!window.html2canvas||!(window.jspdf&&window.jspdf.jsPDF)){ toast('PDFライブラリの読込中です。少し待って再実行してください','err'); return; }
   toast('PDFを作成しています…'); const { jsPDF }=window.jspdf;
   try{ for(const c of cs){ const el=buildDocHtml(t,c); document.body.appendChild(el);

@@ -52,6 +52,12 @@ export function getFixedJournals(): FixedJournalEntry[] {
 export function saveFixedJournals(items: FixedJournalEntry[]): void {
   if (typeof window === 'undefined') return
   localStorage.setItem(getKey(), JSON.stringify(items))
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./firebase-sync')
+      .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, 'fixed-journals', items))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 export function addFixedJournal(entry: Omit<FixedJournalEntry, 'id'>): FixedJournalEntry {

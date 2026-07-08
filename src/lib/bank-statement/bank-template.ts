@@ -26,6 +26,12 @@ export function saveBankTemplate(accountCode: string, template: BankTemplate): v
   const templates = getBankTemplates()
   templates[accountCode] = { ...template, lastUpdated: new Date().toISOString() }
   localStorage.setItem(getKey(), JSON.stringify(templates))
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./firebase-sync')
+      .then(({ schedulePushToFirebase }) => schedulePushToFirebase(cid, 'bank-templates', templates))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 export function getBankTemplate(accountCode: string): BankTemplate | null {
