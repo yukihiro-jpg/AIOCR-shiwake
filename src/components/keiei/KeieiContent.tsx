@@ -22,9 +22,11 @@ import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
 import SectionCash from './SectionCash'
 import SectionReport from './SectionReport'
 import SectionBudget from './SectionBudget'
+import SectionIssues from './SectionIssues'
+import { StoryBody } from './StoryCard'
 import { buildSummaryStory } from '@/lib/keiei/narrative'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'cash' | 'budget'
+type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -114,12 +116,12 @@ export default function KeieiContent() {
   const fy = years[yearId]
 
   // ===== 印刷（タブ選択式） =====
-  const TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['cash', '資金繰り・安全性']]
+  const TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['issues', '経営課題'], ['cash', '資金繰り・安全性']]
   const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
-  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'cash'])
+  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'issues', 'cash'])
   const [printViews, setPrintViews] = useState<View[] | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
   const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
@@ -155,6 +157,7 @@ export default function KeieiContent() {
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
       case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
       case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} sim={cvpSim} onSimChange={setCvpSim} />
+      case 'issues': return <SectionIssues fy={fy} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} company={current?.name || ''} />
       case 'cash': return <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />
       case 'budget': return <SectionBudget fy={fy} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />
     }
@@ -577,35 +580,6 @@ function SummaryStory({ baseStory, storyKey }: { baseStory: string; storyKey: st
           <StoryBody text={text} />
         )}
       </div>
-    </div>
-  )
-}
-
-// マーカー付きテキスト（# 見出し / 【小見出し】/ **強調**）を相続風に整形描画
-function StoryBody({ text }: { text: string }) {
-  const blocks = text.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
-  const renderInline = (s: string, keyBase: string) =>
-    s.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-      part.startsWith('**') && part.endsWith('**')
-        ? <b key={`${keyBase}-${i}`} className="text-[#1f3a5f] font-bold">{part.slice(2, -2)}</b>
-        : <span key={`${keyBase}-${i}`}>{part}</span>)
-  return (
-    <div className="space-y-3.5">
-      {blocks.map((b, i) => {
-        if (b.startsWith('# ')) {
-          return <div key={i} className="text-[17px] font-extrabold text-[#1f3a5f] leading-snug">{b.slice(2)}</div>
-        }
-        const m = b.match(/^【([^】]+)】([\s\S]*)$/)
-        if (m) {
-          return (
-            <div key={i} className="border-l-[3px] border-[#c8a24b] pl-3.5">
-              <div className="text-[13px] font-bold text-[#1f3a5f] mb-0.5">{m[1]}</div>
-              <p className="text-[13.5px] leading-[1.9] text-gray-700">{renderInline(m[2].trim(), `b${i}`)}</p>
-            </div>
-          )
-        }
-        return <p key={i} className="text-[13.5px] leading-[1.9] text-gray-700">{renderInline(b, `b${i}`)}</p>
-      })}
     </div>
   )
 }

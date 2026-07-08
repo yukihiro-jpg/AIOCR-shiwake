@@ -87,6 +87,7 @@ export interface YearBudget {
   sales: number       // 通期 売上高
   grossMargin: number // 粗利率（%）
   sgna: number        // 通期 販管費（固定費相当）
+  targetProfit?: number // 逆算方式で入力した目標営業利益（必要売上高の計算に使用）
   comment?: string    // 予実に対する所見（編集可）
 }
 

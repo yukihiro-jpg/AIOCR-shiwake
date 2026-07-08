@@ -77,6 +77,11 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
   const ms = monthlyBudgetSeries(years, fy, monthIdx, budget)
   const auto = buildBudgetComment(va, monthLabel)
   const comment = budget.comment ?? auto
+  // 逆算方式：必要売上高 ＝（販管費 ＋ 目標営業利益）÷ 粗利率
+  const requiredOf = (marginPct: number): number | null =>
+    marginPct > 0 ? (budget.sgna + (budget.targetProfit || 0)) / (marginPct / 100) : null
+  const requiredSales = requiredOf(budget.grossMargin)
+  const requiredSalesUp1 = requiredOf(budget.grossMargin + 1)
 
   return (
     <div className="space-y-5">
@@ -114,6 +119,41 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
         <div className="flex items-center gap-2 mt-3">
           <button onClick={createFromSuggest} className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100">前年実績で作り直す</button>
           <button onClick={removeBudget} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded">予算を削除</button>
+        </div>
+      </Section>
+
+      {/* 逆算方式：目標利益から必要売上高を求める（社長の「いくら残したいか」から出発する） */}
+      <Section title="逆算方式（目標利益から必要売上高を計算）" note="「今期いくら利益を残したいか」を入れるだけ。必要売上高＝（販管費＋目標利益）÷ 粗利率">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-3">
+            <label className="text-[12px] font-semibold text-gray-600 block mb-1">目標 営業利益（通期）</label>
+            <div className="flex items-center gap-1.5">
+              <MoneyInput value={budget.targetProfit || 0} onChange={(v) => saveBudget({ ...budget, targetProfit: v })} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded text-right tabular-nums text-sm" />
+              <span className="text-xs text-gray-400">円</span>
+            </div>
+            <div className="text-[11px] text-gray-400 mt-1.5">粗利率 {budget.grossMargin}%・販管費 {fmtShort(budget.sgna)} は上の予算の値を使用</div>
+          </div>
+          <div className="rounded-xl border border-[#1F3A5F]/30 bg-[#f4f8ff] p-3">
+            <div className="text-[12px] font-semibold text-gray-600 mb-1">必要売上高（自動計算）</div>
+            <div className="text-[20px] leading-tight font-extrabold tabular-nums text-[#1F3A5F]">
+              {requiredSales != null ? fmtShort(requiredSales) : '—'}
+            </div>
+            <div className="text-[11px] text-gray-400 mt-0.5">
+              {requiredSales != null
+                ? `月平均 ${fmtShort(requiredSales / 12)}（現予算 ${fmtShort(budget.sales)} との差 ${requiredSales - budget.sales >= 0 ? '＋' : '−'}${fmtShort(Math.abs(requiredSales - budget.sales))}）`
+                : '粗利率が0%のため計算できません'}
+            </div>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-3 flex flex-col justify-between">
+            <div className="text-[11px] text-gray-500 leading-relaxed">
+              目標利益が売上目標1本の数字に落ちるので、月次では「必要売上に届いているか」だけを見れば済みます。粗利率を1pt改善すると必要売上は{requiredSalesUp1 != null && requiredSales != null ? ` ${fmtShort(requiredSales - requiredSalesUp1)} 下がります` : '下がります'}。
+            </div>
+            <button onClick={() => { if (requiredSales != null) saveBudget({ ...budget, sales: Math.round(requiredSales) }) }}
+              disabled={requiredSales == null}
+              className="mt-2 px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded font-semibold hover:brightness-110 disabled:opacity-40 self-start">
+              この必要売上高を予算に反映
+            </button>
+          </div>
         </div>
       </Section>
 

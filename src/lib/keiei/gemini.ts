@@ -45,3 +45,34 @@ export async function polishSummaryStory(raw: string): Promise<string> {
   const text = res.response.text().trim()
   return text || raw
 }
+
+/**
+ * 経営課題レポートの総括文（テンプレ生成）をAIで仕上げる。
+ * ハイブリッド方式：課題の検出・数値はすべて issues.ts の確定ロジックが行い、
+ * ここでは文章の言い回し・つながりだけを整える（数値は一切変えさせない）。
+ */
+export async function polishIssuesStory(raw: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(getApiKey())
+  // 通信ハングで「仕上げ中…」が終わらないのを防ぐ（120秒で自動中断）
+  const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL }, { timeout: 120000 })
+  const prompt = [
+    'あなたは中小企業の社長に経営課題を分かりやすく伝える、財務・資金に精通した税理士です。',
+    '以下は自動検出した「経営課題の総括」の草案です。社長が読んで優先順位と打ち手が腹落ちするよう、',
+    '日本語の言い回しと文のつながりだけを自然に整えてください。',
+    '',
+    '【厳守事項】',
+    '・金額・比率・件数・年数などの数値と事実は一切変えない（新しい数値を作らない・省かない）。',
+    '・課題の追加・削除・順序の入れ替えはしない（検出ロジックの判断を尊重する）。',
+    '・書式マーカーはそのまま維持する：先頭の「# 見出し」、各段落の「【小見出し】」、強調の「**…**」、番号付き箇条書き。',
+    '・「税理士にご相談ください」等の丸投げ表現は使わない（読者自身が税理士事務所の顧問先という前提）。',
+    '・脅すような表現は避けつつ、深刻な課題の重みは薄めない。',
+    '・出力は仕上げ後の本文のみ（前置き・後書き・コードブロックは付けない）。',
+    '',
+    '--- 草案ここから ---',
+    raw,
+    '--- 草案ここまで ---',
+  ].join('\n')
+  const res = await model.generateContent(prompt)
+  const text = res.response.text().trim()
+  return text || raw
+}
