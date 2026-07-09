@@ -2526,7 +2526,8 @@ function refreshAssetRow(a){
   if(a.category==='land'){ const kr=$('kobored-'+a.id); if(kr){ const k=computeKobo(); kr.textContent='減額 '+yen(k.byAsset[a.id]||0); } }
   updateCatSubtotal(a.category); renderAssetNav(); renderSummary(); cacheCurrentCase();
 }
-function updateCatSubtotal(cat){ const t=ASSET_BY_KEY[cat]; const items=currentCase.assets.filter(a=>a.category===cat); const sub=items.reduce((s,a)=>s+assetVal(a),0); const el=$('catSubtotal'); if(el && cat===currentAssetCat) el.textContent=(t.sign<0?'−':'')+yen(sub); const fc=$('foot-'+cat); if(fc) fc.textContent=yen(sub); }
+function updateCatSubtotal(cat){ const t=ASSET_BY_KEY[cat]; const items=currentCase.assets.filter(a=>a.category===cat); const sub=items.reduce((s,a)=>s+assetVal(a),0); const el=$('catSubtotal'); if(el && cat===currentAssetCat) el.textContent=(t.sign<0?'−':'')+yen(sub); const fc=$('foot-'+cat);
+  if(fc){ if(cat==='cash'){ fc.textContent=yen(items.reduce((s,a)=>s+num(a.value),0)); const fi=$('foot-int-'+cat); if(fi) fi.textContent=yen(items.reduce((s,a)=>s+num(a.interest),0)); } else { fc.textContent=yen(sub); } } }
 
 // ---- sidebar / pills ----
 const MOVEMENT_META={key:'movement', name:'金融資産異動一覧表', color:'#5f6b7a'};
@@ -2792,9 +2793,13 @@ function genericTableHtml(cat,items){
     if(cat==='other'&&a.carEval) ops=ops.replace('<td class="rowops">','<td class="rowops"><button onclick="openCarEvalFor(\''+a.id+'\')" title="自動車評価の内容・算出根拠を再表示・編集">🚗</button>');
     r+=checkNoteCell(a)+ops+'</tr>'; rows+=r;
   });
-  const sub=items.reduce((s,a)=>s+assetVal(a),0);
+  // 現金・預貯金は「金額(円)」と「既経過利息」をそれぞれ別に合計する（合算は右上のカテゴリ計に表示）
+  const isCash=cat==='cash';
+  const valSum=isCash?items.reduce((s,a)=>s+num(a.value),0):items.reduce((s,a)=>s+assetVal(a),0);
+  const intSum=isCash?items.reduce((s,a)=>s+num(a.interest),0):0;
   const valColIdx=cols.findIndex(c=>c[2]==='value');
-  let foot='<tr>'; cols.forEach((c,i)=>{ if(i===0) foot+='<td style="text-align:right;">計</td>'; else if(i===valColIdx) foot+='<td class="num" id="foot-'+cat+'">'+yen(sub)+'</td>'; else foot+='<td></td>'; }); foot+='<td></td><td></td></tr>';
+  const intColIdx=isCash?cols.findIndex(c=>c[0]==='interest'):-1;
+  let foot='<tr>'; cols.forEach((c,i)=>{ if(i===0) foot+='<td style="text-align:right;">計</td>'; else if(i===valColIdx) foot+='<td class="num" id="foot-'+cat+'">'+yen(valSum)+'</td>'; else if(i===intColIdx) foot+='<td class="num" id="foot-int-'+cat+'">'+yen(intSum)+'</td>'; else foot+='<td></td>'; }); foot+='<td></td><td></td></tr>';
   const minw=Math.max(560,cols.length*120+180);
   return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:'+minw+'px;"><thead><tr>'+head+'</tr></thead><tbody>'+rows+'</tbody><tfoot>'+foot+'</tfoot></table></div>';
 }
