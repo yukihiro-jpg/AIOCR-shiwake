@@ -22,6 +22,7 @@
 | 年調データ受信（事務所側） | `/nenmatsu` | React | `src/components/nenmatsu/` `src/lib/nenmatsu/` |
 | 年調アップロード（従業員向け公開ページ） | `/nenmatsu-upload` | React | `src/components/nenmatsu/NenmatsuUpload.tsx` |
 | 月次レポート | `/keiei` | React | `src/components/keiei/` `src/lib/keiei/` |
+| 申告書チェック（税務書類PDFの書類間金額突合・API不使用） | `/shinkoku-check` | React | `src/components/shinkoku-check/` `src/lib/shinkoku-check/` |
 
 ## ビルド・デプロイ手順（重要）
 
