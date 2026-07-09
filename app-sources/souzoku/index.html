@@ -5985,6 +5985,11 @@ async function ceSearchMarket(){
     if(!txt) throw new Error('AIの応答が空でした。もう一度お試しください');
     let d; try{ d=pbParseJSON(txt); }catch(_e){ d=ceLooseParse(txt); }
     if(!d) throw new Error('AIの応答を解析できませんでした。もう一度「調査」を押してください');
+    // APIが返す「実際に引用したページ」（グラウンディング情報）。AIの自己申告より正確な情報源
+    const gm=c&&c.groundingMetadata;
+    const cites=((gm&&gm.groundingChunks)||[]).map(ch=>ch&&ch.web).filter(w=>w&&w.uri)
+      .map(w=>({uri:w.uri,title:w.title||w.uri})).slice(0,6);
+    d._cites=cites;
     _ceMkt=d;
     const f=v=>(v!=null&&isFinite(+v)&&+v>0)?yen(Math.round(+v)):null;
     let h='<b>🔍 AI相場調査の結果（参考値・要確認）</b><br>';
@@ -5992,7 +5997,12 @@ async function ceSearchMarket(){
     if(f(d.retailMid)) h+='小売相場（店頭価格）：'+f(d.retailMid)+'<br>';
     if(f(d.newPrice)) h+='新車当時価格：'+f(d.newPrice)+'<br>';
     if(d.comment) h+='<span class="muted">'+esc(String(d.comment))+'</span><br>';
-    if(Array.isArray(d.sources)&&d.sources.length) h+='<span class="muted" style="font-size:11px;">情報源：'+esc(d.sources.slice(0,5).join('／'))+'</span><br>';
+    if(Array.isArray(d._cites)&&d._cites.length){
+      h+='<span class="muted" style="font-size:11px;">引用ページ（クリックで開けます）：</span><br>'
+        +d._cites.map(w=>'<a href="'+esc(w.uri)+'" target="_blank" rel="noopener" style="font-size:11px;">'+esc(w.title)+'</a>').join('<span class="muted" style="font-size:11px;">／</span>')+'<br>';
+    } else if(Array.isArray(d.sources)&&d.sources.length){
+      h+='<span class="muted" style="font-size:11px;">情報源（AIの申告）：'+esc(d.sources.slice(0,5).join('／'))+'</span><br>';
+    }
     h+='<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">';
     if(f(d.tradeMid)) h+='<button class="btn sm primary" onclick="ceApplyMkt()">買取相場の中心値を査定額①へ反映</button>';
     if(f(d.newPrice)) h+='<button class="btn sm" onclick="ceApplyNewPrice()">新車価格を償却方式へ反映</button>';
