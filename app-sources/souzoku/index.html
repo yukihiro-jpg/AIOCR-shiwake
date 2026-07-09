@@ -1152,6 +1152,11 @@ function getStock_(symbol){
         <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="radio" name="ce_method" value="dep" onchange="ceRecalc()">新品小売価額から定率法償却（売買実例価額が不明な場合）</label>
       </div>
     </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 2px;">
+      <button class="btn sm" id="ce_mktBtn" onclick="ceSearchMarket()">🔍 AIで中古車相場・新車価格を調査（参考）</button>
+      <span id="ce_mktStatus" class="muted" style="font-size:12px;"></span>
+    </div>
+    <div id="ce_aiMarket" style="display:none;border:1px solid #cfe3f7;background:#f4f9ff;border-radius:10px;padding:10px 12px;margin-top:4px;font-size:12.5px;line-height:1.7;"></div>
     <div id="ce_boxMarket" style="border:1px solid var(--line,#dfe4ec);border-radius:10px;padding:10px 12px;margin-top:6px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
         <div class="field"><label>査定額・相場額①(円)</label><input id="ce_mkt1" placeholder="例：850000" oninput="ceRecalc()"></div>
@@ -5777,7 +5782,7 @@ let _ceFile=null;
 // 200%定率法の償却率（平成24年4月1日以後取得）
 const CE_DEP_RATE={2:1.000,3:0.667,4:0.500,5:0.400,6:0.333,7:0.286,8:0.250,9:0.222,10:0.200};
 function openCarEval(){ if(!currentCase){ toast('案件がありません', true); return; }
-  _ceFile=null; $('ce_file').value=''; $('ce_fileName').textContent='未選択'; $('ce_ocrStatus').textContent='';
+  _ceFile=null; _ceMkt=null; $('ce_file').value=''; $('ce_fileName').textContent='未選択'; $('ce_ocrStatus').textContent=''; $('ce_mktStatus').textContent=''; const _mb=$('ce_aiMarket'); if(_mb){ _mb.style.display='none'; _mb.innerHTML=''; }
   ['ce_maker','ce_model','ce_katashiki','ce_firstReg','ce_regno','ce_frame','ce_km','ce_kmDate','ce_mkt1','ce_src1','ce_mkt2','ce_src2','ce_newPrice'].forEach(id=>{ if($(id))$(id).value=''; });
   $('ce_taxDate').value=(currentCase.deceased&&currentCase.deceased.deathDate)||todayISO();
   document.querySelector('input[name="ce_method"][value="market"]').checked=true;
@@ -5865,6 +5870,59 @@ async function ceRunOcr(){
   }catch(e){ st.textContent=''; toast(e&&e.name==='AbortError'?'AI読み取りがタイムアウトしました（120秒）':(e.message||'読み取りに失敗しました'), true); }
   finally{ btn.disabled=false; }
 }
+/* AIによる中古車相場・新車価格の調査（Google検索グラウンディング・参考値）。
+   検索で得た相場の「参考値」を提示するだけで、採用するかはユーザーが判断する
+   （ワンクリックで査定額①／新品小売価額へ反映。出典に「要確認」を明記）。 */
+let _ceMkt=null;
+const _CE_MKT_SYS='あなたは中古車市場の調査アシスタントです。Google検索を使い、指定された車両（車種・型式・年式・走行距離）の日本国内の中古車「買取相場」（業者の買取価格・下取り価格）と、参考として販売店の小売相場、および同型式の新車当時の価格を調査します。\n【厳守】出力は次のJSONのみ（コードフェンス不可）。金額は円の整数。検索で確認できなかった項目は null。走行距離・年式を考慮した相場帯を示す。\n{"tradeLow":買取相場の下限,"tradeHigh":買取相場の上限,"tradeMid":買取相場の中心値,"retailMid":小売（店頭販売）相場の中心値またはnull,"newPrice":新車当時の車両本体価格（グレード幅があれば中間値）またはnull,"comment":"相場の根拠と留意点を2文程度","sources":["参照したサイト名・ページ名を最大5件"]}';
+async function ceSearchMarket(){
+  const g=id=>($(id)&&$(id).value||'').trim();
+  const car=[g('ce_maker'),g('ce_model'),g('ce_katashiki')].filter(Boolean).join(' ');
+  if(!car){ toast('先に車名・型式を入力（または車検証を読み取り）してください', true); return; }
+  const btn=$('ce_mktBtn'), st=$('ce_mktStatus'); btn.disabled=true; st.textContent='Google検索で調査中…（20〜60秒）';
+  try{
+    const ks=_komonSettings(); const key=(ks.geminiApiKey||'').trim()||_suiteGeminiKey();
+    if(!key) throw new Error('AIキーが未設定です（ホーム画面の共通設定で登録してください）');
+    const model=ks.geminiModel||'gemini-2.5-flash';
+    const q='次の車両の中古車買取相場・小売相場・新車当時価格を調査してください。\n車両：'+car
+      +(g('ce_firstReg')?('\n初度登録：'+g('ce_firstReg')):'')
+      +(g('ce_km')?('\n走行距離：約'+num(g('ce_km')).toLocaleString('ja-JP')+'km'+(g('ce_kmDate')?('（'+g('ce_kmDate')+'時点）'):'')):'')
+      +(g('ce_taxDate')?('\n評価したい時点：'+g('ce_taxDate')+'（この時点に近い相場情報を優先）'):'');
+    const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),120000);
+    let res;
+    try{
+      res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',signal:ctrl.signal,headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:_CE_MKT_SYS}]},contents:[{role:'user',parts:[{text:q}]}],tools:[{google_search:{}}],generationConfig:{maxOutputTokens:2000,temperature:0.2}})});
+    } finally { clearTimeout(timer); }
+    if(!res.ok){ let msg=res.status+''; try{ const j=await res.json(); msg=(j.error&&j.error.message)||msg; }catch(_){} throw new Error('AI呼び出し失敗: '+msg); }
+    const j=await res.json(); const c=j.candidates&&j.candidates[0];
+    const txt=(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim();
+    if(!txt) throw new Error('AIの応答が空でした。もう一度お試しください');
+    const d=pbParseJSON(txt); _ceMkt=d;
+    const f=v=>(v!=null&&isFinite(+v)&&+v>0)?yen(Math.round(+v)):null;
+    let h='<b>🔍 AI相場調査の結果（参考値・要確認）</b><br>';
+    if(f(d.tradeMid)) h+='買取相場：'+(f(d.tradeLow)&&f(d.tradeHigh)?(f(d.tradeLow)+' 〜 '+f(d.tradeHigh)+'（中心 '+f(d.tradeMid)+'）'):f(d.tradeMid))+'<br>';
+    if(f(d.retailMid)) h+='小売相場（店頭価格）：'+f(d.retailMid)+'<br>';
+    if(f(d.newPrice)) h+='新車当時価格：'+f(d.newPrice)+'<br>';
+    if(d.comment) h+='<span class="muted">'+esc(String(d.comment))+'</span><br>';
+    if(Array.isArray(d.sources)&&d.sources.length) h+='<span class="muted" style="font-size:11px;">情報源：'+esc(d.sources.slice(0,5).join('／'))+'</span><br>';
+    h+='<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">';
+    if(f(d.tradeMid)) h+='<button class="btn sm primary" onclick="ceApplyMkt()">買取相場の中心値を査定額①へ反映</button>';
+    if(f(d.newPrice)) h+='<button class="btn sm" onclick="ceApplyNewPrice()">新車価格を償却方式へ反映</button>';
+    h+='</div><div class="muted" style="font-size:11px;margin-top:4px;">※ AIがGoogle検索で調べた参考値です。相続税評価では課税時期の売買実例価額が原則のため、可能であれば買取業者の査定書等で裏付けを取ることをおすすめします。</div>';
+    const box=$('ce_aiMarket'); box.innerHTML=h; box.style.display='';
+    st.textContent='';
+  }catch(e){ st.textContent=''; toast(e&&e.name==='AbortError'?'相場調査がタイムアウトしました（120秒）':(e.message||'相場調査に失敗しました'), true); }
+  finally{ btn.disabled=false; }
+}
+function ceApplyMkt(){ if(!_ceMkt||!(+_ceMkt.tradeMid>0))return;
+  $('ce_mkt1').value=String(Math.round(+_ceMkt.tradeMid));
+  if(!$('ce_src1').value.trim()) $('ce_src1').value='AI相場調査（Google検索による中古車買取相場の参考値・要確認）';
+  document.querySelector('input[name="ce_method"][value="market"]').checked=true;
+  ceRecalc(); toast('査定額①に参考値を入力しました。金額と出典をご確認ください'); }
+function ceApplyNewPrice(){ if(!_ceMkt||!(+_ceMkt.newPrice>0))return;
+  $('ce_newPrice').value=String(Math.round(+_ceMkt.newPrice));
+  document.querySelector('input[name="ce_method"][value="dep"]').checked=true;
+  ceRecalc(); toast('新品小売価額に参考値を入力しました（償却方式に切替）'); }
 /* 「その他の財産」へ登録 */
 function ceRegister(){ if(!currentCase){ toast('案件がありません', true); return; }
   const v=ceCalc();
