@@ -835,7 +835,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
               <div id="secGiftResult" style="margin-top:8px;"></div>
             </div>
           </div>
-          <div class="muted" style="font-size:11.5px;margin-top:8px;">生命保険＝（保険料×契約数）の現預金が減少し、二次相続では生命保険金の非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されます（圧縮額＝min(支払保険料, 非課税枠)。枠を超える保険金は課税されたまま残ります）。暦年贈与＝（毎年の贈与額×人数×年数）の現預金が減少し、同額が二次相続の課税財産から外れます。贈与税（現行の速算表）は受贈者が負担する前提で、一次＋二次の税額に加算して総コストを表示します。</div>
+          <div class="muted" style="font-size:11.5px;margin-top:8px;">生命保険＝（保険料×契約数）の現預金が減少し、死亡保険金の非課税枠（500万円×二次相続の法定相続人数）までの部分だけが課税対象から外れます（枠を超える保険金は課税対象のまま）。暦年贈与＝（毎年の贈与額×人数×年数）の現預金が減少し、二次相続の開始前7年以内の持ち戻し分（3年超は1人あたり合計100万円控除）を除いた額が課税財産から外れます。贈与税は受贈者負担の前提で、持ち戻し分を除いた実効額を一次＋二次の税額に加算します。</div>
           <div id="secCashBox" style="margin-top:12px;"></div>
         </div>
         <div id="secOptimalPanel" style="display:none;margin-bottom:14px;">
@@ -849,7 +849,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
             </div>
           </div>
         </div>
-        <div class="card-sub" id="secChartSub">折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑で示します。</div>
+        <div class="card-sub" id="secChartSub">積み上げ棒＝一次相続税（青）＋二次相続税（オレンジ）。棒の高さが一次＋二次の合計です。合計が最小となる取得割合を緑で示します。</div>
         <div id="secChart"></div>
         <div id="secReco" style="margin-top:14px;"></div>
         <div id="secEffect" style="margin-top:14px;"></div>
@@ -3719,7 +3719,7 @@ function firstInheritance(E1, nChildren, r){
   const legalAmt=Math.max(E1*spShare,160000000);
   const relief=E1>0? total*Math.min(legalAmt,spTaxable)/E1:0;
   const spFinal=Math.max(0,Math.floor((spBase-Math.min(spBase,relief))/100)*100);
-  const chFinal=Math.max(0,Math.floor((total*(E1-spTaxable)/E1)/100)*100);
+  const chFinal=E1>0? Math.max(0,Math.floor((total*(E1-spTaxable)/E1)/100)*100):0; // E1=0のときの0除算(NaN)ガード
   return {total, spouseAcquired:spTaxable, spouseTax:spFinal, childrenTax:chFinal, first:spFinal+chFinal};
 }
 // 二次相続：配偶者の遺産(取得分+固有-消費)を子が均等取得
@@ -3760,12 +3760,17 @@ function renderSecondary(){
   const insCompress=Math.min(insP, insAllow);      // 課税財産の圧縮（非課税枠が上限）
   const gGenAmt=num(s.gGenAmt), gGenPpl=Math.max(0,Math.floor(num(s.gGenPpl))), gGenYrs=Math.max(0,Math.floor(num(s.gGenYrs)));
   const gSpcAmt=num(s.gSpcAmt), gSpcPpl=Math.max(0,Math.floor(num(s.gSpcPpl))), gSpcYrs=Math.max(0,Math.floor(num(s.gSpcYrs)));
-  const gGenGiven=gGenAmt*gGenPpl*gGenYrs, gSpcGiven=gSpcAmt*gSpcPpl*gSpcYrs; const giftGiven=gGenGiven+gSpcGiven;
+  // 持ち戻し（相続開始前7年の生前贈与加算）を考慮した実効値で計算する
+  const gGenEff=giftEffectWithAddback(gGenAmt,gGenPpl,gGenYrs,years,'general');
+  const gSpcEff=giftEffectWithAddback(gSpcAmt,gSpcPpl,gSpcYrs,years,'special');
+  const gGenGiven=gGenEff.given, gSpcGiven=gSpcEff.given; const giftGiven=gGenGiven+gSpcGiven;
   const gGenTaxEach=giftTaxAnnual(gGenAmt,'general'), gSpcTaxEach=giftTaxAnnual(gSpcAmt,'special');
-  const gGenTax=gGenTaxEach*gGenPpl*gGenYrs, gSpcTax=gSpcTaxEach*gSpcPpl*gSpcYrs; const giftTaxTotal=gGenTax+gSpcTax;
-  const compress=insCompress+giftGiven;            // 二次相続課税財産の圧縮合計
+  const gGenTax=gGenEff.giftTax, gSpcTax=gSpcEff.giftTax; const giftTaxTotal=gGenTax+gSpcTax;
+  const gGenComp=gGenEff.compress, gSpcComp=gSpcEff.compress;
+  const giftCompress=gGenComp+gSpcComp, giftAddback=gGenEff.addback+gSpcEff.addback;
+  const compress=insCompress+giftCompress;         // 二次相続課税財産の圧縮合計（持ち戻し考慮後）
   const spendCash=insP+giftGiven;                  // 配偶者の現預金減少合計
-  const strat={insPremium1,insCount,insP,insAllow,insCompress,gGenAmt,gGenPpl,gGenYrs,gSpcAmt,gSpcPpl,gSpcYrs,gGenGiven,gSpcGiven,giftGiven,gGenTaxEach,gSpcTaxEach,gGenTax,gSpcTax,giftTaxTotal,compress,spendCash};
+  const strat={insPremium1,insCount,insP,insAllow,insCompress,gGenAmt,gGenPpl,gGenYrs,gSpcAmt,gSpcPpl,gSpcYrs,gGenGiven,gSpcGiven,giftGiven,gGenTaxEach,gSpcTaxEach,gGenTax,gSpcTax,giftTaxTotal,gGenComp,gSpcComp,giftCompress,giftAddback,compress,spendCash};
   // 遺産分割で配偶者に割り当てた現金・預貯金の小計／配偶者の実際の一次相続税
   const allocCash=secSpouseFirstCash();
   const firstTaxActual=(r.ph && r.ph[spouse.id])? Math.max(0,r.ph[spouse.id].final||0):0;
@@ -3775,14 +3780,14 @@ function renderSecondary(){
   const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress, giftTaxTotal);
-  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings,own,consume,increase,years};
+  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings,own,consume,increase,years,spouseName:(spouse.name||'配偶者')};
   renderStrategyResults(strat);
   paintSec();
   // 財産分割（試算）の前提は通常モードの最小取得割合に固定
   _secCtx={E1,minRatio:normal.samples[normal.minIdx].r,nCh,minTotal:normal.samples[normal.minIdx].total};
   if($('secAllocPremise')) $('secAllocPremise').innerHTML='<div class="sum-box accent"><div class="sl">最小税額となる前提</div><div class="sv" style="font-size:16px;">配偶者の取得割合 '+Math.round(_secCtx.minRatio*100)+'％ ／ 一次＋二次 合計税額 '+yen(_secCtx.minTotal)+'</div></div><div class="muted" style="font-size:12px;margin-top:6px;">この前提（配偶者の取得目安 '+yen(Math.round(_secCtx.minRatio*E1))+'）のもとで、下記の配分を試算します。</div>';
   renderSecWants(); renderSecAllocTable();
-  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険の活用は（保険料×契約数）の現預金が減少し、二次相続では非課税枠（500万円×二次相続の法定相続人数）の範囲内で課税財産が圧縮されるものとしています（圧縮額＝min(支払保険料, 非課税枠)）。暦年贈与は（毎年の贈与額×人数×年数）が二次相続の課税財産から外れ、現行の贈与税速算表（一般／特例、基礎控除110万円／人・年）で計算した贈与税を一次＋二次の合計に加算しています。生前贈与加算（相続開始前3〜7年）・贈与税の配偶者控除・各種特例等は考慮していません。';
+  $('secDisclaimer').innerHTML='※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減（1.6億円／法定相続分）・相次相続控除（二次相続が一次から10年以内の場合）を反映しています。小規模宅地等の特例の二次相続での適用、配偶者固有財産の内訳評価等は考慮していません。<br>※「節税策込み」タブは簡易モデルです。生命保険は（保険料×契約数）の現預金が減少し、死亡保険金の非課税枠（500万円×二次相続の法定相続人数）までの部分だけが二次相続の課税対象から外れます（枠を超える保険金は課税対象のままです）。暦年贈与は、二次相続の開始前7年以内の贈与が相続財産に持ち戻される（3年を超える部分は受贈者1人あたり合計100万円を控除）ことを織り込み、持ち戻し対象にならない部分だけを節税効果として計算しています。持ち戻し分の贈与税は贈与税額控除で精算される前提で、実効の贈与税のみを一次＋二次の合計に加算しています（贈与税の配偶者控除・各種特例等は考慮していません）。';
 }
 let _secCtx=null;
 let _secData=null;     // {normal,savings,...} 通常／節税策込みの試算データ
@@ -3802,6 +3807,24 @@ function giftTaxAnnual(amount,type){
   for(const seg of tbl){ if(t<=seg[0]) return Math.max(0,Math.round(t*seg[1]-seg[2])); }
   return 0;
 }
+// 暦年贈与の持ち戻し（生前贈与加算）を考慮した実効効果。
+// 贈与は今年から毎年1回行い、二次相続は secYears 年後に開始する前提の年次モデル。
+// 相続開始前3年以内の贈与は全額加算、3年超7年以内は受贈者1人あたり合計100万円を控除した残額を加算（令和6年改正）。
+// 加算対象年分の贈与税は贈与税額控除で精算されるものとし、実効コスト（giftTax）に含めない。
+function giftEffectWithAddback(annual, people, giftYears, secYears, type){
+  annual=num(annual); people=Math.max(0,Math.floor(num(people))); giftYears=Math.max(0,Math.floor(num(giftYears))); secYears=Math.max(0,Math.floor(num(secYears)));
+  const given=annual*people*giftYears;
+  if(!annual||!people||!giftYears) return {given:0,compress:0,giftTax:0,addback:0,effYears:0,poolYears:0,within3:0};
+  let over7=0,pool=0,within3=0;
+  for(let i=1;i<=giftYears;i++){
+    const t=secYears-(i-1); // その年の贈与から二次相続開始までの年数
+    if(t>7) over7++; else if(t>3) pool++; else within3++;
+  }
+  const poolComp=Math.min(annual*pool,1000000); // 3年超7年以内分は100万円控除の範囲だけ課税財産から外れる
+  const compress=(annual*over7+poolComp)*people;
+  const giftTax=giftTaxAnnual(annual,type)*over7*people;
+  return {given,compress,giftTax,addback:given-compress,effYears:over7,poolYears:pool,within3};
+}
 // タブ切替（通常／節税策込み）
 function setSecMode(m){ _secMode=(m==='savings'||m==='optimal')?m:'normal'; paintSec(); }
 function onOptimalInput(){ if(currentCase&&currentCase.secondary){ if($('sec_optYears')) currentCase.secondary.optYears=$('sec_optYears').value; if($('sec_existIns')) currentCase.secondary.existIns=$('sec_existIns').value; cacheCurrentCase(); } if(_secData) paintSec(); }
@@ -3816,11 +3839,11 @@ function paintSec(){
   if(_secMode==='optimal'){ renderOptimal(d); return; }
   const md=d[_secMode]||d.normal;
   if($('secChartSub')) $('secChartSub').innerHTML=(_secMode==='savings')
-    ? '節税策で支出する現預金を二次相続の課税財産から控除した試算です。折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。'
-    : '折れ線＝一次相続税（左軸）／二次相続税（右軸）、棒＝一次＋二次の合計。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。';
+    ? '節税策による課税財産の圧縮を反映した試算です。積み上げ棒＝一次相続税（青）＋二次相続税（オレンジ）＋贈与税（グレー）。棒の高さが合計税額です。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。'
+    : '積み上げ棒＝一次相続税（青）＋二次相続税（オレンジ）。棒の高さが一次＋二次の合計です。合計が最小となる取得割合を緑、現在の分割案（現案）を紫で示します。';
   if($('secChart')) $('secChart').innerHTML=secChartSVG(md.samples,md.minIdx,null,d.curIdx);
   const best=md.samples[md.minIdx], curS=md.samples[d.curIdx];
-  let reco='<div class="sum-box accent"><div class="sl">'+(_secMode==='savings'?'【節税策込み】':'')+'合計税額が最小となる配偶者の取得割合</div><div class="sv" style="font-size:18px;">配偶者 '+Math.round(best.r*100)+'%（子が '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
+  let reco='<div class="sum-box accent"><div class="sl">'+(_secMode==='savings'?'【節税策込み】':'')+'合計税額が最小となる分け方</div><div class="sv" style="font-size:18px;">'+esc(d.spouseName||'配偶者')+' 様が '+manYen(best.acq)+' を取得（'+Math.round(best.r*100)+'%・子 '+Math.round((1-best.r)*100)+'%）／ 一次＋二次 合計 '+yen(best.total)+'</div></div>';
   if(_secMode==='savings'){ const n=d.normal.samples[d.normal.minIdx]; const gt=d.strat.giftTaxTotal; if(n){ const diff=n.total-best.total; const saved=diff>1, up=diff<-1;
       const savAtNorm=d.savings.samples[d.normal.minIdx].total; // 節税策あり・通常最小割合での合計
       const stratCut=n.total-savAtNorm;     // 節税策の効果（取得割合は通常最小のまま）
@@ -3847,7 +3870,7 @@ function secEffectBlockHTML(d,idx,title,ratioLabel,lead){
   const acq=cur.acq, sptax=cur.spouseTax, sec0=cur.second, secAll=curS.second;
   const secAfter=(extra)=>secondInheritance(acq,d.own,baseRed+extra,d.nCh,d.years,sptax).second;
   const secIns=st.insCompress>0?secAfter(st.insCompress):sec0;
-  const secInsGen=st.gGenGiven>0?secAfter(st.insCompress+st.gGenGiven):secIns;
+  const secInsGen=st.gGenComp>0?secAfter(st.insCompress+st.gGenComp):secIns;
   const redIns=sec0-secIns, redGen=secIns-secInsGen, redSpc=secInsGen-secAll, totRed2=sec0-secAll;
   const first=cur.first, totalBefore=cur.total, totalAfter=curS.total, netCut=totalBefore-totalAfter;
   let sr='';
@@ -3885,29 +3908,35 @@ function computeOptimal(d, yearsOpt){
   const availLimit=Math.max(0, insLimit-usedByExist);   // 新規加入で使える残り非課税枠
   const overIns=Math.max(0, existIns-insLimit);         // 枠を超える既加入保険金＝二次相続の課税財産に加算（パターンB）
   const giftLevels=[0,1100000,2000000,3000000,4000000,5000000,7000000,10000000,15000000];
+  // 配偶者が節税策に使える現預金の見込み＝固有の現預金＋一次で取得する現預金（相続財産の現預金×取得割合）−一次相続税。
+  // 現預金が未登録（両方0）の場合は従来どおり総財産を上限とする。
+  const estateCash=secEstateCash(); const ownCash=num(d.ownCash); const cashKnown=(ownCash>0||estateCash>0);
   const N=21, samples=[];
   for(let i=0;i<N;i++){
     const r=i/(N-1); const f=firstInheritance(E1,nCh,r);
     const acq=f.spouseAcquired, sptax=f.spouseTax, first=f.first, estate=acq+own;
-    const insAmount=Math.max(0,Math.min(availLimit, estate)); // 新規加入額は残り枠が上限
+    const spendable=cashKnown? Math.max(0, ownCash+Math.round(estateCash*r)-sptax) : estate; // 生活資金・納税後に節税策へ回せる上限
+    const insAmount=Math.max(0,Math.min(availLimit, spendable, estate)); // 新規加入額は残り枠と現預金が上限
     let best=null;
     for(const ga of giftLevels){
-      const giftTotal=ga*nCh*yearsOpt;
-      if(insAmount+giftTotal>estate) continue;           // 配偶者の資産を超える支出は不可
-      const giftTax=giftTaxAnnual(ga,'special')*nCh*yearsOpt;
-      // 二次の控除＝新規保険圧縮＋暦年贈与。枠超過の既加入保険(overIns)は課税側へ加算（控除から差し引く）
-      const sc=secondInheritance(acq, own, baseRed+insAmount+giftTotal-overIns, nCh, secYears, sptax);
+      // 持ち戻し（相続開始前7年の生前贈与加算）を考慮した実効の圧縮・贈与税で評価する
+      const eff=giftEffectWithAddback(ga,nCh,yearsOpt,secYears,'special');
+      const giftTotal=eff.given;
+      if(insAmount+giftTotal>spendable || insAmount+giftTotal>estate) continue; // 現預金・資産を超える支出は不可
+      const giftTax=eff.giftTax;
+      // 二次の控除＝新規保険圧縮＋暦年贈与の実効圧縮。枠超過の既加入保険(overIns)は課税側へ加算（控除から差し引く）
+      const sc=secondInheritance(acq, own, baseRed+insAmount+eff.compress-overIns, nCh, secYears, sptax);
       const total=first+sc.second+giftTax;
-      if(!best || total<best.total-0.5) best={ga,giftTotal,giftTax,insAmount,second:sc.second,total};
+      if(!best || total<best.total-0.5) best={ga,giftTotal,giftTax,insAmount,second:sc.second,total,giftCompress:eff.compress,giftAddback:eff.addback};
     }
-    if(!best){ const sc=secondInheritance(acq,own,baseRed+insAmount-overIns,nCh,secYears,sptax); best={ga:0,giftTotal:0,giftTax:0,insAmount,second:sc.second,total:first+sc.second}; }
-    samples.push({r,first,second:best.second,acq,total:best.total,giftTax:best.giftTax,plan:best});
+    if(!best){ const sc=secondInheritance(acq,own,baseRed+insAmount-overIns,nCh,secYears,sptax); best={ga:0,giftTotal:0,giftTax:0,insAmount,second:sc.second,total:first+sc.second,giftCompress:0,giftAddback:0}; }
+    samples.push({r,first,second:best.second,acq,total:best.total,giftTax:best.giftTax,spendable,plan:best});
   }
   let mi=0; samples.forEach((s,i)=>{ if(s.total<samples[mi].total-0.5) mi=i; });
   // 新規の節税策を行わない場合（既加入保険の枠超過は反映）の各取得割合での合計→最小を比較用に算出
   const base=[]; for(let i=0;i<N;i++){ const r=i/(N-1); const f=firstInheritance(E1,nCh,r); const sc=secondInheritance(f.spouseAcquired,own,baseRed-overIns,nCh,secYears,f.spouseTax); base.push({r,first:f.first,second:sc.second,total:f.first+sc.second}); }
   let bmi=0; base.forEach((s,i)=>{ if(s.total<base[bmi].total-0.5) bmi=i; });
-  return {samples,minIdx:mi,yearsOpt,insLimit,availLimit,existIns,usedByExist,overIns,nCh,baseMin:base[bmi]};
+  return {samples,minIdx:mi,yearsOpt,insLimit,availLimit,existIns,usedByExist,overIns,nCh,baseMin:base[bmi],cashKnown};
 }
 function renderOptimal(d){
   const yi=$('sec_optYears'); let yrs=Math.floor(num(yi&&yi.value));
@@ -3924,7 +3953,7 @@ function secOptimalSummaryHTML(opt,d,best){
   const r=Math.round(best.r*100), pl=best.plan;
   const nMin=opt.baseMin||d.normal.samples[d.normal.minIdx]; const cut=nMin.total-best.total;
   let html='<div class="sum-box accent"><div class="sl">【最適解】一次相続の配偶者取得割合と節税策の最適な組み合わせ</div>'
-    +'<div class="sv" style="font-size:18px;">配偶者 '+r+'%（子が '+(100-r)+'%）取得＋節税策 ／ 一次＋二次＋贈与税 合計 '+yen(best.total)+'</div></div>';
+    +'<div class="sv" style="font-size:18px;">配偶者が '+manYen(best.acq)+' を取得（'+r+'%・子 '+(100-r)+'%）＋節税策 ／ 一次＋二次＋贈与税 合計 '+yen(best.total)+'</div></div>';
   // 実際に行う節税手法を明記
   const ms=[];
   if(opt.existIns>0) ms.push('既加入の生命保険 <b>'+yen(opt.existIns)+'</b>（非課税枠 '+yen(opt.insLimit)+' のうち '+yen(opt.usedByExist)+' を充当'+(opt.overIns>0?'・枠超過 <b>'+yen(opt.overIns)+'</b> は二次相続の課税対象に加算':'')+'）');
@@ -3936,6 +3965,7 @@ function secOptimalSummaryHTML(opt,d,best){
     +(ms.length?'<ul style="margin:0;padding-left:18px;font-size:13.5px;color:#1d1d1f;line-height:1.9;">'+ms.map(m=>'<li>'+m+'</li>').join('')+'</ul>'
        :'<div style="font-size:13px;color:#444;">この条件では節税策を行わないほうが合計が小さくなります。</div>')+'</div>';
   html+=methodsHTML;
+  html+='<div style="margin-top:10px;"><div style="font-size:12.5px;font-weight:700;color:#333;">生命保険の非課税枠の利用状況（500万円×'+opt.nCh+'人）</div>'+insMeterHTML(opt.insLimit, Math.min(opt.usedByExist+pl.insAmount,opt.insLimit), '既加入＋本プラン')+'</div>';
   if(cut>1){ html+='<div style="margin-top:12px;border:2px solid #1a7f37;background:#eafaf0;border-radius:12px;padding:14px 16px;">'
     +'<div style="font-size:13px;color:#555;margin-bottom:4px;">何も対策をしない場合の最小（配偶者 '+Math.round(nMin.r*100)+'%・'+yen(nMin.total)+'）と比較</div>'
     +'<div style="font-size:24px;font-weight:800;color:#1a7f37;">最適プランで '+yen(cut)+' 軽減</div>'
@@ -3966,7 +3996,7 @@ function secOptimalPlanHTML(opt,d,best,yrs){
     +'<tr><td style="text-align:left;">現在の分割案＋最適な節税</td><td>'+Math.round(curOpt.r*100)+'%</td><td>'+yen(curOpt.total)+'</td><td>'+(curOpt.total-best.total>1?'＋'+yen(curOpt.total-best.total):'—')+'</td></tr>'
     +'<tr style="font-weight:700;background:#eafaf0;"><td style="text-align:left;">最適解</td><td>'+r+'%</td><td>'+yen(best.total)+'</td><td>—</td></tr>'
     +'</tbody></table></div>'
-    +'<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.7;">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年、相続開始前の持ち戻しは考慮せず）。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。</div></div>';
+    +'<div class="muted" style="font-size:11.5px;margin-top:8px;line-height:1.7;">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、非課税限度までの部分が課税対象から外れます。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、二次相続の開始前7年以内の持ち戻し（3年超は1人あたり合計100万円控除）を織り込んで実効分のみを効果としています。保険・贈与の支出は配偶者の現預金（固有の現預金＋一次で取得する現預金の見込み−一次相続税）の範囲内で探索します。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。</div></div>';
   return h;
 }
 function secOptimalTableHTML(opt){
@@ -3998,11 +4028,12 @@ function renderSecCashBox(){
 }
 // 節税策の計算結果（生命保険・暦年贈与）をパネルに表示
 function renderStrategyResults(st){
-  const ins=$('secInsResult'); if(ins) ins.innerHTML='現預金減少額：<b>'+yen(st.insP)+'</b>（'+yen(st.insPremium1)+' × '+st.insCount+' 契約）<br>二次相続課税財産の圧縮：<b>'+yen(st.insCompress)+'</b><span class="muted">（非課税枠 '+yen(st.insAllow)+' が上限）</span>';
+  const ins=$('secInsResult'); if(ins) ins.innerHTML='現預金減少額：<b>'+yen(st.insP)+'</b>（'+yen(st.insPremium1)+' × '+st.insCount+' 契約）<br>二次相続課税財産の圧縮：<b>'+yen(st.insCompress)+'</b><span class="muted">（非課税枠 '+yen(st.insAllow)+' が上限）</span>'+insMeterHTML(st.insAllow, st.insCompress, 'この入力での活用');
   const g=$('secGiftResult'); if(g) g.innerHTML='<table class="sim-table"><thead><tr><th>区分</th><th>贈与総額</th><th>贈与税(1人1年)</th><th>贈与税合計</th></tr></thead><tbody>'
     +'<tr><td>一般贈与</td><td style="text-align:right;">'+yen(st.gGenGiven)+'</td><td style="text-align:right;">'+yen(st.gGenTaxEach)+'</td><td style="text-align:right;">'+yen(st.gGenTax)+'</td></tr>'
     +'<tr><td>特例贈与</td><td style="text-align:right;">'+yen(st.gSpcGiven)+'</td><td style="text-align:right;">'+yen(st.gSpcTaxEach)+'</td><td style="text-align:right;">'+yen(st.gSpcTax)+'</td></tr>'
-    +'<tr style="font-weight:700;background:#f3f6fb;"><td>合計</td><td style="text-align:right;">'+yen(st.giftGiven)+'</td><td style="text-align:right;">—</td><td style="text-align:right;">'+yen(st.giftTaxTotal)+'</td></tr></tbody></table>';
+    +'<tr style="font-weight:700;background:#f3f6fb;"><td>合計</td><td style="text-align:right;">'+yen(st.giftGiven)+'</td><td style="text-align:right;">—</td><td style="text-align:right;">'+yen(st.giftTaxTotal)+'</td></tr></tbody></table>'
+    +(st.giftAddback>0?'<div class="muted" style="font-size:11.5px;margin-top:6px;">※ 二次相続の開始前7年以内の贈与 '+yen(st.giftAddback)+' は持ち戻し（生前贈与加算）の対象となるため節税効果に含めていません。贈与税合計も持ち戻し対象外の年分のみで計算しています（加算分は贈与税額控除で精算される前提）。</div>':'');
 }
 // グラフと同じ刻みの一覧表（最小行＝濃い緑・前後5%＝薄い緑・現案行に★現案）
 function secScaleTableHTML(samples,minIdx,curIdx){
@@ -4019,42 +4050,52 @@ function secScaleTableHTML(samples,minIdx,curIdx){
   html+='</tbody>';
   return html;
 }
-// 一次相続税(左軸の折れ線)・二次相続税(右軸の折れ線)・合計(棒)を1つのSVGに描画し、最小点を強調
+// 一次相続税＋二次相続税（＋贈与税）を1本の積み上げ棒で描画（単一軸）。最小点＝緑、現案＝紫で強調。
+// 旧版は一次（左軸）・二次（右軸）の二重軸折れ線だったが、軸が2つあると交点を誤読しやすいため廃止した。
 function secChartSVG(samples,minIdx,theme,curIdx){
-  const C=Object.assign({grid:'#eee',bar:'#cfe3ff',min:'#34c759',minStroke:'#1a7f37',cur:'#7c3aed',curStroke:'#5b21b6',curLabel:'#5b21b6',tickL:'#0071e3',tickR:'#d4820a',minLabel:'#1a7f37',line1:'#0071e3',line2:'#ff9500',titleL:'#0071e3',titleR:'#d4820a'},theme||{});
+  const C=Object.assign({grid:'#e8e8ee',min:'#34c759',minStroke:'#1a7f37',cur:'#7c3aed',curStroke:'#5b21b6',curLabel:'#5b21b6',tick:'#666',minLabel:'#1a7f37',line1:'#0071e3',line2:'#ff9500',gift:'#9aa0a6'},theme||{});
   if(curIdx==null||curIdx<0||curIdx>=samples.length) curIdx=-1;
-  const W=1240,H=560,mL=124,mR=130,mT=40,mB=56; const pw=W-mL-mR, ph=H-mT-mB; const n=samples.length;
-  const maxL=Math.max(1,...samples.map(s=>s.first));    // 左軸＝一次相続税のみ
-  const maxBar=Math.max(1,...samples.map(s=>s.total));  // 棒（合計）の高さスケール。軸目盛りは表示せず、棒の直上に金額を数値表示する
-  const maxR=Math.max(1,...samples.map(s=>s.second));
-  const barW=Math.max(6, pw/n*0.55);
-  const padX=barW/2+6;                                  // 端の棒が目盛り側にはみ出さないよう内側に寄せる
+  const W=1240,H=560,mL=110,mR=40,mT=44,mB=86; const pw=W-mL-mR, ph=H-mT-mB; const n=samples.length;
+  const maxT=Math.max(1,...samples.map(s=>s.total));
+  const barW=Math.max(6, pw/n*0.62);
+  const padX=barW/2+6;
   const x=i=> mL+padX+(n<=1?(pw-2*padX)/2:i/(n-1)*(pw-2*padX));
-  const yL=v=> mT+ph-(v/maxL)*ph;
-  const yBar=v=> mT+ph-(v/maxBar)*ph;
-  const yR=v=> mT+ph-(v/maxR)*ph;
-  // 縦置き（1文字ずつ縦に積む）タイトル
-  const vtitle=(cx,str,fill,fs)=>{ const chars=[...str].map(c=>(c==='（'||c==='(')?'︵':((c==='）'||c===')')?'︶':c)); const lh=fs+3; const y0=mT+ph/2-(chars.length-1)*lh/2;
-    return '<text x="'+cx+'" y="'+y0+'" text-anchor="middle" font-size="'+fs+'" fill="'+fill+'">'+chars.map((ch,i)=>'<tspan x="'+cx+'" dy="'+(i===0?0:lh)+'">'+ch+'</tspan>').join('')+'</text>'; };
+  const yV=v=> mT+ph-(v/maxT)*ph;
   let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="width:100%;font-family:inherit;display:block;">';
-  for(let t=0;t<=4;t++){ const v=maxL*t/4, yy=yL(v); s+='<line x1="'+mL+'" y1="'+yy+'" x2="'+(mL+pw)+'" y2="'+yy+'" stroke="'+C.grid+'"/>'; s+='<text x="'+(mL-12)+'" y="'+(yy+5)+'" text-anchor="end" font-size="14" fill="'+C.tickL+'">'+secYenShort(v)+'</text>'; }
-  for(let t=0;t<=4;t++){ const v=maxR*t/4, yy=yR(v); s+='<text x="'+(mL+pw+12)+'" y="'+(yy+5)+'" text-anchor="start" font-size="14" fill="'+C.tickR+'">'+secYenShort(v)+'</text>'; }
-  samples.forEach((sm,i)=>{ const bx=x(i)-barW/2, by=yBar(sm.total), bh=Math.max(0,mT+ph-by), isMin=i===minIdx, isCur=i===curIdx; const fill=isMin?C.min:(isCur?C.cur:C.bar), stk=isMin?C.minStroke:(isCur?C.curStroke:null); s+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="2" fill="'+fill+'"'+(stk?' stroke="'+stk+'" stroke-width="1.5"':'')+'><title>配偶者'+Math.round(sm.r*100)+'%：合計 '+yen(sm.total)+'</title></rect>'; });
+  for(let t=0;t<=4;t++){ const v=maxT*t/4, yy=yV(v); s+='<line x1="'+mL+'" y1="'+yy+'" x2="'+(mL+pw)+'" y2="'+yy+'" stroke="'+C.grid+'"/>'; s+='<text x="'+(mL-12)+'" y="'+(yy+5)+'" text-anchor="end" font-size="14" fill="'+C.tick+'">'+secYenShort(v)+'</text>'; }
+  samples.forEach((sm,i)=>{
+    const bx=x(i)-barW/2, isMin=i===minIdx, isCur=i===curIdx;
+    const g=num(sm.giftTax);
+    const y2=yV(sm.total);                    // 棒の頂点（贈与税を含む合計）
+    const y1=yV(sm.first+sm.second);          // 贈与税と二次の境界
+    const y0=yV(sm.first);                    // 一次と二次の境界
+    const base=mT+ph;
+    const stk=isMin?C.minStroke:(isCur?C.curStroke:null);
+    const tip='<title>配偶者'+Math.round(sm.r*100)+'%：一次 '+yen(sm.first)+'／二次 '+yen(sm.second)+(g>0?'／贈与税 '+yen(g):'')+'／合計 '+yen(sm.total)+'</title>';
+    s+='<g>'+tip
+      +'<rect x="'+bx.toFixed(1)+'" y="'+y0.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+Math.max(0,base-y0).toFixed(1)+'" fill="'+C.line1+'"/>'
+      +'<rect x="'+bx.toFixed(1)+'" y="'+y1.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+Math.max(0,y0-y1).toFixed(1)+'" fill="'+C.line2+'"/>'
+      +(g>0?'<rect x="'+bx.toFixed(1)+'" y="'+y2.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+Math.max(0,y1-y2).toFixed(1)+'" fill="'+C.gift+'"/>':'')
+      +(stk?'<rect x="'+(bx-1.5).toFixed(1)+'" y="'+(y2-1.5).toFixed(1)+'" width="'+(barW+3).toFixed(1)+'" height="'+Math.max(0,base-y2+3).toFixed(1)+'" fill="none" stroke="'+stk+'" stroke-width="2.5" rx="3"/>':'')
+      +'</g>';
+  });
   // 現案（現在の分割案）の縦線・ラベル。最小と近接する場合はラベル行を1段上げて重なりを回避
   if(curIdx>=0&&curIdx!==minIdx){ const cx2=x(curIdx); const close=Math.abs(curIdx-minIdx)<=2; s+='<line x1="'+cx2.toFixed(1)+'" y1="'+mT+'" x2="'+cx2.toFixed(1)+'" y2="'+(mT+ph)+'" stroke="'+C.curStroke+'" stroke-dasharray="4 3"/>'; s+='<text x="'+cx2.toFixed(1)+'" y="'+(close?(mT-26):(mT-10))+'" text-anchor="middle" font-size="15" font-weight="700" fill="'+C.curLabel+'">現案 '+Math.round(samples[curIdx].r*100)+'%</text>'; }
   const mx=x(minIdx); s+='<line x1="'+mx.toFixed(1)+'" y1="'+mT+'" x2="'+mx.toFixed(1)+'" y2="'+(mT+ph)+'" stroke="'+C.minStroke+'" stroke-dasharray="4 3"/>'; s+='<text x="'+mx.toFixed(1)+'" y="'+(mT-10)+'" text-anchor="middle" font-size="15" font-weight="700" fill="'+C.minLabel+'">最小 '+Math.round(samples[minIdx].r*100)+'%</text>';
-  // 合計（棒）は左軸目盛りを持たないため、最小の箇所を起点に10％刻み（±2サンプル間隔）の全ての棒の直上に合計額を数値表示
-  for(let bi=minIdx%2;bi<n;bi+=2){ const bsm=samples[bi], bbx=x(bi), bby=yBar(bsm.total); s+='<text x="'+bbx.toFixed(1)+'" y="'+(bby-9).toFixed(1)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#1F3A5F">'+secYenShort(bsm.total)+'</text>'; }
-  s+='<polyline points="'+samples.map((sm,i)=>x(i).toFixed(1)+','+yL(sm.first).toFixed(1)).join(' ')+'" fill="none" stroke="'+C.line1+'" stroke-width="2.6"/>';
-  samples.forEach((sm,i)=>{ s+='<circle cx="'+x(i).toFixed(1)+'" cy="'+yL(sm.first).toFixed(1)+'" r="3.2" fill="'+C.line1+'"/>'; });
-  s+='<polyline points="'+samples.map((sm,i)=>x(i).toFixed(1)+','+yR(sm.second).toFixed(1)).join(' ')+'" fill="none" stroke="'+C.line2+'" stroke-width="2.6"/>';
-  samples.forEach((sm,i)=>{ s+='<circle cx="'+x(i).toFixed(1)+'" cy="'+yR(sm.second).toFixed(1)+'" r="3.2" fill="'+C.line2+'"/>'; });
+  // 最小の棒を起点に1本おきで、棒の直上に合計額を数値表示
+  for(let bi=minIdx%2;bi<n;bi+=2){ const bsm=samples[bi], bbx=x(bi), bby=yV(bsm.total); s+='<text x="'+bbx.toFixed(1)+'" y="'+(bby-9).toFixed(1)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#1F3A5F">'+secYenShort(bsm.total)+'</text>'; }
   samples.forEach((sm,i)=>{ if(i%2===0) s+='<text x="'+x(i).toFixed(1)+'" y="'+(mT+ph+20)+'" text-anchor="middle" font-size="13" fill="#888">'+Math.round(sm.r*100)+'%</text>'; });
-  s+='<text x="'+(mL+pw/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="15" fill="#555">配偶者の取得割合</text>';
-  s+=vtitle(30,'一次相続税(左軸)',C.titleL,14);
-  s+=vtitle(W-30,'二次相続税(右軸)',C.titleR,14);
+  s+='<text x="'+(mL+pw/2)+'" y="'+(mT+ph+44)+'" text-anchor="middle" font-size="15" fill="#555">配偶者の取得割合（左端0%＝すべてお子様、右端100%＝すべて配偶者）</text>';
+  s+='<text x="'+(mL-84)+'" y="'+(mT-18)+'" text-anchor="start" font-size="14" fill="'+C.tick+'">税額</text>';
   s+='</svg>';
-  s+='<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:6px;"><span><span style="display:inline-block;width:12px;height:12px;background:'+C.bar+';border-radius:2px;vertical-align:middle;"></span> 一次＋二次 合計(棒・最小±10%に金額表示)</span><span><span style="display:inline-block;width:12px;height:12px;background:'+C.min+';border-radius:2px;vertical-align:middle;"></span> 合計が最小</span><span><span style="display:inline-block;width:12px;height:12px;background:'+C.cur+';border-radius:2px;vertical-align:middle;"></span> 現在の分割案（現案）</span><span style="color:'+C.line1+';">― 一次相続税(左軸)</span><span style="color:'+C.line2+';">― 二次相続税(右軸)</span></div>';
+  const sw=c=>'<span style="display:inline-block;width:12px;height:12px;background:'+c+';border-radius:2px;vertical-align:middle;"></span> ';
+  const hasGift=samples.some(sm=>num(sm.giftTax)>0);
+  s+='<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:6px;">'
+    +'<span>'+sw(C.line1)+'一次相続税</span><span>'+sw(C.line2)+'二次相続税</span>'
+    +(hasGift?'<span>'+sw(C.gift)+'贈与税</span>':'')
+    +'<span><span style="display:inline-block;width:12px;height:12px;border:2.5px solid '+C.minStroke+';border-radius:3px;vertical-align:middle;"></span> 合計が最小</span>'
+    +'<span><span style="display:inline-block;width:12px;height:12px;border:2.5px solid '+C.curStroke+';border-radius:3px;vertical-align:middle;"></span> 現在の分割案（現案）</span>'
+    +'<span style="color:#555;">棒の高さ＝一次＋二次'+(hasGift?'＋贈与税':'')+'の合計</span></div>';
   return s;
 }
 // ----- 配偶者が相続する財産の選択（財産一覧から金額入力） -----
@@ -4135,40 +4176,46 @@ function renderDocs(){ renderStoryControls(); }
 //  相続税節税シミュレーション
 // ============================================================
 const SAVING_TEMPLATES=[
-  {key:'koyo',name:'暦年贈与（特例贈与：18歳以上の子・孫等への贈与）',desc:'毎年一定額を直系卑属（18歳以上の子・孫等）へ贈与し相続財産を圧縮します（年110万円まで非課税・特例税率）。',
+  {key:'koyo',cert:'years',name:'暦年贈与（特例贈与：18歳以上の子・孫等への贈与）',desc:'毎年一定額を直系卑属（18歳以上の子・孫等）へ贈与し相続財産を圧縮します（年110万円まで非課税・特例税率）。',
     fields:[{k:'annual',label:'1人あたり年間贈与額(円)',type:'money',def:1100000},{k:'people',label:'贈与する人数',type:'num',def:1},{k:'years',label:'実行年数',type:'num',def:5}],
     compute:(p)=>{ const annual=num(p.annual),people=num(p.people),years=num(p.years); const gPer=giftTaxYearly(annual,true);
       return {dT:annual*people*years, dn:0, gTax:gPer*people*years, note:'相続開始前3〜7年以内の贈与は相続財産に加算されます。'+(gPer>0?'　年110万円超の部分に暦年贈与税（特例税率）が毎年発生（1人あたり年 '+yen(gPer)+'）。':'')}; }},
-  {key:'koyoIppan',name:'暦年贈与（一般贈与：上記以外への贈与）',desc:'毎年一定額を一般税率の対象者（兄弟姉妹・配偶者・18歳未満の子等）へ贈与し相続財産を圧縮します（年110万円まで非課税・一般税率）。',
+  {key:'koyoIppan',cert:'years',name:'暦年贈与（一般贈与：上記以外への贈与）',desc:'毎年一定額を一般税率の対象者（兄弟姉妹・配偶者・18歳未満の子等）へ贈与し相続財産を圧縮します（年110万円まで非課税・一般税率）。',
     fields:[{k:'annual',label:'1人あたり年間贈与額(円)',type:'money',def:1100000},{k:'people',label:'贈与する人数',type:'num',def:1},{k:'years',label:'実行年数',type:'num',def:5}],
     compute:(p)=>{ const annual=num(p.annual),people=num(p.people),years=num(p.years); const gPer=giftTaxYearly(annual,false);
       return {dT:annual*people*years, dn:0, gTax:gPer*people*years, note:'相続開始前3〜7年以内の贈与は相続財産に加算されます。'+(gPer>0?'　年110万円超の部分に暦年贈与税（一般税率）が毎年発生（1人あたり年 '+yen(gPer)+'）。':'')}; }},
-  {key:'seimei',name:'生命保険の非課税枠の活用',desc:'死亡保険金は「500万円×法定相続人数」まで非課税。未使用枠まで一時払い終身保険等に加入します。',
+  {key:'seimei',cert:'sure',name:'生命保険の非課税枠の活用',desc:'死亡保険金は「500万円×法定相続人数」まで非課税。未使用枠まで一時払い終身保険等に加入します。',
     fields:[{k:'amount',label:'追加加入する死亡保険金(円)',type:'money',def:5000000}],
     compute:(p,ctx)=>{const remain=Math.max(0,5000000*ctx.n-ctx.insTotal); return {dT:Math.min(num(p.amount),remain), dn:0, note:'非課税枠の残り：'+yen(remain)};}},
-  {key:'shokibo',name:'小規模宅地等の特例の活用',desc:'居住用宅地等を同居親族等が取得することで評価額を最大80%減額します。',
+  {key:'shokibo',cert:'cond',name:'小規模宅地等の特例の活用',desc:'居住用宅地等を同居親族等が取得することで評価額を最大80%減額します。',
     fields:[{k:'amount',label:'減額見込額(円)',type:'money',def:0}],
     compute:(p)=>({dT:num(p.amount), dn:0, note:'要件（同居・継続居住等）の充足が必要です。'})},
-  {key:'fudosan',name:'不動産購入による評価減',desc:'現金で不動産を購入すると、相続税評価額（路線価・固定資産税評価額）が時価より低くなり評価が下がります。',
+  {key:'fudosan',cert:'cond',name:'不動産購入による評価減',desc:'現金で不動産を購入すると、相続税評価額（路線価・固定資産税評価額）が時価より低くなり評価が下がります。',
     fields:[{k:'amount',label:'購入額(時価, 円)',type:'money',def:0},{k:'rate',label:'評価減率(%)',type:'num',def:60}],
     compute:(p)=>({dT:Math.round(num(p.amount)*num(p.rate)/100), dn:0, note:'評価減率は物件により異なります。過度な圧縮は否認リスクがあります。'})},
-  {key:'chintai',name:'賃貸建物の建築',desc:'更地に賃貸アパート等を建てると、貸家・貸家建付地として評価が下がります。',
+  {key:'chintai',cert:'cond',name:'賃貸建物の建築',desc:'更地に賃貸アパート等を建てると、貸家・貸家建付地として評価が下がります。',
     fields:[{k:'amount',label:'建築費(円)',type:'money',def:0},{k:'rate',label:'評価減率(%)',type:'num',def:65}],
     compute:(p)=>({dT:Math.round(num(p.amount)*num(p.rate)/100), dn:0, note:'借入併用時は債務控除も考慮します。'})},
-  {key:'hikazei',name:'非課税財産の生前購入（墓・仏壇等）',desc:'墓地・墓石・仏壇仏具等は非課税財産。生前に購入すると現金が非課税財産に変わります。',
+  {key:'hikazei',cert:'sure',name:'非課税財産の生前購入（墓・仏壇等）',desc:'墓地・墓石・仏壇仏具等は非課税財産。生前に購入すると現金が非課税財産に変わります。',
     fields:[{k:'amount',label:'購入額(円)',type:'money',def:0}],
     compute:(p)=>({dT:num(p.amount), dn:0, note:'投資用の純金製品等は対象外です。'})},
-  {key:'yoshi',name:'養子縁組',desc:'孫等を養子にすると法定相続人が増え、基礎控除・生命保険等の非課税枠が増加し、税率も下がります。',
+  {key:'yoshi',cert:'cond',name:'養子縁組',desc:'孫等を養子にすると法定相続人が増え、基礎控除・生命保険等の非課税枠が増加し、税率も下がります。',
     fields:[{k:'count',label:'養子の人数',type:'num',def:1}],
     compute:(p)=>({dT:0, dn:num(p.count), note:'実子がいる場合1人、いない場合2人まで法定相続人に算入できます。孫養子は2割加算の対象です。'})},
-  {key:'kyoiku',name:'教育資金の一括贈与の非課税',desc:'30歳未満の子・孫へ教育資金を一括贈与すると1人1,500万円まで非課税です。',
+  {key:'kyoiku',cert:'cond',name:'教育資金の一括贈与の非課税',desc:'30歳未満の子・孫へ教育資金を一括贈与すると1人1,500万円まで非課税です。',
     fields:[{k:'amount',label:'1人あたり贈与額(円)',type:'money',def:0},{k:'people',label:'人数',type:'num',def:1}],
     compute:(p)=>({dT:Math.min(num(p.amount),15000000)*num(p.people), dn:0, note:'使い残しは相続税の対象となる場合があります。'})},
-  {key:'seisan110',name:'相続時精算課税の年110万円基礎控除',desc:'2024年以降、相続時精算課税でも年110万円までは非課税で、相続財産に加算されません。',
+  {key:'seisan110',cert:'years',name:'相続時精算課税の年110万円基礎控除',desc:'2024年以降、相続時精算課税でも年110万円までは非課税で、相続財産に加算されません。',
     fields:[{k:'people',label:'人数',type:'num',def:1},{k:'years',label:'実行年数',type:'num',def:5}],
     compute:(p)=>({dT:1100000*num(p.people)*num(p.years), dn:0, note:'相続時精算課税を選択した受贈者ごとに年110万円が非課税です。'})}
 ];
 const SAVING_BY_KEY=Object.fromEntries(SAVING_TEMPLATES.map(t=>[t.key,t]));
+// 効果の確実性バッジ（★確実／△要件次第／※年数・持ち戻し依存）
+function savCertBadge(cert){
+  if(cert==='sure') return '<span style="display:inline-block;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;background:#e7f8ec;color:#1a7f37;border:1px solid #b5e2c2;">★ 効果が確実</span>';
+  if(cert==='years') return '<span style="display:inline-block;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;background:#fdf6e3;color:#8a6d1a;border:1px solid #ecd9a0;">※ 年数・持ち戻しに注意</span>';
+  return '<span style="display:inline-block;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;background:#f1f3f6;color:#555;border:1px solid #d8dce2;">△ 適用要件次第</span>';
+}
 // 各節税策で被相続人の現金預金から実際に支出する金額（保険料・贈与・購入等）
 function savingCashOut(key,p){ p=p||{};
   switch(key){
@@ -4206,7 +4253,8 @@ function savingsCtx(){ const r=calcTax(); const insTotal=currentCase.assets.filt
 function savingsCompute(){
   const ctx=savingsCtx(); const T0=ctx.T0;
   const rows=[]; let dTtotal=0, dnTotal=0, gTaxTotal=0;
-  (currentCase.savings||[]).forEach(s=>{ const t=SAVING_BY_KEY[s.key]; if(!t) return; const res=t.compute(s.params||{},ctx); rows.push({name:t.name, dT:res.dT||0, dn:res.dn||0, gTax:res.gTax||0, note:res.note||''}); dTtotal+=res.dT||0; dnTotal+=res.dn||0; gTaxTotal+=res.gTax||0; });
+  // 先に選んだ養子縁組で法定相続人が増えている場合、後続の生命保険の非課税枠にも反映する（ctx.nを累積）
+  (currentCase.savings||[]).forEach(s=>{ const t=SAVING_BY_KEY[s.key]; if(!t) return; const res=t.compute(s.params||{},Object.assign({},ctx,{n:ctx.n+dnTotal})); rows.push({name:t.name, dT:res.dT||0, dn:res.dn||0, gTax:res.gTax||0, note:res.note||''}); dTtotal+=res.dT||0; dnTotal+=res.dn||0; gTaxTotal+=res.gTax||0; });
   const baseTax=totalTaxScenario(T0, currentCase.heirs).tax;
   const dummies=[]; for(let i=0;i<dnTotal;i++) dummies.push({id:'sav-dummy-'+i, relationType:'child', isAdopted:true, adoptedAsReal:false, isDaishu:false, daishuGroup:''});
   const afterHeirs=currentCase.heirs.concat(dummies);
@@ -4226,7 +4274,7 @@ function renderSavings(){
       const fields=t.fields.map(f=>{ if(s.params[f.k]===undefined) s.params[f.k]=f.def; const v=(s.params[f.k]!==undefined&&s.params[f.k]!=='')?s.params[f.k]:(f.def!==undefined?f.def:'');
         const disp=f.type==='money'?(num(v)?num(v).toLocaleString('ja-JP'):''):v;
         return '<div class="field"><label>'+esc(f.label)+'</label><input type="text" class="num" value="'+esc(disp)+'" oninput="updSaving(\''+s.id+'\',\''+f.k+'\',this.value)"'+(f.type==='money'?' onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"':'')+'></div>'; }).join('');
-      return '<div class="heir-card"><div class="heir-top"><span class="heir-no">'+esc(t.name)+'</span><label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" style="width:auto;" '+((s.sel!==false)?'checked':'')+' onchange="toggleSavingSel(\''+s.id+'\',this.checked)"> 合算に含める</label><button class="btn red sm" style="margin-left:12px;" onclick="removeSaving(\''+s.id+'\')">削除</button></div>'
+      return '<div class="heir-card"><div class="heir-top"><span class="heir-no">'+esc(t.name)+'</span> '+savCertBadge(t.cert)+'<label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" style="width:auto;" '+((s.sel!==false)?'checked':'')+' onchange="toggleSavingSel(\''+s.id+'\',this.checked)"> 合算に含める</label><button class="btn red sm" style="margin-left:12px;" onclick="removeSaving(\''+s.id+'\')">削除</button></div>'
         +'<div class="muted" style="font-size:12px;margin-bottom:10px;">'+esc(t.desc)+'</div>'
         +'<div class="grid grid-3">'+fields+'</div>'
         +'<div id="saveff-'+s.id+'" style="margin-top:10px;font-size:13px;"></div>'
@@ -4244,7 +4292,8 @@ function savingsWaterfall(list){
   let curT=T0, curDn=0, prevTax=baseTax, gTaxTotal=0;
   const rows=[];
   list.forEach(s=>{ const t=SAVING_BY_KEY[s.key]; if(!t){ rows.push(null); return; }
-    const res=t.compute(s.params||{},ctx);
+    // 先行する養子縁組による法定相続人の増加を、生命保険の非課税枠計算にも反映
+    const res=t.compute(s.params||{},Object.assign({},ctx,{n:ctx.n+curDn}));
     const before=prevTax;
     curT=Math.max(0, curT-(res.dT||0)); curDn+=res.dn||0;
     const dummies=[]; for(let i=0;i<curDn;i++) dummies.push({id:'sav-dummy-'+i, relationType:'child', isAdopted:true, adoptedAsReal:false, isDaishu:false, daishuGroup:''});
@@ -4754,12 +4803,12 @@ function buildStoryText(kind, A){
   const Y=yen;
   if(kind==='savings'){
     const L=['# この節税策で相続税をどれだけ減らせるか'];
-    L.push('【なぜ？】相続税は、亡くなった方が遺したすべての財産を合計した「課税価格」に対して課され、その額が大きくなるほど適用される税率も段階的に高くなる仕組みになっています。何も対策をしないままだと、'+A.decName+' 様の相続では相続税の総額 **'+Y(A.baseTax)+'** が見込まれます。財産をそのままの形で残すと、その一部を税金として納めることになり、実際にご家族へ引き継がれる財産はその分だけ目減りしてしまいます。だからこそ、生前のうちにできる工夫の有無が、最終的に手元へ残る金額を大きく左右します。');
-    let so='【だからこそ】今回ご提案する節税策のねらいは、この課税のベースそのものを小さくしておくことにあります。具体的には、課税価格を **'+Y(A.dTtotal)+'** 圧縮します。';
+    L.push('【なぜ？】**財産は、そのまま残すと税金の分だけ目減りします。** 相続税は、亡くなった方が遺したすべての財産を合計した「課税価格」に対して課され、その額が大きくなるほど適用される税率も段階的に高くなる仕組みになっています。何も対策をしないままだと、'+A.decName+' 様の相続では相続税の総額 **'+Y(A.baseTax)+'** が見込まれます。財産をそのままの形で残すと、その一部を税金として納めることになり、実際にご家族へ引き継がれる財産はその分だけ目減りしてしまいます。だからこそ、生前のうちにできる工夫の有無が、最終的に手元へ残る金額を大きく左右します。');
+    let so='【だからこそ】**課税のもとになる金額そのものを、生前に小さくしておきます。** 今回ご提案する節税策のねらいは、この課税のベースそのものを小さくしておくことにあります。具体的には、課税価格を **'+Y(A.dTtotal)+'** 圧縮します。';
     if(A.dnTotal>0) so+='さらに法定相続人を '+A.dnTotal+'人 増やすことで、基礎控除（3,000万円＋600万円×人数）も広がり、課税される部分が二重に小さくなります。';
     so+='「財産を計画的に移す」「非課税の枠を活用する」「相続人を増やす」といった手立てを無理のない範囲で組み合わせ、税金のかかる土台を少しずつ縮めていく――これが節税の基本的な考え方です。下に並べた表とグラフは、対策を行う前と後で税額がどう変わるかを、一目で見比べられるようにしたものです。';
     L.push(so);
-    let cc='【結論】その結果、相続税の総額は '+Y(A.baseTax)+' から **'+Y(A.afterTax)+'** へと下がり、差し引き '+Y(A.save)+' を減らせる見込みです。';
+    let cc='【結論】**削減できた税金は、そのままご家族の手元に残ります。** その結果、相続税の総額は '+Y(A.baseTax)+' から **'+Y(A.afterTax)+'** へと下がり、差し引き '+Y(A.save)+' を減らせる見込みです。';
     if(A.gTaxTotal>0) cc+='贈与の際にかかる贈与税 '+Y(A.gTaxTotal)+' を先に納めることを織り込んでも、**実質の節税効果は '+Y(A.netSave)+'** が残ります。';
     cc+='ここで削減できた金額は、そっくりそのままご家族の手元に多く残る財産になります。以下のグラフと表は、この効果がどの対策からどれだけ生まれているのかを、具体的な金額の内訳として示したものですので、あわせてご確認ください。';
     L.push(cc);
@@ -4767,9 +4816,9 @@ function buildStoryText(kind, A){
   }
   if(kind==='sec_normal'){
     const L=['# なぜ「二次相続」まで見据えて分け方を決めるのか'];
-    L.push('【なぜ？】配偶者には「配偶者の税額軽減」という大きな特例があり、一次相続（'+A.decName+' 様の相続）では、配偶者が取得した財産のうち原則1億6千万円（または法定相続分相当額）までは相続税がかかりません。そのため、'+A.spouseName+' 様が多くの財産を取得すればするほど、今回の相続税は軽くなります。目の前の税額だけを見れば「配偶者にできるだけ多く分ける」のが有利に見えるのは、この特例があるためです。');
-    L.push('【だからこそ】ところが、これで話は終わりません。'+A.spouseName+' 様が取得した財産は、将来の二次相続（'+A.spouseName+' 様ご自身の相続）で、今度はお子様へ引き継がれる際に改めて相続税の対象になります。二次相続では配偶者の税額軽減がもう使えず、相続人も '+A.nCh+'人 と少ないため基礎控除（3,000万円＋600万円×'+A.nCh+'人）も小さくなり、同じ財産額でも税率が高くなりがちです。つまり、一次相続で軽くしたはずの負担が、二次相続でかえって重くのしかかることがあるのです。右のグラフは、配偶者の取得割合を横軸にとり、折れ線で一次相続税（左軸）と二次相続税（右軸）が逆向きに動く様子を、棒グラフでその合計額を表しています。配偶者に寄せるほど一次は下がりますが二次が跳ね上がるため、合計はゆるやかなU字を描きます。');
-    let cc='【結論】そこで、一次と二次を通算した税額が最も小さくなる「ちょうどよい取得割合」を試算しました。配偶者の取得割合を **'+A.minRatio+'%** としたときに、一次＋二次の合計は **'+Y(A.minTotal)+'** となり、グラフでも緑で示したこの点が最小になります。';
+    L.push('【なぜ？】**一次相続だけを見れば、「配偶者に多く」が最も有利に見えます。** 配偶者には「配偶者の税額軽減」という大きな特例があり、一次相続（'+A.decName+' 様の相続）では、配偶者が取得した財産のうち原則1億6千万円（または法定相続分相当額）までは相続税がかかりません。そのため、'+A.spouseName+' 様が多くの財産を取得すればするほど、今回の相続税は軽くなります。目の前の税額だけを見れば「配偶者にできるだけ多く分ける」のが有利に見えるのは、この特例があるためです。');
+    L.push('【だからこそ】**しかし、一次で軽くした分は二次相続で取り返されます。** ところが、これで話は終わりません。'+A.spouseName+' 様が取得した財産は、将来の二次相続（'+A.spouseName+' 様ご自身の相続）で、今度はお子様へ引き継がれる際に改めて相続税の対象になります。二次相続では配偶者の税額軽減がもう使えず、相続人も '+A.nCh+'人 と少ないため基礎控除（3,000万円＋600万円×'+A.nCh+'人）も小さくなり、同じ財産額でも税率が高くなりがちです。つまり、一次相続で軽くしたはずの負担が、二次相続でかえって重くのしかかることがあるのです。グラフは、配偶者の取得割合を横軸にとり、1本の棒を「一次相続税（青）＋二次相続税（オレンジ）」の積み上げで表しています。配偶者に寄せるほど青（一次）は減りますがオレンジ（二次）が増えるため、棒全体の高さ（合計）はゆるやかなU字を描きます。');
+    let cc='【結論】**大切なのは「一次＋二次の合計」で分け方を決めることです。** そこで、一次と二次を通算した税額が最も小さくなる「ちょうどよい取得割合」を試算しました。配偶者の取得割合を **'+A.minRatio+'%** としたときに、一次＋二次の合計は **'+Y(A.minTotal)+'** となり、グラフでも緑で示したこの点が最小になります。';
     if(A.curRatio!==A.minRatio){ const diff=A.curTotal-A.minTotal; cc+='一方、現在ご検討中の分割案（配偶者 '+A.curRatio+'%・合計 '+Y(A.curTotal)+'）と比べると、'+(diff>0?'分け方を見直すことで **'+Y(diff)+' を軽減できる余地** があることが分かります。これは単なる数字上の差ではなく、将来お子様が負担する税金まで含めた「ご家族全体で最終的に残る財産」を大きくするための、重要な判断材料になります。':'すでに最小に近い、バランスの取れた水準にあることが分かります。'); }
     else { cc+='そして現在の分割案（配偶者 '+A.curRatio+'%）は、ちょうどこの最小水準に一致しており、二次相続まで見通したうえで理にかなった分け方になっています。'; }
     L.push(cc);
@@ -4777,12 +4826,12 @@ function buildStoryText(kind, A){
   }
   if(kind==='sec_savings'){
     const L=['# 節税策で二次相続の負担をどこまで減らせるか'];
-    L.push('【なぜ？】二次相続（'+A.spouseName+' 様の相続）では、一次相続で使えた配偶者の税額軽減がもう使えません。そのため、'+A.spouseName+' 様が一次相続で取得した財産は、ほぼそのままの大きさで課税対象になってしまいます。何も手を打たなければ、一次と二次を合わせた税額は **'+Y(A.normalMinTotal)+'**（配偶者の取得割合を最も有利な '+A.minRatio+'% とした場合）が見込まれます。これは決して小さな金額ではなく、事前の準備があるかどうかで、最終的にご家族の手元へ残る財産が大きく変わってきます。');
-    let so='【だからこそ】ここで効いてくるのが、二次相続までの間に準備できる節税策です。代表的なのが、死亡保険金の非課税枠（500万円×法定相続人 '+A.nCh+'人）を活用する生命保険と、毎年少しずつ財産を移していく暦年贈与です。いずれも、二次相続で課税される財産そのものを前もって圧縮しておく効果があります。本案では、';
+    L.push('【なぜ？】**二次相続には、配偶者の税額軽減がありません。** 二次相続（'+A.spouseName+' 様の相続）では、一次相続で使えた配偶者の税額軽減がもう使えません。そのため、'+A.spouseName+' 様が一次相続で取得した財産は、ほぼそのままの大きさで課税対象になってしまいます。何も手を打たなければ、一次と二次を合わせた税額は **'+Y(A.normalMinTotal)+'**（配偶者の取得割合を最も有利な '+A.minRatio+'% とした場合）が見込まれます。これは決して小さな金額ではなく、事前の準備があるかどうかで、最終的にご家族の手元へ残る財産が大きく変わってきます。');
+    let so='【だからこそ】**保険と贈与で、二次相続の課税財産を前もって小さくします。** ここで効いてくるのが、二次相続までの間に準備できる節税策です。代表的なのが、死亡保険金の非課税枠（500万円×法定相続人 '+A.nCh+'人）を活用する生命保険と、毎年少しずつ財産を移していく暦年贈与です。いずれも、二次相続で課税される財産そのものを前もって圧縮しておく効果があります。本案では、';
     const parts=[]; if(A.insP>0) parts.push('生命保険 '+Y(A.insP)); if(A.giftGiven>0) parts.push('暦年贈与 '+Y(A.giftGiven));
     so+=(parts.length?parts.join('・'):'各種節税策')+' を実行する前提で試算しました。グラフの棒は対策後の一次＋二次の合計額を、折れ線は一次・二次それぞれの税額を表しており、対策をしない場合よりも棒全体が低く抑えられている点にご注目ください。';
     L.push(so);
-    let cc='【結論】これらの対策によって二次相続の課税財産が圧縮され、';
+    let cc='【結論】**対策の分だけ、ご家族に残る財産が増えます。** これらの対策によって二次相続の課税財産が圧縮され、';
     if(A.giftTaxTotal>0) cc+='贈与税として先に '+Y(A.giftTaxTotal)+' を納めることを織り込んでも、';
     cc+='一次＋二次＋贈与を通算した合計額は **'+Y(A.savingsMinTotal)+'** まで下がります。対策をしなかった場合（'+Y(A.normalMinTotal)+'）との差は **'+Y(Math.max(0,A.normalMinTotal-A.savingsMinTotal))+'** となり、この金額がそのままご家族に多く残せる財産になります。生命保険も贈与も、早く始めるほど使える非課税の枠が積み上がるため、計画的に実行することで効果はさらに大きくなります。';
     L.push(cc);
@@ -4790,9 +4839,9 @@ function buildStoryText(kind, A){
   }
   if(kind==='sec_optimal'){
     const L=['# 「取得割合」と「節税策」を同時に最適化する'];
-    L.push('【なぜ？】これまで見てきた「配偶者の取得割合」と、「生命保険・暦年贈与といった節税策」は、本来ばらばらに決めるものではなく、セットで考えて初めて本当の意味での最小税額にたどり着きます。取得割合だけを最適にしても、あるいは対策だけを頑張っても、一次相続から二次相続までを一本の流れとして見たときの合計税額が最小になるとは限らないからです。しかも組み合わせの数が非常に多く、どこが最も有利になるかを手計算で見つけ出すのは簡単ではありません。');
-    L.push('【だからこそ】そこで本シミュレーションでは、'+A.yrs+'年 という準備期間のなかで実行できる生命保険（非課税枠 '+Y(A.insLimit)+'）と暦年贈与を、配偶者の取得割合を少しずつ変えながらそれぞれに最適に配分し、一次＋二次＋贈与の合計税額が最も小さくなる組み合わせを、あらゆるパターンから自動で探し出しました。グラフは取得割合ごとの合計税額の動きを示し、最も低くなる点（最適解）を強調しています。「割合」と「対策」という2つのハンドルを同時に動かすことで、片方だけでは届かなかった水準まで負担を下げられるのが、このプランの特徴です。');
-    let cc='【結論】その結果、配偶者の取得割合を **'+A.bestRatio+'%** とし、'+(A.methods&&A.methods.length?A.methods.join('・'):'最適な節税策')+' を組み合わせるプランで、一次＋二次＋贈与の合計税額は **'+Y(A.bestTotal)+'** と最小になりました。';
+    L.push('【なぜ？】**「分け方」と「対策」は、セットで決めて初めて最小になります。** これまで見てきた「配偶者の取得割合」と、「生命保険・暦年贈与といった節税策」は、本来ばらばらに決めるものではなく、セットで考えて初めて本当の意味での最小税額にたどり着きます。取得割合だけを最適にしても、あるいは対策だけを頑張っても、一次相続から二次相続までを一本の流れとして見たときの合計税額が最小になるとは限らないからです。しかも組み合わせの数が非常に多く、どこが最も有利になるかを手計算で見つけ出すのは簡単ではありません。');
+    L.push('【だからこそ】**あらゆる組み合わせを計算し、最も有利な一点を探しました。** そこで本シミュレーションでは、'+A.yrs+'年 という準備期間のなかで実行できる生命保険（非課税枠 '+Y(A.insLimit)+'）と暦年贈与を、配偶者の取得割合を少しずつ変えながらそれぞれに最適に配分し、一次＋二次＋贈与の合計税額が最も小さくなる組み合わせを、あらゆるパターンから自動で探し出しました。グラフは取得割合ごとの合計税額の動きを示し、最も低くなる点（最適解）を強調しています。「割合」と「対策」という2つのハンドルを同時に動かすことで、片方だけでは届かなかった水準まで負担を下げられるのが、このプランの特徴です。');
+    let cc='【結論】**これが、ご家族全体で最も財産が残る組み合わせです。** その結果、配偶者の取得割合を **'+A.bestRatio+'%** とし、'+(A.methods&&A.methods.length?A.methods.join('・'):'最適な節税策')+' を組み合わせるプランで、一次＋二次＋贈与の合計税額は **'+Y(A.bestTotal)+'** と最小になりました。';
     if(A.cut>1) cc+='取得割合の調整だけを行って節税策をとらない場合の最小額（'+Y(A.nMinTotal)+'）と比べても、さらに **'+Y(A.cut)+' を軽減** できる計算です。これは「分け方の工夫」と「事前の対策」を掛け合わせて初めて得られる効果であり、二次相続まで見据えたご家族全体の資産防衛として、最も効率のよい着地点といえます。';
     L.push(cc);
     return L.join('\n\n');
@@ -4904,7 +4953,7 @@ function downloadSavingsPDF(){
   const cash=savingsCashSummary(currentCase.savings||[]);
   let mrows=R.rows.map((x,i)=>{ const s=currentCase.savings[i]; const t=SAVING_BY_KEY[s.key];
     const pdesc=t.fields.map(f=>f.label+'：'+(f.type==='money'?yen(num(s.params[f.k])):(s.params[f.k]||'-'))).join(' ／ ');
-    return '<tr><td>'+esc(x.name)+'<div class="pdesc" style="font-size:10px;color:#666;">'+esc(pdesc)+'</div></td><td class="r">'+(x.dT?'−'+yen(x.dT):'-')+'</td><td class="r">'+(x.dn?'＋'+x.dn+'人':'-')+'</td>'+(hasGift?'<td class="r">'+(x.gTax?'＋'+yen(x.gTax):'-')+'</td>':'')+'</tr>';
+    return '<tr><td>'+esc(x.name)+' '+savCertBadge(t.cert)+'<div class="pdesc" style="font-size:10px;color:#666;">'+esc(pdesc)+'</div></td><td class="r">'+(x.dT?'−'+yen(x.dT):'-')+'</td><td class="r">'+(x.dn?'＋'+x.dn+'人':'-')+'</td>'+(hasGift?'<td class="r">'+(x.gTax?'＋'+yen(x.gTax):'-')+'</td>':'')+'</tr>';
   }).join('');
   const styles=REPORT_STYLE;
   const body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">相続税 節税シミュレーション報告書</div>'
@@ -4914,6 +4963,10 @@ function downloadSavingsPDF(){
     +'<div class="kpi"><div class="l">相続税の削減額</div><div class="v">'+yen(R.save)+'</div></div>'
     +(hasGift?'<div class="kpi"><div class="l">贈与税の発生額</div><div class="v">＋'+yen(R.gTaxTotal)+'</div></div>':'')
     +'<div class="kpi a"><div class="l">'+(hasGift?'実質の節税効果':'節税効果（削減額）')+'</div><div class="v">'+yen(R.netSave)+'</div></div></div>'
+    +(function(){ const assets=Math.max(1,R.T0); const beforePct=((assets-R.baseTax)/assets*100).toFixed(1); const afterPct=((assets-R.afterTax-R.gTaxTotal)/assets*100).toFixed(1);
+      return '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;">'
+        +'<div style="flex:1;min-width:250px;border:1px solid #f3c7c7;background:#fdf2f2;border-radius:10px;padding:11px 14px;font-size:10.5pt;color:#8a1f1f;"><b>何もしない場合、'+manYen(R.baseTax)+' が税金として失われ、ご家族に残るのは財産の '+beforePct+'% です。</b></div>'
+        +'<div style="flex:1;min-width:250px;border:1px solid #bfe3c8;background:#f3fbf5;border-radius:10px;padding:11px 14px;font-size:10.5pt;color:#14532d;"><b>対策の実行で '+manYen(R.netSave)+' を多く残せ、手残りは '+afterPct+'% に上がります。</b></div></div>'; })()
     +storyBlock('savings',{decName:d.name,baseTax:R.baseTax,afterTax:R.afterTax,save:R.save,dTtotal:R.dTtotal,dnTotal:R.dnTotal,gTaxTotal:R.gTaxTotal,netSave:R.netSave})
     +'<div class="keepblk"><div class="sec-title">課税価格の比較</div>'
     +'<table class="t chead nowraph"><thead><tr><th>項目</th><th class="r">対策前</th><th class="r">対策後</th></tr></thead><tbody>'
@@ -4958,22 +5011,95 @@ function secondaryReportData(){
   const insP=insPremium1*insCount, insAllow=5000000*nCh, insCompress=Math.min(insP,insAllow);
   const gGenAmt=num(s.gGenAmt),gGenPpl=Math.max(0,Math.floor(num(s.gGenPpl))),gGenYrs=Math.max(0,Math.floor(num(s.gGenYrs)));
   const gSpcAmt=num(s.gSpcAmt),gSpcPpl=Math.max(0,Math.floor(num(s.gSpcPpl))),gSpcYrs=Math.max(0,Math.floor(num(s.gSpcYrs)));
-  const gGenGiven=gGenAmt*gGenPpl*gGenYrs,gSpcGiven=gSpcAmt*gSpcPpl*gSpcYrs,giftGiven=gGenGiven+gSpcGiven;
-  const gGenTax=giftTaxAnnual(gGenAmt,'general')*gGenPpl*gGenYrs, gSpcTax=giftTaxAnnual(gSpcAmt,'special')*gSpcPpl*gSpcYrs, giftTaxTotal=gGenTax+gSpcTax;
-  const compress=insCompress+giftGiven, spendCash=insP+giftGiven;
+  // 持ち戻し（相続開始前7年の生前贈与加算）を考慮した実効値で計算する
+  const gGenEff=giftEffectWithAddback(gGenAmt,gGenPpl,gGenYrs,years,'general');
+  const gSpcEff=giftEffectWithAddback(gSpcAmt,gSpcPpl,gSpcYrs,years,'special');
+  const gGenGiven=gGenEff.given,gSpcGiven=gSpcEff.given,giftGiven=gGenGiven+gSpcGiven;
+  const gGenTax=gGenEff.giftTax, gSpcTax=gSpcEff.giftTax, giftTaxTotal=gGenTax+gSpcTax;
+  const gGenComp=gGenEff.compress, gSpcComp=gSpcEff.compress;
+  const giftCompress=gGenComp+gSpcComp, giftAddback=gGenEff.addback+gSpcEff.addback;
+  const compress=insCompress+giftCompress, spendCash=insP+giftGiven;
   const hasSavings=insP>0||giftGiven>0;
   const N=21;
-  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
+  const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress,giftTaxTotal);
   const allocCash=secSpouseFirstCash();
   const firstTaxActual=(r.ph&&r.ph[spouse.id])?Math.max(0,r.ph[spouse.id].final||0):0;
   return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,firstTaxActual,
-    strat:{insPremium1,insCount,insP,insAllow,insCompress,gGenGiven,gSpcGiven,giftGiven,gGenTax,gSpcTax,giftTaxTotal,compress,spendCash}};
+    strat:{insPremium1,insCount,insP,insAllow,insCompress,gGenGiven,gSpcGiven,giftGiven,gGenTax,gSpcTax,giftTaxTotal,gGenComp,gSpcComp,giftCompress,giftAddback,compress,spendCash}};
 }
-function secSampleRows(samples,minIdx,curIdx){
-  return samples.map((sm,i)=>{ const cls=(i===minIdx)?' class="best"':((i===curIdx)?' class="cur"':''); 
+function secSampleRows(samples,minIdx,curIdx,idxList){
+  return samples.map((sm,i)=>{ if(idxList && idxList.indexOf(i)<0) return ''; const cls=(i===minIdx)?' class="best"':((i===curIdx)?' class="cur"':'');
     return '<tr'+cls+'><td>配偶者 '+Math.round(sm.r*100)+'%（子 '+Math.round((1-sm.r)*100)+'%）'+(i===minIdx?' ★最小':'')+(i===curIdx?' ▲現案':'')+'</td><td class="r">'+yen(sm.first)+'</td><td class="r">'+yen(sm.acq)+'</td><td class="r">'+yen(sm.second)+'</td><td class="r">'+yen(sm.total)+'</td></tr>'; }).join('');
+}
+// 万円単位の概数表示（説明用。正確な円単位は付録の表が担保する）
+function manYen(v){ v=Math.round(num(v)); const man=Math.round(v/10000); return '約'+man.toLocaleString('ja-JP')+'万円'; }
+// 本文用ダイジェスト表の行インデックス（0/25/50/75/100%＋最小＋現案）。全21行は付録へ
+function secDigestIdx(n,minIdx,curIdx){
+  const set=new Set([0,Math.round((n-1)*0.25),Math.round((n-1)*0.5),Math.round((n-1)*0.75),n-1,minIdx]);
+  if(curIdx!=null&&curIdx>=0) set.add(curIdx);
+  return Array.from(set).filter(i=>i>=0&&i<n).sort((a,b)=>a-b);
+}
+// ===== 意思決定サマリーページ（3つの数字＋手残り率） =====
+// rows=[{label,total}]（上から「何もしない→工夫を重ねる」順）。assetsTotal＝ご家族全体の財産（一次課税価格＋配偶者固有）
+function secSummaryPageHTML(d,D,rows,subTitle){
+  const assets=Math.max(1,D.E1+D.own);
+  const first=rows[0], last=rows[rows.length-1];
+  const diff=Math.max(0,first.total-last.total);
+  const pct=t=>((assets-t)/assets*100).toFixed(1);
+  const rowsHtml=rows.map((rw,i)=>{ const isLast=i===rows.length-1;
+    return '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:13px 18px;border-radius:12px;margin-bottom:10px;'+(isLast?'background:#eafaf0;border:2px solid #1a7f37;':'background:#f5f6f8;border:1px solid #e2e4e9;')+'">'
+      +'<div style="font-size:13.5pt;'+(isLast?'font-weight:700;color:#14532d;':'color:#333;')+'">'+(i+1)+'. '+esc(rw.label)+'</div>'
+      +'<div style="text-align:right;"><div style="font-size:'+(isLast?'22':'17')+'pt;font-weight:800;'+(isLast?'color:#1a7f37;':'color:#444;')+'">'+manYen(rw.total)+'</div>'
+      +'<div style="font-size:9.5pt;color:#777;">正確には '+yen(rw.total)+'／ご家族に残る割合 '+pct(rw.total)+'%</div></div></div>'; }).join('');
+  return '<div class="page"><div class="eyebrow">EXECUTIVE SUMMARY</div><div class="big">まず、この3つの数字をご覧ください<small>'+esc(subTitle||'')+'</small></div>'
+    +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　ご家族全体の財産（一次相続の課税価格＋'+esc(D.spouseName)+' 様固有の財産）：'+manYen(assets)+'</div><hr class="hrule">'
+    +'<div style="font-size:12.5pt;color:#333;margin:14px 0 12px;">お子様の代まで通算した「ご家族が納める税金の合計」は、分け方と事前の対策でこれだけ変わります。</div>'
+    +rowsHtml
+    +'<div style="margin-top:16px;border:1px solid #f3c7c7;background:#fdf2f2;border-radius:12px;padding:13px 16px;">'
+    +'<div style="font-size:11pt;color:#8a1f1f;font-weight:700;">何もしない場合、'+manYen(first.total)+' がご家族の手元から税金として失われます。</div></div>'
+    +(diff>0?'<div style="margin-top:10px;border:1px solid #bfe3c8;background:#f3fbf5;border-radius:12px;padding:13px 16px;">'
+      +'<div style="font-size:11pt;color:#14532d;font-weight:700;">分け方の工夫と事前の対策で、'+manYen(diff)+' を多くご家族の手元に残せる見込みです。</div>'
+      +'<div style="font-size:10pt;color:#3c6249;margin-top:4px;">次ページ以降で、その根拠を順にご説明します。金額は概算（万円未満四捨五入）で、正確な金額は各表をご覧ください。</div></div>':'')
+    +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
+}
+// ===== 生命保険の非課税枠メーターと専用ページ =====
+function insMeterHTML(limit, used, capUsedLabel){
+  limit=Math.max(0,Math.round(limit)); used=Math.max(0,Math.min(Math.round(used),limit));
+  const pu=limit>0?Math.round(used/limit*100):0;
+  return '<div style="margin:10px 0 4px;">'
+    +'<div style="display:flex;justify-content:space-between;font-size:10.5pt;color:#444;margin-bottom:4px;"><span>'+(capUsedLabel||'活用済み')+'：<b>'+yen(used)+'</b></span><span>非課税枠：<b>'+yen(limit)+'</b></span></div>'
+    +'<div style="height:22px;border-radius:11px;background:repeating-linear-gradient(45deg,#fbe3e3,#fbe3e3 8px,#f6d0d0 8px,#f6d0d0 16px);overflow:hidden;position:relative;">'
+    +(pu>0?'<div style="position:absolute;left:0;top:0;bottom:0;width:'+pu+'%;background:#34c759;border-radius:11px 0 0 11px;"></div>':'')
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:9.5pt;margin-top:3px;"><span style="color:#1a7f37;">■ 活用済み '+pu+'%</span><span style="color:#b23b3b;">□ 未使用 '+yen(limit-used)+'（使わないまま相続が発生すると消滅します）</span></div></div>';
+}
+// 生命保険の活用について（専用ページ）。insCut＝保険だけを実行した場合の二次相続税の削減額
+function insurancePageHTML(a){
+  const remain=Math.max(0,a.limit-a.used);
+  return '<div class="page"><div class="eyebrow">LIFE INSURANCE STRATEGY</div><div class="big">生命保険の非課税枠について</div>'
+    +'<div class="sub">'+esc(a.spouseName)+' 様が使える死亡保険金の非課税枠：500万円 × 法定相続人'+a.nCh+'人 ＝ '+yen(a.limit)+'</div><hr class="hrule">'
+    +'<div class="keepblk"><div class="sec-title">非課税枠の利用状況</div>'
+    +insMeterHTML(a.limit,a.used,a.usedLabel)
+    +(remain>0?'<div style="margin-top:10px;border:1px solid #f3c7c7;background:#fdf2f2;border-radius:10px;padding:11px 14px;font-size:11pt;color:#8a1f1f;"><b>'+yen(remain)+' の枠が使われないまま残っています。</b>この枠は生命保険に加入しない限り1円も使えず、二次相続の発生と同時に消滅します。</div>'
+      :'<div style="margin-top:10px;border:1px solid #bfe3c8;background:#f3fbf5;border-radius:10px;padding:11px 14px;font-size:11pt;color:#14532d;">非課税枠は全額活用されています。</div>')
+    +(a.insCut>0?'<div style="margin-top:10px;font-size:11pt;color:#333;">残りの枠 '+yen(remain>0?remain:a.used)+' を一時払い終身保険等で使い切った場合、<b>二次相続税はそれだけで '+manYen(a.insCut)+' 軽くなる</b>試算です（1回の手続きで完成し、贈与のような年数も持ち戻しの心配もありません）。</div>':'')
+    +'</div>'
+    +'<div class="keepblk"><div class="sec-title">他の対策との比較</div>'
+    +'<table class="t chead nowraph"><thead><tr><th>対策</th><th>手続き</th><th>効果が出るまで</th><th>効果の確実性</th></tr></thead><tbody>'
+    +'<tr class="best"><td>生命保険（非課税枠）</td><td>加入手続き1回</td><td>加入した時点で完成</td><td>★ 確実（持ち戻しなし）</td></tr>'
+    +'<tr><td>暦年贈与</td><td>毎年の贈与契約・振込</td><td>長期間の継続が必要</td><td>※ 相続開始前7年分は加算で効果が消える</td></tr>'
+    +'<tr><td>小規模宅地等の特例</td><td>申告時に選択</td><td>相続発生時</td><td>△ 同居等の要件次第</td></tr></tbody></table></div>'
+    +'<div class="keepblk"><div class="sec-title">生命保険には節税以外の3つの価値があります</div>'
+    +'<table class="t"><tbody>'
+    +'<tr><td style="width:32%;">① 受取人固有の財産</td><td>死亡保険金は遺産分割協議の対象外。渡したい人に確実に渡せ、争いの火種になりません。</td></tr>'
+    +'<tr><td>② すぐに現金化できる</td><td>預金口座が凍結されても、保険金は請求後すみやかに支払われます。納税資金・当面の生活資金に充てられます。</td></tr>'
+    +'<tr><td>③ 代償分割の原資</td><td>不動産を相続する相続人が、他の相続人へ支払う代償金の原資として活用できます。</td></tr></tbody></table></div>'
+    +'<div class="keepblk"><div class="sec-title">ご検討はお早めに</div>'
+    +'<div style="font-size:11pt;color:#333;line-height:1.9;">生命保険は、健康状態やご年齢によって加入できなくなることがあります。また、認知症等で判断能力が低下すると、保険契約も贈与も行うこと自体が難しくなります。<b>対策を実行できる期間は限られています。</b>お元気なうちのご検討をおすすめします。</div></div>'
+    +'<div class="note">※ 本ページは死亡保険金の非課税限度額（相続税法12条）に基づく税務上の効果の試算です。具体的な保険商品・契約の設計は、保険会社または保険代理店にご相談ください。</div>'
+    +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
 }
 // ===== 各セクションの解説キャプション（表の数値を文章におこす） =====
 function secCap(label, html){ return '<div class="caption"><span class="caplbl">'+esc(label)+'</span>'+html+'</div>'; }
@@ -4987,7 +5113,7 @@ function secPremiseNote(D,d){
     if(D.incPerYear>0) chg.push('収入や運用などで1年あたり '+yen(D.incPerYear)+'（'+D.years+'年で '+yen(D.increase)+'）増える');
     if(chg.length) s+='その間に '+sp+' 様の財産は、'+chg.join('一方、')+'と見込んでいます。';
   } else { s+='二次相続までの年数は0年（一次相続の直後に二次相続が起こる前提）として試算しています。'; }
-  s+='二次相続の相続人はお子様 '+D.nCh+' 人とし、基礎控除（3,000万円＋600万円×'+D.nCh+'人）や税率はこの人数で計算しています。';
+  s+='二次相続の相続人はお子様 '+D.nCh+' 人とし、基礎控除（3,000万円＋600万円×'+D.nCh+'人）や税率はこの人数で計算しています。また、二次相続が一次相続から10年以内に発生した場合には、同じ財産への二重課税をやわらげる調整（相次相続控除）も自動で織り込んでいます。';
   return secCap('前提条件の説明', s);
 }
 // 配偶者の取得割合による税額グラフの見方
@@ -4995,14 +5121,14 @@ function secChartNote(samples, minIdx, curIdx, mode){
   const pct=i=>Math.round(samples[i].r*100);
   const first=samples[0], last=samples[samples.length-1], mn=samples[minIdx];
   const totLabel=(mode==='savings')?'一次相続税・二次相続税・贈与税を合計した税額':'一次相続税と二次相続税を合計した税額';
-  let s='横軸は「一次相続で配偶者が取得する財産の割合」（左端 0%＝すべてお子様が取得、右端 100%＝すべて配偶者が取得）、縦軸はその割合にしたときの'+totLabel+'です。折れ線は、取得割合を変えると合計税額がどう動くかを表しています。';
+  let s='横軸は「一次相続で配偶者が取得する財産の割合」（左端 0%＝すべてお子様が取得、右端 100%＝すべて配偶者が取得）、縦軸はその割合にしたときの'+totLabel+'です。棒は「一次相続税（青）」と「二次相続税（オレンジ）」の積み上げで、棒全体の高さが合計税額を表します。';
   s+='配偶者が多く取得するほど、配偶者の税額軽減により<b>一次相続税は軽くなります</b>が、その分だけ配偶者に財産が移るため<b>将来の二次相続税は重くなります</b>。この綱引きで折れ線の形が決まります。';
   if(minIdx===0) s+='今回は、配偶者の取得割合を増やすほど合計税額が増えていく形です。つまり配偶者の取得を抑え、お子様が多く取得するほど一次・二次を通じた負担は軽くなります。';
   else if(minIdx===samples.length-1) s+='今回は、配偶者の取得割合を増やすほど合計税額が下がっていく形です。配偶者が多く取得するほど一次・二次を通じた負担は軽くなります。';
   else s+='今回は、配偶者の取得割合を 0% から増やしていくと <b>'+pct(minIdx)+'% 付近までは合計税額が下がり</b>、そこを超えると<b>今度は増えていきます</b>。';
   s+='具体的には、配偶者 0% のとき合計 '+yen(first.total)+'、配偶者 '+pct(minIdx)+'% のとき最小の <b>'+yen(mn.total)+'</b>、配偶者 100% のとき合計 '+yen(last.total)+' です。';
-  s+='グラフで最も低い谷（緑の点）が、一次・二次を通じて税負担が最小になる<b>配偶者 '+pct(minIdx)+'%</b> です。';
-  if(curIdx!==minIdx){ const diff=samples[curIdx].total-mn.total; s+='紫の点は現在の分割案（配偶者 '+pct(curIdx)+'%・合計 '+yen(samples[curIdx].total)+'）で、谷との差は '+(diff>0?yen(diff)+' あります（その分の軽減余地があります）':'ほとんどありません')+'。'; }
+  s+='グラフで最も低い棒（緑の枠）が、一次・二次を通じて税負担が最小になる<b>配偶者 '+pct(minIdx)+'%</b> です。';
+  if(curIdx!==minIdx){ const diff=samples[curIdx].total-mn.total; s+='紫の枠は現在の分割案（配偶者 '+pct(curIdx)+'%・合計 '+yen(samples[curIdx].total)+'）で、最小の棒との差は '+(diff>0?yen(diff)+' あります（その分の軽減余地があります）':'ほとんどありません')+'。'; }
   return secCap('グラフの見方', s);
 }
 // 節税策の内訳の説明
@@ -5013,7 +5139,9 @@ function secBreakdownNote(st){
   if(st.gGenGiven>0) items.push('暦年贈与（一般贈与）では '+yen(st.gGenGiven)+' を贈与し、同額が課税財産から外れますが、贈与税 '+yen(st.gGenTax)+' がかかります');
   if(st.gSpcGiven>0) items.push('暦年贈与（特例贈与）では '+yen(st.gSpcGiven)+' を贈与し、同額が課税財産から外れますが、贈与税 '+yen(st.gSpcTax)+' がかかります');
   if(items.length) s+=items.join('。')+'。';
-  s+='これらを合わせると、現金預金は <b>'+yen(st.spendCash)+'</b> 減り、課税対象の財産を <b>'+yen(st.compress)+'</b> 圧縮でき、贈与税は '+(st.giftTaxTotal?yen(st.giftTaxTotal):'0円')+' 発生します。課税財産を圧縮した分だけ二次相続税が軽くなる、というのが節税の仕組みです。';
+  s+='これらを合わせると、現金預金は <b>'+yen(st.spendCash)+'</b> 減り、課税対象の財産を <b>'+yen(st.compress)+'</b> 圧縮でき、贈与税は '+(st.giftTaxTotal?yen(st.giftTaxTotal):'0円')+' 発生します。';
+  if(st.giftAddback>0) s+='なお、二次相続の開始前7年以内に行う贈与 '+yen(st.giftAddback)+' は相続財産に持ち戻されるため、節税効果には含めていません（早く始めるほど持ち戻しの影響は小さくなります）。';
+  s+='課税財産を圧縮した分だけ二次相続税が軽くなる、というのが節税の仕組みです。';
   return secCap('この表の見方', s);
 }
 // 配偶者の手元に残る現預金の説明
@@ -5093,7 +5221,7 @@ function downloadSecondaryPDF(mode){
       const sec0=cur.second, secAll=curS.second;
       const secAfter=(extra)=>secondInheritance(acq, D.own, baseRed+extra, D.nCh, D.years, sptax).second;
       const secIns=st.insCompress>0?secAfter(st.insCompress):sec0;
-      const secInsGen=st.gGenGiven>0?secAfter(st.insCompress+st.gGenGiven):secIns;
+      const secInsGen=st.gGenComp>0?secAfter(st.insCompress+st.gGenComp):secIns;
       const redIns=sec0-secIns, redGen=secIns-secInsGen, redSpc=secInsGen-secAll, totRed2=sec0-secAll;
       const first=cur.first, totalBefore=cur.total, totalAfter=curS.total, netCut=totalBefore-totalAfter;
       let stratRows='';
@@ -5121,7 +5249,26 @@ function downloadSecondaryPDF(mode){
         '何も対策を講じない場合に最も税負担が軽くなる配偶者の取得割合 '+minRatio+'% について、同じ節税策を講じた場合の一次・二次相続税を比較します。', true);
   }
   const styles=REPORT_STYLE;
-  let body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
+  // ===== 意思決定サマリー（3つの数字）と生命保険ページの材料 =====
+  const sumRows=[];
+  const curNormal=D.normal.samples[D.curIdx];
+  sumRows.push({label:'現在の分割案のまま、何も対策をしない場合', total:curNormal.total});
+  if(D.normal.minIdx!==D.curIdx) sumRows.push({label:'遺産の分け方だけを見直した場合（配偶者 '+Math.round(nb.r*100)+'%）', total:nb.total});
+  if(mode==='savings') sumRows.push({label:'分け方の見直し＋生命保険・贈与まで実行した場合', total:mb.total});
+  const baseRedIns=D.consume-D.increase;
+  const insUsed=(mode==='savings')?Math.min(st.insP,st.insAllow):0;
+  const insRemain=Math.max(0,st.insAllow-insUsed);
+  // 保険の残り枠をフル活用した場合の二次相続税の追加削減（最小取得割合の前提）
+  let insCut=0;
+  { const bs=nb; const curComp=(mode==='savings')?st.compress:0;
+    const sec0=secondInheritance(bs.acq,D.own,baseRedIns+curComp,D.nCh,D.years,bs.spouseTax).second;
+    const extra=Math.min(insRemain, Math.max(0,bs.acq+D.own));
+    const sec1=secondInheritance(bs.acq,D.own,baseRedIns+curComp+extra,D.nCh,D.years,bs.spouseTax).second;
+    insCut=Math.max(0,sec0-sec1); }
+  const insPage=insurancePageHTML({spouseName:D.spouseName,nCh:D.nCh,limit:st.insAllow,used:insUsed,usedLabel:(mode==='savings'?'本プランで活用':'現在活用中'),insCut});
+  const dIdx=secDigestIdx(samp.samples.length,samp.minIdx,D.curIdx);
+  let body=secSummaryPageHTML(d,D,sumRows,(mode==='savings'?'節税策込み版':'通常版'))
+    +'<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>'+(mode==='savings'?'節税策込み版':'通常版')+'</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
     +'<div class="keepblk"><div class="sec-title">前提条件<span class="sec-note">（一次相続＝'+esc(d.name)+' 様の相続、二次相続＝'+esc(D.spouseName)+' 様の相続）</span></div>'
     +'<table class="t"><thead><tr><th>項目</th><th class="r">金額・条件</th></tr></thead><tbody>'
@@ -5132,7 +5279,7 @@ function downloadSecondaryPDF(mode){
     +'<tr><td>二次相続までの間に増加する額（1年 '+yen(D.incPerYear)+' × '+D.years+'年）</td><td class="r">'+yen(D.increase)+'</td></tr>'
     +'<tr><td>二次相続の相続人（子の人数）</td><td class="r">'+D.nCh+' 人</td></tr></tbody></table></div>'
     +secPremiseNote(D,d)
-    +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計税額が最小となる配偶者の取得割合</div><div class="v">'+Math.round(mb.r*100)+'%</div></div>'
+    +'<div class="kpis seckpi"><div class="kpi a"><div class="l">合計税額が最小となる分け方</div><div class="v">'+esc(D.spouseName)+' 様 '+manYen(mb.acq)+'</div><div class="l" style="margin-top:3px;">（取得割合 '+Math.round(mb.r*100)+'%・お子様 '+Math.round((1-mb.r)*100)+'%）</div></div>'
     +'<div class="kpi a"><div class="l">配偶者の取得割合'+Math.round(mb.r*100)+'％の時の一次・二次相続税'+(mode==='savings'?'＋贈与税':'')+'の合計額</div><div class="v">'+yen(mb.total)+'</div></div>'
     +'<div class="kpi"><div class="l">現在の分割案（配偶者 '+Math.round(D.normal.samples[D.curIdx].r*100)+'%）の一次・二次相続税の合計</div><div class="v">'+yen(mc.total)+'</div></div>'
     +(mode==='savings'?'<div class="kpi a"><div class="l">節税対策をしない場合とした場合の一次・二次相続税負担額の差額</div><div class="v">'+(nb.total-mb.total>=0?'−'+yen(nb.total-mb.total):'＋'+yen(mb.total-nb.total))+'</div></div>':'')+'</div>'
@@ -5142,13 +5289,15 @@ function downloadSecondaryPDF(mode){
     +'<div class="chartbox">'+secChartSVG(samp.samples, samp.minIdx, REPORT_CHART_THEME, D.curIdx)+'</div>'
     +secChartNote(samp.samples, samp.minIdx, D.curIdx, mode)
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
-    +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>';
+    +secSampleRows(samp.samples,samp.minIdx,D.curIdx,dIdx)+'</tbody></table>'
+    +'<div class="note">※ 主要な取得割合のみ抜粋しています。5%刻みの全21区分は巻末の付録をご覧ください。</div>';
   if(mode==='savings'){
     body+='<div class="keepblk"><div class="sec-title">節税策の内訳</div>'
       +'<table class="t nowraph"><thead><tr><th>節税策</th><th class="r">現預金の減少</th><th class="r">課税財産の圧縮</th><th class="r">贈与税の発生</th></tr></thead><tbody>'
       +'<tr><td>生命保険の活用（保険料×契約数）</td><td class="r">'+(st.insP?'−'+yen(st.insP):'-')+'</td><td class="r">'+(st.insCompress?'−'+yen(st.insCompress):'-')+'</td><td class="r">-</td></tr>'
-      +'<tr><td>暦年贈与（一般贈与）</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>'
-      +'<tr><td>暦年贈与（特例贈与）</td><td class="r">'+(st.gSpcGiven?'−'+yen(st.gSpcGiven):'-')+'</td><td class="r">'+(st.gSpcGiven?'−'+yen(st.gSpcGiven):'-')+'</td><td class="r">'+(st.gSpcTax?'＋'+yen(st.gSpcTax):'-')+'</td></tr>'
+      +'<tr><td>暦年贈与（一般贈与）</td><td class="r">'+(st.gGenGiven?'−'+yen(st.gGenGiven):'-')+'</td><td class="r">'+(st.gGenComp?'−'+yen(st.gGenComp):'-')+'</td><td class="r">'+(st.gGenTax?'＋'+yen(st.gGenTax):'-')+'</td></tr>'
+      +'<tr><td>暦年贈与（特例贈与）</td><td class="r">'+(st.gSpcGiven?'−'+yen(st.gSpcGiven):'-')+'</td><td class="r">'+(st.gSpcComp?'−'+yen(st.gSpcComp):'-')+'</td><td class="r">'+(st.gSpcTax?'＋'+yen(st.gSpcTax):'-')+'</td></tr>'
+      +(st.giftAddback>0?'<tr><td style="color:#8a1f1f;">（参考）持ち戻しにより効果に含めない贈与</td><td class="r">-</td><td class="r" style="color:#8a1f1f;">'+yen(st.giftAddback)+'</td><td class="r">-</td></tr>':'')
       +'<tr class="tot"><td>合計</td><td class="r">−'+yen(st.spendCash)+'</td><td class="r">−'+yen(st.compress)+'</td><td class="r">'+(st.giftTaxTotal?'＋'+yen(st.giftTaxTotal):'-')+'</td></tr></tbody></table>'
       +secBreakdownNote(st)+'</div>'
       +'<div class="keepblk pbefore"><div class="sec-title">節税策実行後に配偶者の手元に残る現預金（生活資金）</div>'
@@ -5160,10 +5309,16 @@ function downloadSecondaryPDF(mode){
       +'<tr><td>− 暦年贈与による支出</td><td class="r">'+yen(st.giftGiven)+'</td></tr>'
       +'<tr class="tot"><td>＝ 配偶者の手元に残る現預金</td><td class="r">'+yen(D.ownCash+D.allocCash-D.firstTaxActual-st.spendCash)+'</td></tr></tbody></table>'
       +secCashNote(D,st)+'</div>'
-      +'<div class="note">※ 合計税額は「一次＋二次＋贈与税」です。生命保険は非課税枠（500万円×二次の法定相続人数）の範囲で課税財産を圧縮、暦年贈与は贈与額が課税財産から外れる前提の簡易モデルです。贈与税は受贈者負担のため手元現預金には含めていません。</div>';
+      +'<div class="note">※ 合計税額は「一次＋二次＋贈与税」です。生命保険は死亡保険金の非課税限度（500万円×二次の法定相続人数）までの部分だけが課税対象から外れます（枠を超える保険金は課税対象のまま）。暦年贈与は、二次相続の開始前7年以内の贈与が相続財産に持ち戻される（3年超の部分は受贈者1人あたり合計100万円を控除）ことを織り込み、持ち戻し対象とならない部分だけを節税効果として計算しています（持ち戻し分の贈与税は贈与税額控除で精算される前提）。贈与税は受贈者負担のため手元現預金には含めていません。</div>';
   }
-  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除を反映。小規模宅地等の特例の二次適用、生前贈与加算等は考慮していません。</div>'
+  body+='<div class="note">※ 二次相続は「配偶者が一次で取得した財産＋配偶者固有の財産−減少額＋増加額」を子が均等に相続する前提の概算です。配偶者の税額軽減・相次相続控除（10年以内に相続が続いた場合の二重課税をやわらげる調整）を反映しています。小規模宅地等の特例の二次適用は考慮していません。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
+    +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
+  // 生命保険ページ＋付録（全21区分の税額一覧）
+  body+=insPage
+    +'<div class="page"><div class="eyebrow">APPENDIX</div><div class="big">付録：取得割合ごとの税額一覧<small>5%刻み・全21区分</small></div><hr class="hrule">'
+    +'<table class="t nowraph"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">配偶者へ移る財産</th><th class="r">二次相続税</th><th class="r">'+(mode==='savings'?'合計(＋贈与税)':'一次＋二次 合計')+'</th></tr></thead><tbody>'
+    +secSampleRows(samp.samples,samp.minIdx,D.curIdx)+'</tbody></table>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('二次相続シミュレーション_'+(mode==='savings'?'節税策込み':'通常')+'_'+d.name, body, styles);
 }
@@ -5183,6 +5338,13 @@ function downloadOptimalPDF(){
   const best=opt.samples[opt.minIdx], pl=best.plan, r=Math.round(best.r*100);
   const nMin=opt.baseMin||D.normal.samples[D.normal.minIdx], curOpt=opt.samples[D.curIdx];
   const cut=nMin.total-best.total;
+  // 意思決定サマリー（3つの数字）・生命保険ページ・ダイジェスト表の材料
+  const curNormal=D.normal.samples[D.curIdx];
+  const sumRows=[{label:'現在の分割案のまま、何も対策をしない場合', total:curNormal.total}];
+  if(Math.abs(nMin.total-curNormal.total)>1) sumRows.push({label:'遺産の分け方だけを見直した場合（配偶者 '+Math.round(nMin.r*100)+'%）', total:nMin.total});
+  sumRows.push({label:'最適プラン（分け方の見直し＋生命保険・贈与）を実行した場合', total:best.total});
+  const insPage=insurancePageHTML({spouseName:D.spouseName,nCh:opt.nCh,limit:opt.insLimit,used:Math.min(opt.usedByExist+pl.insAmount,opt.insLimit),usedLabel:'既加入＋本プランでの活用',insCut:0});
+  const dIdxO=secDigestIdx(opt.samples.length,opt.minIdx,D.curIdx);
   // 実際に行う節税策（概要）
   const pm=[];
   if(opt.existIns>0) pm.push('既加入の生命保険 '+yen(opt.existIns)+'（非課税枠 '+yen(opt.insLimit)+' のうち '+yen(opt.usedByExist)+' を充当'+(opt.overIns>0?'・枠超過 '+yen(opt.overIns)+' は二次相続の課税対象に加算':'')+'）');
@@ -5213,14 +5375,15 @@ function downloadOptimalPDF(){
     +'<tr><td>何も対策をしない場合の最小</td><td class="r">'+Math.round(nMin.r*100)+'%</td><td class="r">'+yen(nMin.total)+'</td><td class="r">＋'+yen(nMin.total-best.total)+'</td></tr>'
     +'<tr><td>現在の分割案＋最適な節税</td><td class="r">'+Math.round(curOpt.r*100)+'%</td><td class="r">'+yen(curOpt.total)+'</td><td class="r">'+(curOpt.total-best.total>1?'＋'+yen(curOpt.total-best.total):'—')+'</td></tr>'
     +'<tr class="tot"><td>最適解</td><td class="r">'+r+'%</td><td class="r">'+yen(best.total)+'</td><td class="r">—</td></tr></tbody></table></div>';
-  // 税額一覧（取得割合ごと）
-  let scaleRows='';
-  opt.samples.forEach((s,i)=>{ const isBest=(i===opt.minIdx);
-    scaleRows+='<tr'+(isBest?' class="best"':'')+'><td>配偶者 '+Math.round(s.r*100)+'%（子 '+Math.round((1-s.r)*100)+'%）'+(isBest?' ★最適':'')+'</td>'
-      +'<td class="r">'+yen(s.first)+'</td><td class="r">'+yen(s.second)+'</td><td class="r">'+(s.plan.giftTotal?yen(s.plan.giftTotal):'-')+'</td><td class="r">'+(s.plan.giftTax?yen(s.plan.giftTax):'-')+'</td><td class="r">'+yen(s.total)+'</td></tr>';
-  });
+  // 税額一覧（取得割合ごと）: 本文＝ダイジェスト、付録＝全区分
+  const scaleRow=(s,i)=>{ const isBest=(i===opt.minIdx);
+    return '<tr'+(isBest?' class="best"':'')+'><td>配偶者 '+Math.round(s.r*100)+'%（子 '+Math.round((1-s.r)*100)+'%）'+(isBest?' ★最適':'')+'</td>'
+      +'<td class="r">'+yen(s.first)+'</td><td class="r">'+yen(s.second)+'</td><td class="r">'+(s.plan.giftTotal?yen(s.plan.giftTotal):'-')+'</td><td class="r">'+(s.plan.giftTax?yen(s.plan.giftTax):'-')+'</td><td class="r">'+yen(s.total)+'</td></tr>'; };
+  let scaleRows=''; opt.samples.forEach((s,i)=>{ if(dIdxO.indexOf(i)>=0) scaleRows+=scaleRow(s,i); });
+  let scaleRowsAll=''; opt.samples.forEach((s,i)=>{ scaleRowsAll+=scaleRow(s,i); });
   const styles=REPORT_STYLE;
-  let body='<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>最適解版</small></div>'
+  let body=secSummaryPageHTML(d,D,sumRows,'最適解版')
+    +'<div class="page"><div class="eyebrow">INHERITANCE ADVISORY REPORT</div><div class="big">二次相続シミュレーション報告書<small>最適解版</small></div>'
     +'<div class="sub">被相続人：'+esc(d.name)+' 様　／　配偶者：'+esc(D.spouseName)+' 様　／　基準日：'+esc(baseDateStr())+'　／　作成日：'+formatJDate(todayISO())+'</div><hr class="hrule">'
     +'<div class="keepblk"><div class="sec-title">前提条件<span class="sec-note">（一次相続＝'+esc(d.name)+' 様の相続、二次相続＝'+esc(D.spouseName)+' 様の相続）</span></div>'
     +'<table class="t"><thead><tr><th>項目</th><th class="r">金額・条件</th></tr></thead><tbody>'
@@ -5244,8 +5407,16 @@ function downloadOptimalPDF(){
     +secChartNote(opt.samples, opt.minIdx, D.curIdx, 'savings')
     +'<table class="t nowraph pbefore"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">二次相続税</th><th class="r">暦年贈与額</th><th class="r">贈与税</th><th class="r">一次＋二次＋贈与 合計</th></tr></thead><tbody>'
     +scaleRows+'</tbody></table>'
-    +'<div class="note">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、二次相続の課税財産を圧縮します。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、相続開始前の持ち戻しは考慮していません。一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。プラン実行には相当額の現預金が必要です。</div>'
+    +'<div class="note">※ 主要な取得割合のみ抜粋しています。5%刻みの全21区分は巻末の付録をご覧ください。</div>'
+    +'<div class="note">※ 生命保険は非課税枠（500万円×二次相続の法定相続人数）まで一時払いで加入し、非課税限度までの部分が課税対象から外れます。暦年贈与は子へ毎年贈与（特例税率・基礎控除110万円／人年）し、二次相続の開始前7年以内の贈与の持ち戻し（3年超の部分は受贈者1人あたり合計100万円控除）を織り込んで、持ち戻し対象とならない部分だけを節税効果としています。'
+    +(opt.cashKnown?'保険・贈与の支出は「配偶者固有の現預金＋一次相続で取得する現預金の見込み−一次相続税」の範囲内に収まるよう探索しています。':'現預金が未登録のため、保険・贈与の支出上限は配偶者の総財産で計算しています（実行可能性は現預金残高でご確認ください）。')
+    +'一次相続税＋二次相続税＋贈与税の合計が最小となる取得割合・贈与額を自動探索しています。</div>'
     +'<div class="note" style="margin-top:20px;">'+esc(OFFICE.name)+'　'+esc(OFFICE.addr)+'　TEL '+OFFICE.tel+'</div>'
+    +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
+  body+=insPage
+    +'<div class="page"><div class="eyebrow">APPENDIX</div><div class="big">付録：取得割合ごとの税額一覧<small>5%刻み・全21区分（各割合で節税策を最適化）</small></div><hr class="hrule">'
+    +'<table class="t nowraph"><thead><tr><th>配偶者の取得割合</th><th class="r">一次相続税</th><th class="r">二次相続税</th><th class="r">暦年贈与額</th><th class="r">贈与税</th><th class="r">一次＋二次＋贈与 合計</th></tr></thead><tbody>'
+    +scaleRowsAll+'</tbody></table>'
     +'<div class="pgfoot">'+esc(OFFICE.name)+'</div></div>';
   openPrintWindow('二次相続最適解_'+d.name, body, styles);
 }
