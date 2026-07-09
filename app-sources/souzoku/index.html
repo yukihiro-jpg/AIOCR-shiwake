@@ -245,7 +245,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .empty-state .em-ico{font-size:46px;margin-bottom:12px;}
 
 /* ---------- Heirs ---------- */
-.heir-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;background:var(--surface-2);}
+.heir-card{border:1px solid #cfe0f5;border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;background:#eef4fd;}
 .heir-card .heir-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .heir-card .heir-no{font-weight:700;font-size:14px;color:var(--ink-2);}
 .heir-card .grid{gap:6px 10px;}
@@ -2318,7 +2318,7 @@ function renderHeirs(){
       +'<div class="field"><label>続柄</label><select onchange="updateHeir(\''+h.id+'\',\'relationLabel\',this.value)">'+relTypeOptions(relDisp(h))+'</select></div>'
       +'<div class="field"><label>電話番号</label><input type="tel" value="'+esc(h.tel)+'" oninput="updateHeir(\''+h.id+'\',\'tel\',this.value)"></div>'
       +'<div class="field"><label>職業</label><input type="text" value="'+esc(h.job)+'" oninput="updateHeir(\''+h.id+'\',\'job\',this.value)"></div>'
-      +'<div class="field"><label>相続開始日までの日数</label><input type="text" id="hdays-'+h.id+'" readonly value="'+heirDaysText(h)+'" style="background:var(--surface-2);"></div>'
+      +'<div class="field"><label>相続開始日までの日数</label><input type="text" id="hdays-'+h.id+'" readonly value="'+heirDaysText(h)+'" style="background:#fff;"></div>'
       +'<div class="field" style="grid-column:span 2;"><label>生年月日</label>'+birthSelects(h)+'</div>'
       +'<div class="field" style="grid-column:1/5;"><label>住所</label><input type="text" value="'+esc(h.address)+'" oninput="updateHeir(\''+h.id+'\',\'address\',this.value)"></div>'
       +'<div class="field" style="grid-column:1/5;"><label>利用者識別番号（e-Tax）</label>'
