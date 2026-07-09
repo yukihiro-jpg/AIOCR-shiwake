@@ -5307,9 +5307,10 @@ function buildAgreement(){
       blds.forEach(a=>{ const area=num(a.tokiYuka)||num(a.quantity);
         b+=re('<div class="re-h">【建物】</div>'+F('所　在',a.location||a.chiban)+F('家屋番号',a.kaokuNo)+F('種　類',a.subcategory)+F('構　造',a.kozo)+(area?F('床面積',area.toLocaleString('ja-JP')+'㎡'):'')+F('持　分',mochibun(a))); });
       subs.push({t:'不動産',b}); }
-    // 預貯金
+    // 預貯金（金額は金額(円)欄の値のみ＝既経過利息は合算しない。利息は末尾の包括文言でカバー）
+    const valOnly=(a)=>{ const av=num(a.value)+num(a.interest); const al=allocAmt(a,h); return av>0?Math.round(al*num(a.value)/av):num(a.value); };
     const yokin=heldByCat(h,'cash').filter(a=>!/現金/.test(a.subcategory||''));
-    if(yokin.length){ let b=''; yokin.forEach(a=>{ b+=re(F('金融機関',a.name)+F('支　店',a.branch)+F('種　別',a.subcategory)+F('口座番号',a.accountNo)+F('名　義',a.nominee)+yenLine('金　額',allocAmt(a,h))); });
+    if(yokin.length){ let b=''; yokin.forEach(a=>{ b+=re(F('金融機関',a.name)+F('支　店',a.branch)+F('種　別',a.subcategory)+F('口座番号',a.accountNo)+F('名　義',a.nominee)+yenLine('金　額',valOnly(a))); });
       b+='<div class="re-note">上記各口座に関する預貯金、並びに本協議成立時までに生じた利息及び未受領配当金等の一切。</div>'; subs.push({t:'預貯金',b}); }
     // 有価証券・投資信託
     const sec=heldByCat(h,'securities');
@@ -5384,8 +5385,8 @@ function buildAgreement(){
     .agr-lead{text-indent:1em;margin-bottom:6px;page-break-after:avoid;}
     .agr-sub{margin:6px 0 6px 1em;}
     .agr-sub-t{font-weight:700;page-break-after:avoid;}
-    .agr-sub-b{margin-left:1em;font-size:10.5pt;line-height:1.8;page-break-inside:avoid;}
-    .re-block{margin:10px 0 10px 1em;line-height:1.7;page-break-inside:avoid;}
+    .agr-sub-b{margin-left:1em;font-size:10.5pt;line-height:1.8;}
+    .re-block{margin:10px 0 10px 1em;line-height:1.7;page-break-inside:avoid;break-inside:avoid;}
     .re-lead{margin:6px 0 4px;}
     .re-h{font-weight:700;margin-bottom:2px;}
     .re-line{line-height:1.75;}
