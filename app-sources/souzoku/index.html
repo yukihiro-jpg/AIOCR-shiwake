@@ -5911,6 +5911,7 @@ function openCarEvalFor(assetId){ if(!currentCase) return;
   const rd=document.querySelector('input[name="ce_method"][value="'+(ce.method==='dep'?'dep':'market')+'"]'); if(rd)rd.checked=true;
   ceRecalc();
   if(ce.basis) $('ce_basis').value=ce.basis; // 保存時の根拠文（手修正を含む）を優先表示
+  if(ce.mktSearch){ _ceMkt=ce.mktSearch; ceRenderMktPanel(ce.mktSearch); } // 保存済みのAI相場調査結果（引用リンク付き）を復元
 }
 /* 車検証のAI読み取り（OCRのみ。評価額は計算しない） */
 const _CE_SYS='あなたは日本の自動車検査証（車検証・自動車検査証記録事項）の読み取りアシスタントです。画像またはPDFから車両情報を正確に読み取り、指定のJSONのみを出力します。読み取れない項目は空文字にする。推測で値を作らない（carNameGuessのみ型式からの推定を許可し、それ以外は記載どおり）。\n【JSONスキーマ】{"maker":"車名欄の記載（例：ニッサン）","carNameGuess":"型式から推定される通称車種名（例：セレナ。不明なら空）","katashiki":"型式（例：DBA-C27）","firstReg":"初度登録年月をYYYY-MM（例：平成30年2月→2018-02）","regNo":"自動車登録番号（例：水戸541ね38）","frameNo":"車台番号","mileageKm":走行距離計表示値の数値（不明なら null）,"mileageDate":"走行距離の時点の記載（例：令和7年2月7日。不明なら空）","owner":"所有者の氏名（不明なら空）"}';
@@ -5986,27 +5987,32 @@ async function ceSearchMarket(){
     const cites=((gm&&gm.groundingChunks)||[]).map(ch=>ch&&ch.web).filter(w=>w&&w.uri)
       .map(w=>({uri:w.uri,title:w.title||w.uri})).slice(0,6);
     d._cites=cites;
+    d.searchedAt=new Date().toLocaleString('ja-JP');
     _ceMkt=d;
-    const f=v=>(v!=null&&isFinite(+v)&&+v>0)?yen(Math.round(+v)):null;
-    let h='<b>🔍 AI相場調査の結果（参考値・要確認）</b><br>';
-    if(f(d.tradeMid)) h+='買取相場：'+(f(d.tradeLow)&&f(d.tradeHigh)?(f(d.tradeLow)+' 〜 '+f(d.tradeHigh)+'（中心 '+f(d.tradeMid)+'）'):f(d.tradeMid))+'<br>';
-    if(f(d.retailMid)) h+='小売相場（店頭価格）：'+f(d.retailMid)+'<br>';
-    if(f(d.newPrice)) h+='新車当時価格：'+f(d.newPrice)+'<br>';
-    if(d.comment) h+='<span class="muted">'+esc(String(d.comment))+'</span><br>';
-    if(Array.isArray(d._cites)&&d._cites.length){
-      h+='<span class="muted" style="font-size:11px;">引用ページ（クリックで開けます）：</span><br>'
-        +d._cites.map(w=>'<a href="'+esc(w.uri)+'" target="_blank" rel="noopener" style="font-size:11px;">'+esc(w.title)+'</a>').join('<span class="muted" style="font-size:11px;">／</span>')+'<br>';
-    } else if(Array.isArray(d.sources)&&d.sources.length){
-      h+='<span class="muted" style="font-size:11px;">情報源（AIの申告）：'+esc(d.sources.slice(0,5).join('／'))+'</span><br>';
-    }
-    h+='<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">';
-    if(f(d.tradeMid)) h+='<button class="btn sm primary" onclick="ceApplyMkt()">買取相場の中心値を査定額①へ反映</button>';
-    if(f(d.newPrice)) h+='<button class="btn sm" onclick="ceApplyNewPrice()">新車価格を償却方式へ反映</button>';
-    h+='</div><div class="muted" style="font-size:11px;margin-top:4px;">※ AIがGoogle検索で調べた参考値です。相続税評価では課税時期の売買実例価額が原則のため、可能であれば買取業者の査定書等で裏付けを取ることをおすすめします。</div>';
-    const box=$('ce_aiMarket'); box.innerHTML=h; box.style.display='';
+    ceRenderMktPanel(d);
     st.textContent='';
   }catch(e){ st.textContent=''; toast(e&&e.name==='AbortError'?'相場調査がタイムアウトしました（120秒）':(e.message||'相場調査に失敗しました'), true); }
   finally{ btn.disabled=false; }
+}
+/* 相場調査の結果パネルを描画（調査直後・再表示の両方から使用） */
+function ceRenderMktPanel(d){ if(!d) return;
+  const f=v=>(v!=null&&isFinite(+v)&&+v>0)?yen(Math.round(+v)):null;
+  let h='<b>🔍 AI相場調査の結果（参考値・要確認）</b>'+(d.searchedAt?('<span class="muted" style="font-size:11px;">　調査日時：'+esc(d.searchedAt)+'</span>'):'')+'<br>';
+  if(f(d.tradeMid)) h+='買取相場：'+(f(d.tradeLow)&&f(d.tradeHigh)?(f(d.tradeLow)+' 〜 '+f(d.tradeHigh)+'（中心 '+f(d.tradeMid)+'）'):f(d.tradeMid))+'<br>';
+  if(f(d.retailMid)) h+='小売相場（店頭価格）：'+f(d.retailMid)+'<br>';
+  if(f(d.newPrice)) h+='新車当時価格：'+f(d.newPrice)+'<br>';
+  if(d.comment) h+='<span class="muted">'+esc(String(d.comment))+'</span><br>';
+  if(Array.isArray(d._cites)&&d._cites.length){
+    h+='<span class="muted" style="font-size:11px;">引用ページ（クリックで開けます）：</span><br>'
+      +d._cites.map(w=>'<a href="'+esc(w.uri)+'" target="_blank" rel="noopener" style="font-size:11px;">'+esc(w.title)+'</a>').join('<span class="muted" style="font-size:11px;">／</span>')+'<br>';
+  } else if(Array.isArray(d.sources)&&d.sources.length){
+    h+='<span class="muted" style="font-size:11px;">情報源（AIの申告）：'+esc(d.sources.slice(0,5).join('／'))+'</span><br>';
+  }
+  h+='<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">';
+  if(f(d.tradeMid)) h+='<button class="btn sm primary" onclick="ceApplyMkt()">買取相場の中心値を査定額①へ反映</button>';
+  if(f(d.newPrice)) h+='<button class="btn sm" onclick="ceApplyNewPrice()">新車価格を償却方式へ反映</button>';
+  h+='</div><div class="muted" style="font-size:11px;margin-top:4px;">※ AIがGoogle検索で調べた参考値です。相続税評価では課税時期の売買実例価額が原則のため、可能であれば買取業者の査定書等で裏付けを取ることをおすすめします。</div>';
+  const box=$('ce_aiMarket'); box.innerHTML=h; box.style.display='';
 }
 function ceApplyMkt(){ if(!_ceMkt||!(+_ceMkt.tradeMid>0))return;
   $('ce_mkt1').value=String(Math.round(+_ceMkt.tradeMid));
@@ -6029,7 +6035,8 @@ function ceRegister(){ if(!currentCase){ toast('案件がありません', true)
   a.quantity='1'; a.unitPrice=String(v);
   a.memo=g('ce_basis');
   a.carEval={ method:ceMethod(), maker:g('ce_maker'), model:g('ce_model'), katashiki:g('ce_katashiki'), firstReg:g('ce_firstReg'), regNo:g('ce_regno'), frameNo:g('ce_frame'), km:g('ce_km'), kmDate:g('ce_kmDate'), taxDate:g('ce_taxDate'),
-    mkt1:g('ce_mkt1'), src1:g('ce_src1'), mkt2:g('ce_mkt2'), src2:g('ce_src2'), newPrice:g('ce_newPrice'), life:g('ce_life'), value:v, basis:g('ce_basis') };
+    mkt1:g('ce_mkt1'), src1:g('ce_src1'), mkt2:g('ce_mkt2'), src2:g('ce_src2'), newPrice:g('ce_newPrice'), life:g('ce_life'), value:v, basis:g('ce_basis'),
+    mktSearch:_ceMkt||null }; // AI相場調査の結果（引用ページのリンク含む）も保存し、再表示時に復元する
   if(_ceEditId){ // 再表示・編集からの保存＝既存の財産を更新（重複登録しない）
     const ex=currentCase.assets.find(x=>x.id===_ceEditId);
     if(ex){ ex.subcategory=a.subcategory; ex.name=a.name; ex.location=a.location; ex.quantity=a.quantity; ex.unitPrice=a.unitPrice; ex.memo=a.memo; ex.carEval=a.carEval; }
