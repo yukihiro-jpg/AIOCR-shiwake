@@ -710,14 +710,6 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
 
       <div class="card">
-        <div class="card-head-row">
-          <div><h2>代償金</h2><div class="card-sub" style="margin:0;">特定の相続人が多く取得する代わりに他の相続人へ金銭を支払う場合に入力します（課税価格に反映）。</div></div>
-          <button class="btn primary sm" onclick="addComp()">＋ 代償金を追加</button>
-        </div>
-        <div id="compContainer"></div>
-      </div>
-
-      <div class="card">
         <h2>相続人別の取得額</h2>
         <div class="card-sub">財産の取得額に代償金（受取＋／支払−）を加減した純取得額です。</div>
         <div id="heirTotals"></div>
@@ -3472,8 +3464,16 @@ function renderAllocations(){
     body+='<tr class="sub-row"><td class="l">生前贈与加算（税額計算に反映される額）</td><td></td>'
       +heirs.map(h=>{ const p=r&&r.ph?r.ph[h.id]:null; const add=p?((p.giftKeiAdd||0)+(p.giftSeisan||0)):0; return '<td>'+fmtAlloc(add)+'</td>'; }).join('')+'</tr>';
   }
+  // 代償金（取得者の割り当ての1要素として、生前贈与の下に入力欄を設ける）
+  const compSection='<div style="margin-top:20px;border-top:1px solid var(--line,#e5e9f0);padding-top:16px;">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap;">'
+    +'<div><h3 style="margin:0;font-size:15px;">代償金</h3><div class="muted" style="font-size:12px;">特定の相続人が多く取得する代わりに他の相続人へ金銭を支払う場合に入力します（下の純取得額・相続税の課税価格に反映）。</div></div>'
+    +'<button class="btn primary sm" onclick="addComp()">＋ 代償金を追加</button>'
+    +'</div><div id="compContainer"></div></div>';
   c.innerHTML='<div class="dtbl-wrap"><table class="alloc-grid">'+head+body+'</table></div>'
-    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 生前贈与は受贈者が決まっているため遺産分割の対象外ですが、参考として各受贈者の列に表示しています。「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額で、相続税試算に反映されています（贈与額そのものとは一致しないことがあります）。</div>';
+    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 生前贈与は受贈者が決まっているため遺産分割の対象外ですが、参考として各受贈者の列に表示しています。「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額で、相続税試算に反映されています（贈与額そのものとは一致しないことがあります）。</div>'
+    +compSection;
+  renderComp();
   renderHeirTotals();
 }
 function heirAcquiredTotals(){
