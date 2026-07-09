@@ -728,12 +728,6 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
 
       <div class="card">
-        <h2>相続人別の取得額</h2>
-        <div class="card-sub">財産の取得額に代償金（受取＋／支払−）を加減した純取得額です。</div>
-        <div id="heirTotals"></div>
-      </div>
-
-      <div class="card">
         <h2>協議書の設定</h2>
         <div class="grid grid-2">
           <div class="field"><label>協議成立日</label><input type="date" id="ag_date" oninput="onAgreementInput()"></div>
@@ -1569,6 +1563,8 @@ function ensureCaseShape(c){
   c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[]; } });
   if(!c.successive||typeof c.successive!=='object') c.successive={enabled:false,A:'',B:'',years:'',prevDate:''};
   if(!Array.isArray(c.compensations)) c.compensations=[];
+  if(!c.compByHeir||typeof c.compByHeir!=='object'||Array.isArray(c.compByHeir)) c.compByHeir={};
+  if(!Object.keys(c.compByHeir).length && c.compensations.length){ c.compensations.forEach(cm=>{ const amt=num(cm.amount); if(cm.from) c.compByHeir[cm.from]=String(num(c.compByHeir[cm.from])-amt); if(cm.to) c.compByHeir[cm.to]=String(num(c.compByHeir[cm.to])+amt); }); }
   if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:'',includeDebt:true};
   if(c.agreement.includeDebt===undefined) c.agreement.includeDebt=true;
   if(!c.progress||typeof c.progress!=='object') c.progress={};
@@ -1719,7 +1715,8 @@ function newCaseObject(name){
     checklist:{},   // key -> {checked,memo,receivedPart,unreceivedPart}
     assets:[],      // {id,category,subcategory,name,location,quantity,unitPrice,value,memo,allocations,kobo:{type,area},giftTax,is4to7}
     successive:{ enabled:false, A:'', B:'', years:'', prevDate:'' }, // 相次相続控除
-    compensations:[], // 代償金 {id,from,to,amount}
+    compensations:[], // 代償金 {id,from,to,amount}（旧形式・compByHeirへ移行）
+    compByHeir:{}, // 代償金の授受（heirId→符号付き金額。支払−／受取＋。合計0で過不足なし）
     agreement:{ date:'', notes:'', extraHeirId:'', includeDebt:true },
     progress:{}, // stageKey -> {status,due,done,memo}
     secondary:{ spouseOwn:'', consume:'', years:'', nChildren:'', ownCash:'',insPremium:'',insCount:'',gGenAmt:'',gGenPpl:'',gGenYrs:'',gSpcAmt:'',gSpcPpl:'',gSpcYrs:'',optYears:'',existIns:'', spouseWants:[] }, // 二次相続シミュレーション
@@ -2124,6 +2121,7 @@ function migrateCase(data){
   c.movement=Object.assign({rows:[],usage:{}}, data.movement||{}); if(!Array.isArray(c.movement.rows)) c.movement.rows=[]; if(!c.movement.usage) c.movement.usage={};
   c.savings=Array.isArray(data.savings)? data.savings : [];
   c.compensations=Array.isArray(data.compensations)? data.compensations : [];
+  c.compByHeir=(data.compByHeir&&typeof data.compByHeir==='object'&&!Array.isArray(data.compByHeir))? data.compByHeir : {};
   c.progress=(data.progress&&typeof data.progress==='object')? data.progress : {};
   c.assets=(data.assets||[]).map(a=>{
     const na=Object.assign(newAsset(a.category||'other'),a);
@@ -3391,7 +3389,7 @@ function calcTax(){
   heirs.forEach(h=>{ const p=ph[h.id]; const ded47=Math.min(koyo47[h.id],1000000); p.ded47=ded47; p.giftKeiAdd=koyo3[h.id]+Math.max(0,koyo47[h.id]-ded47); });
   Object.keys(seisanGroup).forEach(k=>{ const g=seisanGroup[k]; ph[g.hid].giftSeisan+=Math.max(0,g.sum-(g.basic?1100000:0)); });
   // 代償金（支払う相続人の課税価格から控除、受け取る相続人の課税価格に加算）
-  (currentCase.compensations||[]).forEach(cm=>{ const amt=num(cm.amount); if(cm.from&&ph[cm.from]) ph[cm.from].comp-=amt; if(cm.to&&ph[cm.to]) ph[cm.to].comp+=amt; });
+  { const cbh=currentCase.compByHeir||{}; heirs.forEach(h=>{ if(ph[h.id]) ph[h.id].comp+=num(cbh[h.id]); }); }
   // 各人の課税価格（相法13・第1表の計算順）
   let totalTaxable=0;
   heirs.forEach(h=>{
@@ -3507,7 +3505,6 @@ function refreshAllocGrand(){
 function renderAgreement(){
   if(!currentCase) return;
   renderAllocations();
-  renderComp();
   $('ag_extraHeir').innerHTML=heirSelectHtml(currentCase.agreement.extraHeirId);
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
@@ -3579,32 +3576,32 @@ function renderAllocations(){
     body+='<tr class="sub-row"><td class="l">生前贈与加算（税額計算に反映される額）</td><td></td>'
       +heirs.map(h=>{ const p=r&&r.ph?r.ph[h.id]:null; const add=p?((p.giftKeiAdd||0)+(p.giftSeisan||0)):0; return '<td>'+fmtAlloc(add)+'</td>'; }).join('')+'</tr>';
   }
-  // 代償金（取得者の割り当ての1要素として、生前贈与の下に入力欄を設ける）
-  const compSection='<div style="margin-top:20px;border-top:1px solid var(--line,#e5e9f0);padding-top:16px;">'
-    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap;">'
-    +'<div><h3 style="margin:0;font-size:15px;">代償金</h3><div class="muted" style="font-size:12px;">特定の相続人が多く取得する代わりに他の相続人へ金銭を支払う場合に入力します（下の純取得額・相続税の課税価格に反映）。</div></div>'
-    +'<button class="btn primary sm" onclick="addComp()">＋ 代償金を追加</button>'
-    +'</div><div id="compContainer"></div></div>';
+  // 代償金の授受（取得者の割り当ての1行として、生前贈与加算の下に組み込む。支払−／受取＋）
+  const cbh=currentCase.compByHeir||{};
+  body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:#8a6d3b"></i>代償金の授受（支払−／受取＋）</td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
+  body+='<tr><td class="l" style="padding-left:26px;">代償金授受額</td><td class="evalcol" id="compBal"></td>'
+    +heirs.map(h=>{ const v=num(cbh[h.id]); return '<td><input id="comp-'+h.id+'" value="'+(v?fmtSigned(v):'')+'" placeholder="0" oninput="setCompByHeir(\''+h.id+'\',this.value)" onblur="this.value=(num(this.value)?fmtSigned(num(this.value)):\'\')"></td>'; }).join('')+'</tr>';
+  const netT=heirNetTotals();
+  body+='<tr class="total-row"><td class="l">純取得額（代償金反映後）</td><td></td>'+heirs.map(h=>'<td id="net-'+h.id+'">'+fmtAlloc(netT[h.id])+'</td>').join('')+'</tr>';
   c.innerHTML='<div class="dtbl-wrap"><table class="alloc-grid">'+head+body+'</table></div>'
-    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 生前贈与は受贈者が決まっているため遺産分割の対象外ですが、参考として各受贈者の列に表示しています。「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額で、相続税試算に反映されています（贈与額そのものとは一致しないことがあります）。</div>'
-    +compSection;
-  renderComp();
-  renderHeirTotals();
+    +'<div id="compBalanceWarn" style="display:none;margin-top:10px;padding:8px 12px;background:#fdecea;color:#b3261e;border:1px solid #f5c6cb;border-radius:8px;font-size:13px;font-weight:600;"></div>'
+    +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額です（贈与額そのものとは一致しないことがあります）。<br>※ 代償金の授受：多く取得する相続人の欄に支払額をマイナス（例 −12,000,000）、受け取る相続人の欄にプラス（例 6,000,000）で入力します。支払（−）と受取（＋）の合計が0（過不足なし）になるようにしてください。純取得額・相続税の課税価格に反映されます。</div>';
+  updateCompRow();
+  updateAllocWarn();
 }
 function heirAcquiredTotals(){
   const totals={}; currentCase.heirs.forEach(h=>totals[h.id]=0);
   currentCase.assets.filter(a=>a.category!=='gift').forEach(a=>{ const sg=signOf(a.category); currentCase.heirs.forEach(h=>{ totals[h.id]+=amtOf(a,h.id)*sg; }); });
-  (currentCase.compensations||[]).forEach(cm=>{ const amt=num(cm.amount); if(cm.from&&totals[cm.from]!=null) totals[cm.from]-=amt; if(cm.to&&totals[cm.to]!=null) totals[cm.to]+=amt; });
+  { const cbh=currentCase.compByHeir||{}; currentCase.heirs.forEach(h=>{ if(totals[h.id]!=null) totals[h.id]+=num(cbh[h.id]); }); }
   return {totals};
 }
-function renderHeirTotals(){
-  if(!currentCase) return;
-  const {totals}=heirAcquiredTotals();
-  let html='';
-  currentCase.heirs.forEach(h=>{ html+='<span class="heir-total-chip">'+esc(h.name||'(無名)')+'：'+yen(totals[h.id])+'</span>'; });
-  const el=$('heirTotals'); if(el) el.innerHTML=html;
-  updateAllocWarn();
-}
+function fmtSigned(n){ n=Math.round(num(n)); return n<0?'-'+Math.abs(n).toLocaleString('ja-JP'):n.toLocaleString('ja-JP'); }
+function compBalance(){ const cbh=currentCase.compByHeir||{}; let s=0; currentCase.heirs.forEach(h=>s+=num(cbh[h.id])); return s; }
+function heirNetTotals(){ const totals={}; const cbh=currentCase.compByHeir||{}; const divAssets=currentCase.assets.filter(a=>a.category!=='gift'); currentCase.heirs.forEach(h=>{ totals[h.id]=divAssets.reduce((s,a)=>s+amtOf(a,h.id)*signOf(a.category),0)+num(cbh[h.id]); }); return totals; }
+function setCompByHeir(hid,val){ if(!currentCase.compByHeir)currentCase.compByHeir={}; const v=String(val).replace(/[^0-9\-]/g,''); if(v&&v!=='-')currentCase.compByHeir[hid]=v; else delete currentCase.compByHeir[hid]; updateCompRow(); renderSummary(); cacheCurrentCase(); }
+function updateCompRow(){ if(!currentCase) return; const net=heirNetTotals(); currentCase.heirs.forEach(h=>{ const el=$('net-'+h.id); if(el) el.textContent=fmtAlloc(net[h.id]); }); const bal=compBalance(); const bc=$('compBal'); if(bc){ bc.textContent=bal===0?'':fmtSigned(bal); bc.style.color=bal===0?'':'#b3261e'; } const w=$('compBalanceWarn'); if(w){ if(bal===0){ w.style.display='none'; w.textContent=''; } else { w.style.display=''; w.textContent='⚠ 代償金の授受が一致していません（差額 '+fmtSigned(bal)+' 円）。支払（−）と受取（＋）の合計が0になるよう入力してください。'; } } }
+// 旧・相続人別取得額チップは廃止。既存呼び出し互換のため純取得額行と警告の更新に読み替える
+function renderHeirTotals(){ if(!currentCase) return; updateCompRow(); updateAllocWarn(); }
 
 // ============================================================
 //  Simulation view
@@ -5308,10 +5305,13 @@ function buildAgreement(){
       +'<p class="agr-lead">相続人 '+esc(h.name)+' は、次の遺産を相続する。</p>'+body+'</div>';
   });
   if(!cn){ toast('取得者が割り当てられた財産がありません。遺産分割で割り当ててください。', true); switchView('plan'); return; }
-  // 代償金
-  const comps=(currentCase.compensations||[]).filter(c=>c.from&&c.to&&num(c.amount)>0);
-  if(comps.length){ cn++; let lines=''; comps.forEach(c=>{ const f=heirs.find(x=>x.id===c.from), t2=heirs.find(x=>x.id===c.to); lines+='<div class="agr-sub-b">相続人 '+esc(f?f.name:'')+' は、相続人 '+esc(t2?t2.name:'')+' に対し、代償金として金 '+num(c.amount).toLocaleString('ja-JP')+' 円を支払う。</div>'; });
-    sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（代償金の支払い）</div>'+lines+'<div class="agr-sub-b" style="margin-top:4px;">前項の代償金は、本協議成立後すみやかに、各相続人が指定する口座に振り込む方法により支払うものとする。</div></div>'; }
+  // 代償金の授受（compByHeir：支払−／受取＋）
+  const cbh=currentCase.compByHeir||{};
+  const payers=heirs.filter(h=>num(cbh[h.id])<0), receivers=heirs.filter(h=>num(cbh[h.id])>0);
+  if(payers.length&&receivers.length){ cn++;
+    const lines=payers.map(h=>'<div class="agr-sub-b">相続人 '+esc(h.name||'')+' は、代償金として金 '+Math.abs(num(cbh[h.id])).toLocaleString('ja-JP')+' 円を支払う。</div>').join('')
+      +receivers.map(h=>'<div class="agr-sub-b">相続人 '+esc(h.name||'')+' は、代償金として金 '+num(cbh[h.id]).toLocaleString('ja-JP')+' 円を取得する。</div>').join('');
+    sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（代償金の授受）</div>'+lines+'<div class="agr-sub-b" style="margin-top:4px;">前項の代償金は、本協議成立後すみやかに、各相続人が指定する口座に振り込む方法により支払うものとする。</div></div>'; }
   // 金融機関手続権限
   cn++;
   sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（金融機関等における手続権限）</div><p class="agr-lead">前条までにより預貯金・有価証券・投資信託を取得した相続人は、金融機関等における解約、払戻し、名義変更、口座の移管その他必要な手続を単独で行うことを、共同相続人全員が承認し、これに一切異議を述べない。</p></div>';
