@@ -387,6 +387,361 @@ function uchiwakeTotal(
   return parseAmount(amts[amts.length - 1].s)
 }
 
+// ===== 科目ごと明細ベースの内訳書チェック =====
+// 内訳書の「科目」欄には決算書と同じ勘定科目名が記載され、科目ごとに「計」行がある
+// （1件だけの科目は計行が無いこともある）。科目ごとの計を決算書の同名科目と突合する。
+
+export interface KamokuTotal {
+  kamoku: string
+  amount: number
+}
+
+// 「科目」列を持つ内訳書から 科目→計 のリストを抽出する。
+// 行の対応付けは金額（期末現在高列）を基準に、近傍の科目列トークンを連結して行う。
+function kamokuUchiwakeTotals(
+  pages: ClassifiedPage[],
+  subType: string,
+  amountHeaderRe: RegExp = /期末現在高/,
+): KamokuTotal[] {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === subType)
+  if (!grp.length) return []
+  interface Rec {
+    kamoku: string
+    amount: number
+  }
+  const recs: Rec[] = []
+  for (const p of grp) {
+    // 科目列と金額列のX位置（各ページのヘッダから）
+    let kx: number | null = null
+    let ax: number | null = null
+    let bodyTop = 0
+    for (const l of p.lines) {
+      if (l.y > 300) break
+      const nt = normText(l)
+      if (kx == null && /^科/.test((l.toks[0]?.s || '').trim()) && /科目/.test(nt)) {
+        kx = l.toks[0].x
+        bodyTop = l.y + 8
+      }
+      if (ax == null && amountHeaderRe.test(nt)) {
+        const m = nt.match(amountHeaderRe)
+        const ch = m ? m[0][0] : ''
+        const tok = l.toks.find((t) => t.s.replace(/\s+/g, '').startsWith(ch))
+        if (tok) ax = tok.x
+      }
+      if (kx != null && ax != null) break
+    }
+    if (kx == null || ax == null) continue
+    // 本文の下限: （注）行 または 2つ目の様式（貸付金及び受取利息の内訳書 等）の手前
+    let bodyEnd = 750
+    for (const l of p.lines) {
+      const nt = normText(l)
+      if (l.y > bodyTop && (/^（注）/.test(nt) || /受取利息の内訳書/.test(nt))) {
+        bodyEnd = Math.min(bodyEnd, l.y - 2)
+      }
+    }
+    // 金額行ごとに、近傍の科目列トークンを連結
+    for (const l of p.lines) {
+      if (l.y < bodyTop || l.y > bodyEnd) continue
+      for (const t of l.toks) {
+        if (t.x < ax - 25 || t.x > ax + 72) continue
+        if (!isStrictAmountTok(t)) continue
+        let kamoku = ''
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 9 || l2.y > t.y + 8) continue
+          for (const t2 of l2.toks) {
+            if (t2.x >= kx - 18 && t2.x <= kx + 38) kamoku += t2.s.replace(/\s+/g, '')
+          }
+        }
+        recs.push({ kamoku, amount: parseAmount(t.s) })
+      }
+    }
+  }
+  if (!recs.length) return []
+  // グループ集計: 科目名が変わるたびにグループを閉じる。計行があれば計を、無ければ明細合計を採用
+  const totals = new Map<string, number>()
+  let curName = ''
+  let itemSum = 0
+  let kei: number | null = null
+  const close = () => {
+    if (curName) {
+      totals.set(curName, (totals.get(curName) || 0) + (kei != null ? kei : itemSum))
+    }
+    itemSum = 0
+    kei = null
+  }
+  for (const r of recs) {
+    const k = r.kamoku
+    if (k === '合計') {
+      close()
+      curName = ''
+      continue
+    }
+    if (k === '計') {
+      kei = r.amount
+      continue
+    }
+    if (k && k !== curName) {
+      close()
+      curName = k
+    }
+    itemSum += r.amount
+  }
+  close()
+  return Array.from(totals.entries()).map(([kamoku, amount]) => ({ kamoku, amount }))
+}
+
+// 内訳書の科目名を決算書の科目と照合する。完全一致→部分一致（一意）→金額一致で絞り込み
+function matchFsKamoku(
+  pool: FsPool,
+  kamoku: string,
+  amount: number,
+): { label: string; value: number; note?: string } | null {
+  const direct = pool.entries.get(kamoku)
+  if (direct && direct.length) return { label: kamoku, value: direct[0] }
+  if (kamoku.length < 2) return null
+  const cands: { label: string; value: number }[] = []
+  pool.entries.forEach((vals, label) => {
+    if (label.length < 2) return
+    if (label.includes(kamoku) || kamoku.includes(label)) cands.push({ label, value: vals[0] })
+  })
+  if (!cands.length) return null
+  if (cands.length === 1)
+    return { label: cands[0].label, value: cands[0].value, note: `決算書の科目「${cands[0].label}」と照合しました。` }
+  const eq = cands.filter((c) => c.value === amount)
+  if (eq.length === 1)
+    return { label: eq[0].label, value: eq[0].value, note: `決算書の科目「${eq[0].label}」と照合しました。` }
+  cands.sort((a, b) => Math.abs(a.value - amount) - Math.abs(b.value - amount))
+  return {
+    label: cands[0].label,
+    value: cands[0].value,
+    note: `科目名の候補が複数（${cands.map((c) => c.label).join('・')}）あるため「${cands[0].label}」と照合しました。`,
+  }
+}
+
+// 借入金内訳書: 摘要・担保欄に長期/短期等の科目名が書かれている場合の科目別集計。
+// 科目別合計の総和が合計行と一致する場合のみ採用する（書き方は事務所により異なるため）。
+function loanKamokuTotals(pages: ClassifiedPage[]): KamokuTotal[] {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '借入金')
+  if (!grp.length) return []
+  const totals = new Map<string, number>()
+  let grand: number | null = null
+  let curName = ''
+  let itemSum = 0
+  let kei: number | null = null
+  let sawLabel = false
+  const close = () => {
+    if (curName) totals.set(curName, (totals.get(curName) || 0) + (kei != null ? kei : itemSum))
+    itemSum = 0
+    kei = null
+  }
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y < 130 || l.y > 690) continue
+      const amt = l.toks.find((t) => t.x >= 296 && t.x <= 390 && isStrictAmountTok(t))
+      // 行ラベル: 近傍の名称列（計 判定用）と右端列（科目名）
+      let nameCol = ''
+      let rightCol = ''
+      const yy = amt ? amt.y : l.y
+      for (const l2 of p.lines) {
+        if (l2.y < yy - 9 || l2.y > yy + 8) continue
+        for (const t2 of l2.toks) {
+          if (t2.x >= 50 && t2.x <= 250 && !isAmountTok(t2)) nameCol += t2.s.replace(/\s+/g, '')
+          if (t2.x >= 455) rightCol += t2.s.replace(/\s+/g, '')
+        }
+      }
+      if (!amt) continue
+      const v = parseAmount(amt.s)
+      if (/^合計/.test(nameCol) || nameCol === '合計') {
+        grand = v
+        close()
+        curName = ''
+        continue
+      }
+      if (nameCol === '計') {
+        kei = v
+        continue
+      }
+      const m = rightCol.match(/(長期借入金|短期借入金|役員借入金|一年内返済予定長期借入金|1年内返済予定長期借入金|借入金)/)
+      if (m) {
+        sawLabel = true
+        if (m[1] !== curName) {
+          close()
+          curName = m[1]
+        }
+      }
+      itemSum += v
+    }
+  }
+  close()
+  if (!sawLabel) return []
+  const list = Array.from(totals.entries()).map(([kamoku, amount]) => ({ kamoku, amount }))
+  const sum = list.reduce((s, x) => s + x.amount, 0)
+  if (grand != null && sum !== grand) return [] // 書式が想定と異なる場合は科目別を採用しない
+  return list
+}
+
+// 役員給与等の内訳書から代表者（役職に「代表」または関係「本人」）の氏名と役員給与計を取得
+function daihyoFromYakuin(pages: ClassifiedPage[]): { name: string; amount: number } | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '役員給与')
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y < 130 || l.y > 520) continue
+      const yakushoku = l.toks
+        .filter((t) => t.x >= 50 && t.x <= 105)
+        .map((t) => t.s.replace(/\s+/g, ''))
+        .join('')
+      const relation = l.toks
+        .filter((t) => t.x >= 180 && t.x <= 232)
+        .map((t) => t.s.replace(/\s+/g, ''))
+        .join('')
+      if (!/代表/.test(yakushoku) && relation !== '本人') continue
+      const name = l.toks
+        .filter((t) => t.x > 105 && t.x < 180)
+        .map((t) => t.s.replace(/\s+/g, ''))
+        .join('')
+      if (!name) continue
+      // 役員給与計列（x≈255〜305）の金額を行の下方向から探す
+      const amts = amountsInBand(p, l.y - 2, l.y + 18, 252, 306, true)
+      if (amts.length) return { name, amount: parseAmount(amts[0].s) }
+    }
+  }
+  return null
+}
+
+// 借入金内訳書のうち、借入先名称が代表者名と一致する行の期末現在高合計
+function loanFromDaihyo(pages: ClassifiedPage[], daihyoName: string): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '借入金')
+  if (!grp.length) return null
+  let sum = 0
+  let found = false
+  const target = daihyoName.replace(/[\s　]/g, '')
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y < 130 || l.y > 690) continue
+      const amt = l.toks.find((t) => t.x >= 296 && t.x <= 390 && isStrictAmountTok(t))
+      if (!amt) continue
+      let nameCol = ''
+      for (const l2 of p.lines) {
+        if (l2.y < amt.y - 9 || l2.y > amt.y + 8) continue
+        for (const t2 of l2.toks) {
+          if (t2.x >= 50 && t2.x <= 250 && !isAmountTok(t2)) nameCol += t2.s.replace(/\s+/g, '')
+        }
+      }
+      if (nameCol === '計' || /^合計/.test(nameCol)) continue
+      if (nameCol.includes(target)) {
+        sum += parseAmount(amt.s)
+        found = true
+      }
+    }
+  }
+  return found ? sum : null
+}
+
+// 地代家賃内訳書のうち、貸主名称が代表者名と一致する行の支払賃借料合計
+function rentToDaihyo(pages: ClassifiedPage[], daihyoName: string): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '地代家賃')
+  if (!grp.length) return null
+  let sum = 0
+  let found = false
+  const target = daihyoName.replace(/[\s　]/g, '')
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y < 135 || l.y > 700) continue
+      for (const t of l.toks) {
+        if (t.x < 435 || t.x > 482 || !isStrictAmountTok(t)) continue
+        // 合計行を除外
+        let isTotal = false
+        let lender = ''
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 20 || l2.y > t.y + 3) continue
+          const nt = normText(l2)
+          if (/^合計/.test(nt)) isTotal = true
+          for (const t2 of l2.toks) {
+            if (t2.x >= 265 && t2.x <= 405 && !isAmountTok(t2)) lender += t2.s.replace(/\s+/g, '')
+          }
+        }
+        if (isTotal) continue
+        if (lender.includes(target)) {
+          sum += parseAmount(t.s)
+          found = true
+        }
+      }
+    }
+  }
+  return found ? sum : null
+}
+
+// 貸付金及び受取利息の内訳書（仮払金内訳書の下段）のうち、貸付先名称が代表者名の行の期末現在高合計
+function lendToDaihyo(pages: ClassifiedPage[], daihyoName: string): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '仮払金・貸付金')
+  if (!grp.length) return null
+  let sum = 0
+  let found = false
+  const target = daihyoName.replace(/[\s　]/g, '')
+  for (const p of grp) {
+    // 下段様式の開始行と期末現在高列
+    let top: number | null = null
+    let ax: number | null = null
+    for (const l of p.lines) {
+      const nt = normText(l)
+      if (top == null && /受取利息の内訳書/.test(nt)) top = l.y
+      if (top != null && ax == null && /期末現在高/.test(nt) && l.y > top) {
+        const tok = l.toks.find((t) => t.s.replace(/\s+/g, '').startsWith('期'))
+        if (tok) ax = tok.x
+      }
+    }
+    if (top == null || ax == null) continue
+    for (const l of p.lines) {
+      if (l.y < top + 20 || l.y > 700) continue
+      for (const t of l.toks) {
+        if (t.x < ax - 25 || t.x > ax + 45 || !isStrictAmountTok(t)) continue
+        let nameCol = ''
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 9 || l2.y > t.y + 8) continue
+          for (const t2 of l2.toks) {
+            if (t2.x >= 45 && t2.x <= 210 && !isAmountTok(t2)) nameCol += t2.s.replace(/\s+/g, '')
+          }
+        }
+        if (nameCol === '計' || /合計/.test(nameCol)) continue
+        if (nameCol.includes(target)) {
+          sum += parseAmount(t.s)
+          found = true
+        }
+      }
+    }
+  }
+  return found ? sum : null
+}
+
+// 法人事業概況説明書「11 代表者に対する報酬等の金額」（千円・1マス1桁）
+function extractGaikyo11(pages: ClassifiedPage[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const p of pages) {
+    if (p.kind !== 'gaikyo') continue
+    const anchor = findLine(p, /代表者に対する報酬等の金額/)
+    if (!anchor) continue
+    const FIELDS = ['報酬', '貸付金', '仮払金', '賃借料', '支払利息', '借入金', '仮受金']
+    for (const l of p.lines) {
+      if (l.y < anchor.y - 12 || l.y > anchor.y + 22) continue
+      // 行内のラベル位置を拾い、次のラベルまでの範囲で桁連結
+      const labels: { name: string; x: number }[] = []
+      for (const t of l.toks) {
+        const s = t.s.replace(/\s+/g, '')
+        if (FIELDS.includes(s)) labels.push({ name: s, x: t.x })
+      }
+      labels.sort((a, b) => a.x - b.x)
+      for (let i = 0; i < labels.length; i++) {
+        const lo = labels[i].x + 26
+        const hi = i + 1 < labels.length ? labels[i + 1].x - 4 : 575
+        const v = joinDigits(l, lo, hi)
+        if (v != null && !out.has(labels[i].name)) out.set(labels[i].name, v)
+      }
+    }
+    if (out.size) break
+  }
+  return out
+}
+
 // 借入金内訳書の「期中の支払利子額」列合計（最終行）
 function uchiwakeInterest(pages: ClassifiedPage[]): number | null {
   const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '借入金')
@@ -780,18 +1135,44 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     checks.push(r)
   }
 
-  checks.push(
-    mk(
-      G2,
-      '売掛金・未収入金',
-      '内訳書 売掛金（未収入金）合計',
-      uchiwakeTotal(pages, '売掛金'),
-      'BS 売掛金＋未収入金',
-      fsSum(pool, ['売掛金', '未収入金', '未収金']),
-    ),
-  )
+  // 科目ごとの明細ベースチェック（内訳書の科目欄＋計行 → 決算書の同名科目と突合）。
+  // 科目欄を持たない・抽出できない内訳書は従来どおり合計ベースにフォールバックする。
+  const kamokuChecks = (subType: string, dispName: string, fallback: () => void) => {
+    const totals = kamokuUchiwakeTotals(pages, subType)
+    if (!totals.length) {
+      fallback()
+      return
+    }
+    for (const kt of totals) {
+      const m = matchFsKamoku(pool, kt.kamoku, kt.amount)
+      checks.push(
+        mk(
+          G2,
+          `${dispName}「${kt.kamoku}」`,
+          `内訳書 ${kt.kamoku} 計`,
+          kt.amount,
+          m ? `決算書 ${m.label}` : `決算書 ${kt.kamoku}`,
+          m ? m.value : null,
+          { note: m?.note },
+        ),
+      )
+    }
+  }
 
-  {
+  kamokuChecks('売掛金', '売掛金内訳書', () => {
+    checks.push(
+      mk(
+        G2,
+        '売掛金・未収入金',
+        '内訳書 売掛金（未収入金）合計',
+        uchiwakeTotal(pages, '売掛金'),
+        'BS 売掛金＋未収入金',
+        fsSum(pool, ['売掛金', '未収入金', '未収金']),
+      ),
+    )
+  })
+
+  kamokuChecks('仮払金・貸付金', '仮払金内訳書', () => {
     const v = uchiwakeTotal(pages, '仮払金・貸付金')
     const bs = fsSum(pool, ['仮払金', '前渡金', '短期貸付金', '長期貸付金', '貸付金'])
     checks.push(
@@ -799,18 +1180,20 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
         note: 'この内訳書に仮払金・貸付金以外の科目（出資金・保険積立金・敷金等）を記載している場合は差異が出ます。',
       }),
     )
-  }
+  })
 
-  checks.push(
-    mk(
-      G2,
-      '棚卸資産',
-      '内訳書 棚卸資産合計',
-      uchiwakeTotal(pages, '棚卸資産'),
-      'BS 商品・製品・仕掛品・原材料・貯蔵品',
-      fsSum(pool, ['商品', '製品', '半製品', '仕掛品', '原材料', '貯蔵品', '未成工事支出金', '商品及び製品']),
-    ),
-  )
+  kamokuChecks('棚卸資産', '棚卸資産内訳書', () => {
+    checks.push(
+      mk(
+        G2,
+        '棚卸資産',
+        '内訳書 棚卸資産合計',
+        uchiwakeTotal(pages, '棚卸資産'),
+        'BS 商品・製品・仕掛品・原材料・貯蔵品',
+        fsSum(pool, ['商品', '製品', '半製品', '仕掛品', '原材料', '貯蔵品', '未成工事支出金', '商品及び製品']),
+      ),
+    )
+  })
 
   {
     const v = uchiwakeTotal(pages, '固定資産(土地建物)')
@@ -835,39 +1218,56 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     ),
   )
 
-  checks.push(
-    mk(
-      G2,
-      '買掛金・未払金・未払費用',
-      '内訳書 買掛金（未払金・未払費用）合計',
-      uchiwakeTotal(pages, '買掛金'),
-      'BS 買掛金＋未払金＋未払費用',
-      fsSum(pool, ['買掛金', '未払金', '未払費用']),
-      { note: 'リース債務・未払消費税等を内訳書に含めている場合は差異が出ます。' },
-    ),
-  )
+  kamokuChecks('買掛金', '買掛金内訳書', () => {
+    checks.push(
+      mk(
+        G2,
+        '買掛金・未払金・未払費用',
+        '内訳書 買掛金（未払金・未払費用）合計',
+        uchiwakeTotal(pages, '買掛金'),
+        'BS 買掛金＋未払金＋未払費用',
+        fsSum(pool, ['買掛金', '未払金', '未払費用']),
+        { note: 'リース債務・未払消費税等を内訳書に含めている場合は差異が出ます。' },
+      ),
+    )
+  })
 
-  checks.push(
-    mk(
-      G2,
-      '仮受金・前受金・預り金',
-      '内訳書 仮受金（前受金・預り金）合計',
-      uchiwakeTotal(pages, '仮受金'),
-      'BS 前受金＋預り金＋仮受金',
-      fsSum(pool, ['前受金', '預り金', '仮受金', '前受収益']),
-    ),
-  )
+  kamokuChecks('仮受金', '仮受金内訳書', () => {
+    checks.push(
+      mk(
+        G2,
+        '仮受金・前受金・預り金',
+        '内訳書 仮受金（前受金・預り金）合計',
+        uchiwakeTotal(pages, '仮受金'),
+        'BS 前受金＋預り金＋仮受金',
+        fsSum(pool, ['前受金', '預り金', '仮受金', '前受収益']),
+      ),
+    )
+  })
 
-  checks.push(
-    mk(
-      G2,
-      '借入金',
-      '内訳書 借入金合計',
-      uchiwakeTotal(pages, '借入金'),
-      'BS 短期借入金＋長期借入金',
-      fsSum(pool, ['短期借入金', '長期借入金', '借入金', '役員借入金', '1年内返済予定長期借入金', '一年内返済予定長期借入金']),
-    ),
-  )
+  {
+    // 借入金: 摘要欄等に長期/短期の別が書かれていれば科目別、無ければ合計で照合
+    const loans = loanKamokuTotals(pages)
+    if (loans.length) {
+      for (const kt of loans) {
+        const m = matchFsKamoku(pool, kt.kamoku, kt.amount)
+        checks.push(
+          mk(G2, `借入金内訳書「${kt.kamoku}」`, `内訳書 ${kt.kamoku} 計`, kt.amount, m ? `決算書 ${m.label}` : `決算書 ${kt.kamoku}`, m ? m.value : null, { note: m?.note }),
+        )
+      }
+    } else {
+      checks.push(
+        mk(
+          G2,
+          '借入金',
+          '内訳書 借入金合計',
+          uchiwakeTotal(pages, '借入金'),
+          'BS 短期借入金＋長期借入金',
+          fsSum(pool, ['短期借入金', '長期借入金', '借入金', '役員借入金', '1年内返済予定長期借入金', '一年内返済予定長期借入金']),
+        ),
+      )
+    }
+  }
 
   {
     const v = uchiwakeInterest(pages)
@@ -951,6 +1351,47 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     gkCheck('税引前当期損益', '税引前当期損益', '税引前当期純利益', fsGet(pool, '税引前当期純利益', '税引前当期純損失'))
     gkCheck('土地', '土地', '土地', fsGet(pool, '土地'))
     gkCheck('借入金', 'その他借入金', '短期借入金＋長期借入金', fsSum(pool, ['短期借入金', '長期借入金', '借入金']))
+  }
+
+  // 概況説明書「11 代表者に対する報酬等の金額」⇔ 各内訳書の代表者分（千円・±1千円許容）
+  {
+    const g11 = extractGaikyo11(pages)
+    const daihyo = daihyoFromYakuin(pages)
+    const hasGaikyo = pages.some((p) => p.kind === 'gaikyo')
+    if (hasGaikyo && (g11.size > 0 || daihyo)) {
+      const dName = daihyo ? daihyo.name : ''
+      const g11v = (k: string) => (g11.has(k) ? g11.get(k)! : null)
+      const NOTE11 = '概況11欄は同族会社の場合のみ記載されます。'
+      checks.push(
+        mk(
+          '法人事業概況説明書 ⇔ 決算書',
+          '代表者報酬（概況11）',
+          '概況11 報酬（千円）',
+          g11v('報酬'),
+          daihyo ? `役員給与内訳書 ${dName} 役員給与計（千円換算）` : '役員給与内訳書 代表者',
+          daihyo ? trunc1000(daihyo.amount) : null,
+          { tol: 1, note: NOTE11 },
+        ),
+      )
+      const daihyoLoan = dName ? loanFromDaihyo(pages, dName) : null
+      const daihyoRent = dName ? rentToDaihyo(pages, dName) : null
+      const daihyoLend = dName ? lendToDaihyo(pages, dName) : null
+      checks.push(
+        mk('法人事業概況説明書 ⇔ 決算書', '代表者からの借入金（概況11）', '概況11 借入金（千円）', g11v('借入金'),
+          `借入金内訳書 ${dName || '代表者'} 分（千円換算）`, daihyoLoan == null ? null : trunc1000(daihyoLoan),
+          { tol: 1, note: NOTE11 }),
+      )
+      checks.push(
+        mk('法人事業概況説明書 ⇔ 決算書', '代表者への地代家賃（概況11）', '概況11 賃借料（千円）', g11v('賃借料'),
+          `地代家賃内訳書 貸主${dName || '代表者'} 分（千円換算）`, daihyoRent == null ? null : trunc1000(daihyoRent),
+          { tol: 1, note: NOTE11 }),
+      )
+      checks.push(
+        mk('法人事業概況説明書 ⇔ 決算書', '代表者への貸付金（概況11）', '概況11 貸付金（千円）', g11v('貸付金'),
+          `貸付金内訳書 ${dName || '代表者'} 分（千円換算）`, daihyoLend == null ? null : trunc1000(daihyoLend),
+          { tol: 1, note: NOTE11 }),
+      )
+    }
   }
 
   // ===== ④ 消費税申告書 ⇔ 決算書（参考） =====
