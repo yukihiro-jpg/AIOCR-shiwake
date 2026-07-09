@@ -1124,6 +1124,65 @@ function getStock_(symbol){
   </div>
 </div>
 
+<!-- 自動車の相続税評価モーダル -->
+<div class="modal-ov" id="carEvalModal">
+  <div class="modal" style="max-width:860px;">
+    <h2>🚗 自動車の相続税評価</h2>
+    <div class="m-sub">車検証（自動車検査証記録事項）をアップロードすると車両情報をAIが読み取ります。無い場合は手入力してください。評価額と算出根拠を自動生成し、「その他の財産」へ登録します（財産評価基本通達129・一般動産）。</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0 4px;">
+      <label class="btn sm" style="cursor:pointer;">📎 車検証を選択（PDF/画像）<input type="file" id="ce_file" accept=".pdf,.jpg,.jpeg,.png" style="display:none;" onchange="ceFilePicked()"></label>
+      <span id="ce_fileName" class="muted" style="font-size:12px;">未選択</span>
+      <button class="btn sm primary" id="ce_ocrBtn" onclick="ceRunOcr()">🤖 AIで読み取り</button>
+      <span id="ce_ocrStatus" class="muted" style="font-size:12px;"></span>
+    </div>
+    <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px;margin-top:8px;">
+      <div class="field"><label>車名（メーカー）</label><input id="ce_maker" placeholder="例：ニッサン"></div>
+      <div class="field"><label>車種・グレード（任意）</label><input id="ce_model" placeholder="例：セレナ ハイウェイスター"></div>
+      <div class="field"><label>型式</label><input id="ce_katashiki" placeholder="例：DBA-C27"></div>
+      <div class="field"><label>初度登録年月</label><input id="ce_firstReg" type="month" onchange="ceRecalc()"></div>
+      <div class="field"><label>登録番号</label><input id="ce_regno" placeholder="例：水戸541ね38"></div>
+      <div class="field"><label>車台番号</label><input id="ce_frame" placeholder="例：C27-006915"></div>
+      <div class="field"><label>走行距離(km)（任意）</label><input id="ce_km" placeholder="例：47800" oninput="ceRecalc()"></div>
+      <div class="field"><label>走行距離の時点（任意）</label><input id="ce_kmDate" placeholder="例：令和7年2月7日"></div>
+      <div class="field"><label>課税時期（相続開始日）</label><input id="ce_taxDate" type="date" onchange="ceRecalc()"></div>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>評価方法</label>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="radio" name="ce_method" value="market" checked onchange="ceRecalc()">売買実例価額（買取査定・中古車相場）＝原則</label>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="radio" name="ce_method" value="dep" onchange="ceRecalc()">新品小売価額から定率法償却（売買実例価額が不明な場合）</label>
+      </div>
+    </div>
+    <div id="ce_boxMarket" style="border:1px solid var(--line,#dfe4ec);border-radius:10px;padding:10px 12px;margin-top:6px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
+        <div class="field"><label>査定額・相場額①(円)</label><input id="ce_mkt1" placeholder="例：850000" oninput="ceRecalc()"></div>
+        <div class="field"><label>出典①</label><input id="ce_src1" placeholder="例：○○社 買取査定書（R8.4.1）"></div>
+        <div class="field"><label>査定額・相場額②(円)（任意）</label><input id="ce_mkt2" placeholder="複数ある場合は平均します" oninput="ceRecalc()"></div>
+        <div class="field"><label>出典②（任意）</label><input id="ce_src2" placeholder="例：中古車情報サイト 同型式・同年式の相場"></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px;">課税時期における同種・同程度（年式・走行距離・状態）の中古車の買取査定額や取引価格を入力します。2つ入力した場合は平均額で評価します。</div>
+    </div>
+    <div id="ce_boxDep" style="border:1px solid var(--line,#dfe4ec);border-radius:10px;padding:10px 12px;margin-top:6px;display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 12px;">
+        <div class="field"><label>新品小売価額（新車価格）(円)</label><input id="ce_newPrice" placeholder="例：3000000" oninput="ceRecalc()"></div>
+        <div class="field"><label>耐用年数</label><select id="ce_life" onchange="ceRecalc()"><option value="6" selected>6年（普通自動車）</option><option value="4">4年（軽自動車・小型トラック等）</option><option value="5">5年</option><option value="3">3年</option><option value="2">2年</option></select></div>
+        <div class="field"><label>経過年数（自動）</label><input id="ce_years" readonly style="background:#f4f6fa;"></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:4px;">評価額＝新品小売価額 ×（1−定率法償却率）^経過年数（初度登録から課税時期まで・1年未満切上げ）。償却後の価額が実際の中古相場と乖離する場合は、売買実例価額での評価を優先してください。</div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+      <div style="font-size:14px;">評価額：<b id="ce_result" style="font-size:20px;color:var(--accent,#0a5cab);">－</b></div>
+    </div>
+    <div class="field" style="margin-top:8px;"><label>算出根拠（レポート・注記に記載されます。編集できます）</label><textarea id="ce_basis" rows="7" style="width:100%;font-size:12.5px;line-height:1.7;"></textarea></div>
+    <div class="btn-row" style="margin-top:12px;justify-content:space-between;">
+      <button class="btn" onclick="ceRebuildBasis()">根拠文を作り直す</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeModal('carEvalModal')">キャンセル</button>
+        <button class="btn primary" onclick="ceRegister()">この内容で「その他の財産」に登録</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Mail modal -->
 <div class="modal-ov" id="mailModal">
   <div class="modal" style="max-width:680px;">
@@ -2495,6 +2554,7 @@ function renderAssetDetail(){
     +'<div class="dsub'+(t.sign<0?' minus':'')+'" id="catSubtotal">'+(t.sign<0?'−':'')+yen(subtotal)+'</div></div>'
     +table
     +'<div class="detail-foot"><button class="btn primary sm" onclick="addAsset(\''+currentAssetCat+'\')">＋ 行を追加</button>'
+    +(currentAssetCat==='other'?'<button class="btn sm" onclick="openCarEval()" title="車検証の読み取りまたは手入力から相続税評価額を算出して登録します">🚗 自動車の評価</button>':'')
     +'<span class="muted" style="font-size:12px;">「複製」で同じ行をコピーできます。No.列をドラッグすると並び替えできます。</span></div>'
     +detailNote(currentAssetCat);
   enhanceAssetDnd();
@@ -4272,7 +4332,9 @@ function downloadShindanPDF(){
     const sg=t.sign<0?-1:1; let sub=0;
     const rows=items.map(a=>{ const v=assetVal(a); sub+=v; let desc=assetDesc(a);
       if(t.key==='gift' && a.giftRecipient){ const rh=currentCase.heirs.find(x=>x.id===a.giftRecipient); if(rh) desc+='　'+(rh.name||'')+' 様へ贈与'; }
-      return '<tr><td>'+esc(desc)+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
+      // 自動車評価の算出根拠（車両情報・評価方法・計算過程）を明細の下に小さく記載
+      const basis=(a.carEval&&a.carEval.basis)?'<div style="font-size:9px;color:#556;line-height:1.6;margin-top:3px;white-space:pre-wrap;">'+esc(a.carEval.basis)+'</div>':'';
+      return '<tr><td>'+esc(desc)+basis+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
     detailBody+='<h3 class="blk">'+t.name+'（'+items.length+'件）</h3>'
       +'<table class="t"><thead><tr><th>明細</th><th class="r">'+(t.key==='gift'?'贈与時の価額':'評価額')+'</th></tr></thead><tbody>'+rows
       +'<tr class="tot"><td>小計</td><td class="r">'+(sg<0?'△'+yen(sub):yen(sub))+'</td></tr></tbody></table>';
@@ -5701,6 +5763,127 @@ async function pbCallAI(user, file, maxTokens){
   if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); return(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
 }
 function pbParseJSON(txt){ let t=String(txt||'').trim(); t=t.replace(/^```(json)?/i,'').replace(/```$/,'').trim(); const a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a>=0&&b>a) t=t.slice(a,b+1); return JSON.parse(t); }
+
+// ============================================================
+//  自動車の相続税評価（その他の財産）
+//  財産評価基本通達129（一般動産）:
+//   原則＝売買実例価額（同種・同程度の中古車の買取査定額・取引価格）
+//   売買実例価額が明らかでない場合＝同種・同規格の新品小売価額から
+//   経過年数（1年未満切上げ）に応じた償却費（定率法）を控除した金額
+//  AIは車検証の読み取り（OCR）のみに使い、評価額の計算はすべて確定ロジックで行う
+//  （数値の捏造防止。読み取り結果もユーザーが確認・修正できる）。
+// ============================================================
+let _ceFile=null;
+// 200%定率法の償却率（平成24年4月1日以後取得）
+const CE_DEP_RATE={2:1.000,3:0.667,4:0.500,5:0.400,6:0.333,7:0.286,8:0.250,9:0.222,10:0.200};
+function openCarEval(){ if(!currentCase){ toast('案件がありません', true); return; }
+  _ceFile=null; $('ce_file').value=''; $('ce_fileName').textContent='未選択'; $('ce_ocrStatus').textContent='';
+  ['ce_maker','ce_model','ce_katashiki','ce_firstReg','ce_regno','ce_frame','ce_km','ce_kmDate','ce_mkt1','ce_src1','ce_mkt2','ce_src2','ce_newPrice'].forEach(id=>{ if($(id))$(id).value=''; });
+  $('ce_taxDate').value=(currentCase.deceased&&currentCase.deceased.deathDate)||todayISO();
+  document.querySelector('input[name="ce_method"][value="market"]').checked=true;
+  ceRecalc(); openModal('carEvalModal'); }
+function ceFilePicked(){ const f=($('ce_file').files||[])[0]||null; _ceFile=f; $('ce_fileName').textContent=f?f.name:'未選択'; }
+function ceMethod(){ const el=document.querySelector('input[name="ce_method"]:checked'); return el?el.value:'market'; }
+/* 経過年数（初度登録年月→課税時期、1年未満切上げ・最低1年） */
+function ceElapsedYears(){ const fr=$('ce_firstReg').value, td=$('ce_taxDate').value; if(!fr||!td) return null;
+  const fy=+fr.slice(0,4), fm=+fr.slice(5,7), ty=+td.slice(0,4), tm=+td.slice(5,7);
+  const months=(ty-fy)*12+(tm-fm); if(months<0) return null; return Math.max(1, Math.ceil(months/12)); }
+function ceCalc(){ const method=ceMethod();
+  if(method==='market'){ const m1=num($('ce_mkt1').value), m2=num($('ce_mkt2').value);
+    if(m1<=0&&m2<=0) return null; const vals=[m1,m2].filter(v=>v>0);
+    return Math.floor(vals.reduce((a,b)=>a+b,0)/vals.length); }
+  const np=num($('ce_newPrice').value); const life=+($('ce_life').value||6); const yrs=ceElapsedYears();
+  if(np<=0||yrs==null) return null; const r=CE_DEP_RATE[life]||0.333;
+  return Math.floor(np*Math.pow(1-r,yrs)); }
+function ceRecalc(){ const method=ceMethod();
+  $('ce_boxMarket').style.display=method==='market'?'':'none';
+  $('ce_boxDep').style.display=method==='dep'?'':'none';
+  const yrs=ceElapsedYears(); $('ce_years').value=(yrs!=null)?(yrs+'年（1年未満切上げ）'):'初度登録・課税時期から自動計算';
+  const v=ceCalc(); $('ce_result').textContent=(v!=null)?yen(v):'－';
+  ceRebuildBasis(); }
+/* 算出根拠テキスト（レポート・注記用） */
+function ceRebuildBasis(){ const method=ceMethod(); const v=ceCalc();
+  const g=id=>($(id)&&$(id).value||'').trim();
+  const carLine=[g('ce_maker'),g('ce_model'),g('ce_katashiki')?('型式 '+g('ce_katashiki')):''].filter(Boolean).join(' ');
+  const L=[];
+  L.push('【自動車の相続税評価（財産評価基本通達129・一般動産）】');
+  if(carLine) L.push('車両：'+carLine);
+  const sub=[]; if(g('ce_firstReg'))sub.push('初度登録 '+formatJDate(g('ce_firstReg')+'-01').replace(/日$/,'').replace(/(\d+月).*/,'$1'));
+  if(g('ce_km'))sub.push('走行距離 '+num(g('ce_km')).toLocaleString('ja-JP')+'km'+(g('ce_kmDate')?('（'+g('ce_kmDate')+'時点）'):''));
+  if(sub.length) L.push(sub.join('／'));
+  const id2=[]; if(g('ce_regno'))id2.push('登録番号 '+g('ce_regno')); if(g('ce_frame'))id2.push('車台番号 '+g('ce_frame'));
+  if(id2.length) L.push(id2.join('／'));
+  if(g('ce_taxDate')) L.push('課税時期：'+formatJDate(g('ce_taxDate'))+'（相続開始日）');
+  if(method==='market'){
+    L.push('評価方法：売買実例価額（課税時期における同種・同程度の中古車の買取査定額・取引価格）による評価');
+    const m1=num(g('ce_mkt1')), m2=num(g('ce_mkt2'));
+    if(m1>0) L.push('・'+(g('ce_src1')||'査定額①')+'：'+yen(m1));
+    if(m2>0) L.push('・'+(g('ce_src2')||'査定額②')+'：'+yen(m2));
+    if(m1>0&&m2>0) L.push('・上記の平均額により評価');
+  } else {
+    const np=num(g('ce_newPrice')); const life=+($('ce_life').value||6); const r=CE_DEP_RATE[life]||0.333; const yrs=ceElapsedYears();
+    L.push('評価方法：売買実例価額が明らかでないため、同種・同規格の新品小売価額から経過年数に応じた償却費（定率法）を控除して評価');
+    if(np>0&&yrs!=null){
+      L.push('・新品小売価額 '+yen(np)+'／耐用年数 '+life+'年（定率法償却率 '+r.toFixed(3)+'）／経過年数 '+yrs+'年（1年未満切上げ）');
+      L.push('・計算：'+yen(np)+' ×（1−'+r.toFixed(3)+'）^'+yrs+' ＝ '+(v!=null?yen(v):'－'));
+    }
+  }
+  L.push('評価額：'+(v!=null?yen(v):'－'));
+  $('ce_basis').value=L.join('\n'); }
+/* 車検証のAI読み取り（OCRのみ。評価額は計算しない） */
+const _CE_SYS='あなたは日本の自動車検査証（車検証・自動車検査証記録事項）の読み取りアシスタントです。画像またはPDFから車両情報を正確に読み取り、指定のJSONのみを出力します。読み取れない項目は空文字にする。推測で値を作らない（carNameGuessのみ型式からの推定を許可し、それ以外は記載どおり）。\n【JSONスキーマ】{"maker":"車名欄の記載（例：ニッサン）","carNameGuess":"型式から推定される通称車種名（例：セレナ。不明なら空）","katashiki":"型式（例：DBA-C27）","firstReg":"初度登録年月をYYYY-MM（例：平成30年2月→2018-02）","regNo":"自動車登録番号（例：水戸541ね38）","frameNo":"車台番号","mileageKm":走行距離計表示値の数値（不明なら null）,"mileageDate":"走行距離の時点の記載（例：令和7年2月7日。不明なら空）","owner":"所有者の氏名（不明なら空）"}';
+async function ceRunOcr(){
+  if(!_ceFile){ toast('車検証のファイルを選択してください', true); return; }
+  const btn=$('ce_ocrBtn'); const st=$('ce_ocrStatus');
+  btn.disabled=true; st.textContent='AIが読み取り中…';
+  try{
+    const b64=await pbReadB64(_ceFile);
+    const mime=_ceFile.type||( /\.pdf$/i.test(_ceFile.name)?'application/pdf':'image/jpeg');
+    const s=_komonSettings(); const key=(s.geminiApiKey||'').trim()||_suiteGeminiKey();
+    if(!key) throw new Error('AIキーが未設定です（ホーム画面の共通設定で登録してください）');
+    const model=s.geminiModel||'gemini-2.5-flash';
+    // タイムアウト付き（通信ハングで固まらないよう120秒で中断）
+    const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),120000);
+    let res;
+    try{
+      res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',signal:ctrl.signal,headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:_CE_SYS}]},contents:[{role:'user',parts:[{text:'この車検証（自動車検査証記録事項）を読み取ってください。'},{inlineData:{mimeType:mime,data:b64}}]}],generationConfig:{maxOutputTokens:1500,temperature:0,responseMimeType:'application/json'}})});
+    } finally { clearTimeout(timer); }
+    if(!res.ok){ let msg=res.status+''; try{ const j=await res.json(); msg=(j.error&&j.error.message)||msg; }catch(_){} throw new Error('AI呼び出し失敗: '+msg); }
+    const j=await res.json(); const c=j.candidates&&j.candidates[0];
+    const txt=(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim();
+    if(!txt) throw new Error('AIの応答が空でした。もう一度お試しください');
+    const d=pbParseJSON(txt);
+    // 入力済みの値は上書きしない（AIの応答でユーザーの入力を消さない）
+    const setIf=(id,val)=>{ if(val!=null&&String(val).trim()&&!$(id).value.trim()) $(id).value=String(val).trim(); };
+    setIf('ce_maker',d.maker); setIf('ce_model',d.carNameGuess); setIf('ce_katashiki',d.katashiki);
+    if(d.firstReg&&/^\d{4}-\d{2}$/.test(d.firstReg)&&!$('ce_firstReg').value) $('ce_firstReg').value=d.firstReg;
+    setIf('ce_regno',d.regNo); setIf('ce_frame',d.frameNo);
+    if(d.mileageKm!=null&&!$('ce_km').value) $('ce_km').value=String(d.mileageKm);
+    setIf('ce_kmDate',d.mileageDate);
+    st.textContent='読み取りました。内容をご確認ください'+(d.owner?('（所有者：'+d.owner+'）'):'')+'。';
+    ceRecalc();
+  }catch(e){ st.textContent=''; toast(e&&e.name==='AbortError'?'AI読み取りがタイムアウトしました（120秒）':(e.message||'読み取りに失敗しました'), true); }
+  finally{ btn.disabled=false; }
+}
+/* 「その他の財産」へ登録 */
+function ceRegister(){ if(!currentCase){ toast('案件がありません', true); return; }
+  const v=ceCalc();
+  if(v==null){ toast(ceMethod()==='market'?'査定額・相場額を入力してください':'新品小売価額と初度登録年月・課税時期を入力してください', true); return; }
+  const g=id=>($(id)&&$(id).value||'').trim();
+  const a=newAsset('other');
+  a.subcategory='自動車';
+  a.name=[g('ce_maker'),g('ce_model'),g('ce_katashiki')?('（型式 '+g('ce_katashiki')+'）'):''].filter(Boolean).join(' ')||'自動車';
+  a.location=[g('ce_regno')?('登録番号 '+g('ce_regno')):'',g('ce_frame')?('車台番号 '+g('ce_frame')):''].filter(Boolean).join('／');
+  a.quantity='1'; a.unitPrice=String(v);
+  a.memo=g('ce_basis');
+  a.carEval={ method:ceMethod(), maker:g('ce_maker'), model:g('ce_model'), katashiki:g('ce_katashiki'), firstReg:g('ce_firstReg'), regNo:g('ce_regno'), frameNo:g('ce_frame'), km:g('ce_km'), kmDate:g('ce_kmDate'), taxDate:g('ce_taxDate'),
+    mkt1:g('ce_mkt1'), src1:g('ce_src1'), mkt2:g('ce_mkt2'), src2:g('ce_src2'), newPrice:g('ce_newPrice'), life:g('ce_life'), value:v, basis:g('ce_basis') };
+  currentCase.assets.push(a);
+  currentAssetCat='other';
+  closeModal('carEvalModal');
+  renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
+  toast('自動車を「その他の財産」に登録しました（評価額 '+yen(v)+'）');
+}
 async function pbAnalyze(){
   if(!currentCase){ toast('案件がありません', true); return; }
   const label=pbCurrentLabel();
