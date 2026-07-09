@@ -5322,11 +5322,11 @@ function buildAgreement(){
     // 現金
     const cash=heldByCat(h,'cash').filter(a=>/現金/.test(a.subcategory||'')); if(cash.length){ let b=''; cash.forEach(a=>{ b+=re(F('内　容',a.name||'現金')+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'現金',b}); }
     // 生命保険金等
-    const ins=heldByCat(h,'insurance'); if(ins.length){ let b=''; ins.forEach(a=>{ b+=re(F('保険会社・種別',[a.subcategory,a.name].filter(Boolean).join(' '))+F('種　類',a.insType)+F('証券番号',a.accountNo)+F('受取人',a.nominee)+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'生命保険金等の受取権',b}); }
+    const ins=heldByCat(h,'insurance'); if(ins.length){ let b=''; ins.forEach(a=>{ b+=re(F('保険会社',a.name)+F('種　類',a.insType)+F('証券番号',a.accountNo)+F('受取人',a.nominee)+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'生命保険金等の受取権',b}); }
     // 退職手当金等
     const ret=heldByCat(h,'retirement'); if(ret.length){ let b=''; ret.forEach(a=>{ b+=re(F('種　別',a.subcategory)+F('支給者',a.name)+F('受取人',a.nominee)+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'退職手当金等',b}); }
     // その他
-    const oth=heldByCat(h,'other'); if(oth.length){ let b=''; oth.forEach(a=>{ b+=re(F('種　別',a.subcategory)+F('内　容',a.name)+F('所在・明細',a.location)+(a.quantity?F('数　量',num(a.quantity).toLocaleString('ja-JP')):'')+yenLine('金　額',allocAmt(a,h))); }); subs.push({t:'その他の財産',b}); }
+    const oth=heldByCat(h,'other'); if(oth.length){ let b=''; oth.forEach(a=>{ const noAmt=/家庭用財産|家財|自動車|自家用車|普通車|軽自動車|バイク|二輪/.test((a.subcategory||'')+(a.name||'')); b+=re(F('種　別',a.subcategory)+F('内　容',a.name)+F('所在・明細',a.location)+(noAmt?'':yenLine('金　額',allocAmt(a,h)))); }); subs.push({t:'その他の財産',b}); }
     return subs;
   }
   let sections=''; let cn=0;
@@ -5351,8 +5351,8 @@ function buildAgreement(){
     let lines=''; ds.forEach((a,i)=>{ const who=a.category==='debt'?[a.name,a.creditorAddr,a.location].filter(Boolean).join('　'):[a.name,a.location].filter(Boolean).join('　'); lines+='<div class="agr-sub-b">（'+(i+1)+'）'+esc(who)+'　'+num(allocAmt(a,h)).toLocaleString('ja-JP')+' 円</div>'; });
     sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（債務および葬式費用の承継）</div><p class="agr-lead">以下の債務を含む、被相続人の負担していた公租公課・未払医療費等の債務、および葬式費用の一切を相続人 '+esc(h.name)+' が負担する。</p>'+lines+'</div>'; });
   // 包括取得条項
-  cn++; const extraHeir=heirs.find(h=>h.id===currentCase.agreement.extraHeirId); const extraName=extraHeir?extraHeir.name:'相続人全員';
-  sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（包括取得条項）</div><p class="agr-lead">本協議書に記載のない遺産及び後日判明した遺産（未収年金等を含む）については、相続人 '+esc(extraName)+' がこれを取得する。</p></div>';
+  cn++;
+  sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（包括取得条項）</div><p class="agr-lead">本協議書に記載のない遺産及び後日判明した遺産については、改めて相続人全員で協議・分割を行う。</p></div>';
   if(currentCase.agreement.notes){ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（特記事項）</div><div class="agr-sub-b">'+esc(currentCase.agreement.notes).replace(/\n/g,'<br>')+'</div></div>'; }
 
   const dateStr=currentCase.agreement.date? toWarekiDate(currentCase.agreement.date) : '令和　　年　　月　　日';
@@ -5368,7 +5368,7 @@ function buildAgreement(){
     return '<div class="sig-area">'+sigs+'</div>'; };
   // 最終頁（押印ページ）: filled=false=自署用（空欄）、filled=true=参考用（印字済み）
   const lastPage=(filled,note)=> (note?'<div class="ref-note">'+note+'</div>':'')
-    +'<p class="closing">以上の協議を証するため、この協議書を作成し各自署名押印のうえ、各自1通保有する。</p>'
+    +'<p class="closing">前記のとおり相続人全員による遺産分割の協議が成立したので、これを証するためこの協議書を作成し各自署名押印する。</p>'
     +'<div class="date">'+dateStr+'</div>'
     +'<div style="margin-bottom:8px;">相続人</div>'
     +sigArea(filled);
