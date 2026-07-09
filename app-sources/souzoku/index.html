@@ -2626,9 +2626,10 @@ function mvGiftStatus(iso, deathDate){ if(!deathDate) return {added:false,cls:'g
   return {added:false,cls:'gray',anno:'生前贈与加算対象外'}; }
 // 内容欄から自動注記（〇〇へ生前贈与/…加算…）を取り除き、ユーザーが入力した本文だけを返す
 function mvGiftContentBase(content){ return String(content||'').replace(/^[^\/]*へ生前贈与\/[^\/]*(?:\/|$)/,''); }
-// 相続財産計上額 ＝ Σ（チェックした出金：生前贈与＋その他）。入金のみの行は反映しない
-function mvCellCounted(c){ return !!(c && (c.oMark==='gift'||c.oMark==='other')); }
-function mvRowConcl(r,accs){ let s=0; (accs||[]).forEach(a=>{ const c=(r.cells||{})[a.id]||{}; if(mvCellCounted(c)) s+=num(c.o); }); return s; }
+// 相続財産計上額 ＝ Σ（生前贈与のうち加算対象となるもの＋その他計上）。入金のみ・加算対象外の生前贈与は反映しない
+function mvGiftAdded(cell,rowDate){ if(!cell||cell.oMark!=='gift') return false; const dd=(currentCase.deceased&&currentCase.deceased.deathDate)?new Date(currentCase.deceased.deathDate):null; return !!mvGiftStatus(mvParseDate(rowDate),dd).added; }
+function mvCellCounted(c,rowDate){ if(!c) return false; if(c.oMark==='other') return true; if(c.oMark==='gift') return mvGiftAdded(c,rowDate); return false; }
+function mvRowConcl(r,accs){ let s=0; (accs||[]).forEach(a=>{ const c=(r.cells||{})[a.id]||{}; if(mvCellCounted(c,r.date)) s+=num(c.o); }); return s; }
 function mvConclDisp(v){ return v>0? yen(v) : '—'; }
 function recalcMvRow(r){
   const accs=movementAccounts(); r.concl=mvRowConcl(r,accs);
@@ -2663,6 +2664,7 @@ function syncMovementGifts(){ if(!currentCase) return;
   currentCase.assets=(currentCase.assets||[]).filter(a=>!a._fromMovement);
   const accs=movementAccounts(); const mv=currentCase.movement||{rows:[]};
   (mv.rows||[]).forEach(row=>{ accs.forEach(a=>{ const c=(row.cells||{})[a.id]; if(!c||c.oMark!=='gift'||!(num(c.o)>0)) return;
+    if(!mvGiftAdded(c,row.date)) return; // 生前贈与加算の対象外は財産一覧に連動しない
     const g=newAsset('gift'); g.regime='koyo'; g.giftRecipient=c.giftTo||''; g.giftDate=mvParseDate(row.date)||'';
     g.unitPrice=String(num(c.o)); g.quantity='1'; g.gDetail=row.content||''; g.name=row.content||'';
     g._fromMovement=true; g._mvRow=row.id; g._mvAcc=a.id; currentCase.assets.push(g); }); }); }
