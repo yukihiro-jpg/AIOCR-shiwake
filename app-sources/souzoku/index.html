@@ -2662,13 +2662,17 @@ function mvRefreshGiftContent(r){ const accs=movementAccounts(); const gc=accs.m
   r.content=(name?name+'へ生前贈与':'生前贈与')+'/'+st.anno+(base?'/'+base:''); }
 // 生前贈与としてチェックした出金を、財産一覧の生前贈与財産へ自動反映
 function syncMovementGifts(){ if(!currentCase) return;
+  // 既存の自動反映行のユーザー編集（種類・納付贈与税・確認事項・注記）を退避し、再生成後に引き継ぐ
+  const prev={}; (currentCase.assets||[]).forEach(a=>{ if(a._fromMovement) prev[a._mvRow+'|'+a._mvAcc]=a; });
   currentCase.assets=(currentCase.assets||[]).filter(a=>!a._fromMovement);
   const accs=movementAccounts(); const mv=currentCase.movement||{rows:[]};
   (mv.rows||[]).forEach(row=>{ accs.forEach(a=>{ const c=(row.cells||{})[a.id]; if(!c||c.oMark!=='gift'||!(num(c.o)>0)) return;
     if(!mvGiftAdded(c,row.date)) return; // 生前贈与加算の対象外は財産一覧に連動しない
     const g=newAsset('gift'); g.regime='koyo'; g.giftRecipient=c.giftTo||''; g.giftDate=mvParseDate(row.date)||'';
     g.unitPrice=String(num(c.o)); g.quantity='1'; g.gDetail=row.content||''; g.name=row.content||'';
-    g._fromMovement=true; g._mvRow=row.id; g._mvAcc=a.id; currentCase.assets.push(g); }); }); }
+    g._fromMovement=true; g._mvRow=row.id; g._mvAcc=a.id; g._mvDate=row.date||''; // 和暦の元表記（R6.2.14 等）を表示用に保持
+    const ex=prev[row.id+'|'+a.id]; if(ex){ g.id=ex.id; g.gKind=ex.gKind||''; g.giftTax=ex.giftTax||''; g.checkNote=ex.checkNote||''; g.checkResult=ex.checkResult||''; g.memo=ex.memo||''; }
+    currentCase.assets.push(g); }); }); }
 // 区分メニュー（金額右の「＋」ボタン → 計上しない／生前贈与→受贈者／その他計上）
 let _mvMenuCtx=null;
 function mvEnsureMenu(){ let m=$('mvMarkMenu'); if(!m){ m=document.createElement('div'); m.id='mvMarkMenu'; m.className='mv-mark-menu'; m.addEventListener('click',function(e){ e.stopPropagation(); }); document.body.appendChild(m);} return m; }
@@ -2893,19 +2897,22 @@ function giftTableHtml(items){
   let rows='';
   if(!items.length) rows='<tr><td colspan="14" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
-    if(a._fromMovement){ // 金融資産異動一覧表から自動反映（編集は同表で）。ここでは読み取り専用表示
+    if(a._fromMovement){ // 金融資産異動一覧表から自動反映。区分・受贈者・日付・価額は同表と連動（読み取り専用）、種類・納付贈与税・確認事項・注記は編集可
       const hn=(function(id){ const h=currentCase.heirs.find(x=>x.id===id); return h?(h.name||'(無名)'):'—'; })(a.giftRecipient);
       rows+='<tr style="background:#f6f9fe;">'
         +'<td>'+(a.regime==='seisan'?'相続時精算課税':'暦年課税')+'</td>'
         +'<td>'+esc(hn)+'</td>'
-        +'<td>'+esc(a.giftDate||'—')+'</td>'
-        +'<td></td><td>'+esc(a.gDetail||'')+'</td>'
+        +'<td title="贈与年月日は金融資産異動一覧表の日付と連動します">'+esc(a._mvDate||a.giftDate||'—')+'</td>'
+        +txtCell(a,'gKind','')
+        +'<td>'+esc(a.gDetail||'')+'</td>'
         +'<td class="num">'+(num(a.unitPrice)?num(a.unitPrice).toLocaleString('ja-JP'):'')+'</td>'
         +'<td class="num">1</td><td></td>'
         +'<td class="num">'+yen(assetVal(a))+'</td>'
-        +'<td></td><td></td>'
-        +'<td class="muted" style="font-size:11px;">金融資産異動表から自動反映（編集・削除は同表で）</td>'
-        +'<td></td><td></td>'
+        +moneyCell(a,'giftTax','')
+        +'<td></td>'
+        +txtCell(a,'memo','')
+        +checkNoteCell(a)
+        +'<td class="rowops"><span class="muted" style="font-size:11px;">異動表と連動</span></td>'
         +'</tr>';
       return;
     }
