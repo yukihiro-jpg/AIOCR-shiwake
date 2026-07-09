@@ -248,9 +248,9 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .heir-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;background:var(--surface-2);}
 .heir-card .heir-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
 .heir-card .heir-no{font-weight:700;font-size:14px;color:var(--ink-2);}
-.heir-card .grid{gap:8px 12px;}
+.heir-card .grid{gap:6px 10px;}
 .heir-card .field label{font-size:11.5px;}
-.heir-card input,.heir-card select{padding:7px 10px;}
+.heir-card input,.heir-card select{padding:6px 8px;}
 .tag-btn{border:1px solid var(--line-2);background:#fff;border-radius:980px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink-2);}
 .tag-btn.active.rep{background:var(--orange);border-color:var(--orange);color:#fff;}
 .tag-btn.active.hide{background:#8e8e93;border-color:#8e8e93;color:#fff;}
@@ -1771,7 +1771,7 @@ function updRiyo(id,el){
   // 入力中は欄を再描画しない（カーソルを維持）。状態バッジのみ即時更新
   const badge=$('riyo-st-'+id); if(badge){ const done=riyoHeirDone(s); badge.textContent=done?'登録済':'未登録'; badge.className='est'+(done?' done':''); }
 }
-function setRiyoMethod(id,method,checked){ const s=riyoState(currentCase,id); s.method=checked?method:''; cacheCurrentCase(); renderProgress(); }
+function setRiyoMethod(id,method,checked){ const s=riyoState(currentCase,id); s.method=checked?method:''; cacheCurrentCase(); renderProgress(); if($('heirsContainer')) renderHeirs(); }
 function progressSummary(c){
   let codes='',done=0;
   PROGRESS_STAGES.forEach(st=>{ const s=stageStatus(c,st.key); codes+=(s==='done'?'2':s==='doing'?'1':'0'); if(s==='done')done++; });
@@ -1839,17 +1839,15 @@ function evalSubHtml(){
 function riyoSubHtml(){
   const heirs=(currentCase.heirs||[]);
   if(!heirs.length) return '<div class="eval-sub"><div class="es-title">利用者識別番号（相続人ごと）</div><div class="muted" style="font-size:12px;">「基本情報」で相続人を登録すると、ここに相続人ごとの利用者識別番号の入力欄が表示されます。</div></div>';
-  let html='<div class="eval-sub"><div class="es-title">利用者識別番号（相続人ごと）</div>';
+  let html='<div class="eval-sub"><div class="es-title">利用者識別番号（相続人ごと）</div><div class="muted" style="font-size:12px;margin-bottom:8px;">入力は「基本情報」の相続人情報で行います。ここでは取得状況を表示します。</div>';
   heirs.forEach(h=>{
     const s=riyoState(currentCase,h.id);
-    const disp=riyoFmt(riyoNumOf(s));
+    const disp=riyoFmt(riyoNumOf(s))||'（未入力）';
     const done=riyoHeirDone(s);
+    const method=s.method==='agent'?'税理士代理取得':(s.method==='self'?'本人取得済み':'');
     html+='<div class="eval-row"><span class="en">'+esc(h.name||'(氏名未入力)')+'<span class="sub" style="margin-left:8px;">'+esc(relDisp(h))+'</span></span>'
-      +'<span class="riyo-input"><input id="riyo-'+h.id+'" class="riyo-full" type="text" inputmode="numeric" value="'+esc(disp)+'" oninput="updRiyo(\''+h.id+'\',this)" placeholder="利用者識別番号（半角数字16桁）" style="width:230px;letter-spacing:1px;"></span>'
-      +'<span class="riyo-method">'
-      +'<label class="riyo-skip"><input type="checkbox" '+(s.method==='agent'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'agent\',this.checked)">税理士代理取得</label>'
-      +'<label class="riyo-skip"><input type="checkbox" '+(s.method==='self'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'self\',this.checked)">本人取得済み</label>'
-      +'</span>'
+      +'<span style="font-variant-numeric:tabular-nums;letter-spacing:1px;">'+esc(disp)+'</span>'
+      +(method?'<span class="sub" style="margin-left:8px;">'+method+'</span>':'')
       +'<span class="est '+(done?'done':'')+'" id="riyo-st-'+h.id+'">'+(done?'登録済':'未登録')+'</span></div>';
   });
   html+='</div>';
@@ -2314,15 +2312,21 @@ function renderHeirs(){
       +'<button class="tag-btn rep '+(h.isRepresentative?'active':'')+'" onclick="toggleRep(\''+h.id+'\')">代表者</button>'
       +'<button class="tag-btn hide '+(h.hideFromContract?'active':'')+'" onclick="toggleHide(\''+h.id+'\')">契約書非表示</button>'
       +'<button class="btn red sm" style="margin-left:auto;" onclick="removeHeir(\''+h.id+'\')">削除</button></div>'
-      +'<div class="grid grid-3">'
+      +'<div class="grid grid-4">'
       +'<div class="field"><label>氏名</label><input type="text" value="'+esc(h.name)+'" oninput="updateHeir(\''+h.id+'\',\'name\',this.value)"></div>'
       +'<div class="field"><label>フリガナ</label><input type="text" value="'+esc(h.kana||'')+'" placeholder="例：ヤマダ ハナコ" oninput="updateHeir(\''+h.id+'\',\'kana\',this.value)"></div>'
       +'<div class="field"><label>続柄</label><select onchange="updateHeir(\''+h.id+'\',\'relationLabel\',this.value)">'+relTypeOptions(relDisp(h))+'</select></div>'
       +'<div class="field"><label>電話番号</label><input type="tel" value="'+esc(h.tel)+'" oninput="updateHeir(\''+h.id+'\',\'tel\',this.value)"></div>'
       +'<div class="field"><label>職業</label><input type="text" value="'+esc(h.job)+'" oninput="updateHeir(\''+h.id+'\',\'job\',this.value)"></div>'
       +'<div class="field"><label>相続開始日までの日数</label><input type="text" id="hdays-'+h.id+'" readonly value="'+heirDaysText(h)+'" style="background:var(--surface-2);"></div>'
-      +'<div class="field" style="grid-column:1/3;"><label>生年月日</label>'+birthSelects(h)+'</div>'
-      +'<div class="field" style="grid-column:1/4;"><label>住所</label><input type="text" value="'+esc(h.address)+'" oninput="updateHeir(\''+h.id+'\',\'address\',this.value)"></div>'
+      +'<div class="field" style="grid-column:span 2;"><label>生年月日</label>'+birthSelects(h)+'</div>'
+      +'<div class="field" style="grid-column:1/5;"><label>住所</label><input type="text" value="'+esc(h.address)+'" oninput="updateHeir(\''+h.id+'\',\'address\',this.value)"></div>'
+      +'<div class="field" style="grid-column:1/5;"><label>利用者識別番号（e-Tax）</label>'
+        +'<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">'
+        +'<input id="hriyo-'+h.id+'" type="text" inputmode="numeric" value="'+esc(riyoFmt(riyoNumOf(riyoState(currentCase,h.id))))+'" oninput="updRiyo(\''+h.id+'\',this)" placeholder="半角数字16桁" style="width:210px;letter-spacing:1px;">'
+        +'<label class="riyo-skip" style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;white-space:nowrap;"><input type="checkbox" style="width:auto;" '+(riyoState(currentCase,h.id).method==='agent'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'agent\',this.checked)">税理士代理取得</label>'
+        +'<label class="riyo-skip" style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;white-space:nowrap;"><input type="checkbox" style="width:auto;" '+(riyoState(currentCase,h.id).method==='self'?'checked':'')+' onchange="setRiyoMethod(\''+h.id+'\',\'self\',this.checked)">本人取得済み</label>'
+        +'</div></div>'
       +'</div>'
       +'<div class="grid grid-4" style="margin-top:8px;align-items:end;">'
       +'<label class="field" style="flex-direction:row;align-items:center;gap:8px;"><input type="checkbox" style="width:auto;" '+(h.isRenounced?'checked':'')+' onchange="updateHeirBool(\''+h.id+'\',\'isRenounced\',this.checked)"> <span class="lbl">相続放棄</span></label>'
