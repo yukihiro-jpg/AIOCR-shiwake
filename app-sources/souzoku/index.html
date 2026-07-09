@@ -2887,7 +2887,7 @@ function genericTableHtml(cat,items){
   const intSum=isCash?items.reduce((s,a)=>s+num(a.interest),0):0;
   const valColIdx=cols.findIndex(c=>c[2]==='value');
   const intColIdx=isCash?cols.findIndex(c=>c[0]==='interest'):-1;
-  let foot='<tr>'; cols.forEach((c,i)=>{ if(i===0) foot+='<td style="text-align:right;">計</td>'; else if(i===valColIdx) foot+='<td class="num" id="foot-'+cat+'">'+yen(valSum)+'</td>'; else if(i===intColIdx) foot+='<td class="num" id="foot-int-'+cat+'">'+yen(intSum)+'</td>'; else foot+='<td></td>'; }); foot+='<td></td><td></td></tr>';
+  let foot='<tr>'; cols.forEach((c,i)=>{ if(i===0) foot+='<td style="text-align:right;">計</td>'; else if(i===valColIdx) foot+='<td class="num" id="foot-'+cat+'" style="text-align:right;padding-right:15px;">'+yen(valSum)+'</td>'; else if(i===intColIdx) foot+='<td class="num" id="foot-int-'+cat+'" style="text-align:right;padding-right:15px;">'+yen(intSum)+'</td>'; else foot+='<td></td>'; }); foot+='<td></td><td></td></tr>';
   const minw=Math.max(560,cols.length*120+180);
   return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:'+minw+'px;"><thead><tr>'+head+'</tr></thead><tbody>'+rows+'</tbody><tfoot>'+foot+'</tfoot></table></div>';
 }
