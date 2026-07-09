@@ -355,8 +355,8 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .mv-add-btn.set-gift{background:#1a7f37;font-size:12px;}
 .mv-add-btn.set-other{background:#1558d6;font-size:12px;}
 .mv-out{display:flex;align-items:center;gap:4px;}
-.mv-table td.mv-cell{padding:4px 6px;}
-.mv-table input.mv-in{padding:4px 6px;box-sizing:border-box;}
+.mv-table td.mv-cell{padding:3px 4px;}
+.mv-table input.mv-in{padding:3px 4px;box-sizing:border-box;}
 .mv-mark-menu{position:fixed;z-index:9999;background:#fff;border:1px solid #cfd6e0;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:4px;min-width:150px;max-height:280px;overflow:auto;display:none;}
 .mv-mark-menu .mv-menu-hd{font-size:11px;color:#888;padding:4px 8px 2px;}
 .mv-mark-menu .mv-menu-empty{font-size:12px;color:#888;padding:6px 8px;}
@@ -2701,13 +2701,13 @@ function movementTableHtml(){
     +'</thead>';
   let body='';
   (mv.rows||[]).forEach(row=>{ row.cells=row.cells||{}; row.concl=mvRowConcl(row,accs);
-    body+='<tr><td class="mv-frozen"><input type="text" class="mv-in" value="'+esc(row.date||'')+'" placeholder="R3.1.6" style="width:76px;" oninput="updMovementField(\''+row.id+'\',\'date\',this.value)"></td>'
+    body+='<tr><td class="mv-frozen"><input type="text" class="mv-in" value="'+esc(row.date||'')+'" placeholder="R3.1.6" style="width:60px;" oninput="updMovementField(\''+row.id+'\',\'date\',this.value)"></td>'
       +accs.map(a=>{ const cell=row.cells[a.id]||{}; const mark=cell.oMark||'';
-        const inCell='<td class="mv-cell" style="border-left:2px solid var(--line-2);"><input type="text" class="num mv-in" inputmode="numeric" style="width:78px;" value="'+(num(cell.i)?num(cell.i).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'i\',this)"></td>';
+        const inCell='<td class="mv-cell" style="border-left:2px solid var(--line-2);"><input type="text" class="num mv-in" inputmode="numeric" style="width:76px;" value="'+(num(cell.i)?num(cell.i).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'i\',this)"></td>';
         const btnCls=mark==='gift'?'set-gift':(mark==='other'?'set-other':'');
         const btnLab=mark==='gift'?'贈':(mark==='other'?'他':'+');
         const btnTitle=mark==='gift'?'生前贈与（クリックで変更）':(mark==='other'?'その他計上（クリックで変更）':'計上区分を選ぶ');
-        const outCell='<td class="mv-cell"><div class="mv-out"><input type="text" class="num mv-in" inputmode="numeric" style="width:78px;" value="'+(num(cell.o)?num(cell.o).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'o\',this)"><button type="button" class="mv-add-btn '+btnCls+'" title="'+btnTitle+'" onclick="mvToggleMarkMenu(event,\''+row.id+'\',\''+a.id+'\')">'+btnLab+'</button></div></td>';
+        const outCell='<td class="mv-cell"><div class="mv-out"><input type="text" class="num mv-in" inputmode="numeric" style="width:76px;" value="'+(num(cell.o)?num(cell.o).toLocaleString('ja-JP'):'')+'" oninput="onMvCellInput(\''+row.id+'\',\''+a.id+'\',\'o\',this)"><button type="button" class="mv-add-btn '+btnCls+'" title="'+btnTitle+'" onclick="mvToggleMarkMenu(event,\''+row.id+'\',\''+a.id+'\')">'+btnLab+'</button></div></td>';
         return inCell+outCell; }).join('')
       +'<td class="num"><span id="mvconcl-'+row.id+'" class="mv-concl'+(row.concl>0?' pos':'')+'">'+mvConclDisp(row.concl)+'</span></td>'
       +'<td><input type="text" id="mvcontent-'+row.id+'" value="'+esc(row.content||'')+'" style="min-width:220px;width:100%;box-sizing:border-box;" placeholder="内容（例：生前贈与・口座解約 等）" oninput="updMovementField(\''+row.id+'\',\'content\',this.value)"></td>'
