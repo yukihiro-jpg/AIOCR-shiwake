@@ -42,7 +42,8 @@ export function payrollBalanceCheck(
     if (['支給合計額', '課税分合計', '控除合計額'].includes(h)) continue // 集計列は対象外
     const t = sumItem(h)
     if (itemAccounts[h]?.code) debitTotal += t
-    else if (t > 0 && h === '非課税額') unmapped.push({ name: h, amount: t }) // 非課税は要マッピング（通勤手当等）
+    // 非課税支給（通勤手当等）は課税分合計に含まれないため要マッピング。「(非)通勤費」等の表記にも対応
+    else if (t > 0 && (h === '非課税額' || /非課税|^[（(]非[）)]/.test(h))) unmapped.push({ name: h, amount: t })
   }
   let creditTotal = 0
   for (const h of data.deductHeaders) {
@@ -123,12 +124,13 @@ export function payrollToEntries(
     for (const emp of data.employees) {
       total += emp.items.find((i) => i.name === h)?.amount || 0
     }
-    if (total > 0) {
-      lines.push({ name: h, amount: total, isDebit: true, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+    // マイナスの支給項目（控除的な調整）は貸方へ振り替えて貸借を保つ
+    if (total !== 0) {
+      lines.push({ name: h, amount: Math.abs(total), isDebit: total > 0, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
     }
   }
 
-  // 控除項目で科目設定済みのもの（貸方）
+  // 控除項目で科目設定済みのもの（貸方。社会保険修正・年末調整還付などのマイナス合計は借方へ振り替える）
   for (const h of data.deductHeaders) {
     const acc = itemAccounts[h]
     if (!acc?.code) continue
@@ -137,18 +139,18 @@ export function payrollToEntries(
       // 補助科目ごと（個人別）：金額がある従業員だけ、各人の補助科目で1行ずつ（摘要に氏名）
       for (const emp of data.employees) {
         const amt = emp.items.find((i) => i.name === h)?.amount || 0
-        if (amt <= 0) continue
+        if (amt === 0) continue
         const key = payrollPersonKey(emp, data.employees)
         const sub = perPerson[key] || perPerson[emp.name] || { subCode: acc.subCode || '', subName: acc.subName || '' }
-        lines.push({ name: `${h} ${key}`, amount: amt, isDebit: false, code: acc.code, accName: acc.name, subCode: sub.subCode || '', subName: sub.subName || '' })
+        lines.push({ name: `${h} ${key}`, amount: Math.abs(amt), isDebit: amt < 0, code: acc.code, accName: acc.name, subCode: sub.subCode || '', subName: sub.subName || '' })
       }
     } else {
       let total = 0
       for (const emp of data.employees) {
         total += emp.items.find((i) => i.name === h)?.amount || 0
       }
-      if (total > 0) {
-        lines.push({ name: h, amount: total, isDebit: false, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
+      if (total !== 0) {
+        lines.push({ name: h, amount: Math.abs(total), isDebit: total < 0, code: acc.code, accName: acc.name, subCode: acc.subCode || '', subName: acc.subName || '' })
       }
     }
   }
