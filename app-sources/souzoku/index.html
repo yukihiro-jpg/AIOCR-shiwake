@@ -3611,6 +3611,10 @@ function renderTaxBreakdown(){
     ['純資産価額', h=>num(P(h).netAsset), true],
     ['暦年課税分の贈与財産価額', h=>num(P(h).giftKeiAdd), false],
     ['課税価格(千円未満切捨)', h=>num(P(h).taxableR), true],
+    ['算出税額', h=>num(P(h).base), false],
+    ['2割加算', h=>num(P(h).surchargeAmt), false],
+    ['税額控除等', h=>-num(P(h).credits), false],
+    ['納付税額', h=>num(P(h).final), true],
   ];
   const fmtv=v=>{ v=Math.round(v)||0; return v<0?'△'+Math.abs(v).toLocaleString('ja-JP'):v.toLocaleString('ja-JP'); };
   let head='<tr><th class="l">課税価格の計算（第1表）</th><th>合計</th>'+heirs.map(h=>'<th>'+esc(h.name||'(無名)')+'</th>').join('')+'</tr>';
