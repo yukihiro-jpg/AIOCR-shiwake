@@ -947,10 +947,15 @@ function gensenAzukari(pages: ClassifiedPage[]): { main: number | null; section:
     }
     // 下段: 源泉所得税預り金の内訳（左右2列の期末現在高）
     if (secTop != null) {
+      // 終端は下の（注）行まで（行数が多い場合に固定幅だと最終行を取りこぼすため）
+      let secEnd = secTop + 260
+      for (const l of p.lines) {
+        if (l.y > secTop + 10 && /「所得の種類」欄には/.test(normText(l))) { secEnd = l.y - 5; break }
+      }
       let s = 0
       let found = false
       for (const l of p.lines) {
-        if (l.y < secTop + 10 || l.y > secTop + 160) continue
+        if (l.y < secTop + 10 || l.y > secEnd) continue
         for (const t of l.toks) {
           if (!isStrictAmountTok(t)) continue
           if ((t.x >= 250 && t.x <= 312) || (t.x >= 505 && t.x <= 575)) { s += parseAmount(t.s); found = true }
@@ -1182,7 +1187,25 @@ const GAIKYO_FIELDS: GaikyoField[] = [
   { label: '税引前当期損益', re: /税引前当期損益/, side: 'right' },
   { label: '土地', re: /土地$/, side: 'right' },
   { label: 'その他借入金', re: /その他借入金/, side: 'right' },
+  { label: '個人借入金', re: /個人借入金/, side: 'right' },
 ]
+
+/** ラベル行の指定x範囲で1マス1桁数字を結合。様式によってはラベルと数字マスの
+ *  y座標が僅かにずれて別行にグループ化されるため、同一行に無ければ近傍行（±9px）も探す */
+function joinDigitsNear(p: Page, l: Line, xMin: number, xMax: number): number | null {
+  const v = joinDigits(l, xMin, xMax)
+  if (v != null) return v
+  let best: { d: number; v: number } | null = null
+  for (const l2 of p.lines) {
+    if (l2 === l) continue
+    const d = Math.abs(l2.y - l.y)
+    if (d > 9) continue
+    const v2 = joinDigits(l2, xMin, xMax)
+    if (v2 == null) continue
+    if (!best || d < best.d) best = { d, v: v2 }
+  }
+  return best ? best.v : null
+}
 
 function extractGaikyo(pages: ClassifiedPage[]): Map<string, number> {
   const out = new Map<string, number>()
@@ -1202,11 +1225,11 @@ function extractGaikyo(pages: ClassifiedPage[]): Map<string, number> {
       for (const f of GAIKYO_FIELDS) {
         if (out.has(f.label)) continue
         if (f.side === 'left' && f.re.test(leftLabel)) {
-          const v = joinDigits(l, 210, 310)
+          const v = joinDigitsNear(p, l, 210, 310)
           if (v != null) out.set(f.label, v)
         }
         if (f.side === 'right' && f.re.test(rightLabel)) {
-          const v = joinDigits(l, 465, 565)
+          const v = joinDigitsNear(p, l, 465, 565)
           if (v != null) out.set(f.label, v)
         }
       }
@@ -1851,7 +1874,13 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     gkCheck('特別利益', '特別利益', '特別利益合計', fsGet(pool, '特別利益合計'))
     gkCheck('税引前当期損益', '税引前当期損益', '税引前当期純利益', fsGet(pool, '税引前当期純利益', '税引前当期純損失'))
     gkCheck('土地', '土地', '土地', fsGet(pool, '土地'))
-    gkCheck('借入金', 'その他借入金', '短期借入金＋長期借入金', fsSum(pool, ['短期借入金', '長期借入金', '借入金']))
+    // 借入金は「その他借入金＋個人借入金」の合計で決算書と照合（どちらか片方のみ記載の様式もある）
+    {
+      const sonota = gk.has('その他借入金') ? gk.get('その他借入金')! : null
+      const kojin = gk.has('個人借入金') ? gk.get('個人借入金')! : null
+      if (sonota != null || kojin != null) gk.set('その他借入金＋個人借入金', (sonota || 0) + (kojin || 0))
+      gkCheck('借入金', 'その他借入金＋個人借入金', '短期借入金＋長期借入金', fsSum(pool, ['短期借入金', '長期借入金', '借入金']))
+    }
   }
 
   // 概況説明書「11 代表者に対する報酬等の金額」⇔ 各内訳書の代表者分（千円・±1千円許容）
