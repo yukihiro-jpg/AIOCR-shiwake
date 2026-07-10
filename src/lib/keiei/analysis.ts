@@ -396,6 +396,38 @@ export function repaymentSolve(ctx: RepayContext, plannedRepay: number, opSim: n
   }
 }
 
+// ===== 利益ブリッジ（前年同期→当期の営業利益の増減要因分解） =====
+// 恒等式: 当期営業利益 ＝ 前年営業利益 ＋ 売上増減×前年粗利率 ＋ 当期売上×粗利率変化 − 販管費増減
+// （営業利益＝売上総利益−販管費 の構造から残差なしで分解できる）
+export interface BridgeStep { label: string; delta: number }
+export interface ProfitBridge { preOp: number; curOp: number; steps: BridgeStep[] }
+export function profitBridge(fy: FiscalYearData, prior: FiscalYearData | null, monthIdx: number): ProfitBridge | null {
+  if (!prior) return null
+  const idx = Math.min(monthIdx, prior.lastFilledIndex)
+  const cur = plKpisYtdLocal(fy, monthIdx)
+  const pre = plKpisYtdLocal(prior, idx)
+  if (!pre.sales && !pre.op && !cur.sales) return null
+  const preGM = pre.sales ? pre.gross / pre.sales : 0
+  const curGM = cur.sales ? cur.gross / cur.sales : 0
+  return {
+    preOp: pre.op,
+    curOp: cur.op,
+    steps: [
+      { label: '売上の増減', delta: (cur.sales - pre.sales) * preGM },
+      { label: '粗利率の変化', delta: cur.sales * (curGM - preGM) },
+      { label: '販管費の増減', delta: -(cur.sgna - pre.sgna) },
+    ],
+  }
+}
+function plKpisYtdLocal(fy: FiscalYearData, monthIdx: number) {
+  return {
+    sales: ytd(fy, CODES.sales, monthIdx),
+    gross: ytd(fy, CODES.grossProfit, monthIdx),
+    sgna: ytd(fy, CODES.sgna, monthIdx),
+    op: ytd(fy, CODES.opProfit, monthIdx),
+  }
+}
+
 // ===== 着地見込み（複数シナリオ） =====
 export type ScenarioKey = 'conservative' | 'standard' | 'optimistic'
 export interface Landing { key: ScenarioKey; label: string; sales: number; opProfit: number; ordProfit: number }

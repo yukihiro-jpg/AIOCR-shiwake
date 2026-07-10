@@ -120,7 +120,9 @@ export function budgetVsActual(
   const salesLanding = std ? std.sales : null
   const opLanding = std ? std.opProfit : null
 
-  const rate = (a: number, b: number): number | null => (b === 0 ? null : (a / b) * 100)
+  // 予算が0以下（季節性で期首の営業利益予算がマイナスの月など）のとき、達成率%は
+  // 発散・符号逆転して誤解を招くため出さない（表示側は差額で示す）
+  const rate = (a: number, b: number): number | null => (b <= 0 ? null : (a / b) * 100)
 
   const lines: BudgetLine[] = [
     { label: '売上高', budgetYtd: salesBudgetYtd, actualYtd: act.sales, achieveYtd: rate(act.sales, salesBudgetYtd), budgetFull: salesFull, landingFull: salesLanding },

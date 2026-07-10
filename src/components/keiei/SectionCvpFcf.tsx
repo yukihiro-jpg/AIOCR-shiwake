@@ -381,7 +381,11 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
             </tbody>
           </table>
         </div>
-        <div className="text-[11px] text-gray-400 mt-2">※ 運転資本＝売上債権＋棚卸資産−仕入債務。営業CF＝税引後利益＋減価償却費−運転資本の増加。投資支出（設備投資）は本データから把握できないため含みません。</div>
+        <div className="text-[11px] text-gray-400 mt-2">
+          ※ 運転資本＝売上債権＋棚卸資産−仕入債務。営業CF＝税引後利益＋減価償却費−運転資本の増加。投資支出（設備投資）は本データから把握できないため含みません。<br />
+          ※ 「資金繰り・安全性」タブの簡易CF（税引後利益＋減価償却）は運転資本の増減を含まないため、この営業CFとは金額が一致しません。
+          {!fcf.hasPrior && <><br />※ 前期データがないため、第1月末の残高を期首とみなして計算しています（第1月中の増減は反映されません）。</>}
+        </div>
       </Section>
 
       {/* 4. 変動費／固定費の分類 */}

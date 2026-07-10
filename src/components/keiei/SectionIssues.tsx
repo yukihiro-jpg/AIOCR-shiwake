@@ -166,7 +166,7 @@ export default function SectionIssues({ fy, monthIdx, yearId, settings, onSettin
       </Section>
 
       {/* 労働分配率 */}
-      <Section title="労働分配率（人件費 ÷ 粗利）" note="昇給・賞与・採用の判断材料。目安：50%前後が健全、60%超は警戒">
+      <Section title="労働分配率（人件費 ÷ 粗利）" note="昇給・賞与・採用の判断材料。目安：50%前後が健全、60%超は警戒。人件費に外注費・派遣費は含みません">
         {labor.share == null ? (
           <div className="text-sm text-gray-500 py-4 text-center">人件費に該当する科目（役員報酬・給料手当・法定福利費など）が試算表から見つからないか、粗利がマイナスのため計算できません。</div>
         ) : (

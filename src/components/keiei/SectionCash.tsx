@@ -68,7 +68,8 @@ export default function SectionCash({ fy, monthIdx, settings, onSettingsChange, 
         <div className="mt-2 text-xs text-gray-500 leading-relaxed">
           実効税率 <b>{fmtPct(s.taxRate * 100)}</b>（中小法人・所得連動の概算）で税引後利益を算定し、減価償却費を加えた簡易CFです。
           金融機関有利子負債 <b>{fmtShort(s.loans)}</b>、リース債務 <b>{fmtShort(s.leases)}</b>、現預金 <b>{fmtShort(s.cash)}</b>、月商 <b>{fmtShort(s.monthlySales)}</b>。
-          債務償還年数は「有利子負債 ÷ 年間簡易CF」。一般に10年以内が目安です。
+          債務償還年数は「有利子負債 ÷ 年間簡易CF」。一般に10年以内が目安です。<br />
+          ※ この簡易CFは売掛金・在庫・買掛金（運転資本）の増減を含みません。回収や在庫の影響まで含めた営業CFは「損益分岐点・FCF分析」タブのFCF計算書をご覧ください（定義が異なるため両者の金額は一致しません）。
         </div>
       </Section>
 

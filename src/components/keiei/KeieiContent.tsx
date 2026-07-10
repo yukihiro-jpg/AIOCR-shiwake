@@ -14,9 +14,9 @@ import {
   sortedYears, findPriorYear,
 } from '@/lib/keiei/calc'
 import { fmtYen, fmtShort, fmtPct, fmtPctSigned } from '@/lib/keiei/format'
-import { ComboBarLine, GroupedBars } from './charts'
+import { ComboBarLine, GroupedBars, Waterfall, Bullet, HBars } from './charts'
 import { saveSettings, subscribeSettings } from '@/lib/keiei/store'
-import { defaultSettings, type KeieiSettings } from '@/lib/keiei/analysis'
+import { defaultSettings, cvp, safety, profitBridge, landingScenarios, detailsOf, rowYtd, type KeieiSettings } from '@/lib/keiei/analysis'
 import SectionDetail from './SectionDetail'
 import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
 import SectionCash from './SectionCash'
@@ -25,6 +25,7 @@ import SectionBudget from './SectionBudget'
 import SectionIssues from './SectionIssues'
 import { StoryBody } from './StoryCard'
 import { buildSummaryStory } from '@/lib/keiei/narrative'
+import { detectIssues, laborShare } from '@/lib/keiei/issues'
 
 type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget'
 
@@ -497,6 +498,153 @@ export default function KeieiContent() {
   )
 }
 
+// ============ 社長の1枚（意思決定ダッシュボード） ============
+// 「3つの大きな数字」「信号機スコアカード」「ゲージ3本」「利益ブリッジ」「主要指標3期比較」「増えた経費トップ5」を
+// A4一枚感覚でまとめる。数字は万円・億円の概数（詳細な円単位は各タブ・付録の表が担保）。
+function Dashboard({ fy, prior, monthIdx, years, settings }: {
+  fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number
+  years: Record<string, FiscalYearData>; settings: KeieiSettings
+}) {
+  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
+  const single = plKpisSingle(fy, monthIdx)
+  const priorIdx = prior ? Math.min(monthIdx, prior.lastFilledIndex) : 0
+  const pSingle = prior ? plKpisSingle(prior, priorIdx) : null
+  const s = useMemo(() => safety(fy, monthIdx, settings), [fy, monthIdx, settings])
+  const c = useMemo(() => cvp(fy, monthIdx, settings), [fy, monthIdx, settings])
+  const labor = useMemo(() => laborShare(years, fy, monthIdx), [years, fy, monthIdx])
+  const land = useMemo(() => landingScenarios(years, fy), [years, fy])
+  const bridge = useMemo(() => profitBridge(fy, prior, monthIdx), [fy, prior, monthIdx])
+  const budget = settings.budgets?.[fy.id]
+  const issuesResult = useMemo(() => {
+    try { return detectIssues({ years, fy, monthIdx, settings, yearId: fy.id, budget }) } catch { return null }
+  }, [years, fy, monthIdx, settings, budget])
+
+  const std = land.scenarios.find((x) => x.key === 'standard') || land.scenarios[0]
+  const opBudgetFull = budget && budget.sales > 0 ? budget.sales * (budget.grossMargin / 100) - budget.sgna : null
+  const priorFullOp = prior ? (getRow(prior, CODES.opProfit)?.annual ?? null) : null
+  const landCompare = opBudgetFull != null
+    ? { label: '予算比', diff: std.opProfit - opBudgetFull }
+    : priorFullOp != null ? { label: '前期比', diff: std.opProfit - priorFullOp } : null
+
+  // 増えた経費トップ5（販管費の明細を前年同期のYTDと比較）
+  const sgnaUp = useMemo(() => {
+    if (!prior) return []
+    const preMap = new Map<string, number>()
+    for (const a of detailsOf(prior, CODES.sgna)) preMap.set(a.name.trim(), rowYtd(a, priorIdx))
+    return detailsOf(fy, CODES.sgna)
+      .map((a) => { const cur = rowYtd(a, monthIdx); const pre = preMap.get(a.name.trim()) ?? 0; return { label: a.name.trim(), value: cur - pre, cur, pre } })
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5)
+  }, [fy, prior, monthIdx, priorIdx])
+
+  const opYoy = pSingle ? yoyInfo(single.opProfit, pSingle.opProfit) : null
+  const bepRatio = c.sales > 0 && c.bep > 0 ? (c.bep / c.sales) * 100 : null
+
+  const BigCard = ({ label, main, sub, tone }: { label: string; main: React.ReactNode; sub?: React.ReactNode; tone?: 'good' | 'bad' | null }) => (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="text-[13px] font-semibold text-gray-500 mb-1.5">{label}</div>
+      <div className={`text-[34px] leading-none font-extrabold tabular-nums ${tone === 'bad' ? 'text-red-600' : 'text-gray-900'}`}>{main}</div>
+      {sub && <div className="text-[12.5px] mt-2">{sub}</div>}
+    </div>
+  )
+  const sevChip = (sev: 'danger' | 'warn' | 'good') =>
+    sev === 'danger' ? 'bg-red-50 text-red-700 border-red-200' : sev === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-green-50 text-green-700 border-green-200'
+  const sevIcon = (sev: 'danger' | 'warn' | 'good') => (sev === 'danger' ? '🔴' : sev === 'warn' ? '🟡' : '🟢')
+
+  return (
+    <div className="bg-gradient-to-b from-[#f7f9fc] to-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+      <div className="flex items-baseline gap-3 mb-4">
+        <h2 className="text-[16px] font-extrabold text-gray-900">社長の1枚</h2>
+        <span className="text-xs text-gray-400">{fy.label} {monthLabel}時点 ／ 金額は概数（詳細は各タブの表）</span>
+      </div>
+
+      {/* ① 3つの大きな数字 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <BigCard label={`今月の営業利益（${monthLabel}単月）`}
+          main={fmtShort(single.opProfit)}
+          tone={single.opProfit < 0 ? 'bad' : null}
+          sub={opYoy ? (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold ${opYoy.tone === 'good' ? 'bg-green-100 text-green-700' : opYoy.tone === 'bad' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+              {opYoy.tone === 'good' ? '▲' : opYoy.tone === 'bad' ? '▼' : '－'} 前年同月比 {opYoy.label}
+            </span>
+          ) : <span className="text-gray-400">前年データなし</span>} />
+        <BigCard label={land.partial ? '通期の着地見込み（営業利益・標準）' : '通期の営業利益（確定）'}
+          main={fmtShort(std.opProfit)}
+          tone={std.opProfit < 0 ? 'bad' : null}
+          sub={landCompare ? (
+            <span className={landCompare.diff >= 0 ? 'text-green-700 font-bold' : 'text-red-600 font-bold'}>
+              {landCompare.label} {landCompare.diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(landCompare.diff))}
+            </span>
+          ) : <span className="text-gray-400">売上見込み {fmtShort(std.sales)}</span>} />
+        <BigCard label="手元資金（現預金）"
+          main={s.monthlySales > 0 ? `月商 ${s.liquidityMonths.toFixed(1)}か月分` : fmtShort(s.cash)}
+          tone={s.monthlySales > 0 && s.liquidityMonths < 1 ? 'bad' : null}
+          sub={<span className="text-gray-500">残高 {fmtShort(s.cash)}（目安：2〜3か月分）</span>} />
+      </div>
+
+      {/* ② 信号機スコアカード */}
+      {issuesResult && issuesResult.issues.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-[13px] font-bold text-gray-700">今月の信号</span>
+            <span className="text-[12px] text-gray-500">
+              🔴 {issuesResult.issues.filter((i) => i.severity === 'danger').length}　🟡 {issuesResult.issues.filter((i) => i.severity === 'warn').length}　🟢 {issuesResult.issues.filter((i) => i.severity === 'good').length}
+              　<span className="text-gray-400">詳細は「経営課題」タブへ</span>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {issuesResult.issues.map((i, n) => (
+              <span key={n} className={`px-2.5 py-1 rounded-full border text-[12px] font-semibold ${sevChip(i.severity)}`}>{sevIcon(i.severity)} {i.category}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ③ ゲージ3本 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-1 mb-4 bg-white rounded-xl border border-gray-200 p-4">
+        {bepRatio != null && (
+          <Bullet title="損益分岐点比率" valueLabel={`${bepRatio.toFixed(0)}%`} value={Math.min(bepRatio, 120)} max={120}
+            zones={[{ to: 75, color: '#bfe6c8', label: '安全(〜75%)' }, { to: 90, color: '#fbe8b6', label: '注意(〜90%)' }, { to: 120, color: '#f6c6c2', label: '危険(90%〜)' }]}
+            subtitle="売上があと何%落ちたら赤字か（低いほど安全）" />
+        )}
+        {labor.share != null && (
+          <Bullet title="労働分配率" valueLabel={`${labor.share.toFixed(0)}%`} value={Math.min(labor.share, 100)} max={100}
+            zones={[{ to: 50, color: '#bfe6c8', label: '健全(〜50%)' }, { to: 60, color: '#e8f0d8', label: '' }, { to: 70, color: '#fbe8b6', label: '警戒(60〜70%)' }, { to: 100, color: '#f6c6c2', label: '危険(70%〜)' }]}
+            subtitle="粗利のうち人件費が占める割合（外注費・派遣費は含まない）" />
+        )}
+        {s.monthlySales > 0 && (
+          <Bullet title="手元資金の月商倍率" valueLabel={`${s.liquidityMonths.toFixed(1)}か月`} value={Math.min(s.liquidityMonths, 6)} max={6}
+            zones={[{ to: 1, color: '#f6c6c2', label: '危険(〜1)' }, { to: 2, color: '#fbe8b6', label: '注意(〜2)' }, { to: 3, color: '#e8f0d8', label: '' }, { to: 6, color: '#bfe6c8', label: '安心(3〜)' }]}
+            subtitle="現預金が月商の何か月分あるか（多いほど安心）" />
+        )}
+      </div>
+
+      {/* ④ 利益ブリッジ（前年同期→当期） */}
+      {bridge && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-[13px] font-bold text-gray-700">なぜ利益が変わったか（前年同期 → 当期・期首〜{monthLabel}累計）</span>
+            <span className="text-[11px] text-gray-400">緑＝利益を押し上げた要因／赤＝押し下げた要因</span>
+          </div>
+          <Waterfall startLabel="前年の営業利益" startValue={bridge.preOp} steps={bridge.steps} endLabel="当期の営業利益" endValue={bridge.curOp} />
+        </div>
+      )}
+
+      {/* ⑤ 増えた経費トップ5 */}
+      {sgnaUp.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-[13px] font-bold text-gray-700">前年より増えた経費トップ5（期首〜{monthLabel}累計）</span>
+            <span className="text-[11px] text-gray-400">棒＝増加額。科目別の明細は「明細・経費」タブへ</span>
+          </div>
+          <HBars items={sgnaUp.map((x) => ({ label: x.label, value: x.value, sub: x.pre > 0 ? `+${(((x.cur - x.pre) / x.pre) * 100).toFixed(0)}%` : '新規' }))} color="#d97706" />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============ 概要（経営サマリー＋単月業績＋推移グラフ） ============
 function Overview({ fy, prior, monthIdx, years, settings, clientId }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number; years: Record<string, FiscalYearData>; settings: KeieiSettings; clientId: string }) {
   const single = plKpisSingle(fy, monthIdx)
@@ -509,6 +657,7 @@ function Overview({ fy, prior, monthIdx, years, settings, clientId }: { fy: Fisc
   const baseStory = useMemo(() => buildSummaryStory(fy, prior, monthIdx, years, settings), [fy, prior, monthIdx, years, settings])
   return (
     <div className="space-y-5">
+      <Dashboard fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} />
       <SummaryStory baseStory={baseStory} storyKey={`${clientId}__${fy.id}__${monthIdx}`} />
       <Section title={`${fy.label}　${monthLabel}（単月）の業績`} note={prior ? '各カード下段に前年同月比を表示' : '前年のデータを取り込むと前年同月比を表示します'}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

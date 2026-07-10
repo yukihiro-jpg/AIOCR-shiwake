@@ -178,7 +178,9 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
                     <td className={`px-3 py-2 text-right tabular-nums font-bold ${l.actualYtd < 0 ? 'text-red-600' : 'text-gray-900'}`}>{fmtYen(l.actualYtd)}</td>
                     <td className={`px-3 py-2 text-right tabular-nums font-bold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>{diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(diff))}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {l.achieveYtd == null ? '—' : <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${l.achieveYtd >= 100 ? 'bg-green-100 text-green-700' : l.achieveYtd >= 90 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>{l.achieveYtd.toFixed(0)}%</span>}
+                      {l.achieveYtd == null
+                        ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-600" title="予算が0またはマイナスのため達成率は表示せず、差額で評価します">差額{diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(diff))}</span>
+                        : <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${l.achieveYtd >= 100 ? 'bg-green-100 text-green-700' : l.achieveYtd >= 90 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>{l.achieveYtd.toFixed(0)}%</span>}
                     </td>
                   </tr>
                 )
@@ -193,7 +195,7 @@ export default function SectionBudget({ fy, monthIdx, yearId, settings, onSettin
             colors={['#94a3b8', '#1a73e8']}
           />
         </div>
-        <div className="text-[11px] text-gray-400 mt-2">※ 予算(YTD)＝通期予算 × 進捗（売上・粗利は季節性配分、販管費は月数按分 {va.months}/12）。達成率＝実績÷予算。</div>
+        <div className="text-[11px] text-gray-400 mt-2">※ 予算(YTD)＝通期予算 × 進捗（売上・粗利は季節性配分、販管費は月数按分 {va.months}/12）。達成率＝実績÷予算。予算が0以下の指標は達成率が意味を持たないため、差額バッジで表示します。</div>
       </Section>
 
       {/* 月次の予実推移（棒グラフ） */}

@@ -50,14 +50,14 @@ export function buildSummaryStory(
 
   // 結果（単月＋累計）
   L.push(
-    `【今月の結果】${monthLabel}単月の売上は **${man(s.sales)}**、粗利率は **${pct(s.grossMargin)}**、` +
+    `【今月の結果】**数字は「単月」と「累計」の2つで見ます。**${monthLabel}単月の売上は **${man(s.sales)}**、粗利率は **${pct(s.grossMargin)}**、` +
     `本業のもうけである営業${s.opProfit >= 0 ? '利益' : '損失'}は **${man(Math.abs(s.opProfit))}**（売上比 ${pct(s.opMargin)}）でした。` +
     `期首から${monthLabel}までの累計で見ると、売上 **${man(y.sales)}**、営業${y.opProfit >= 0 ? '利益' : '損失'} **${man(Math.abs(y.opProfit))}**（売上比 ${pct(y.opMargin)}）です。` +
     `単月は季節や大口案件で振れやすいため、経営判断では累計と後述の通期着地を重視してください。`,
   )
 
   // 前年比＋要因
-  let r2 = `【前年との比較】営業利益は${yoyPhrase(y.opProfit, py ? py.opProfit : null)}。`
+  let r2 = `【前年との比較】**去年の同じ時期と比べると、今期の実力が見えます。**営業利益は${yoyPhrase(y.opProfit, py ? py.opProfit : null)}。`
   if (py) {
     const gd = y.grossMargin - py.grossMargin
     r2 += `粗利率は前年 ${pct(py.grossMargin)} → 当年 ${pct(y.grossMargin)}（${gd >= 0 ? '＋' : '−'}${Math.abs(gd).toFixed(1)}pt）で、` +
@@ -71,7 +71,7 @@ export function buildSummaryStory(
   if (land.partial) {
     const remain = 11 - fy.lastFilledIndex
     L.push(
-      `【通期の着地見込み】いまの季節性と今期ペースがこのまま続くと、通期は 売上 **${man(std.sales)}**・` +
+      `【通期の着地見込み】**「このままいくと決算はどうなるか」の予想です。**いまの季節性と今期ペースがこのまま続くと、通期は 売上 **${man(std.sales)}**・` +
       `営業利益 **${man(std.opProfit)}** で着地する見込みです（標準シナリオ）。残り約${remain}か月の実績しだいで上下します。` +
       `保守・楽観のシナリオは「損益分岐点・FCF分析」ページで確認できます。`,
     )
@@ -85,14 +85,14 @@ export function buildSummaryStory(
     if (y.opProfit >= 0) {
       const dropToBep = c.sales - c.bep
       L.push(
-        `【損益分岐点（赤字にならない売上ライン）】黒字を保てる売上の下限は **${man(c.bep)}** です。` +
+        `【損益分岐点（赤字にならない売上ライン）】**売上がいくらまで落ちても赤字にならないか、の目安です。**黒字を保てる売上の下限は **${man(c.bep)}** です。` +
         `現在の累計売上 ${man(c.sales)} との差（＝どれだけ売上が落ちても黒字でいられるか＝安全余裕）は **${man(dropToBep)}（${pct(safetyPct)}）**。` +
         `安全余裕が大きいほど景気や一時的な売上減に強い体質です。`,
       )
     } else {
       const needSales = c.bep - c.sales
       L.push(
-        `【損益分岐点（黒字化に必要な売上）】黒字転換に必要な売上ラインは **${man(c.bep)}** です。` +
+        `【損益分岐点（黒字化に必要な売上）】**あといくら売れば黒字になるか、の目安です。**黒字転換に必要な売上ラインは **${man(c.bep)}** です。` +
         `現在は ${man(c.sales)} なので、あと **${man(needSales)}** の売上上乗せ、もしくは固定費（現在 ${man(c.fixed)}）の圧縮が黒字化の条件になります。` +
         `売上を伸ばす道と固定費を下げる道、両面での対策が有効です。`,
       )
@@ -101,13 +101,13 @@ export function buildSummaryStory(
 
   // 資金
   L.push(
-    `【資金（いちばん大切）】${monthLabel}末の現預金残高は **${man(cash)}** です。` +
+    `【資金（いちばん大切）】**利益と資金（現金）は別物です。**${monthLabel}末の現預金残高は **${man(cash)}** です。` +
     `利益が出ていても、売掛金の回収や在庫、借入返済のタイミングによっては資金は不足し得ます（いわゆる黒字倒産）。` +
     `本業で生み出す資金（営業キャッシュフロー）で借入返済を賄えているかを、「損益分岐点・FCF分析」「資金繰り・安全性」ページで必ずご確認ください。`,
   )
 
   // 打ち手
-  let r6 = '【次の一手】'
+  let r6 = '【次の一手】**数字を見るだけで終わらせず、行動につなげます。**'
   if (y.opProfit < 0) {
     r6 += `本業が赤字水準です。まずは粗利率の改善（値付けの見直し・原価の管理・安売り／値引きの抑制）と、固定費（人件費・その他経費）の点検で、損益分岐点そのものを引き下げることを最優先にしましょう。`
   } else {

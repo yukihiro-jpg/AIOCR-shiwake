@@ -16,7 +16,7 @@ function makeScale(values: number[], top: number, bottom: number) {
   return { y, max, min }
 }
 
-const PALETTE = ['#1F3A5F', '#3b82f6', '#93c5fd'] // 濃→淡（古い期→新しい期 or 任意）
+const PALETTE = ['#c3cdd9', '#7d93b2', '#1a73e8'] // 前々期＝薄グレー → 前期＝グレー青 → 当期＝青（当期が主役）
 
 interface ComboProps {
   labels: string[]
@@ -217,6 +217,102 @@ export function HBars({ items, color = '#3b82f6' }: HBarsProps) {
           {it.sub != null && <div className="w-12 shrink-0 text-right text-gray-400">{it.sub}</div>}
         </div>
       ))}
+    </div>
+  )
+}
+
+
+interface WaterfallProps {
+  startLabel: string
+  startValue: number
+  steps: { label: string; delta: number }[]
+  endLabel: string
+  endValue: number
+}
+
+/** ウォーターフォール（利益ブリッジ）: 前年営業利益 → 増減要因 → 当期営業利益 */
+export function Waterfall({ startLabel, startValue, steps, endLabel, endValue }: WaterfallProps) {
+  const W = 760, H = 280, padL = 16, padR = 16, padT = 34, padB = 40
+  const items = [
+    { label: startLabel, kind: 'total' as const, from: 0, to: startValue },
+    ...(() => {
+      let acc = startValue
+      return steps.map((st) => { const from = acc; acc += st.delta; return { label: st.label, kind: 'step' as const, from, to: acc } })
+    })(),
+    { label: endLabel, kind: 'total' as const, from: 0, to: endValue },
+  ]
+  const vals = items.flatMap((it) => [it.from, it.to])
+  const { y } = makeScale(vals, padT, H - padB)
+  const n = items.length
+  const step = (W - padL - padR) / n
+  const barW = Math.min(88, step * 0.62)
+  const zero = y(0)
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 'auto' }}>
+      <line x1={padL} y1={zero} x2={W - padR} y2={zero} stroke="#cbd5e1" strokeWidth={1} />
+      {items.map((it, i) => {
+        const cx = padL + step * i + step / 2
+        const isTotal = it.kind === 'total'
+        const v = isTotal ? it.to : it.to - it.from
+        const yTop = Math.min(y(it.from), y(it.to))
+        const h = Math.max(2, Math.abs(y(it.to) - y(it.from)))
+        const fill = isTotal ? (i === 0 ? '#8fa3bd' : '#1a73e8') : v >= 0 ? '#1e8e3e' : '#d93025'
+        // 次の棒への接続線
+        const next = items[i + 1]
+        const connY = y(it.to)
+        return (
+          <g key={i}>
+            <rect x={cx - barW / 2} y={yTop} width={barW} height={h} rx={3} fill={fill} opacity={isTotal ? 1 : 0.92} />
+            {next && next.kind === 'step' && (
+              <line x1={cx + barW / 2} y1={connY} x2={padL + step * (i + 1) + step / 2 - barW / 2} y2={connY} stroke="#94a3b8" strokeDasharray="3 3" />
+            )}
+            <text x={cx} y={yTop - 6} textAnchor="middle" fontSize={12.5} fontWeight={700}
+              fill={isTotal ? '#1f2937' : v >= 0 ? '#166534' : '#b91c1c'} stroke="#fff" strokeWidth={3} paintOrder="stroke">
+              {isTotal ? fmtShort(v) : `${v >= 0 ? '+' : '−'}${fmtShort(Math.abs(v))}`}
+            </text>
+            <text x={cx} y={H - 22} textAnchor="middle" fontSize={12} fill="#334155" fontWeight={600}>{it.label.slice(0, 8)}</text>
+            {it.label.length > 8 && <text x={cx} y={H - 8} textAnchor="middle" fontSize={12} fill="#334155" fontWeight={600}>{it.label.slice(8)}</text>}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+interface BulletZone { to: number; color: string; label?: string }
+interface BulletProps {
+  title: string
+  valueLabel: string // 例: "84%" "1.8か月"
+  value: number
+  max: number
+  zones: BulletZone[] // 昇順。value/max と同じ単位
+  subtitle?: string
+}
+
+/** ゲージ（ブレットグラフ）: 危険/注意/安全ゾーンの上に現在値マーカーを置く */
+export function Bullet({ title, valueLabel, value, max, zones, subtitle }: BulletProps) {
+  const v = Math.max(0, Math.min(value, max))
+  const pct = (x: number) => `${(Math.max(0, Math.min(x, max)) / max) * 100}%`
+  let prev = 0
+  return (
+    <div className="py-1.5">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[13px] font-bold text-gray-800">{title}</span>
+        <span className="text-[17px] font-extrabold text-gray-900 tabular-nums">{valueLabel}</span>
+      </div>
+      <div className="relative h-5 rounded-full overflow-hidden bg-gray-100">
+        {zones.map((z, i) => {
+          const left = pct(prev)
+          const width = `${((Math.min(z.to, max) - prev) / max) * 100}%`
+          prev = z.to
+          return <div key={i} className="absolute top-0 bottom-0" style={{ left, width, background: z.color }} />
+        })}
+        <div className="absolute top-[-2px] bottom-[-2px] w-[3px] bg-gray-900 rounded" style={{ left: `calc(${pct(v)} - 1.5px)` }} />
+      </div>
+      <div className="flex justify-between text-[10.5px] text-gray-400 mt-0.5">
+        {zones.map((z, i) => <span key={i}>{z.label || ''}</span>)}
+      </div>
+      {subtitle && <div className="text-[11px] text-gray-500 mt-0.5">{subtitle}</div>}
     </div>
   )
 }
