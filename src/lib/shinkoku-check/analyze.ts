@@ -70,6 +70,8 @@ function findLine(p: Page, re: RegExp): Line | null {
 
 const UCHIWAKE_TYPES: [string, RegExp][] = [
   ['預貯金', /預貯金等の内訳書/],
+  ['受取手形', /受取手形の内訳書/],
+  ['有価証券', /有価証券の内訳書/],
   ['売掛金', /売掛金（未収入金）の内訳書/],
   ['仮払金・貸付金', /仮払金（前渡金）の内訳書/],
   ['棚卸資産', /棚卸資産（商品又は製品/],
@@ -102,8 +104,10 @@ export function classifyPages(pages: Page[]): ClassifiedPage[] {
     else if (/利益積立金額及び資本金等の額/.test(txt)) kind = 'beppyo51'
     else if (/租税公課の納付状況等に関する/.test(txt)) kind = 'beppyo52'
     else if (/所得税額の控除に関する明細書/.test(txt)) kind = 'beppyo61'
+    else if (/交際費等の損金算入に関する/.test(txt)) kind = 'beppyo15'
     else if (/償却額の計算に関する明細書/.test(txt)) kind = 'beppyo16'
-    else if (/法人事業概況説明書/.test(txt)) kind = 'gaikyo'
+    else if (/この申告書による消費税の税額の計算/.test(txt)) kind = 'shohizei-1'
+    else if (/法人事業概況説明書/.test(txt) || /売上\(収入\)金額|売上（収入）金額/.test(txt)) kind = 'gaikyo'
     else if (/税率別消費税額計算表/.test(txt)) kind = 'shohizei-fuhyo'
     else if (/株主資本等変動計算書|個別注記表|注記/.test(txt.slice(0, 400)) && !/損益計算書|貸借対照表/.test(txt.slice(0, 200))) kind = 'other'
     else if (/損益計算書|製造原価報告書|販売費及び一般管理費/.test(txt.slice(0, 300))) kind = 'pl'
@@ -504,7 +508,17 @@ function matchFsKamoku(
     if (label.length < 2) return
     if (label.includes(kamoku) || kamoku.includes(label)) cands.push({ label, value: vals[0] })
   })
-  if (!cands.length) return null
+  if (!cands.length) {
+    // 語順違い（例: 内訳書「積立保険」⇔ BS「保険積立金」）: 科目名の全文字を含むBS科目が一意なら採用
+    const chars = Array.from(new Set(kamoku.split('')))
+    const sub: { label: string; value: number }[] = []
+    pool.entries.forEach((vals, label) => {
+      if (label.length < 2 || label.length > kamoku.length + 2) return
+      if (chars.every((c) => label.includes(c))) sub.push({ label, value: vals[0] })
+    })
+    if (sub.length === 1) return { label: sub[0].label, value: sub[0].value, note: `決算書の科目「${sub[0].label}」と照合しました。` }
+    return null
+  }
   if (cands.length === 1)
     return { label: cands[0].label, value: cands[0].value, note: `決算書の科目「${cands[0].label}」と照合しました。` }
   const eq = cands.filter((c) => c.value === amount)
@@ -742,6 +756,355 @@ function extractGaikyo11(pages: ClassifiedPage[]): Map<string, number> {
   return out
 }
 
+// ===== 別表十五（交際費） =====
+// 「支出交際費等の額(1)」＝8の計。損金不算入額ではなく支出額そのものをPLと突合する
+function extractBeppyo15Shishutsu(pages: ClassifiedPage[]): number | null {
+  for (const p of pages) {
+    if (p.kind !== 'beppyo15') continue
+    const l = findLine(p, /支出交際費等の額/)
+    if (!l) continue
+    const amts = amountsInBand(p, l.y - 2, l.y + 14, 195, 315, true)
+    if (amts.length) return parseAmount(amts[0].s)
+  }
+  return null
+}
+
+// ===== 受取手形の内訳書 =====
+// 摘要に「裏書」注記のある行はBSの受取手形に含まれないため除外して合計する
+function uketoriTegata(pages: ClassifiedPage[]): { total: number; ura: number } | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '受取手形')
+  if (!grp.length) return null
+  let total = 0
+  let ura = 0
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y < 120 || l.y > 745) continue
+      for (const t of l.toks) {
+        if (t.x < 368 || t.x > 425 || !isStrictAmountTok(t)) continue
+        let name = ''
+        let hasUra = false
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 10 || l2.y > t.y + 10) continue
+          for (const t2 of l2.toks) {
+            const s = t2.s.replace(/\s+/g, '')
+            if (t2.x >= 55 && t2.x <= 185) name += s
+            if (t2.x > 430 && /裏/.test(s)) hasUra = true
+          }
+        }
+        if (/^合?計/.test(name)) continue // 計・合計行は明細の合算で代替（裏書計と混在するため）
+        const v = parseAmount(t.s)
+        if (hasUra) ura += v
+        else total += v
+      }
+    }
+  }
+  return { total, ura }
+}
+
+// ===== 有価証券の内訳書（合計行） =====
+function yukashokenTotal(pages: ClassifiedPage[]): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '有価証券')
+  if (!grp.length) return null
+  const last = grp[grp.length - 1]
+  const amts = amountsInBand(last, 120, 705, 170, 245, true)
+  if (!amts.length) return null
+  return parseAmount(amts[amts.length - 1].s)
+}
+
+// ===== 貸付金及び受取利息の内訳書（仮払金内訳書の下段様式）の期末現在高合計 =====
+function kashitsukeTotal(pages: ClassifiedPage[]): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '仮払金・貸付金')
+  if (!grp.length) return null
+  let sum = 0
+  let found = false
+  for (const p of grp) {
+    let top: number | null = null
+    let ax: number | null = null
+    for (const l of p.lines) {
+      const nt = normText(l)
+      if (top == null && /受取利息の内訳書/.test(nt)) top = l.y
+      if (top != null && ax == null && /期末現在高/.test(nt) && l.y > top) {
+        const tok = l.toks.find((t) => t.s.replace(/\s+/g, '').startsWith('期'))
+        if (tok) ax = tok.x
+      }
+    }
+    if (top == null || ax == null) continue
+    const amts = amountsInBand(p, top + 20, 705, ax - 25, ax + 55, true)
+    if (amts.length) {
+      sum += parseAmount(amts[amts.length - 1].s) // 各ページ様式の最下段＝合計
+      found = true
+    }
+  }
+  return found ? sum : null
+}
+
+// 組み合わせ照合: 合計額と一致するBS科目の組み合わせ（部分集合和）を探す
+function matchCombination(
+  total: number,
+  cands: { label: string; value: number }[],
+): { labels: string[]; value: number } | null {
+  const n = cands.length
+  if (!n || n > 12) return null
+  let best: { labels: string[]; value: number } | null = null
+  for (let mask = 1; mask < (1 << n); mask++) {
+    let s = 0
+    const labels: string[] = []
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) { s += cands[i].value; labels.push(cands[i].label) }
+    if (s === total && (!best || labels.length > best.labels.length)) best = { labels, value: s }
+  }
+  return best
+}
+
+// ===== 固定資産（土地・建物）内訳書: 種類ごとの計（土地・借地権・建物…） =====
+// 種類・構造欄のラベルは行の上部、金額（期末現在高）はその下、計・合計のラベルは金額の下に来る様式
+function koteishisanKamoku(pages: ClassifiedPage[]): KamokuTotal[] {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '固定資産(土地建物)')
+  if (!grp.length) return []
+  interface Rec { kamoku: string; amount: number }
+  const recs: Rec[] = []
+  for (const p of grp) {
+    let ax: number | null = null
+    for (const l of p.lines) {
+      if (l.y > 200) break
+      if (/期末現在高/.test(normText(l))) {
+        const tok = l.toks.find((t) => t.s.replace(/\s+/g, '').startsWith('期'))
+        if (tok) { ax = tok.x; break }
+      }
+    }
+    if (ax == null) continue
+    for (const l of p.lines) {
+      if (l.y < 150 || l.y > 720) continue
+      for (const t of l.toks) {
+        if (t.x < ax - 25 || t.x > ax + 60 || !isStrictAmountTok(t)) continue
+        // 種類ラベルは金額の少し上、計・合計ラベルは金額の少し下に来る様式
+        let kamoku = ''
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 24 || l2.y > t.y + 2) continue
+          for (const t2 of l2.toks) {
+            if (t2.x >= 45 && t2.x <= 100) kamoku += t2.s.replace(/\s+/g, '')
+          }
+        }
+        if (!kamoku) {
+          for (const l2 of p.lines) {
+            if (l2.y < t.y + 2 || l2.y > t.y + 16) continue
+            for (const t2 of l2.toks) {
+              const s2 = t2.s.replace(/\s+/g, '')
+              if (t2.x >= 45 && t2.x <= 100 && /^合?計$/.test(s2)) kamoku += s2
+            }
+          }
+        }
+        recs.push({ kamoku, amount: parseAmount(t.s) })
+      }
+    }
+  }
+  if (!recs.length) return []
+  const totals = new Map<string, number>()
+  let curName = ''
+  let itemSum = 0
+  let kei: number | null = null
+  const close = () => {
+    if (curName) totals.set(curName, (totals.get(curName) || 0) + (kei != null ? kei : itemSum))
+    itemSum = 0
+    kei = null
+  }
+  for (const r of recs) {
+    const k = r.kamoku
+    if (/合計/.test(k)) { close(); curName = ''; continue }
+    if (k === '計') { kei = r.amount; continue }
+    if (k && k !== curName) { close(); curName = k }
+    itemSum += r.amount
+  }
+  close()
+  return Array.from(totals.entries()).map(([kamoku, amount]) => ({ kamoku, amount })).filter((x) => x.amount !== 0)
+}
+
+// ===== 仮受金内訳書: 源泉所得税預り金（本表の摘要注記行 vs 下段「源泉所得税預り金の内訳」） =====
+function gensenAzukari(pages: ClassifiedPage[]): { main: number | null; section: number | null } {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '仮受金')
+  let main: number | null = null
+  let section: number | null = null
+  for (const p of grp) {
+    // 本表: 摘要に「源泉所得税」とある行の期末現在高
+    let secTop: number | null = null
+    for (const l of p.lines) if (/源泉所得税預り金の内訳/.test(normText(l))) { secTop = l.y; break }
+    const mainEnd = secTop != null ? secTop - 5 : 600
+    for (const l of p.lines) {
+      if (l.y < 130 || l.y > mainEnd) continue
+      for (const t of l.toks) {
+        if (t.x < 440 || t.x > 500 || !isStrictAmountTok(t)) continue
+        let tekiyo = ''
+        let name = ''
+        for (const l2 of p.lines) {
+          if (l2.y < t.y - 10 || l2.y > t.y + 8) continue
+          for (const t2 of l2.toks) {
+            if (t2.x >= 495) tekiyo += t2.s.replace(/\s+/g, '')
+            if (t2.x >= 45 && t2.x <= 130) name += t2.s.replace(/\s+/g, '')
+          }
+        }
+        if (/計/.test(name)) continue
+        if (/源泉所得税/.test(tekiyo)) main = (main || 0) + parseAmount(t.s)
+      }
+    }
+    // 下段: 源泉所得税預り金の内訳（左右2列の期末現在高）
+    if (secTop != null) {
+      let s = 0
+      let found = false
+      for (const l of p.lines) {
+        if (l.y < secTop + 10 || l.y > secTop + 160) continue
+        for (const t of l.toks) {
+          if (!isStrictAmountTok(t)) continue
+          if ((t.x >= 250 && t.x <= 312) || (t.x >= 505 && t.x <= 575)) { s += parseAmount(t.s); found = true }
+        }
+      }
+      if (found) section = (section || 0) + s
+    }
+  }
+  return { main, section }
+}
+
+// ===== 役員給与等の内訳書: 計行の役員給与計・使用人職務分、人件費の内訳 =====
+function yakuinDetail(pages: ClassifiedPage[]): { kei: number | null; shokumu: number | null } {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '役員給与')
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (l.y > 525) continue
+      const hasKei = l.toks.some((t) => t.s.trim() === '計' && t.x < 200)
+      if (!hasKei) continue
+      const amts = l.toks.filter(isStrictAmountTok)
+      if (!amts.length) continue
+      const kei = amts.find((t) => t.x >= 250 && t.x < 300)
+      const shokumu = amts.find((t) => t.x >= 300 && t.x < 348)
+      return { kei: kei ? parseAmount(kei.s) : parseAmount(amts[0].s), shokumu: shokumu ? parseAmount(shokumu.s) : null }
+    }
+  }
+  return { kei: null, shokumu: null }
+}
+
+export interface JinkenhiUchiwake { yakuin: number | null; kyuyo: number | null; chingin: number | null; kei: number | null }
+function jinkenhiUchiwake(pages: ClassifiedPage[]): JinkenhiUchiwake {
+  const out: JinkenhiUchiwake = { yakuin: null, kyuyo: null, chingin: null, kei: null }
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '役員給与')
+  for (const p of grp) {
+    const anchor = findLine(p, /人件費の内訳/)
+    if (!anchor) continue
+    for (const l of p.lines) {
+      if (l.y < anchor.y + 5 || l.y > anchor.y + 130) continue
+      const label = l.toks.filter((t) => t.x >= 55 && t.x <= 290 && !isAmountTok(t)).map((t) => t.s.replace(/\s+/g, '')).join('')
+      const amt = l.toks.find((t) => t.x >= 300 && t.x <= 432 && isStrictAmountTok(t))
+      if (!amt) continue
+      const v = parseAmount(amt.s)
+      if (/役員給与/.test(label) && out.yakuin == null) out.yakuin = v
+      else if (/給与手当/.test(label) && out.kyuyo == null) out.kyuyo = v
+      else if (/賃金手当/.test(label) && out.chingin == null) out.chingin = v
+      else if (/^計$/.test(label) && out.kei == null) out.kei = v
+    }
+  }
+  return out
+}
+
+// ===== 雑益・雑損失内訳書: 雑益の合計（1つ目）と雑損失等の合計（2つ目）、源泉所得税還付行 =====
+function zatsuTotals(pages: ClassifiedPage[]): { eki: number | null; son: number | null } {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '雑益雑損失')
+  const totals: number[] = []
+  for (const p of grp) {
+    for (const l of p.lines) {
+      if (!/^合計/.test(normText(l))) continue
+      const amts = amountsInBand(p, l.y - 10, l.y + 12, 490, 9999, true)
+      if (amts.length) totals.push(parseAmount(amts[amts.length - 1].s))
+    }
+  }
+  return { eki: totals.length ? totals[0] : null, son: totals.length >= 2 ? totals[1] : null }
+}
+
+// 雑益内訳書のうち「源泉所得税還付」「控除所得税還付」等の行の金額合計（別表四の還付金額行と突合）
+function zatsuGensenRefund(pages: ClassifiedPage[]): number | null {
+  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '雑益雑損失')
+  let sum = 0
+  let found = false
+  for (const p of grp) {
+    for (const l of p.lines) {
+      const content = l.toks.filter((t) => t.x >= 138 && t.x <= 275).map((t) => t.s.replace(/\s+/g, '')).join('')
+      if (!/源泉所得税還付|控除所得税還付|所得税等還付|還付所得税/.test(content)) continue
+      const amts = amountsInBand(p, l.y - 4, l.y + 14, 500, 9999, true)
+      if (amts.length) { sum += parseAmount(amts[0].s); found = true }
+    }
+  }
+  return found ? sum : null
+}
+
+// ===== 別表四: 「所得税額等及び欠損金の繰戻しによる還付金額等」①総額 =====
+function extractBeppyo4Refund(pages: ClassifiedPage[]): number | null {
+  for (const p of pages) {
+    if (p.kind !== 'beppyo4') continue
+    const l = findLine(p, /所得税額等及び欠損金の繰戻しによる還/)
+    if (!l) continue
+    const amts = amountsInBand(p, l.y - 4, l.y + 12, 230, 340, true)
+    return amts.length ? parseAmount(amts[0].s) : 0
+  }
+  return null
+}
+
+// ===== 概況説明書: 月別の売上高等の状況の「計」行（千円） =====
+export interface GaikyoMonthly { sales: number | null; shiire: number | null; gaichu: number | null; jinken: number | null }
+function gaikyoMonthly(pages: ClassifiedPage[]): GaikyoMonthly {
+  const out: GaikyoMonthly = { sales: null, shiire: null, gaichu: null, jinken: null }
+  for (const p of pages) {
+    if (p.kind !== 'gaikyo') continue
+    const head = p.lines.find((l) => /売上(\(|（)収入(\)|）)金額/.test(normText(l)))
+    if (!head) continue
+    for (const l of p.lines) {
+      if (l.y < head.y + 10 || l.y > head.y + 300) continue
+      const kei = l.toks.find((t) => t.s.trim() === '計' && t.x >= 45 && t.x <= 85)
+      if (!kei) continue
+      const amts = l.toks.filter(isStrictAmountTok)
+      if (amts.length < 2) continue
+      const pick = (lo: number, hi: number) => { const t = amts.find((a) => a.x >= lo && a.x <= hi); return t ? parseAmount(t.s) : null }
+      out.sales = pick(85, 190)
+      out.shiire = pick(195, 300)
+      out.gaichu = pick(305, 375)
+      out.jinken = pick(376, 428)
+      return out
+    }
+  }
+  return out
+}
+
+// ===== 消費税申告書 第一表: 「消費税及び地方消費税の合計（納付又は還付）税額」(26) =====
+function extractShohizeiGokei(pages: ClassifiedPage[]): number | null {
+  for (const p of pages) {
+    if (p.kind !== 'shohizei-1') continue
+    const l = findLine(p, /合計\(納付又は還付\)税額|合計（納付又は還付）税額/)
+    if (!l) continue
+    // ラベル行と同じ行の1マス1桁の数字を連結（マイナスは還付）
+    const v = joinDigits(l, 222, 345)
+    if (v != null) return v
+    // 数字が近傍行にある場合
+    for (const l2 of p.lines) {
+      if (l2.y < l.y - 10 || l2.y > l.y + 10 || l2 === l) continue
+      const v2 = joinDigits(l2, 222, 345)
+      if (v2 != null) return v2
+    }
+  }
+  return null
+}
+
+// 消費税申告書 第一表: 中間納付税額(10)＋中間納付譲渡割額(21)
+function extractShohizeiChukan(pages: ClassifiedPage[]): number | null {
+  for (const p of pages) {
+    if (p.kind !== 'shohizei-1') continue
+    let sum = 0
+    let found = false
+    for (const re of [/^.{0,4}中間納付税額/, /中間納付譲渡割額/]) {
+      const l = p.lines.find((x) => re.test(normText(x)))
+      if (!l) continue
+      const v = joinDigits(l, 235, 345)
+      if (v != null) { sum += v; found = true }
+    }
+    if (found) return sum
+  }
+  return null
+}
+
 // 借入金内訳書の「期中の支払利子額」列合計（最終行）
 function uchiwakeInterest(pages: ClassifiedPage[]): number | null {
   const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '借入金')
@@ -785,19 +1148,6 @@ function uchiwakeChidai(pages: ClassifiedPage[]): number | null {
   return parseAmount(amts[amts.length - 1].s)
 }
 
-// 雑益雑損失内訳書: 「合計」行の近傍（金額列 x>490）の金額
-function uchiwakeZatsueki(pages: ClassifiedPage[]): number | null {
-  const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '雑益雑損失')
-  let result: number | null = null
-  for (const p of grp) {
-    for (const l of p.lines) {
-      if (!/^合計/.test(normText(l))) continue
-      const amts = amountsInBand(p, l.y - 10, l.y + 12, 490, 9999, true)
-      if (amts.length) result = parseAmount(amts[amts.length - 1].s)
-    }
-  }
-  return result
-}
 
 // ---------- 法人事業概況説明書（千円単位・1マス1桁）----------
 
@@ -957,7 +1307,9 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     beppyo51: '法人税 別表五(一)',
     beppyo52: '法人税 別表五(二)',
     beppyo61: '法人税 別表六(一)',
+    beppyo15: '法人税 別表十五',
     beppyo16: '法人税 別表十六',
+    'shohizei-1': '消費税申告書 第一表',
     gaikyo: '法人事業概況説明書',
     'shohizei-fuhyo': '消費税 付表（税率別計算表）',
     uchiwake: '内訳書',
@@ -1086,6 +1438,12 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
       'リース資産',
       'ソフトウエア',
       'ソフトウェア',
+      '繰延資産',
+      '創立費',
+      '開業費',
+      '開発費',
+      '社債発行費',
+      '株式交付費',
       '営業権',
       'のれん',
       '特許権',
@@ -1102,7 +1460,7 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
         '別表十六 期末現在の帳簿記載金額 合計',
         b16.bookValue,
         {
-          note: '一括償却資産（別表十六(八)）・少額減価償却資産・直接控除以外の償却累計額表示の場合は差異が出ることがあります。',
+          note: '一括償却資産（別表十六(八)）・少額減価償却資産・無形固定資産を「その他」表示している場合・直接控除以外の償却累計額表示の場合は差異が出ることがあります。',
         },
       ),
     )
@@ -1117,6 +1475,19 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
         { note: '一括償却資産の損金算入額・長期前払費用償却は別表十六(一)(二)に含まれません。' },
       ),
     )
+  }
+
+  // 交際費: 別表十五「支出交際費等の額」⇔ PL交際費
+  {
+    const b15 = extractBeppyo15Shishutsu(pages)
+    const plKosai = fsSum(pool, ['交際費', '接待交際費', '交際接待費', '交際費等'])
+    if (b15 != null || plKosai != null) {
+      checks.push(
+        mk(G1, '交際費', 'PL 交際費（製造原価分含む）', plKosai, '別表十五 支出交際費等の額', b15, {
+          note: '福利厚生費・会議費等に計上した接待飲食費を別表十五で交際費等に含めている場合は差異が出ます。',
+        }),
+      )
+    }
   }
 
   // ===== ② 勘定科目内訳明細書 ⇔ 決算書 =====
@@ -1159,6 +1530,19 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     }
   }
 
+  // 受取手形（摘要に「裏書」注記のある行は割引・裏書譲渡分として除外）
+  {
+    const ut = uketoriTegata(pages)
+    const bsTe = fsSum(pool, ['受取手形', '電子記録債権'])
+    if (ut || bsTe != null) {
+      checks.push(
+        mk(G2, '受取手形', '内訳書 受取手形合計（裏書分を除く）', ut ? ut.total : null, 'BS 受取手形＋電子記録債権', bsTe, {
+          note: ut && ut.ura > 0 ? `摘要に「裏書」とある ${ut.ura.toLocaleString('ja-JP')} 円は裏書譲渡分としてBS残高との照合から除外しています。` : undefined,
+        }),
+      )
+    }
+  }
+
   kamokuChecks('売掛金', '売掛金内訳書', () => {
     checks.push(
       mk(
@@ -1182,6 +1566,47 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     )
   })
 
+  // 有価証券内訳書 ⇔ BS（有価証券・投資有価証券・出資金・会員権の一致する組み合わせで照合）
+  {
+    const v = yukashokenTotal(pages)
+    if (v != null) {
+      const cands = ['有価証券', '投資有価証券', '出資金', '会員権', 'ゴルフ会員権']
+        .map((l) => ({ label: l, value: fsGet(pool, l) }))
+        .filter((x): x is { label: string; value: number } => x.value != null)
+      const combo = matchCombination(v, cands)
+      if (combo) {
+        checks.push(mk(G2, '有価証券', '内訳書 有価証券合計', v, `BS ${combo.labels.join('＋')}`, combo.value, {
+          note: combo.labels.length > 1 ? `BS科目の組み合わせ（${combo.labels.join('・')}）と一致しました。` : undefined,
+        }))
+      } else {
+        const all = cands.reduce((t, c) => t + c.value, 0)
+        checks.push(mk(G2, '有価証券', '内訳書 有価証券合計', v, cands.length ? `BS ${cands.map((c) => c.label).join('＋')}` : 'BS 有価証券・投資有価証券', cands.length ? all : null))
+      }
+    }
+  }
+
+  // 貸付金及び受取利息の内訳書 ⇔ BS短期貸付金・長期貸付金
+  // （内訳書には短期・長期の区別がないため、一致するBS科目の組み合わせを探して照合する）
+  {
+    const v = kashitsukeTotal(pages)
+    const cands = ['短期貸付金', '長期貸付金', '貸付金', '役員貸付金', '従業員貸付金', '関係会社貸付金']
+      .map((l) => ({ label: l, value: fsGet(pool, l) }))
+      .filter((x): x is { label: string; value: number } => x.value != null)
+    if (v != null || cands.length) {
+      const combo = v != null ? matchCombination(v, cands) : null
+      if (combo) {
+        checks.push(mk(G2, '貸付金', '内訳書 貸付金合計', v, `BS ${combo.labels.join('＋')}`, combo.value, {
+          note: `内訳書には短期・長期の区別がないため、一致するBS科目（${combo.labels.join('・')}）と照合しました。`,
+        }))
+      } else {
+        const all = cands.reduce((t, c) => t + c.value, 0)
+        checks.push(mk(G2, '貸付金', '内訳書 貸付金合計', v, cands.length ? `BS ${cands.map((c) => c.label).join('＋')}` : 'BS 短期貸付金・長期貸付金', cands.length ? all : null, {
+          note: '内訳書には短期・長期の区別がないため、貸付金系のBS科目の合算と比較しています。',
+        }))
+      }
+    }
+  }
+
   kamokuChecks('棚卸資産', '棚卸資産内訳書', () => {
     checks.push(
       mk(
@@ -1196,15 +1621,26 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
   })
 
   {
-    const v = uchiwakeTotal(pages, '固定資産(土地建物)')
-    const land = fsGet(pool, '土地')
-    const bldg = fsGet(pool, '建物')
-    const bs = land == null && bldg == null ? null : (land || 0) + (bldg || 0)
-    const r = mk(G2, '固定資産（土地・建物）', '内訳書 固定資産合計', v, 'BS 土地＋建物', bs)
-    if (r.status === 'warn' && v != null && land != null && v === land) {
-      r.note = `内訳書には土地のみ記載され、建物 ${(bldg || 0).toLocaleString('ja-JP')} 円が未記載の可能性があります。`
+    // 建物の簿価は内訳書に記載しない運用のため、種類（土地・借地権等）ごとにBSと照合する
+    const kts = koteishisanKamoku(pages)
+    if (kts.length) {
+      for (const kt of kts) {
+        const m = matchFsKamoku(pool, kt.kamoku, kt.amount)
+        checks.push(
+          mk(G2, `固定資産内訳書「${kt.kamoku}」`, `内訳書 ${kt.kamoku} 計`, kt.amount, m ? `決算書 ${m.label}` : `決算書 ${kt.kamoku}`, m ? m.value : null, { note: m?.note }),
+        )
+      }
+    } else {
+      const v = uchiwakeTotal(pages, '固定資産(土地建物)')
+      const land = fsGet(pool, '土地')
+      const shakuchi = fsGet(pool, '借地権')
+      const bs = land == null && shakuchi == null ? null : (land || 0) + (shakuchi || 0)
+      checks.push(
+        mk(G2, '固定資産（土地・建物）', '内訳書 固定資産合計', v, 'BS 土地＋借地権', bs, {
+          note: '建物の簿価は内訳書に記載しない運用のため、土地・借地権のみで照合しています。',
+        }),
+      )
     }
-    checks.push(r)
   }
 
   checks.push(
@@ -1245,6 +1681,16 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     )
   })
 
+  // 仮受金内訳書内の突合: 本表の摘要「源泉所得税預り金」⇔ 下段「源泉所得税預り金の内訳」
+  {
+    const g = gensenAzukari(pages)
+    if (g.main != null || g.section != null) {
+      checks.push(
+        mk(G2, '源泉所得税預り金（仮受金内訳書）', '本表 摘要「源泉所得税預り金」の期末現在高', g.main, '下段「源泉所得税預り金の内訳」の合計', g.section),
+      )
+    }
+  }
+
   {
     // 借入金: 摘要欄等に長期/短期の別が書かれていれば科目別、無ければ合計で照合
     const loans = loanKamokuTotals(pages)
@@ -1277,17 +1723,46 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     checks.push(r)
   }
 
-  checks.push(
-    mk(
-      G2,
-      '役員給与',
-      '内訳書 役員給与計',
-      uchiwakeYakuin(pages),
-      'PL 役員報酬（製造原価分含む）',
-      fsSum(pool, ['役員報酬', '役員給与']),
-      { note: '使用人兼務役員の使用人職務分給与の計上科目により差異が出ることがあります。' },
-    ),
-  )
+  {
+    const kei = uchiwakeYakuin(pages)
+    const plYakuin = fsSum(pool, ['役員報酬', '役員給与'])
+    const r = mk(G2, '役員給与', '内訳書 役員給与計', kei, 'PL 役員報酬（製造原価分含む）', plYakuin)
+    if (r.status === 'warn' && kei != null && plYakuin != null) {
+      const d = yakuinDetail(pages)
+      if (d.shokumu != null && d.shokumu > 0) {
+        if (kei - d.shokumu === plYakuin) {
+          r.status = 'ok'
+          r.diff = 0
+          r.note = `使用人兼務役員の使用人職務分 ${d.shokumu.toLocaleString('ja-JP')} 円は給与手当等に計上されており、これを除いた役員分はPL役員報酬と一致しています。`
+        } else {
+          r.note = `使用人職務分 ${d.shokumu.toLocaleString('ja-JP')} 円を除いても一致しません（職務分控除後の差 ${(kei - d.shokumu - plYakuin).toLocaleString('ja-JP')} 円）。`
+        }
+      } else {
+        r.note = '使用人兼務役員の使用人職務分給与の計上科目により差異が出ることがあります。'
+      }
+    }
+    checks.push(r)
+  }
+
+  // 役員給与等の内訳書「人件費の内訳」⇔ PL
+  {
+    const j = jinkenhiUchiwake(pages)
+    if (j.yakuin != null || j.kyuyo != null || j.kei != null) {
+      const plYak = fsSum(pool, ['役員報酬', '役員給与'])
+      const plKyu = fsSum(pool, ['給料手当', '給与手当', '給料', '給与', '雑給', '賞与', '給料及び手当'])
+      const plChin = fsSum(pool, ['賃金', '賃金手当', '労務費', '賃金給料'])
+      if (j.yakuin != null) {
+        checks.push(mk(G2, '人件費の内訳「役員給与」', '内訳書 人件費の内訳 役員給与', j.yakuin, 'PL 役員報酬', plYak, {
+          note: '使用人兼務役員の使用人職務分は「給与手当」側に含まれる様式です。',
+        }))
+      }
+      if (j.kyuyo != null) checks.push(mk(G2, '人件費の内訳「給与手当」', '内訳書 人件費の内訳 給与手当', j.kyuyo, 'PL 給料手当等', plKyu))
+      if (j.chingin != null) checks.push(mk(G2, '人件費の内訳「賃金手当」', '内訳書 人件費の内訳 賃金手当', j.chingin, 'PL 賃金・労務費', plChin))
+      if (j.kei != null && (plYak != null || plKyu != null || plChin != null)) {
+        checks.push(mk(G2, '人件費の内訳「計」', '内訳書 人件費の内訳 計', j.kei, 'PL 役員報酬＋給料手当等＋賃金', (plYak || 0) + (plKyu || 0) + (plChin || 0)))
+      }
+    }
+  }
 
   checks.push(
     mk(
@@ -1302,7 +1777,7 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
   )
 
   {
-    const v = uchiwakeZatsueki(pages)
+    const zt = zatsuTotals(pages)
     const eigyogai = fsGet(pool, '営業外収益合計')
     const tokubetsu = fsGet(pool, '特別利益合計')
     const risoku = fsGet(pool, '受取利息') || 0
@@ -1311,12 +1786,38 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
       eigyogai == null && tokubetsu == null
         ? null
         : (eigyogai || 0) + (tokubetsu || 0) - risoku - haito
-    const r = mk(G2, '雑益等', '内訳書 雑益合計', v, 'PL 営業外収益＋特別利益（受取利息・配当金を除く）', pl)
-    if (r.status === 'warn' && v != null && pl != null && v < pl) {
+    const r = mk(G2, '雑益等', '内訳書 雑益合計', zt.eki, 'PL 営業外収益＋特別利益（受取利息・配当金を除く）', pl)
+    if (r.status === 'warn' && zt.eki != null && pl != null && zt.eki < pl) {
       r.status = 'ok'
-      r.note = `差額 ${(pl - v).toLocaleString('ja-JP')} 円。内訳書は原則10万円以上のみ記載のため、内訳書合計がPL側以下であれば正常です。`
+      r.note = `差額 ${(pl - zt.eki).toLocaleString('ja-JP')} 円。内訳書は原則10万円以上のみ記載のため、内訳書合計がPL側以下であれば正常です。`
     }
     checks.push(r)
+    // 雑損失等 ⇔ PL営業外費用＋特別損失（支払利息を除く）
+    const egf = fsGet(pool, '営業外費用合計')
+    const tkl = fsGet(pool, '特別損失合計')
+    const shiharai = fsGet(pool, '支払利息', '支払利息割引料') || 0
+    const plSon = egf == null && tkl == null ? null : (egf || 0) + (tkl || 0) - shiharai
+    if (zt.son != null || (plSon != null && plSon !== 0)) {
+      const r2 = mk(G2, '雑損失等', '内訳書 雑損失等合計', zt.son, 'PL 営業外費用＋特別損失（支払利息を除く）', plSon)
+      if (r2.status === 'warn' && zt.son != null && plSon != null && zt.son < plSon) {
+        r2.status = 'ok'
+        r2.note = `差額 ${(plSon - zt.son).toLocaleString('ja-JP')} 円。内訳書は原則10万円以上のみ記載のため、内訳書合計がPL側以下であれば正常です。`
+      }
+      checks.push(r2)
+    }
+  }
+
+  // ===== 法人税申告書 ⇔ 勘定科目内訳明細書 =====
+  {
+    const refundUchi = zatsuGensenRefund(pages)
+    const refundB4 = extractBeppyo4Refund(pages)
+    if (refundUchi != null || (refundB4 != null && refundB4 !== 0)) {
+      checks.push(
+        mk('法人税申告書 ⇔ 勘定科目内訳明細書', '源泉所得税等の還付金', '雑益内訳書 源泉所得税還付・控除所得税還付の行', refundUchi, '別表四 所得税額等及び欠損金の繰戻しによる還付金額等（①総額）', refundB4, {
+          note: '前期に未収還付法人税等として計上済みの場合や、欠損金の繰戻し還付を含む場合は差異が出ます。',
+        }),
+      )
+    }
   }
 
   // ===== ③ 法人事業概況説明書 ⇔ 決算書（千円単位・±1千円許容） =====
@@ -1394,6 +1895,44 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     }
   }
 
+  // 概況説明書「月別の売上高等の状況」の計 ⇔ PL・役員給与内訳書（千円・月次丸めのため±12千円許容）
+  {
+    const gm = gaikyoMonthly(pages)
+    const G3M = '法人事業概況説明書 ⇔ 決算書'
+    const NOTE_M = '月ごとの千円丸めの積み上げのため±12千円まで許容しています。'
+    if (gm.sales != null || gm.jinken != null || gm.shiire != null) {
+      const uriage = fsGet(pool, '総売上高', '売上高合計', '純売上高', '売上高計', '完成工事高', '売上高')
+      if (gm.sales != null || uriage != null) {
+        checks.push(mk(G3M, '月別表 売上金額計', '概況 月別売上金額の計（千円）', gm.sales, 'PL 売上高（千円換算）', uriage == null ? null : trunc1000(uriage), { tol: 12, note: NOTE_M }))
+      }
+      const shiire = fsGet(pool, '当期商品仕入高', '当期仕入高', '仕入高', '当期製品仕入高', '商品仕入高', '当期材料仕入高', '材料仕入高', '原材料仕入高', '当期原材料仕入高')
+      const gaichu = fsSum(pool, ['外注費', '外注加工費', '外注工賃', '外注作業費'])
+      const near = (a: number | null, b: number | null, tol: number) => a != null && b != null && Math.abs(a - trunc1000(b)) <= tol
+      const shiireOk = near(gm.shiire, shiire, 12)
+      const gaichuOk = near(gm.gaichu, gaichu, 12)
+      // PL側で仕入高に外注費を含めて計上している場合は、仕入＋外注の合算で照合する
+      const gmSum = gm.shiire != null || gm.gaichu != null ? (gm.shiire || 0) + (gm.gaichu || 0) : null
+      const plSum = shiire != null || gaichu != null ? (shiire || 0) + (gaichu || 0) : null
+      if (!shiireOk && !(gm.gaichu == null && gaichu == null) && near(gmSum, plSum, 24)) {
+        checks.push(mk(G3M, '月別表 仕入＋外注費計', '概況 月別仕入金額＋外注費の計（千円）', gmSum, 'PL 仕入高＋外注費（千円換算）', plSum == null ? null : trunc1000(plSum), {
+          tol: 24,
+          note: 'PLでは仕入高に外注費を含めて計上しているため、仕入と外注費の合算で照合しました。' + NOTE_M,
+        }))
+      } else {
+        if (gm.shiire != null || shiire != null) {
+          checks.push(mk(G3M, '月別表 仕入金額計', '概況 月別仕入金額の計（千円）', gm.shiire, 'PL 仕入高（千円換算）', shiire == null ? null : trunc1000(shiire), { tol: 12, note: NOTE_M }))
+        }
+        if (gm.gaichu != null || gaichu != null) {
+          checks.push(mk(G3M, '月別表 外注費計', '概況 月別外注費の計（千円）', gm.gaichu, 'PL 外注費（千円換算）', gaichu == null ? null : trunc1000(gaichu), { tol: 12, note: NOTE_M }))
+        }
+      }
+      const jk = jinkenhiUchiwake(pages)
+      if (gm.jinken != null || jk.kei != null) {
+        checks.push(mk(G3M, '月別表 人件費計', '概況 月別人件費の計（千円）', gm.jinken, '役員給与内訳書 人件費の内訳 計（千円換算）', jk.kei == null ? null : trunc1000(jk.kei), { tol: 12, note: NOTE_M }))
+      }
+    }
+  }
+
   // ===== ④ 消費税申告書 ⇔ 決算書（参考） =====
   const G4 = '消費税申告書 ⇔ 決算書（参考）'
   {
@@ -1409,6 +1948,21 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
         r.note = `乖離率 ${(rate * 100).toFixed(1)}%。` + (r.note || '')
       }
       checks.push(r)
+    }
+    // 消費税及び地方消費税の合計税額(26) ⇔ BS未払消費税等
+    const gokei = extractShohizeiGokei(pages)
+    const bsMibarai = fsGet(pool, '未払消費税等', '未払消費税')
+    if (gokei != null || bsMibarai != null) {
+      const r2 = mk(G4, '消費税の年税額と未払消費税等', '消費税申告書 合計（納付又は還付）税額(26)', gokei, 'BS 未払消費税等', bsMibarai, {
+        note: '税抜経理で中間納付を仮払処理し年税額を未払計上している場合は一致します。税込経理や中間納付の未払計上方法によっては一致しません。',
+      })
+      if (r2.status === 'warn' && gokei != null && bsMibarai != null) {
+        const chukan = extractShohizeiChukan(pages)
+        if (chukan != null && chukan > 0 && bsMibarai - gokei === chukan) {
+          r2.note = `差額 ${chukan.toLocaleString('ja-JP')} 円は中間納付税額と一致します。中間納付分を含む年税額全体を未払消費税等に計上している（中間納付を仮払金等で両建てしている）可能性が高く、その場合は整合しています。`
+        }
+      }
+      checks.push(r2)
     }
   }
 

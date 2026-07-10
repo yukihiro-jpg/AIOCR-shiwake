@@ -30,7 +30,9 @@ export type PageKind =
   | 'beppyo16'
   | 'uchiwake' // 勘定科目内訳明細書（subTypeで種類判別）
   | 'gaikyo' // 法人事業概況説明書
+  | 'beppyo15'
   | 'shohizei-fuhyo' // 消費税 付表1-3（税率別消費税額計算表）
+  | 'shohizei-1' // 消費税申告書 第一表
   | 'other'
 
 export interface ClassifiedPage extends Page {
