@@ -26,6 +26,7 @@ export default function ShinkokuCheckContent() {
   const [noText, setNoText] = useState<number[]>([])
   const [error, setError] = useState('')
   const [showPages, setShowPages] = useState(false)
+  const [popupBlocked, setPopupBlocked] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const addFiles = useCallback((list: FileList | File[]) => {
@@ -52,7 +53,12 @@ export default function ShinkokuCheckContent() {
       )
       setNoText(noTextPages)
       setProgress('金額を照合中…')
-      setResult(analyze(pages))
+      const res = analyze(pages)
+      setResult(res)
+      // 結果は新規ウインドウのレポートとして表示（ブロックされたらボタンから再表示）
+      const { openShinkokuReport } = await import('@/lib/shinkoku-check/report')
+      const opened = openShinkokuReport(res, files.map((f) => f.name), noTextPages)
+      setPopupBlocked(!opened)
     } catch (e: any) {
       setError('処理に失敗しました: ' + (e?.message || String(e)))
     } finally {
@@ -152,7 +158,26 @@ export default function ShinkokuCheckContent() {
               <b className={warnCount ? 'text-amber-700' : 'text-gray-500'}>{warnCount}</b> 件
             </span>
           )}
+          {result && (
+            <button
+              className="px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100"
+              onClick={async () => {
+                const { openShinkokuReport } = await import('@/lib/shinkoku-check/report')
+                const opened = openShinkokuReport(result, files.map((f) => f.name), noText)
+                setPopupBlocked(!opened)
+              }}
+            >
+              🗗 結果を新しいウインドウで開く
+            </button>
+          )}
         </div>
+
+        {popupBlocked && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg p-3">
+            ⚠ ブラウザにポップアップがブロックされました。アドレスバーの許可設定を変更するか、
+            上の「結果を新しいウインドウで開く」ボタンを押してください。
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3">
