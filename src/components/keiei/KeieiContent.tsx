@@ -26,8 +26,9 @@ import SectionIssues from './SectionIssues'
 import { StoryBody } from './StoryCard'
 import { buildSummaryStory } from '@/lib/keiei/narrative'
 import { detectIssues, laborShare } from '@/lib/keiei/issues'
+import SectionAnken from './SectionAnken'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget'
+type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -117,7 +118,10 @@ export default function KeieiContent() {
   const fy = years[yearId]
 
   // ===== 印刷（タブ選択式） =====
-  const TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['issues', '経営課題'], ['cash', '資金繰り・安全性']]
+  // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
+  const hasAnken = !!current?.name?.includes('藤井設計')
+  const PRINT_TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['issues', '経営課題'], ['cash', '資金繰り・安全性']]
+  const TABS: [View, string][] = hasAnken ? [...PRINT_TABS, ['anken', '案件台帳']] : PRINT_TABS
   const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
@@ -126,7 +130,7 @@ export default function KeieiContent() {
   const [printViews, setPrintViews] = useState<View[] | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
   const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
-  const orderedSel = TABS.map(([v]) => v).filter((v) => printSel.includes(v))
+  const orderedSel = PRINT_TABS.map(([v]) => v).filter((v) => printSel.includes(v))
   const doPrint = (views: View[]) => { if (!views.length) return; setPrintOpen(false); setPrintViews(views) }
   useEffect(() => {
     const h = (e: MouseEvent) => { if (printRef.current && !printRef.current.contains(e.target as Node)) setPrintOpen(false) }
@@ -152,6 +156,7 @@ export default function KeieiContent() {
   }, [sorted, fy])
 
   const renderView = (v: View) => {
+    if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
     if (!fy) return null
     switch (v) {
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
@@ -306,7 +311,7 @@ export default function KeieiContent() {
         </div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">読み込み中…</div>
-      ) : sorted.length === 0 ? (
+      ) : sorted.length === 0 && !hasAnken ? (
         <div className="flex-1 flex items-center justify-center p-6">
           <label className="w-full max-w-xl border-2 border-dashed border-blue-300 rounded-2xl bg-blue-50/40 hover:bg-blue-50 p-8 flex flex-col items-center gap-3 text-center cursor-pointer">
             <div className="text-5xl opacity-40">📈</div>
@@ -371,15 +376,15 @@ export default function KeieiContent() {
                     <div className="text-xs font-bold text-gray-700 mb-1">印刷するタブを選択</div>
                     <div className="text-[11px] text-gray-400 mb-2">クリックで選択／解除。選択したタブのみ出力します。</div>
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {TABS.map(([v, l]) => { const on = printSel.includes(v); return (
+                      {PRINT_TABS.map(([v, l]) => { const on = printSel.includes(v); return (
                         <button key={v} onClick={() => togglePrintSel(v)}
                           className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{on ? '✓ ' : ''}{l}</button>
                       ) })}
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <button onClick={() => setPrintSel(TABS.map(([v]) => v))} className="text-[11px] text-[#1a73e8] hover:underline">全部選択</button>
+                      <button onClick={() => setPrintSel(PRINT_TABS.map(([v]) => v))} className="text-[11px] text-[#1a73e8] hover:underline">全部選択</button>
                       <div className="flex gap-2">
-                        <button onClick={() => doPrint(TABS.map(([v]) => v))} className="px-3 py-1.5 text-xs bg-[#C8A24B] text-white rounded-lg font-bold hover:brightness-95">全部出力</button>
+                        <button onClick={() => doPrint(PRINT_TABS.map(([v]) => v))} className="px-3 py-1.5 text-xs bg-[#C8A24B] text-white rounded-lg font-bold hover:brightness-95">全部出力</button>
                         <button onClick={() => doPrint(orderedSel)} disabled={!orderedSel.length} className="px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110 disabled:opacity-40">選択を出力</button>
                       </div>
                     </div>
@@ -389,7 +394,7 @@ export default function KeieiContent() {
             </div>
           </div>
 
-          {fy && (
+          {(fy || view === 'anken') && (
             <div className="space-y-5">
               {renderView(view)}
             </div>

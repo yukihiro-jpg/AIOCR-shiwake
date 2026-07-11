@@ -145,6 +145,42 @@ export async function subscribeSettings(cid: string, cb: (s: KeieiSettings) => v
   }
 }
 
+// ===== 案件台帳（設計業務Excel）の保存 =====
+import type { AnkenData } from './anken'
+const lsAnken = (cid: string) => `keiei-anken-${cid}`
+
+export async function loadAnken(cid: string): Promise<AnkenData> {
+  const empty: AnkenData = { items: [], closingMonth: 5 }
+  if (hasRoom() && cid) {
+    try {
+      const { db, ref, get } = await dbfns()
+      const snap = await get(ref(db, await modulePath(MODULE_KEY, cid, 'anken')))
+      const v = snap.val() as AnkenData | null
+      if (v) {
+        const data = { ...empty, ...v, items: v.items || [] }
+        try { localStorage.setItem(lsAnken(cid), JSON.stringify(data)) } catch { /* ignore */ }
+        return data
+      }
+    } catch { /* ignore */ }
+  }
+  if (typeof window !== 'undefined' && cid) {
+    try {
+      const raw = localStorage.getItem(lsAnken(cid))
+      if (raw) { const v = JSON.parse(raw) as AnkenData; return { ...empty, ...v, items: v.items || [] } }
+    } catch { /* ignore */ }
+  }
+  return empty
+}
+
+export async function saveAnken(cid: string, data: AnkenData): Promise<void> {
+  if (typeof window !== 'undefined' && cid) {
+    try { localStorage.setItem(lsAnken(cid), JSON.stringify(data)) } catch { /* ignore */ }
+  }
+  if (hasRoom() && cid) {
+    try { const { db, ref, set } = await dbfns(); await set(ref(db, await modulePath(MODULE_KEY, cid, 'anken')), data) } catch { /* ignore */ }
+  }
+}
+
 const SEL_KEY = 'keiei-selected-client'
 export function getSelectedClientId(): string {
   if (typeof window === 'undefined') return ''

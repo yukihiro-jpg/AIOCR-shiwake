@@ -127,6 +127,7 @@ const REGISTRY = {
   const ALLOW_LOCAL = [
     { pre: 'keiei-years-', post: '' },     // keieiはリモート優先で独自同期（store.ts）
     { pre: 'keiei-settings-', post: '' },  // 同上
+    { pre: 'keiei-anken-', post: '' },     // 同上（案件台帳）
     { pre: 'bs-excel-mapping-', post: '-' }, // 旧形式（科目CD付き）。読込時に新形式へ移行済み
   ]
   const files = walk(join(ROOT, 'src'), ['.ts', '.tsx'])
