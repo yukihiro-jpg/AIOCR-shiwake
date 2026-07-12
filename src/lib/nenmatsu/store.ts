@@ -472,6 +472,33 @@ export async function sweepOldSubmissions(
   return removed
 }
 
+/** 事務所側：1名分の提出を取り消す（テスト提出・誤提出用）。
+ *  Storageの画像 → 公開領域の提出記録 → 旧形式の記録の順に削除する。
+ *  従業員はその後、同じURLから再提出できる。 */
+export async function deleteSubmission(
+  yearId: string,
+  clientId: string,
+  empId: string,
+): Promise<void> {
+  const { db, ref, get, remove } = await dbfns()
+  const subs = await loadSubmissions(yearId, clientId)
+  const rec = subs[empId]
+  if (rec && (rec.paths || []).length) {
+    try {
+      const { st, ref: sref, deleteObject } = await storageFns()
+      for (const p of rec.paths || []) {
+        try { await deleteObject(sref(st, p)) } catch { /* 既に無い等は無視 */ }
+      }
+    } catch { /* ignore */ }
+  }
+  try {
+    const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+    const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+    if (comp && comp.token) await remove(ref(db, publicPath(comp.token, 'submissions', empId)))
+  } catch { /* ignore */ }
+  try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId, empId))) } catch { /* ignore */ }
+}
+
 /** 事務所側：保存パスのファイル群をBlobで取得（ZIP一括DL用） */
 export async function getFileBlobs(
   paths: string[],

@@ -21,6 +21,7 @@ import {
   loadDefaultDeadline,
   saveDefaultDeadline,
   setCompanyDeadline,
+  deleteSubmission,
   type SharedClient,
   type NenmatsuCompany,
   type NenmatsuEmployee,
@@ -814,6 +815,30 @@ function CompanyDetail({
     }
   }
 
+  /** テスト提出・誤提出の取消（画像・申告内容を削除して未提出に戻す） */
+  async function removeSubmission(emp: NenmatsuEmployee) {
+    const name = `${emp.lastName} ${emp.firstName}`.trim()
+    if (!window.confirm(
+      `${name} さんの提出を取り消しますか？\n\n` +
+      '提出された画像と申告内容を削除し、「未提出」の状態に戻します。\n' +
+      '本人は同じURLからもう一度提出できます。この操作は元に戻せません。',
+    )) return
+    setZipMsg(`${name} さんの提出を取り消しています...`)
+    try {
+      await deleteSubmission(yearId, company.clientId, emp.id)
+      setSubs((prev) => {
+        const next = { ...prev }
+        delete next[emp.id]
+        return next
+      })
+      setFiles(null)
+      setDeclView(null)
+    } catch (e) {
+      alert('取消に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setZipMsg('')
+  }
+
   async function downloadOne(emp: NenmatsuEmployee, rec: SubmissionRecord) {
     setZipMsg(`${emp.lastName}${emp.firstName} さんのファイルを準備中...`)
     try {
@@ -1053,6 +1078,16 @@ function CompanyDetail({
                             一括DL
                           </button>
                         </>
+                      )}
+                      {rec && (
+                        <button
+                          onClick={() => removeSubmission(e)}
+                          disabled={!!zipMsg}
+                          title="テスト提出・誤提出の取消。画像と申告内容を削除して未提出に戻します"
+                          className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
+                        >
+                          提出取消
+                        </button>
                       )}
                     </span>
                   </td>
