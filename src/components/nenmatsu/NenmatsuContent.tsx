@@ -18,6 +18,9 @@ import {
   getFileBlobs,
   sweepOldSubmissions,
   buildUploadUrl,
+  loadDefaultDeadline,
+  saveDefaultDeadline,
+  setCompanyDeadline,
   type SharedClient,
   type NenmatsuCompany,
   type NenmatsuEmployee,
@@ -58,6 +61,26 @@ function safe(name: string): string {
   return (name || '').replace(/[\\/:*?"<>|]/g, '_')
 }
 
+/** 期限までの残り日数（期限日の終わりまで）。期限なしは null */
+function daysToDeadline(deadline: string): number | null {
+  if (!deadline) return null
+  const d = new Date(deadline + 'T23:59:59')
+  if (isNaN(d.getTime())) return null
+  return Math.ceil((d.getTime() - Date.now()) / 86400000)
+}
+
+/** 期限バッジ（残り日数・超過の色分け） */
+function DeadlineBadge({ deadline }: { deadline: string }) {
+  const days = daysToDeadline(deadline)
+  if (days == null) return null
+  const [y, m, dd] = deadline.split('-')
+  void y
+  const label = `${Number(m)}/${Number(dd)}`
+  if (days < 0) return <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold whitespace-nowrap">期限超過（{label}）</span>
+  if (days <= 7) return <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold whitespace-nowrap">あと{days}日（{label}）</span>
+  return <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] whitespace-nowrap">期限 {label}（あと{days}日）</span>
+}
+
 export default function NenmatsuContent() {
   const [ready, setReady] = useState(false)
   const [pass, setPass] = useState('')
@@ -69,6 +92,8 @@ export default function NenmatsuContent() {
   const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
   const [importCheck, setImportCheck] = useState<{ company: NenmatsuCompany } | null>(null)
   const [guide, setGuide] = useState<{ company: NenmatsuCompany } | null>(null)
+  const [defaultDeadline, setDefaultDeadline] = useState('')
+  const [defaultDeadlineInput, setDefaultDeadlineInput] = useState('')
 
   useEffect(() => {
     setReady(hasRoom())
@@ -98,6 +123,11 @@ export default function NenmatsuContent() {
             }
           }
         }
+      } catch { /* ignore */ }
+      try {
+        const dd = await loadDefaultDeadline(yearId)
+        setDefaultDeadline(dd)
+        setDefaultDeadlineInput(dd)
       } catch { /* ignore */ }
       const comps = await loadCompanies(yearId)
       const next: Row[] = []
@@ -227,6 +257,37 @@ export default function NenmatsuContent() {
           </div>
         )}
 
+        {/* 提出期限（年度の既定。会社別は一覧の各行で上書き） */}
+        <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-semibold text-gray-700">📅 提出期限（全社の既定）</span>
+          <input
+            type="date"
+            value={defaultDeadlineInput}
+            onChange={(e) => setDefaultDeadlineInput(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded"
+          />
+          <button
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await saveDefaultDeadline(yearId, defaultDeadlineInput)
+                setDefaultDeadline(defaultDeadlineInput)
+                setMsg(defaultDeadlineInput ? '既定の提出期限を保存し、従業員向けページに反映しました。' : '既定の提出期限を解除しました。')
+              } catch (e) {
+                setMsg('保存に失敗しました：' + (e instanceof Error ? e.message : ''))
+              }
+              setBusy(false)
+            }}
+            disabled={busy || defaultDeadlineInput === defaultDeadline}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+          >
+            保存して全社に適用
+          </button>
+          <span className="text-[11px] text-gray-400">
+            従業員向けページに期限と残り日数が表示されます（期限後も提出は受け付け、警告を表示）。会社ごとに変えたい場合は下の一覧の期限欄で上書きできます。
+          </span>
+        </div>
+
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 text-sm text-gray-500">
             「顧問先情報登録」の「アプリ利用」で<strong>年調データ受信＝利用</strong>にした会社が表示されます。JDLのCSVで従業員を取り込み、URL/QRを配布してください。
@@ -242,17 +303,46 @@ export default function NenmatsuContent() {
                   <th className="text-left px-4 py-2 font-semibold">コード</th>
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
                   <th className="text-left px-4 py-2 font-semibold">従業員 / 提出</th>
+                  <th className="text-left px-4 py-2 font-semibold">提出期限</th>
                   <th className="text-right px-4 py-2 font-semibold">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ client, company, submitted }) => (
+                {rows.map(({ client, company, submitted }) => {
+                  const eff = company.deadline || defaultDeadline
+                  const remain = Math.max(0, (company.employeeCount ?? 0) - submitted)
+                  const dd = daysToDeadline(eff)
+                  return (
                   <tr key={client.id} className="border-t border-gray-100">
                     <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
                     <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
-                    <td className="px-4 py-3 text-gray-600">
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
                       <span className="font-semibold text-blue-700">{submitted}</span>名
+                      {remain > 0 && (company.employeeCount ?? 0) > 0 && (
+                        <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${dd != null && dd < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+                          未提出 {remain}名
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <input
+                          type="date"
+                          value={company.deadline || ''}
+                          placeholder={defaultDeadline}
+                          title={company.deadline ? 'この会社だけの期限（空にすると既定に戻ります）' : defaultDeadline ? `既定（${defaultDeadline}）を使用中。変更するとこの会社だけ上書きします` : '期限を設定'}
+                          onChange={async (e) => {
+                            const v = e.target.value
+                            try {
+                              await setCompanyDeadline(yearId, client.id, v)
+                              setRows((prev) => prev.map((r) => r.client.id === client.id ? { ...r, company: { ...r.company, deadline: v || undefined } } : r))
+                            } catch { setMsg('期限の保存に失敗しました。') }
+                          }}
+                          className={`px-2 py-1 text-xs border rounded ${company.deadline ? 'border-blue-400 text-blue-800' : 'border-gray-200 text-gray-500'}`}
+                        />
+                        <DeadlineBadge deadline={eff} />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 justify-end flex-wrap">
@@ -302,7 +392,7 @@ export default function NenmatsuContent() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           )}
@@ -327,6 +417,7 @@ export default function NenmatsuContent() {
         <CompanyDetail
           yearId={yearId}
           company={detail.company}
+          defaultDeadline={defaultDeadline}
           onClose={() => setDetail(null)}
         />
       )}
@@ -343,6 +434,7 @@ export default function NenmatsuContent() {
         <GuideModal
           yearId={yearId}
           company={guide.company}
+          defaultDeadline={defaultDeadline}
           onClose={() => setGuide(null)}
         />
       )}
@@ -355,16 +447,19 @@ export default function NenmatsuContent() {
 function GuideModal({
   yearId,
   company,
+  defaultDeadline,
   onClose,
 }: {
   yearId: string
   company: NenmatsuCompany
+  defaultDeadline: string
   onClose: () => void
 }) {
   const fy = FY_BY_ID[yearId]
   const gregorian = fy?.gregorian || new Date().getFullYear()
-  const defaultDeadline = `${gregorian}-${fy?.deadlineMMDD || '11-30'}`
-  const [deadline, setDeadline] = useState(defaultDeadline)
+  // 会社別期限 ＞ 年度既定 ＞ 年度テンプレの順で初期値にする（案内PDFとアプリ表示の期限を一致させる）
+  const initialDeadline = company.deadline || defaultDeadline || `${gregorian}-${fy?.deadlineMMDD || '11-30'}`
+  const [deadline, setDeadline] = useState(initialDeadline)
   const [url, setUrl] = useState('')
   const [qr, setQr] = useState('')
   const [loading, setLoading] = useState(true)
@@ -406,6 +501,11 @@ function GuideModal({
     })
     if (!ok) {
       alert('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度「案内PDFを作成」を押してください。')
+      return
+    }
+    // 案内に印字した期限をこの会社の提出期限として保存（従業員向けページの表示と一致させる）
+    if (deadline && deadline !== (company.deadline || defaultDeadline)) {
+      setCompanyDeadline(yearId, company.clientId, deadline).catch(() => { /* 表示は次回更新時に反映 */ })
     }
   }
 
@@ -626,10 +726,12 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
 function CompanyDetail({
   yearId,
   company,
+  defaultDeadline,
   onClose,
 }: {
   yearId: string
   company: NenmatsuCompany
+  defaultDeadline: string
   onClose: () => void
 }) {
   const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
@@ -677,6 +779,31 @@ function CompanyDetail({
       birth: '', birthRaw: '', isNewHire: true,
     }))
   const displayEmployees: NenmatsuEmployee[] = [...employees, ...newHires]
+
+  /** 未提出者の一覧を催促連絡用テキストとしてコピー（パターンC: リマインド支援） */
+  async function copyPendingList() {
+    const pending = employees.filter((e) => !subs[e.id])
+    if (!pending.length) {
+      alert('未提出者はいません（全員提出済みです）。')
+      return
+    }
+    const eff = company.deadline || defaultDeadline
+    const lines = [
+      `【${company.name}】年末調整 書類の未提出者（${pending.length}名）`,
+      ...(eff ? [`提出期限: ${eff.replace(/-/g, '/')}`] : []),
+      '',
+      ...pending.map((e) => `・${e.lastName} ${e.firstName}`),
+      '',
+      'お手数ですが、上記の方へ提出のお声がけをお願いいたします。',
+    ]
+    const text = lines.join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      alert('未提出者一覧をコピーしました。メール等に貼り付けて会社のご担当者へお送りください。')
+    } catch {
+      window.prompt('コピーしてください', text)
+    }
+  }
 
   async function viewFiles(emp: NenmatsuEmployee) {
     try {
@@ -774,7 +901,15 @@ function CompanyDetail({
         <p className="text-xs text-gray-500">
           提出済みの従業員はファイルをアプリ内で閲覧・人別/全員一括でダウンロードできます。
         </p>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={copyPendingList}
+            disabled={!!zipMsg || loading}
+            title="未提出者の氏名一覧を、会社への催促連絡用テキストとしてコピーします"
+            className="px-3 py-1.5 text-xs border border-amber-300 text-amber-700 rounded hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            📋 未提出者をコピー
+          </button>
           <button
             onClick={() => setDriveOpen(true)}
             disabled={!!zipMsg}
@@ -995,6 +1130,12 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
       {decl.isNewHire && (
         <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded px-2 py-1">
           本年入社（新規申告）{decl.hireDate ? `・入社日 ${decl.hireDate}` : ''}
+          {decl.hasPrevJob === true ? '・前職あり' : decl.hasPrevJob === false ? '・前職なし' : ''}
+        </div>
+      )}
+      {decl.isNewHire && decl.prevJobNoSlip && (
+        <div className="text-xs bg-red-50 border border-red-200 text-red-700 rounded px-2 py-1">
+          ⚠ 前職の源泉徴収票を入手できないまま提出（本人が確定申告する旨を案内済み）。年末調整に前職分を含めないでください。
         </div>
       )}
       <div>

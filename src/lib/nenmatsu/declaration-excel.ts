@@ -67,7 +67,16 @@ export async function buildDeclarationExcelBlob(
     no++
     const d = ent.decl
     const memo: string[] = []
-    if (ent.isNewHire || d.isNewHire) memo.push(d.hireDate ? `本年入社（入社日 ${d.hireDate.replace(/-/g, '/')}）` : '本年入社')
+    if (ent.isNewHire || d.isNewHire) {
+      memo.push(d.hireDate ? `本年入社（入社日 ${d.hireDate.replace(/-/g, '/')}）` : '本年入社')
+      if (d.hasPrevJob === true) {
+        memo.push(d.prevJobNoSlip
+          ? '⚠前職あり・源泉徴収票入手不可（本人が確定申告する旨を案内済み）'
+          : '前職あり（源泉徴収票 提出）')
+      } else if (d.hasPrevJob === false) {
+        memo.push('前職なし')
+      }
+    }
     if (d.noChange) memo.push('前年と相違なし')
     if (ent.submittedAt) memo.push(`提出 ${fmtDate(ent.submittedAt)}`)
 

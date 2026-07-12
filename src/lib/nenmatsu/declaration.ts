@@ -25,6 +25,8 @@ export interface SpouseInfo {
 export interface Declaration {
   isNewHire: boolean
   hireDate?: string // 入社日 YYYY-MM-DD（本年入社の場合に入力）
+  hasPrevJob?: boolean // 入社年に前職があるか（本年入社の場合に必須回答）
+  prevJobNoSlip?: boolean // 前職ありだが源泉徴収票をどうしても入手できない（本人が確定申告する前提で提出）
   lastName: string
   firstName: string
   kanaLast: string

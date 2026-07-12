@@ -196,6 +196,31 @@ export default function DeclarationForm({
               <input type="date" className={inp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
             </L>
           )}
+          {d.isNewHire && (
+            <div className="col-span-2">
+              <span className="block text-[11px] text-gray-500 mb-1">
+                今年、入社前に他の会社で働いていましたか？（アルバイト・パートを含みます）
+              </span>
+              <div className="flex gap-2">
+                {[
+                  { v: true, label: '前職がある' },
+                  { v: false, label: '前職はない' },
+                ].map((o) => (
+                  <button key={String(o.v)} type="button"
+                    onClick={() => set({ hasPrevJob: o.v, ...(o.v ? {} : { prevJobNoSlip: false }) })}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-semibold ${d.hasPrevJob === o.v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {d.hasPrevJob === true && (
+                <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                  📄 前職分も合わせて年末調整を行うため、<b>今年に退職したすべての前職の「源泉徴収票」</b>が必要です。
+                  次の画面（書類の撮影）で必ず撮影してください。お手元にない場合は、前職の会社へ発行を依頼してください。
+                </div>
+              )}
+            </div>
+          )}
           <L label="郵便番号（自動で住所入力）">
             <input className={inp} inputMode="numeric" placeholder="1234567" value={d.postal} onChange={(e) => onPostal(e.target.value)} />
           </L>

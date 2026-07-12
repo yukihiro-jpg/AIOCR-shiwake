@@ -26,6 +26,7 @@ export default function NenmatsuUpload() {
   const [errMsg, setErrMsg] = useState('')
   const [params, setParams] = useState<Params | null>(null)
   const [companyName, setCompanyName] = useState('')
+  const [deadline, setDeadline] = useState('')
   const [employees, setEmployees] = useState<PublicEmployee[]>([])
   const [empId, setEmpId] = useState('')
   const [by, setBy] = useState('')
@@ -66,6 +67,7 @@ export default function NenmatsuUpload() {
         }
         setParams({ t, y: res.yearId || yParam })
         setCompanyName(res.companyName)
+        setDeadline(res.deadline || '')
         setEmployees(res.employees)
         setPhase('select')
       } catch {
@@ -137,9 +139,29 @@ export default function NenmatsuUpload() {
       alert('入社日を入力してください。')
       return
     }
+    if (decl.isNewHire && decl.hasPrevJob === undefined) {
+      alert('今年の前職の有無を選択してください。')
+      return
+    }
     setDecl({ ...decl, noChange, confirmedAt: new Date().toISOString() })
     setPhase('docs')
   }
+
+  // 本年入社×前職ありの場合、前職の源泉徴収票が必須（どうしても入手できない場合のみ例外）
+  const needPrevSlip = !!(decl?.isNewHire && decl?.hasPrevJob)
+  const prevSlipCount = (photos['prev_withholding'] || []).length
+  const [noSlipChecked, setNoSlipChecked] = useState(false)
+
+  // 提出期限の表示（期限を過ぎても提出は受け付ける＝機会を閉じない方針）
+  const deadlineInfo = useMemo(() => {
+    if (!deadline) return null
+    const d = new Date(deadline + 'T23:59:59')
+    if (isNaN(d.getTime())) return null
+    const w = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()]
+    const label = `${d.getMonth() + 1}月${d.getDate()}日（${w}）`
+    const days = Math.ceil((d.getTime() - Date.now()) / 86400000)
+    return { label, days }
+  }, [deadline])
 
   function onCapture(docKey: string, list: FileList | null) {
     if (!list || !list.length) return
@@ -152,6 +174,28 @@ export default function NenmatsuUpload() {
 
   async function submit() {
     if (!params || !decl) return
+    // 前職ありで源泉徴収票が未撮影の場合は原則提出不可
+    if (needPrevSlip && prevSlipCount === 0) {
+      if (!noSlipChecked) {
+        alert(
+          '前職の源泉徴収票が撮影されていません。\n\n' +
+            '前職分を含めて年末調整を行うため、今年のすべての前職の源泉徴収票が必要です。' +
+            'お手元にない場合は、前職の会社へ発行を依頼してください（退職後1か月以内の発行が法律上の義務です）。\n\n' +
+            'どうしても入手できない場合のみ、画面下のチェックを入れて提出してください。',
+        )
+        return
+      }
+      if (
+        !confirm(
+          '【重要】前職の源泉徴収票なしで提出します。\n\n' +
+            'この場合、会社の年末調整に前職分を含めることができないため、' +
+            'ご自身で確定申告（翌年2月16日〜3月15日）を行う必要があります。\n\n' +
+            'このまま提出しますか？',
+        )
+      )
+        return
+    }
+    const declToSend: Declaration = { ...decl, prevJobNoSlip: needPrevSlip && prevSlipCount === 0 && noSlipChecked }
     // 提出者（既存=me、新入社員=申告から生成）
     const emp: NenmatsuEmployee =
       me ||
@@ -196,7 +240,7 @@ export default function NenmatsuUpload() {
         docs[key] = blobs
       }
       setProgress('送信しています...')
-      await submitDocsPublic(params.t, emp, docs, decl)
+      await submitDocsPublic(params.t, emp, docs, declToSend)
       setPhase('done')
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
@@ -239,6 +283,23 @@ export default function NenmatsuUpload() {
       </header>
 
       <div className="max-w-md mx-auto p-4">
+        {deadlineInfo && (
+          <div className={`rounded-xl px-3 py-2.5 mb-3 text-sm border ${
+            deadlineInfo.days < 0
+              ? 'bg-red-50 border-red-300 text-red-800'
+              : deadlineInfo.days <= 7
+                ? 'bg-amber-50 border-amber-300 text-amber-800'
+                : 'bg-white border-gray-200 text-gray-700'
+          }`}>
+            {deadlineInfo.days < 0 ? (
+              <>⚠ <b>提出期限（{deadlineInfo.label}）を過ぎています。</b>至急ご提出のうえ、会社のご担当者へご連絡ください。</>
+            ) : deadlineInfo.days === 0 ? (
+              <>⏰ <b>提出期限は本日（{deadlineInfo.label}）です。</b>お早めにご提出ください。</>
+            ) : (
+              <>📅 提出期限：<b>{deadlineInfo.label}</b>（あと{deadlineInfo.days}日）</>
+            )}
+          </div>
+        )}
         {phase === 'select' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
             <h1 className="font-bold text-gray-800 mb-3">あてはまるものを選んでください</h1>
@@ -324,13 +385,21 @@ export default function NenmatsuUpload() {
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-4">
               📷 カメラが開かない・撮影できないときは、LINE等のアプリ内ではなく <b>Safari / Chrome で開き直す</b>とご利用いただけます（右上メニューの「ブラウザで開く」）。
             </p>
+            {needPrevSlip && (
+              <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3 leading-relaxed">
+                ❗ 前職があるため、<b>今年のすべての前職の「源泉徴収票」の撮影が必須</b>です。
+                撮影がないと原則提出できません。お手元にない場合は前職の会社へ発行をご依頼ください。
+              </div>
+            )}
             <ul className="space-y-3">
               {NENMATSU_DOC_TYPES.map((dt) => {
                 const list = photos[dt.key] || []
+                const required = needPrevSlip && dt.key === 'prev_withholding'
                 return (
-                  <li key={dt.key} className="border border-gray-200 rounded-lg p-3">
+                  <li key={dt.key} className={`border rounded-lg p-3 ${required ? (list.length ? 'border-green-400 bg-green-50/40' : 'border-red-400 bg-red-50/40') : 'border-gray-200'}`}>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-gray-700">
+                        {required && <span className={`mr-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${list.length ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>{list.length ? '撮影済' : '必須'}</span>}
                         {dt.name}
                         {dt.note && <span className="text-[11px] text-gray-400 ml-1">（{dt.note}）</span>}
                       </span>
@@ -365,6 +434,22 @@ export default function NenmatsuUpload() {
                 )
               })}
             </ul>
+            {needPrevSlip && prevSlipCount === 0 && (
+              <div className="mt-4 border border-amber-300 bg-amber-50 rounded-lg px-3 py-2.5">
+                <label className="flex items-start gap-2 text-[12px] text-amber-900">
+                  <input type="checkbox" className="mt-0.5" checked={noSlipChecked} onChange={(e) => setNoSlipChecked(e.target.checked)} />
+                  <span>
+                    前職の会社に問い合わせましたが、<b>どうしても源泉徴収票を入手できません</b>（入手できないまま提出します）
+                  </span>
+                </label>
+                {noSlipChecked && (
+                  <p className="text-[11px] text-red-700 mt-1.5 leading-relaxed">
+                    ⚠ この場合、会社の年末調整では前職分を精算できないため、<b>ご自身で確定申告（翌年2/16〜3/15）を行う必要があります</b>。
+                    源泉徴収票の発行は退職後1か月以内が法律上の義務ですので、まずは前職の会社へご依頼ください。
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

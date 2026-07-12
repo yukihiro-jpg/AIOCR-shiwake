@@ -56,6 +56,7 @@ export interface NenmatsuCompany {
   token: string // 従業員向けURLのトークン
   registeredAt: string
   employeeCount?: number
+  deadline?: string // 提出期限 YYYY-MM-DD（会社別の上書き。未設定なら年度の既定期限）
 }
 
 async function dbfns() {
@@ -136,6 +137,38 @@ export async function processNenmatsuPurgeQueue(): Promise<number> {
     } catch { /* 失敗分はキューに残し、次回開いたときに再試行 */ }
   }
   return done
+}
+
+// ===== 提出期限（年度の既定＋会社別上書き） =====
+
+/** 年度の既定提出期限（YYYY-MM-DD、未設定は ''） */
+export async function loadDefaultDeadline(yearId: string): Promise<string> {
+  const { db, ref, get } = await dbfns()
+  const snap = await get(ref(db, await modulePath(NENMATSU_KEY, yearId, 'settings', 'defaultDeadline')))
+  return (snap.val() as string) || ''
+}
+
+/** 年度の既定提出期限を保存し、全社の公開名簿へ反映する */
+export async function saveDefaultDeadline(yearId: string, deadline: string): Promise<void> {
+  const { db, ref, set } = await dbfns()
+  await set(ref(db, await modulePath(NENMATSU_KEY, yearId, 'settings', 'defaultDeadline')), deadline || null)
+  await republishRosters(yearId)
+}
+
+/** 会社別の提出期限を設定（deadline='' で既定に戻す）。公開名簿へも反映する */
+export async function setCompanyDeadline(yearId: string, clientId: string, deadline: string): Promise<void> {
+  const { db, ref, get, update } = await dbfns()
+  const compPath = await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)
+  await update(ref(db, compPath), { deadline: deadline || null })
+  const comp = (await get(ref(db, compPath))).val() as NenmatsuCompany | null
+  if (comp && comp.token) {
+    try { await publishRoster(yearId, comp, await loadEmployees(yearId, clientId)) } catch { /* ignore */ }
+  }
+}
+
+/** 有効な提出期限（会社別上書き ＞ 年度既定） */
+export function effectiveDeadline(company: NenmatsuCompany | null, defaultDeadline: string): string {
+  return company?.deadline || defaultDeadline || ''
 }
 
 /** 年度の登録会社一覧 */
@@ -265,9 +298,15 @@ export async function publishRoster(
     if (e.isNewHire) pub.isNewHire = true
     map[e.id] = pub
   }
+  // 提出期限（会社別上書き ＞ 年度既定）も公開する（従業員ページの期限表示用。PIIではない）
+  let deadline = company.deadline || ''
+  if (!deadline) {
+    try { deadline = await loadDefaultDeadline(yearId) } catch { /* ignore */ }
+  }
   await set(ref(db, publicPath(company.token, 'roster')), {
     name: company.name,
     yearId,
+    deadline: deadline || null,
     employees: map,
   })
 }
@@ -286,16 +325,17 @@ function randomToken(): string {
 /** 会社名と名簿を取得（従業員ページ用）。token が無効なら null */
 export async function loadCompanyPublic(
   token: string,
-): Promise<{ companyName: string; yearId: string; employees: PublicEmployee[] } | null> {
+): Promise<{ companyName: string; yearId: string; deadline: string; employees: PublicEmployee[] } | null> {
   if (!token) return null
   const { db, ref, get } = await dbfns()
   const roster = (await get(ref(db, publicPath(token, 'roster')))).val() as
-    | { name: string; yearId: string; employees?: Record<string, PublicEmployee> }
+    | { name: string; yearId: string; deadline?: string; employees?: Record<string, PublicEmployee> }
     | null
   if (!roster || !roster.name) return null
   return {
     companyName: roster.name,
     yearId: roster.yearId || '',
+    deadline: roster.deadline || '',
     employees: Object.values(roster.employees || {}),
   }
 }
