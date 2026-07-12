@@ -24,7 +24,8 @@ const HEADERS = [
   '郵便番号', '住所', '世帯主（続柄）', '備考',
 ] as const
 
-const WIDTHS = [5, 11, 16, 16, 8, 12, 12, 13, 12, 9, 9, 26, 9, 34, 16, 22]
+// 列幅はヘッダ・データとも1行で収まる幅にする（見切れ防止）
+const WIDTHS = [5, 11, 16, 16, 10, 12, 12, 15, 15, 10, 10, 36, 10, 36, 18, 32]
 
 function fmtDate(iso?: string): string {
   if (!iso) return ''
@@ -51,13 +52,13 @@ export async function buildDeclarationExcelBlob(
   ws.mergeCells(2, 1, 2, HEADERS.length)
   sub.getCell(1).font = { name: FONT, size: 9, color: { argb: 'FF5B6675' } }
 
-  // ヘッダ
+  // ヘッダ（折り返しなしで1行に収める。高さも余裕を持たせて見切れを防ぐ）
   const head = ws.addRow([...HEADERS])
-  head.height = 20
+  head.height = 24
   head.eachCell((c) => {
     c.font = { name: FONT, size: 9, bold: true, color: { argb: 'FFFFFFFF' } }
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } }
-    c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    c.alignment = { vertical: 'middle', horizontal: 'center' }
     c.border = thinBorder('FF1F3A5F')
   })
 
@@ -131,7 +132,7 @@ function thinBorder(argb = 'FFD3DAE3') {
 }
 
 function styleRow(row: import('exceljs').Row, fill: string, isSelf: boolean) {
-  row.height = 18
+  // 高さは固定しない（wrapTextの列はExcelが開いたときに自動で行高を広げるため、固定すると見切れる）
   for (let c = 1; c <= HEADERS.length; c++) {
     const cell = row.getCell(c)
     cell.font = { name: FONT, size: 9, bold: isSelf && (c === 2 || c === 3), color: { argb: 'FF243042' } }
