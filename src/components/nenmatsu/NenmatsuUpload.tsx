@@ -11,6 +11,7 @@ import {
 } from '@/lib/nenmatsu/store'
 import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
+import { checkPhotoQuality } from '@/lib/nenmatsu/photo-check'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { emptyDeclaration, type Declaration } from '@/lib/nenmatsu/declaration'
 import DeclarationForm from './DeclarationForm'
@@ -37,6 +38,9 @@ export default function NenmatsuUpload() {
   const [decl, setDecl] = useState<Declaration | null>(null)
   const [noChange, setNoChange] = useState(false)
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
+  // 写真ごとのOCR適性警告（キー: docKey|name|size|lastModified）
+  const [photoWarns, setPhotoWarns] = useState<Record<string, string[]>>({})
+  const warnKey = (docKey: string, f: File) => `${docKey}|${f.name}|${f.size}|${f.lastModified}`
   const [submitting, setSubmitting] = useState(false)
   const [progress, setProgress] = useState('')
   const [submitErr, setSubmitErr] = useState('')
@@ -167,6 +171,14 @@ export default function NenmatsuUpload() {
     if (!list || !list.length) return
     const arr = Array.from(list)
     setPhotos((prev) => ({ ...prev, [docKey]: [...(prev[docKey] || []), ...arr] }))
+    // OCR適性チェック（バックグラウンドで実行し、問題があれば写真に警告バッジを付ける）
+    for (const f of arr) {
+      checkPhotoQuality(f)
+        .then((r) => {
+          if (!r.ok) setPhotoWarns((prev) => ({ ...prev, [warnKey(docKey, f)]: r.issues }))
+        })
+        .catch(() => { /* チェック不能時は警告しない */ })
+    }
   }
   function removePhoto(docKey: string, idx: number) {
     setPhotos((prev) => ({ ...prev, [docKey]: (prev[docKey] || []).filter((_, i) => i !== idx) }))
@@ -382,6 +394,13 @@ export default function NenmatsuUpload() {
               {decl.lastName} {decl.firstName} 様
             </h1>
             <p className="text-xs text-gray-500 mb-2">該当する書類を撮影してください（複数ページは続けて撮影できます）。スマホ内に保存済みの写真も選べます。</p>
+            <div className="text-[12px] text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2.5 mb-2 leading-relaxed">
+              <div className="font-bold mb-1">📷 きれいに読み取れる撮影のコツ（この写真はコンピュータで自動読取されます）</div>
+              ・書類の<b>真上から</b>、書類<b>全体が画面に大きく</b>入るように撮影<br />
+              ・<b>明るい場所</b>で。影や照明の映り込み・フラッシュの反射に注意<br />
+              ・無地の机の上に置き、<b>折り目・丸まりを伸ばして</b>から撮影<br />
+              ・撮影後、<b>小さな文字が読めるか</b>写真を拡大して確認してください
+            </div>
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-4">
               📷 カメラが開かない・撮影できないときは、LINE等のアプリ内ではなく <b>Safari / Chrome で開き直す</b>とご利用いただけます（右上メニューの「ブラウザで開く」）。
             </p>
@@ -418,17 +437,34 @@ export default function NenmatsuUpload() {
                       </label>
                     </div>
                     {list.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {list.map((f, i) => (
-                          <div key={i} className="relative">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={URL.createObjectURL(f)} alt="" className="w-16 h-16 object-cover rounded border border-gray-200" />
-                            <button onClick={() => removePhoto(dt.key, i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none">
-                              ×
-                            </button>
+                      <>
+                        <div className="flex flex-wrap gap-2">
+                          {list.map((f, i) => {
+                            const warns = photoWarns[warnKey(dt.key, f)]
+                            return (
+                              <div key={i} className="relative">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={URL.createObjectURL(f)} alt="" className={`w-16 h-16 object-cover rounded border-2 ${warns ? 'border-amber-400' : 'border-gray-200'}`} />
+                                <button onClick={() => removePhoto(dt.key, i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-none">
+                                  ×
+                                </button>
+                                {warns && (
+                                  <span className="absolute bottom-0 left-0 right-0 bg-amber-500/95 text-white text-[9px] text-center rounded-b font-bold">⚠ 要確認</span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {list.some((f) => photoWarns[warnKey(dt.key, f)]) && (
+                          <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed">
+                            <b>⚠ 自動読取に失敗する可能性のある写真があります：</b>
+                            {Array.from(new Set(list.flatMap((f) => photoWarns[warnKey(dt.key, f)] || []))).map((w, i) => (
+                              <span key={i}><br />・{w}</span>
+                            ))}
+                            <br />そのまま提出もできますが、<b>×で削除して撮り直す</b>ことをおすすめします。
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </li>
                 )
