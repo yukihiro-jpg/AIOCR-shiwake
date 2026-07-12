@@ -1,12 +1,111 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MODULES } from '@/core/registry'
+import { hasRoom } from '@/core/room'
+import {
+  exportSuiteBackup, readSuiteBackupFile, restoreSuiteBackup, getSuiteLastBackupAt,
+} from '@/core/suite-backup'
 
 const SUITE_GEMINI_KEY = 'suite-gemini-api-key'
 const GOOGLE_CLIENT_ID_KEY = 'suite-google-client-id'
 const OFFICE_NAME = '日下部税理士事務所'
+
+// モジュールキー → 画面名（バックアップ内容の表示用）
+const MODULE_LABELS: Record<string, string> = {
+  komon: '顧問先情報・進捗管理',
+  shiwake: '仕訳作成',
+  'aiocr-shiwake': '仕訳作成',
+  souzoku: '相続管理',
+  keiei: '月次レポート（案件台帳含む）',
+  nenmatsu: '年調データ受信',
+  scan: '共有フォルダ（書類スキャン受信）',
+  kakunin: '確認・依頼メモ',
+}
+const moduleLabel = (k: string) => MODULE_LABELS[k] || k
+
+// 全データバックアップ（rooms/{roomKey} 丸ごとのJSON書き出し・復元）
+function SuiteBackupSection() {
+  const [roomReady, setRoomReady] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [lastAt, setLastAt] = useState<Date | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setRoomReady(hasRoom())
+    setLastAt(getSuiteLastBackupAt())
+  }, [])
+
+  const doExport = async () => {
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const modules = await exportSuiteBackup()
+      setLastAt(getSuiteLastBackupAt())
+      setMsg(`バックアップをダウンロードしました（${modules.map(moduleLabel).join('・')}）。ファイルはUSBやGoogleドライブなど、PCの外にも控えてください。`)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'バックアップに失敗しました')
+    } finally { setBusy(false) }
+  }
+
+  const doRestore = async (file: File) => {
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const backup = await readSuiteBackupFile(file)
+      const when = new Date(backup.exportedAt)
+      const whenStr = isNaN(when.getTime()) ? '不明' : `${when.getFullYear()}年${when.getMonth() + 1}月${when.getDate()}日 ${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`
+      const ok = window.confirm(
+        `このバックアップで復元しますか？\n\n` +
+        `作成日時: ${whenStr}\n含まれるデータ: ${backup.modules.map(moduleLabel).join('・')}\n\n` +
+        `⚠ いま合言葉の部屋にある全データが、このバックアップ時点の内容に置き換わります。\n` +
+        `バックアップ以降に入力した内容は消えます（復元前に現在のデータを自動でダウンロードして控えます）。`,
+      )
+      if (!ok) { setBusy(false); return }
+      await restoreSuiteBackup(backup)
+      setLastAt(getSuiteLastBackupAt())
+      setMsg('復元しました。各画面を開き直すと反映されます（復元前の状態も「復元前の自動控え」としてダウンロード済みです）。')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '復元に失敗しました')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mt-5 mb-1 pt-4 border-t border-gray-100">
+        <span className="text-lg">💾</span>
+        <h3 className="font-semibold text-gray-800 text-sm">全データバックアップ</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+        合言葉で共有している<b>全モジュールのデータ</b>（顧問先情報・進捗・仕訳作成・相続・月次レポート・年調など）を
+        1つのJSONファイルに書き出します。アプリの不具合や誤操作に備え、<b>月1回程度</b>のダウンロードをお勧めします。
+        画像・ファイルの実体（書類スキャン・年調の提出画像）は含まれないため、長期保管が必要な場合は各画面のZIP一括DL／Driveへ保存を使ってください。
+      </p>
+      {!roomReady ? (
+        <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 inline-block">合言葉が未設定のため利用できません。いずれかのモジュールで合言葉を入力してから開き直してください。</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={busy} onClick={doExport}
+            className="text-xs px-3 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-40">
+            {busy ? '処理中…' : '⬇ 今すぐバックアップ（JSON）'}
+          </button>
+          <button type="button" disabled={busy} onClick={() => fileRef.current?.click()}
+            className="text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40">
+            ⬆ バックアップから復元
+          </button>
+          <input ref={fileRef} type="file" accept=".json" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) doRestore(f); e.target.value = '' }} />
+          <span className="text-[11px] text-gray-500">
+            前回: <b>{lastAt ? `${lastAt.getFullYear()}/${lastAt.getMonth() + 1}/${lastAt.getDate()}` : 'まだありません'}</b>
+          </span>
+        </div>
+      )}
+      {msg && <p className="text-[11px] mt-2 px-2 py-1.5 bg-green-50 text-green-700 rounded">{msg}</p>}
+      {err && <p className="text-[11px] mt-2 px-2 py-1.5 bg-red-50 text-red-700 rounded">{err}</p>}
+    </>
+  )
+}
 
 // 共通設定モーダル：Gemini APIキーを1か所で登録（各モジュールはこのキーを自動で使う）
 function CommonSettingsModal({ onClose }: { onClose: () => void }) {
@@ -117,6 +216,9 @@ function CommonSettingsModal({ onClose }: { onClose: () => void }) {
         <p className="text-[11px] mt-1 px-2 py-1 bg-gray-50 rounded text-gray-600 inline-block">
           現在：<b>{gClientId ? '設定済み' : '未設定'}</b>
         </p>
+
+        <SuiteBackupSection />
+
         <div className="mt-5 text-right">
           <button
             type="button"

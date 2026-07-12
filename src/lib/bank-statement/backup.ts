@@ -9,13 +9,20 @@
 import { STORAGE_KEY_MAP, STORAGE_KEYS, CLIENTS_LIST_KEY } from './storage-keys'
 
 const LAST_BACKUP_KEY = 'bs-last-backup-at'
+// ホーム共通設定の「全データバックアップ」（rooms丸ごとJSON）も控えとして有効なため、
+// 前回バックアップ表示は両者の新しい方を採用する（二重に警告しない）
+const SUITE_LAST_BACKUP_KEY = 'suite-last-backup-at'
 
 export function getLastBackupAt(): Date | null {
   if (typeof window === 'undefined') return null
-  const v = localStorage.getItem(LAST_BACKUP_KEY)
-  if (!v) return null
-  const d = new Date(v)
-  return isNaN(d.getTime()) ? null : d
+  let best: Date | null = null
+  for (const k of [LAST_BACKUP_KEY, SUITE_LAST_BACKUP_KEY]) {
+    const v = localStorage.getItem(k)
+    if (!v) continue
+    const d = new Date(v)
+    if (!isNaN(d.getTime()) && (!best || d > best)) best = d
+  }
+  return best
 }
 
 export function setLastBackupAt(d: Date = new Date()): void {
