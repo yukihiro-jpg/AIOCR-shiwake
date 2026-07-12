@@ -395,7 +395,7 @@ export default function NenmatsuUpload() {
             </h1>
             <p className="text-xs text-gray-500 mb-2">該当する書類を撮影してください（複数ページは続けて撮影できます）。スマホ内に保存済みの写真も選べます。</p>
             <div className="text-[12px] text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2.5 mb-2 leading-relaxed">
-              <div className="font-bold mb-1">📷 きれいに読み取れる撮影のコツ（この写真はコンピュータで自動読取されます）</div>
+              <div className="font-bold mb-1">📷 きれいに読み取れる撮影のコツ</div>
               ・書類の<b>真上から</b>、書類<b>全体が画面に大きく</b>入るように撮影<br />
               ・<b>明るい場所</b>で。影や照明の映り込み・フラッシュの反射に注意<br />
               ・無地の机の上に置き、<b>折り目・丸まりを伸ばして</b>から撮影<br />
