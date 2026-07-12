@@ -99,7 +99,11 @@ export default function KeieiContent() {
       const sorted = sortedYears(y)
       const newest = sorted[sorted.length - 1]
       if (newest) { setYearId(newest.id); setMonthIdx(newest.lastFilledIndex) }
-      else { setYearId(''); }
+      else {
+        setYearId('')
+        // 試算表CSV未取込で案件台帳を使う顧問先は、最初から案件台帳タブを開く
+        if (clients.find((c) => c.id === clientId)?.name?.includes('藤井設計')) setView('anken')
+      }
     }).finally(() => setLoading(false))
     const cid = clientId
     return () => { alive = false; unsub(); flushSettings(cid) }
@@ -329,8 +333,9 @@ export default function KeieiContent() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-5 space-y-5">
-          {/* 期・月の選択＋取込済み一覧 */}
+          {/* 期・月の選択＋取込済み一覧（試算表CSV取込後のみ表示。案件台帳のみの利用時は不要なため） */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-4">
+            {sorted.length > 0 && (<>
             <div className="flex items-center gap-3 flex-wrap mb-3">
               <span className="text-xs text-gray-500">対象期</span>
               <select value={yearId} onChange={(e) => { setYearId(e.target.value); const y = years[e.target.value]; if (y) setMonthIdx(y.lastFilledIndex) }}
@@ -363,13 +368,14 @@ export default function KeieiContent() {
                 )
               })}
             </div>
+            </>)}
             {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
-            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
+            <div className={`flex items-center gap-2 flex-wrap ${sorted.length > 0 ? 'mt-3 pt-3 border-t border-gray-100' : ''}`}>
               {TABS.map(([v, l]) => (
                 <button key={v} onClick={() => setView(v)}
                   className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
-              <div ref={printRef} className="ml-auto relative">
+              {fy && <div ref={printRef} className="ml-auto relative">
                 <button onClick={() => setPrintOpen((o) => !o)} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷 ▾</button>
                 {printOpen && (
                   <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-3">
@@ -390,7 +396,7 @@ export default function KeieiContent() {
                     </div>
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
           </div>
 

@@ -46,11 +46,14 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
   }, [clientId])
 
   const handleFile = useCallback(async (files: FileList) => {
+    // FileListは呼び出し元で input.value='' されると空になる「生きた」参照のため、
+    // 最初の await の前に必ず File の配列へスナップショットする
+    const list = Array.from(files)
     setErr(''); setMsg('')
     try {
       const XLSX = await import('xlsx')
       let parsed: AnkenItem[] = []
-      for (const file of Array.from(files)) {
+      for (const file of list) {
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
         for (const name of wb.SheetNames) {
           const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null }) as unknown[][]
