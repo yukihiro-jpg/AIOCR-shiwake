@@ -189,11 +189,11 @@ export default function DeclarationForm({
             <input className={inp} value={d.kanaFirst} onChange={(e) => set({ kanaFirst: e.target.value })} />
           </L>
           <L label="生年月日">
-            <input type="date" className={inp} value={d.birth} onChange={(e) => set({ birth: e.target.value })} />
+            <input type="date" className={dateInp} value={d.birth} onChange={(e) => set({ birth: e.target.value })} />
           </L>
           {d.isNewHire && (
-            <L label="入社日（本年入社の方は必ず入力）">
-              <input type="date" className={inp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
+            <L label="入社日（必須）">
+              <input type="date" className={dateInp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
             </L>
           )}
           {d.isNewHire && (
@@ -288,7 +288,7 @@ export default function DeclarationForm({
               <input className={inp} value={d.spouse.kana} onChange={(e) => setSpouse({ kana: e.target.value })} />
             </L>
             <L label="生年月日">
-              <input type="date" className={inp} value={d.spouse.birth} onChange={(e) => setSpouse({ birth: e.target.value })} />
+              <input type="date" className={dateInp} value={d.spouse.birth} onChange={(e) => setSpouse({ birth: e.target.value })} />
             </L>
             <L label="本年の年収（円）※税金や保険料が引かれる前の金額">
               <MoneyInput value={d.spouse.income} onChange={(v) => setSpouse({ income: v })} />
@@ -338,7 +338,7 @@ export default function DeclarationForm({
                   <input className={inp} placeholder="例：長男・母" value={dep.relation} onChange={(e) => setDep(i, { relation: e.target.value })} />
                 </L>
                 <L label="生年月日">
-                  <input type="date" className={inp} value={dep.birth} onChange={(e) => setDep(i, { birth: e.target.value })} />
+                  <input type="date" className={dateInp} value={dep.birth} onChange={(e) => setDep(i, { birth: e.target.value })} />
                 </L>
                 <L label="本年の年収（円）※収入がなければ空欄でOK">
                   <MoneyInput value={dep.income} onChange={(v) => setDep(i, { income: v })} />
@@ -372,10 +372,12 @@ export default function DeclarationForm({
 }
 
 const inp = 'w-full px-2 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-100'
+// iOS Safari の date 入力は固有幅を持ち列からはみ出すため、appearance を無効化して幅・高さを揃える
+const dateInp = inp + ' min-w-0 appearance-none bg-white h-[38px]'
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="block text-[11px] text-gray-500 mb-0.5">{label}</span>
       {children}
     </label>
