@@ -27,7 +27,8 @@ import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint } from '@/lib/nenmatsu/guide'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import { spouseCategory, dependentCategory, type Declaration } from '@/lib/nenmatsu/declaration'
+import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
+import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
 
 interface Row {
   client: SharedClient
@@ -701,7 +702,8 @@ function CompanyDetail({
     setZipMsg('')
   }
 
-  async function downloadAll() {
+  /** 全員一括DL。flat=false: 従業員ごとのフォルダに分ける／flat=true: 会社名フォルダ1つに「社員名_書類名」で格納 */
+  async function downloadAll(flat: boolean) {
     const targets = displayEmployees
       .map((e) => ({ e, rec: subs[e.id] }))
       .filter((x) => x.rec && (x.rec.paths || []).length > 0)
@@ -712,18 +714,55 @@ function CompanyDetail({
     try {
       const JSZip = (await import('jszip')).default
       const zip = new JSZip()
+      const flatFolder = flat ? zip.folder(safe(company.name)) : null
       let i = 0
       for (const { e, rec } of targets) {
         setZipMsg(`まとめています... (${++i}/${targets.length})`)
-        const folder = zip.folder(safe(`${e.lastName}${e.firstName}`))
+        const empName = safe(`${e.lastName}${e.firstName}`)
         const blobs = await getFileBlobs(rec.paths || [])
-        blobs.forEach((b) => folder?.file(niceFileName(b.name), b.blob))
+        if (flat) {
+          blobs.forEach((b) => flatFolder?.file(`${empName}_${niceFileName(b.name)}`, b.blob))
+        } else {
+          const folder = zip.folder(empName)
+          blobs.forEach((b) => folder?.file(niceFileName(b.name), b.blob))
+        }
       }
       setZipMsg('ZIPを作成中...')
       const out = await zip.generateAsync({ type: 'blob' })
-      saveBlob(out, `${safe(company.name)}_年末調整_${yearId}.zip`)
+      saveBlob(out, `${safe(company.name)}_年末調整_${yearId}${flat ? '_全員' : ''}.zip`)
     } catch (e) {
       alert('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setZipMsg('')
+  }
+
+  /** 申告内容のExcel出力。emp指定時はその1名、未指定は提出済み全員 */
+  async function downloadDeclarations(one?: NenmatsuEmployee) {
+    const targets = (one ? [one] : displayEmployees)
+      .map((e) => ({ e, rec: subs[e.id] }))
+      .filter((x) => x.rec?.declaration)
+    if (!targets.length) {
+      alert('申告内容の登録がありません。')
+      return
+    }
+    setZipMsg('申告内容のExcelを作成中...')
+    try {
+      const fy = FY_BY_ID[yearId]
+      const entries: DeclarationExcelEntry[] = targets.map(({ e, rec }) => ({
+        employeeName: `${e.lastName} ${e.firstName}`.trim(),
+        decl: rec!.declaration!,
+        submittedAt: rec!.submittedAt,
+        isNewHire: e.isNewHire,
+      }))
+      const blob = await buildDeclarationExcelBlob(entries, {
+        companyName: company.name,
+        fyLabel: fy?.label || yearId,
+        fyGregorian: fy?.gregorian || new Date().getFullYear(),
+      })
+      const suffix = one ? safe(`${one.lastName}${one.firstName}`) : '全員'
+      saveBlob(blob, `${safe(company.name)}_申告内容_${yearId}_${suffix}.xlsx`)
+    } catch (e) {
+      alert('Excelの作成に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
     setZipMsg('')
   }
@@ -744,11 +783,28 @@ function CompanyDetail({
             📁 Driveへ一括保存
           </button>
           <button
-            onClick={downloadAll}
+            onClick={() => downloadAll(false)}
             disabled={!!zipMsg}
+            title="従業員ごとのフォルダに分けてZIPにまとめます"
             className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
           >
-            全員のファイルを一括DL（ZIP）
+            一括DL（個人別フォルダ）
+          </button>
+          <button
+            onClick={() => downloadAll(true)}
+            disabled={!!zipMsg}
+            title="会社名のフォルダ1つに、全員のファイルを「社員名_書類名」で格納します"
+            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            一括DL（全員フォルダ）
+          </button>
+          <button
+            onClick={() => downloadDeclarations()}
+            disabled={!!zipMsg}
+            title="全員の申告内容（本人・配偶者・扶養親族）を1つのExcelにまとめます"
+            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            一括DL（申告内容）
           </button>
         </div>
       </div>
@@ -827,14 +883,24 @@ function CompanyDetail({
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <span className="inline-flex gap-1.5">
                       {rec?.declaration && (
-                        <button
-                          onClick={() =>
-                            setDeclView({ name: `${e.lastName} ${e.firstName}`, decl: rec.declaration! })
-                          }
-                          className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                        >
-                          申告内容
-                        </button>
+                        <>
+                          <button
+                            onClick={() =>
+                              setDeclView({ name: `${e.lastName} ${e.firstName}`, decl: rec.declaration! })
+                            }
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                          >
+                            申告内容
+                          </button>
+                          <button
+                            onClick={() => downloadDeclarations(e)}
+                            disabled={!!zipMsg}
+                            title="この従業員の申告内容をExcelでダウンロード"
+                            className="px-3 py-1 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50 disabled:opacity-50"
+                          >
+                            申告DL
+                          </button>
+                        </>
                       )}
                       {rec && (rec.paths || []).length > 0 && (
                         <>
@@ -948,7 +1014,7 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
           <>
             <Row k="氏名" v={decl.spouse.name} />
             <Row k="生年月日" v={decl.spouse.birth} />
-            <Row k="年収" v={decl.spouse.income ? `${Number(decl.spouse.income).toLocaleString('ja-JP')}円` : ''} />
+            <Row k="年収" v={decl.spouse.income ? `${numYen(decl.spouse.income).toLocaleString('ja-JP')}円` : ''} />
             <Row k="控除区分" v={spouseCategory(decl.spouse)} />
           </>
         ) : (
@@ -964,7 +1030,7 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
             <div key={i} className="border border-gray-100 rounded p-2 mb-1.5">
               <Row k="氏名・続柄" v={`${dep.name}（${dep.relation}）`} />
               <Row k="生年月日" v={dep.birth} />
-              <Row k="年収" v={dep.income ? `${Number(dep.income).toLocaleString('ja-JP')}円` : ''} />
+              <Row k="年収" v={dep.income ? `${numYen(dep.income).toLocaleString('ja-JP')}円` : ''} />
               <Row k="同居" v={dep.liveTogether ? '同居' : '別居'} />
               <Row k="障害者区分" v={dep.disability} />
               <Row k="控除区分" v={dependentCategory(dep, fyGregorian)} />
