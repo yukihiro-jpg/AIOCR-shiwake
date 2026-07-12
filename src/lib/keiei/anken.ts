@@ -184,6 +184,38 @@ function parseBlock(g: Grid, r0: number, c0: number, rEnd: number): AnkenItem | 
   return { key, bukken, keiyakusha, shozaichi, kozo, keiyakuDate, periodStart, periodEnd, hoshuNet, tesuryo, gaichu, biko }
 }
 
+/** RTDB/localStorage から読み込んだ案件データの正規化。
+ *  Firebase は null・空文字・空配列を保存時に削除するため、欠けたプロパティを
+ *  既定値で補わないと gaichu.reduce 等が TypeError で画面全体を落とす。 */
+export function normalizeAnkenItems(raw: unknown): AnkenItem[] {
+  const arr = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw) : []
+  const items: AnkenItem[] = []
+  for (const v of arr) {
+    if (!v || typeof v !== 'object') continue
+    const it = v as Partial<AnkenItem>
+    const gaichuRaw = Array.isArray(it.gaichu) ? it.gaichu : it.gaichu && typeof it.gaichu === 'object' ? Object.values(it.gaichu) : []
+    items.push({
+      key: String(it.key || ''),
+      bukken: String(it.bukken || ''),
+      keiyakusha: String(it.keiyakusha || ''),
+      shozaichi: String(it.shozaichi || ''),
+      kozo: String(it.kozo || ''),
+      keiyakuDate: it.keiyakuDate || null,
+      periodStart: it.periodStart || null,
+      periodEnd: it.periodEnd || null,
+      hoshuNet: Number(it.hoshuNet) || 0,
+      tesuryo: Number(it.tesuryo) || 0,
+      gaichu: gaichuRaw.filter(Boolean).map((g) => ({
+        name: String((g as AnkenGaichu).name || ''),
+        overview: String((g as AnkenGaichu).overview || ''),
+        amount: Number((g as AnkenGaichu).amount) || 0,
+      })),
+      biko: String(it.biko || ''),
+    })
+  }
+  return items.filter((it) => it.key)
+}
+
 /** 既存データへ新規解析分をマージ（同一キー＝同一案件は新しい内容で上書き） */
 export function mergeAnken(existing: AnkenItem[], parsed: AnkenItem[]): AnkenItem[] {
   const map = new Map<string, AnkenItem>()
@@ -204,7 +236,7 @@ export interface AnkenYearGroup {
   totalArari: number
 }
 
-export const gaichuTotal = (it: AnkenItem): number => it.gaichu.reduce((s, x) => s + x.amount, 0)
+export const gaichuTotal = (it: AnkenItem): number => (it.gaichu || []).reduce((s, x) => s + (x?.amount || 0), 0)
 export const arari = (it: AnkenItem): number => it.hoshuNet - gaichuTotal(it)
 
 /** 履行期間の終了日（無ければ契約日→開始日）が属する事業年度（決算月で区切る）を判定 */

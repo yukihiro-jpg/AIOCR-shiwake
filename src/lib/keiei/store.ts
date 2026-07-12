@@ -147,6 +147,7 @@ export async function subscribeSettings(cid: string, cb: (s: KeieiSettings) => v
 
 // ===== 案件台帳（設計業務Excel）の保存 =====
 import type { AnkenData } from './anken'
+import { normalizeAnkenItems } from './anken'
 const lsAnken = (cid: string) => `keiei-anken-${cid}`
 
 export async function loadAnken(cid: string): Promise<AnkenData> {
@@ -157,7 +158,8 @@ export async function loadAnken(cid: string): Promise<AnkenData> {
       const snap = await get(ref(db, await modulePath(MODULE_KEY, cid, 'anken')))
       const v = snap.val() as AnkenData | null
       if (v) {
-        const data = { ...empty, ...v, items: v.items || [] }
+        // RTDBはnull・空文字・空配列を落とすため、欠けたプロパティを必ず補完する
+        const data = { ...empty, ...v, items: normalizeAnkenItems(v.items) }
         try { localStorage.setItem(lsAnken(cid), JSON.stringify(data)) } catch { /* ignore */ }
         return data
       }
@@ -166,7 +168,7 @@ export async function loadAnken(cid: string): Promise<AnkenData> {
   if (typeof window !== 'undefined' && cid) {
     try {
       const raw = localStorage.getItem(lsAnken(cid))
-      if (raw) { const v = JSON.parse(raw) as AnkenData; return { ...empty, ...v, items: v.items || [] } }
+      if (raw) { const v = JSON.parse(raw) as AnkenData; return { ...empty, ...v, items: normalizeAnkenItems(v.items) } }
     } catch { /* ignore */ }
   }
   return empty
