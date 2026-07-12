@@ -24,6 +24,7 @@ export interface SpouseInfo {
 
 export interface Declaration {
   isNewHire: boolean
+  hireDate?: string // 入社日 YYYY-MM-DD（本年入社の場合に入力）
   lastName: string
   firstName: string
   kanaLast: string

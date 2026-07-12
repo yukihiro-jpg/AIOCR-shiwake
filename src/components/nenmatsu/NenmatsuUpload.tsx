@@ -133,6 +133,10 @@ export default function NenmatsuUpload() {
       alert('氏名を入力してください。')
       return
     }
+    if (decl.isNewHire && !decl.hireDate) {
+      alert('入社日を入力してください。')
+      return
+    }
     setDecl({ ...decl, noChange, confirmedAt: new Date().toISOString() })
     setPhase('docs')
   }

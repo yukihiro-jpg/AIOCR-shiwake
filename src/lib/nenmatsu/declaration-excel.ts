@@ -67,7 +67,7 @@ export async function buildDeclarationExcelBlob(
     no++
     const d = ent.decl
     const memo: string[] = []
-    if (ent.isNewHire || d.isNewHire) memo.push('本年入社')
+    if (ent.isNewHire || d.isNewHire) memo.push(d.hireDate ? `本年入社（入社日 ${d.hireDate.replace(/-/g, '/')}）` : '本年入社')
     if (d.noChange) memo.push('前年と相違なし')
     if (ent.submittedAt) memo.push(`提出 ${fmtDate(ent.submittedAt)}`)
 

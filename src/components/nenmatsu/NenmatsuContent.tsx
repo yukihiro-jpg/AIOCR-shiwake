@@ -994,7 +994,7 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
       )}
       {decl.isNewHire && (
         <div className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded px-2 py-1">
-          本年入社（新規申告）
+          本年入社（新規申告）{decl.hireDate ? `・入社日 ${decl.hireDate}` : ''}
         </div>
       )}
       <div>

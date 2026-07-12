@@ -191,6 +191,11 @@ export default function DeclarationForm({
           <L label="生年月日">
             <input type="date" className={inp} value={d.birth} onChange={(e) => set({ birth: e.target.value })} />
           </L>
+          {d.isNewHire && (
+            <L label="入社日（本年入社の方は必ず入力）">
+              <input type="date" className={inp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
+            </L>
+          )}
           <L label="郵便番号（自動で住所入力）">
             <input className={inp} inputMode="numeric" placeholder="1234567" value={d.postal} onChange={(e) => onPostal(e.target.value)} />
           </L>
