@@ -70,6 +70,19 @@ function daysToDeadline(deadline: string): number | null {
   return Math.ceil((d.getTime() - Date.now()) / 86400000)
 }
 
+// 提出状況マトリクスの列（提出書類の短縮ラベル。順序は NENMATSU_DOC_TYPES と同じ）
+const DOC_COLS: { key: string; label: string }[] = [
+  { key: 'life_insurance', label: '生保' },
+  { key: 'earthquake_insurance', label: '地震' },
+  { key: 'national_pension', label: '国年' },
+  { key: 'national_health', label: '国保' },
+  { key: 'small_mutual', label: '小規' },
+  { key: 'ideco', label: 'iDe' },
+  { key: 'housing_loan_declaration', label: '住宅' },
+  { key: 'housing_loan_balance', label: '借入' },
+  { key: 'prev_withholding', label: '前職' },
+]
+
 /** 期限バッジ（残り日数・超過の色分け） */
 function DeadlineBadge({ deadline }: { deadline: string }) {
   const days = daysToDeadline(deadline)
@@ -226,7 +239,7 @@ export default function NenmatsuContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="nenmatsu" />
-      <div className="flex-1 p-6 max-w-5xl w-full mx-auto">
+      <div className="flex-1 p-6 max-w-[1500px] w-full mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <h1 className="text-xl font-bold text-gray-800">年調データ受信 — 控除証明書・申告データの回収</h1>
           <div className="flex items-center gap-2">
@@ -315,8 +328,8 @@ export default function NenmatsuContent() {
                   const dd = daysToDeadline(eff)
                   return (
                   <tr key={client.id} className="border-t border-gray-100">
-                    <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
+                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{client.code || '—'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{client.name}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
                       <span className="font-semibold text-blue-700">{submitted}</span>名
@@ -703,14 +716,14 @@ function ImportCheck({
   )
 }
 
-function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (
     <div
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[85vh] overflow-auto"
+        className={`bg-white rounded-2xl p-6 ${wide ? 'max-w-6xl' : 'max-w-2xl'} w-full max-h-[85vh] overflow-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -920,7 +933,7 @@ function CompanyDetail({
   }
 
   return (
-    <Overlay onClose={onClose}>
+    <Overlay onClose={onClose} wide>
       <h2 className="font-bold text-gray-800 mb-1">{company.name} — 提出状況</h2>
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <p className="text-xs text-gray-500">
@@ -1009,11 +1022,13 @@ function CompanyDetail({
         </p>
       ) : (
         <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-gray-500">
-              <th className="text-left px-3 py-2">氏名</th>
-              <th className="text-left px-3 py-2">提出書類</th>
-              <th className="text-right px-3 py-2"></th>
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-gray-100 text-gray-500">
+              <th className="text-left px-3 py-2 bg-gray-100">氏名</th>
+              {DOC_COLS.map((c) => (
+                <th key={c.key} className="text-center px-1 py-2 w-11 bg-gray-100" title={DOC_BY_KEY[c.key]?.name || c.key}>{c.label}</th>
+              ))}
+              <th className="text-right px-3 py-2 bg-gray-100"></th>
             </tr>
           </thead>
           <tbody>
@@ -1021,25 +1036,24 @@ function CompanyDetail({
               const rec = subs[e.id]
               return (
                 <tr key={e.id} className="border-t border-gray-100">
-                  <td className="px-3 py-2 text-gray-800">
+                  <td className="px-3 py-2 text-gray-800 whitespace-nowrap">
                     {e.lastName} {e.firstName}
                     {e.isNewHire && (
                       <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold align-middle">本年入社</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {rec ? (
-                      Object.keys(rec.docs || {}).length ? (
-                        Object.entries(rec.docs || {})
-                          .map(([k, n]) => `${DOC_BY_KEY[k]?.name || k}(${n})`)
-                          .join('、')
-                      ) : (
-                        <span className="text-gray-400">該当書類なしで提出</span>
+                  {rec ? (
+                    DOC_COLS.map((c) => {
+                      const n = (rec.docs || {})[c.key] || 0
+                      return (
+                        <td key={c.key} className="px-1 py-2 text-center" title={`${DOC_BY_KEY[c.key]?.name || c.key}${n ? `（${n}枚）` : ''}`}>
+                          {n ? <span className="text-green-600 font-bold">○</span> : <span className="text-gray-300">－</span>}
+                        </td>
                       )
-                    ) : (
-                      <span className="text-gray-300">未提出</span>
-                    )}
-                  </td>
+                    })
+                  ) : (
+                    <td colSpan={DOC_COLS.length} className="px-3 py-2 text-center text-gray-300">未提出</td>
+                  )}
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <span className="inline-flex gap-1.5">
                       {rec?.declaration && (
