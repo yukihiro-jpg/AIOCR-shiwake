@@ -28,6 +28,8 @@ import { buildSummaryStory } from '@/lib/keiei/narrative'
 import { detectIssues, laborShare } from '@/lib/keiei/issues'
 import SectionAnken from './SectionAnken'
 import SectionLedger from './SectionLedger'
+import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
+import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
 
 type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
@@ -164,7 +166,7 @@ export default function KeieiContent() {
   const renderView = (v: View) => {
     if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
     if (!fy) return null
-    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} monthIdx={monthIdx} />
+    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} monthIdx={monthIdx} reloadKey={ledgerReload} />
     switch (v) {
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
@@ -215,14 +217,58 @@ export default function KeieiContent() {
       const f = finalizeFiscalYear(it.data, it.year)
       next[f.id] = f
     }
+    // 保持は直近5期まで。古い期は自動削除してFirebase使用量を節約する
+    // （分析は3期比較までなので5期あれば十分。端末ローカルの元帳も合わせて削除）
+    const KEEP_YEARS = 5
+    const all = sortedYears(next)
+    const pruned: string[] = []
+    for (const y of all.slice(0, Math.max(0, all.length - KEEP_YEARS))) {
+      delete next[y.id]
+      pruned.push(y.label)
+      try { deleteLedger(clientId, y.id) } catch { /* ignore */ }
+    }
     const s = sortedYears(next)
     const newest = s[s.length - 1]
     setYears(next)
     if (newest) { setYearId(newest.id); setMonthIdx(newest.lastFilledIndex) }
     setPending(null)
     await saveYears(clientId, next)
-    setMsg(`${pending.length}期分を取り込みました`)
+    setMsg(`${pending.length}期分を取り込みました` + (pruned.length ? `（5期を超えた ${pruned.join('・')} は自動削除しました）` : ''))
   }, [pending, years, clientId])
+
+  // 総勘定元帳CSVの取込（元帳の日付から対象期を自動判定）
+  const [ledgerReload, setLedgerReload] = useState(0)
+  const handleLedgerFiles = useCallback(async (files: FileList) => {
+    const list = Array.from(files)
+    setErr(null); setMsg(null)
+    if (!Object.keys(years).length) {
+      setErr('先に月次推移試算表CSVを取り込んでください（元帳はその期に紐づけて保存されます）。')
+      return
+    }
+    const okMsgs: string[] = []
+    const errs: string[] = []
+    for (const file of list) {
+      try {
+        const data = parseLedgerCsv(decodeCsv(await file.arrayBuffer()), file.name)
+        if (!data.txCount) { errs.push(`${file.name}: 元帳データを読み取れませんでした`); continue }
+        const fyMatch = findMatchingFy(data, years)
+        if (!fyMatch) {
+          errs.push(`${file.name}: 元帳の期間（${data.minDate}〜${data.maxDate}）に合う期が見つかりません。その期の試算表CSVを先に取り込んでください`)
+          continue
+        }
+        await saveLedger(clientId, fyMatch.id, data)
+        okMsgs.push(`${fyMatch.label}（${data.txCount.toLocaleString()}件）`)
+      } catch (e) {
+        errs.push(`${file.name}: ${e instanceof Error ? e.message : '取込失敗'}`)
+      }
+    }
+    if (okMsgs.length) {
+      setMsg(`総勘定元帳を取り込みました: ${okMsgs.join('、')}。「元帳分析」タブで確認できます（この端末にのみ保存）。`)
+      setLedgerReload((n) => n + 1)
+      setView('ledger')
+    }
+    if (errs.length) setErr(errs.join(' / '))
+  }, [years, clientId])
 
   const deleteYear = useCallback(async (id: string) => {
     if (!clientId) return
@@ -269,11 +315,20 @@ export default function KeieiContent() {
             <button onClick={() => setClientId('')}
               className="px-3 py-1.5 text-sm text-[#1a73e8] rounded-full hover:bg-[#e8f0fe]">← 一覧へ戻る</button>
             <span className="text-sm font-bold text-gray-700">{current ? `${current.code ? current.code + ' ' : ''}${current.name}` : ''}</span>
-            <label className="ml-auto px-4 py-2 bg-[#1a73e8] text-white rounded-full text-sm font-semibold hover:bg-[#1765cc] cursor-pointer shadow-sm">
-              ＋ CSVを取込
-              <input type="file" accept=".csv" multiple className="hidden"
-                onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
-            </label>
+            <div className="ml-auto flex items-center gap-2">
+              <label className="px-4 py-2 bg-[#1a73e8] text-white rounded-full text-sm font-semibold hover:bg-[#1765cc] cursor-pointer shadow-sm whitespace-nowrap"
+                title="会計大将の「月次推移 貸借対照表／損益計算書」CSV。1ファイル＝1期分。複数期まとめて選択できます">
+                📈 試算表CSVを取込
+                <input type="file" accept=".csv" multiple className="hidden"
+                  onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
+              </label>
+              <label className="px-4 py-2 bg-white text-[#1a73e8] border border-[#1a73e8] rounded-full text-sm font-semibold hover:bg-[#e8f0fe] cursor-pointer shadow-sm whitespace-nowrap"
+                title="会計大将の「総勘定元帳」CSV。日付からどの期かを自動判定して保存します（この端末のみ）">
+                📒 総勘定元帳CSVを取込
+                <input type="file" accept=".csv" multiple className="hidden"
+                  onChange={(e) => { if (e.target.files?.length) handleLedgerFiles(e.target.files); e.target.value = '' }} />
+              </label>
+            </div>
           </>
         )}
       </div>
@@ -358,7 +413,7 @@ export default function KeieiContent() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-gray-400">取込済み（期ごとに追加・差し替え可）:</span>
+              <span className="text-xs text-gray-400">取込済み（期ごとに追加・差し替え可。翌期は新しい期の試算表CSVを取り込むだけで当期になります。保持は直近5期まで＝古い期は自動削除）:</span>
               {sorted.map((y, i) => {
                 const rel = sorted.length - 1 - i
                 const relLabel = rel === 0 ? '当期' : rel === 1 ? '前期' : rel === 2 ? '前々期' : `${rel}期前`

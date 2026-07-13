@@ -32,10 +32,12 @@ export default function SectionLedger({
   clientId,
   fy,
   monthIdx,
+  reloadKey = 0,
 }: {
   clientId: string
   fy: FiscalYearData
   monthIdx: number
+  reloadKey?: number // ヘッダーからの取込後に再読込させるためのカウンタ
 }) {
   const [ledger, setLedger] = useState<LedgerData | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -55,7 +57,7 @@ export default function SectionLedger({
       .catch(() => { /* IndexedDB不可の環境では未取込扱い */ })
       .finally(() => { if (alive) setLoaded(true) })
     return () => { alive = false }
-  }, [clientId, fy.id])
+  }, [clientId, fy.id, reloadKey])
 
   const handleFile = useCallback(async (files: FileList) => {
     const list = Array.from(files)

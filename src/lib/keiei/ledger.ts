@@ -153,6 +153,17 @@ export function ledgerMatchesFy(ledger: LedgerData, fy: FiscalYearData): boolean
   return ledger.minDate >= start && ledger.maxDate <= end
 }
 
+/** 元帳の日付範囲から、取込済みの期のどれに属するかを自動判定 */
+export function findMatchingFy(
+  ledger: LedgerData,
+  years: Record<string, FiscalYearData>,
+): FiscalYearData | null {
+  for (const fy of Object.values(years)) {
+    if (ledgerMatchesFy(ledger, fy)) return fy
+  }
+  return null
+}
+
 /** 科目の月次発生額（PL: 借方費用/貸方収益を正とする）。fiscalMonths 順の12配列 */
 export function ledgerMonthlyAmounts(acc: LedgerAccount, fy: FiscalYearData, isCredit: boolean): number[] {
   const out = new Array(12).fill(0)
