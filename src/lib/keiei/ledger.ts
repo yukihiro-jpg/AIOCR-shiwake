@@ -16,6 +16,7 @@ export interface LedgerTx {
   debit: number
   credit: number
   taxRate: number | null // 行に消費税率があれば（10 / 8 など）
+  taxCode?: string // 消費税コード（会計大将の税区分。空なら税なし取引）
 }
 
 export interface LedgerAccount {
@@ -119,6 +120,8 @@ export function parseLedgerCsv(text: string, fileName: string): LedgerData {
       credit,
       taxRate: cells[8] && String(cells[8]).trim() !== '' ? Number(cells[8]) || null : null,
     }
+    const tc = (cells[7] || '').trim()
+    if (tc) tx.taxCode = tc
     cur.txs.push(tx)
     txCount++
     if (!minDate || date < minDate) minDate = date

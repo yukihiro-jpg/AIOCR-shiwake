@@ -44,6 +44,34 @@ export async function loadLedger(clientId: string, yearId: string): Promise<Ledg
   return out
 }
 
+/** この顧問先の保存済み元帳を一覧する（会計監査用） */
+export async function listLedgers(clientId: string): Promise<{ yearId: string; data: LedgerData }[]> {
+  const db = await openDb()
+  const out = await new Promise<{ yearId: string; data: LedgerData }[]>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly')
+    const store = tx.objectStore(STORE)
+    const req = store.getAllKeys()
+    req.onsuccess = () => {
+      const keys = (req.result as string[]).filter((k) => typeof k === 'string' && k.startsWith(clientId + '|'))
+      const items: { yearId: string; data: LedgerData }[] = []
+      let remain = keys.length
+      if (!remain) { resolve([]); return }
+      for (const k of keys) {
+        const g = store.get(k)
+        g.onsuccess = () => {
+          if (g.result) items.push({ yearId: String(k).slice(clientId.length + 1), data: g.result as LedgerData })
+          if (--remain === 0) resolve(items)
+        }
+        g.onerror = () => { if (--remain === 0) resolve(items) }
+      }
+    }
+    req.onerror = () => reject(req.error)
+  })
+  db.close()
+  out.sort((a, b) => (a.data.minDate || '').localeCompare(b.data.minDate || ''))
+  return out
+}
+
 export async function deleteLedger(clientId: string, yearId: string): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
