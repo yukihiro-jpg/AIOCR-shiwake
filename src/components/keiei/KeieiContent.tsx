@@ -27,8 +27,9 @@ import { StoryBody } from './StoryCard'
 import { buildSummaryStory } from '@/lib/keiei/narrative'
 import { detectIssues, laborShare } from '@/lib/keiei/issues'
 import SectionAnken from './SectionAnken'
+import SectionLedger from './SectionLedger'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken'
+type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -125,7 +126,8 @@ export default function KeieiContent() {
   // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
   const hasAnken = !!current?.name?.includes('藤井設計')
   const PRINT_TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['issues', '経営課題'], ['cash', '資金繰り・安全性']]
-  const TABS: [View, string][] = hasAnken ? [...PRINT_TABS, ['anken', '案件台帳']] : PRINT_TABS
+  // 元帳分析は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない
+  const TABS: [View, string][] = [...PRINT_TABS, ['ledger', '元帳分析'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
   const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
@@ -162,6 +164,7 @@ export default function KeieiContent() {
   const renderView = (v: View) => {
     if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
     if (!fy) return null
+    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} monthIdx={monthIdx} />
     switch (v) {
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
