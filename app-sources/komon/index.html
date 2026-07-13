@@ -515,7 +515,7 @@
   <div class="modal-head"><h3 id="kessanMemoTitle">決算メモ</h3><button class="icon x" onclick="closeModal('kessanMemoModal')">✕</button></div>
   <div class="modal-body">
     <div class="row-flex" style="justify-content:space-between;margin-bottom:8px"><b>決算時の質問・確認事項</b><div style="display:flex;gap:8px"><button class="sm" onclick="addKessanRow()">＋ 行を追加</button><button class="sm" onclick="exportKessanMemo()">📤 Excel出力</button></div></div>
-    <table class="km-table" style="width:100%"><thead><tr><th style="width:48px">No</th><th style="text-align:left">質問</th><th style="text-align:left">確認結果</th><th style="width:40px"></th></tr></thead><tbody id="kessanMemoBody"></tbody></table>
+    <table class="km-table" style="width:100%"><thead><tr><th style="width:28px"></th><th style="width:48px">No</th><th style="text-align:left">質問</th><th style="text-align:left">確認結果</th><th style="width:40px"></th></tr></thead><tbody id="kessanMemoBody"></tbody></table>
     <div class="hint" style="margin-top:10px">「質問」に入力があり「確認結果」が空欄の行は、ダッシュボードの<b>要確認リスト</b>に表示されます。確認結果を入力すると一覧から消えます。</div>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('kessanMemoModal')">キャンセル</button><button class="primary" onclick="saveKessanMemoAndClose()">保存</button></div>
@@ -1308,11 +1308,20 @@ function kmGrow(el){ el.style.height='auto'; const h=el.scrollHeight; if(h>0) el
 function renderKessanRows(){ const tb=document.getElementById('kessanMemoBody'); if(!tb)return;
   const ta=(i,f,val,extra)=>`<textarea rows="1" style="width:100%;box-sizing:border-box;resize:none;overflow:hidden;font:inherit;line-height:1.5;padding:5px 7px;vertical-align:top${extra||''}" oninput="_kmRows[${i}].${f}=this.value;kmGrow(this)">${esc(val||'')}</textarea>`;
   tb.innerHTML=_kmRows.map((r,i)=>{ const unans=String(r.q||'').trim()&&!String(r.a||'').trim();
-    return `<tr><td style="text-align:center;color:#6b7280;vertical-align:top;padding-top:9px">${i+1}</td>`
+    return `<tr ondragover="kmDragOver(event,${i})" ondragleave="kmDragLeave(event)" ondrop="kmDrop(event,${i})">`
+      +`<td draggable="true" ondragstart="kmDragStart(event,${i})" ondragend="kmDragEnd()" title="ドラッグして並べ替え" style="text-align:center;vertical-align:top;padding-top:9px;cursor:grab;color:#9ca3af;user-select:none">⋮⋮</td>`
+      +`<td style="text-align:center;color:#6b7280;vertical-align:top;padding-top:9px">${i+1}</td>`
       +`<td>${ta(i,'q',r.q,'')}</td>`
       +`<td>${ta(i,'a',r.a,unans?';background:#fff5f5':'')}</td>`
       +`<td style="vertical-align:top"><button class="icon" title="この行を削除" onclick="removeKessanRow(${i})">🗑</button></td></tr>`; }).join('');
   tb.querySelectorAll('textarea').forEach(kmGrow); }
+/* 行のドラッグ並べ替え（つまみ⋮⋮を掴んで別の行へドロップ。保存で確定） */
+let _kmDragIdx=null;
+function kmDragStart(ev,i){ _kmDragIdx=i; ev.dataTransfer.effectAllowed='move'; try{ ev.dataTransfer.setData('text/plain',String(i)); }catch(e){} }
+function kmDragEnd(){ _kmDragIdx=null; document.querySelectorAll('#kessanMemoBody tr').forEach(tr=>tr.style.outline=''); }
+function kmDragOver(ev,i){ if(_kmDragIdx===null||_kmDragIdx===i)return; ev.preventDefault(); ev.dataTransfer.dropEffect='move'; const tr=ev.currentTarget; tr.style.outline='2px solid #2563eb'; }
+function kmDragLeave(ev){ ev.currentTarget.style.outline=''; }
+function kmDrop(ev,i){ if(_kmDragIdx===null)return; ev.preventDefault(); const from=_kmDragIdx; _kmDragIdx=null; if(from===i){ renderKessanRows(); return; } const moved=_kmRows.splice(from,1)[0]; _kmRows.splice(i,0,moved); renderKessanRows(); }
 function addKessanRow(){ _kmRows.push({q:'',a:''}); renderKessanRows(); }
 function removeKessanRow(i){ _kmRows.splice(i,1); if(!_kmRows.length)_kmRows.push({q:'',a:''}); renderKessanRows(); }
 function saveKessanMemo(){ if(!data.kessanMemos)data.kessanMemos={}; const rows=_kmRows.map(r=>({q:String(r.q||'').trim(),a:String(r.a||'').trim()})).filter(r=>r.q||r.a);
