@@ -38,7 +38,9 @@ export function appendTempEntries(newEntries: JournalEntry[]): number {
 
 export function clearTempEntries(): void {
   if (typeof window === 'undefined') return
-  localStorage.removeItem(getTempKey())
+  // 【重要】localStorageだけ消すとRTDB側に旧データが残り、同期の受信で復活して
+  // 次回の一括CSV出力に前回分が混ざる。空配列を保存してRTDBにも空を反映する。
+  saveTempEntries([])
 }
 
 export function getTempEntryCount(): number {

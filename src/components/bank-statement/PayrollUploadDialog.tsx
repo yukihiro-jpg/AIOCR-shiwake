@@ -8,6 +8,8 @@ import { payrollBalanceCheck, payrollPersonKey, type PayrollGenerateOptions } fr
 interface PayrollSettings {
   executiveNames: string[]
   itemAccounts: Record<string, { code: string; name: string; subCode?: string; subName?: string }>
+  // 賞与の借方（役員報酬・給与手当キー）は給与と科目が異なるため別バケットで学習する
+  itemAccountsBonus?: Record<string, { code: string; name: string; subCode?: string; subName?: string }>
   bankCode: string
   bankName: string
   bankSubCode: string
@@ -16,6 +18,9 @@ interface PayrollSettings {
   perPersonItems?: string[]
   perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
 }
+
+// 給与/賞与で学習を分ける借方キー
+const DEBIT_KEYS = ['役員報酬', '給与手当'] as const
 
 function getPayrollSettingsKey(): string {
   const cid = typeof window !== 'undefined' ? localStorage.getItem('bank-statement-selected-client') || '' : ''
@@ -148,6 +153,20 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
 
   if (!open) return null
 
+  // 賞与モード（単月＝isBonus、複数月＝全月が賞与）。借方の学習バケットを切り替える
+  const isBonusMode = batch ? batch.every((m) => !!m.isBonus) : !!parsed?.isBonus
+
+  /** 取込データの種類（給与/賞与）に応じて、役員報酬・給与手当の借方科目を学習バケットから適用 */
+  const applyDebitDefaults = (bonus: boolean) => {
+    const saved = loadPayrollSettings()
+    const bucket = bonus ? (saved?.itemAccountsBonus || {}) : (saved?.itemAccounts || {})
+    setAccounts((prev) => {
+      const next = { ...prev }
+      for (const k of DEBIT_KEYS) next[k] = bucket[k] || { code: '', name: '' }
+      return next
+    })
+  }
+
   const handleParse = async (text?: string) => {
     setError('')
     try {
@@ -155,6 +174,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       const data = parsePayrollText(text || pasteText)
       if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
       setParsed(data)
+      applyDebitDefaults(!!data.isBonus)
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
@@ -202,10 +222,16 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       const mod = await import('@/lib/bank-statement/payroll-parser')
       const list = await mod.parsePayrollFilesMulti(files)
       if (!list.length) throw new Error('従業員データが見つかりません')
-      if (list.length === 1) { setParsed(list[0]); return }
+      // 給与と賞与は借方科目が異なるため混在一括は不可（別々に取り込んでもらう）
+      const bonusCount = list.filter((m) => m.isBonus).length
+      if (bonusCount > 0 && bonusCount < list.length) {
+        throw new Error('給与と賞与のファイルが混在しています。借方科目が異なるため、給与と賞与は分けて取り込んでください。')
+      }
+      if (list.length === 1) { setParsed(list[0]); applyDebitDefaults(!!list[0].isBonus); return }
       setBatch(list)
       setJournalDates(list.map((m) => m.paymentDate || ''))
       setParsed(mergeBatch(list))
+      applyDebitDefaults(bonusCount === list.length)
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
@@ -244,6 +270,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
         const data = payrollOcrToData(raw)
         if (data.employees.length === 0) throw new Error('従業員データを読み取れませんでした。PDFの向き・解像度をご確認ください。')
         setParsed(data)
+        applyDebitDefaults(!!data.isBonus)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'PDFの解析に失敗しました')
       } finally { setBusy('') }
@@ -284,7 +311,35 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       const data = await mod.parsePayrollFile(file)
       if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
       setParsed(data)
+      applyDebitDefaults(!!data.isBonus)
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
+  }
+
+  /** 学習データの保存内容を作る。賞与モードでは借方2キーを itemAccountsBonus へ入れ、
+   *  給与用の itemAccounts の借方は前回学習を維持する（給与と賞与の科目を混同しない） */
+  const buildSettingsToSave = (allAccounts: PayrollSettings['itemAccounts'], execNames: string[]): PayrollSettings => {
+    const saved = loadPayrollSettings()
+    let itemAccounts = allAccounts
+    let itemAccountsBonus = saved?.itemAccountsBonus
+    if (isBonusMode) {
+      itemAccounts = { ...allAccounts }
+      for (const k of DEBIT_KEYS) {
+        const prev = saved?.itemAccounts?.[k]
+        if (prev) itemAccounts[k] = prev
+        else delete itemAccounts[k]
+      }
+      itemAccountsBonus = { ...(saved?.itemAccountsBonus || {}) }
+      for (const k of DEBIT_KEYS) { if (allAccounts[k]) itemAccountsBonus[k] = allAccounts[k] }
+    }
+    return {
+      executiveNames: execNames,
+      itemAccounts,
+      itemAccountsBonus,
+      bankCode, bankName, bankSubCode, bankSubName,
+      salaryIndividual,
+      perPersonItems: Array.from(perPersonItems),
+      perPersonSubs,
+    }
   }
 
   const toggleLedgerExec = (idx: number) => {
@@ -303,12 +358,13 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       withholding: a('預り金'), incomeSub: incSub.code ? incSub : undefined, residentSub: resSub.code ? resSub : undefined,
     }, rule, accountTaxMaster)
     if (!entries.length) { setError('対象月に支給データがありません'); return }
-    // 学習データ保存
+    // 学習データ保存（賞与用バケットは温存）
     savePayrollSettings({
       executiveNames: ledger.employees.filter((e) => e.isExecutive).map((e) => e.name),
       itemAccounts: { ...accounts,
         '預り金_源泉所得税': { ...a('預り金'), subCode: incSub.code, subName: incSub.name },
         '預り金_住民税': { ...a('預り金'), subCode: resSub.code, subName: resSub.name } },
+      itemAccountsBonus: loadPayrollSettings()?.itemAccountsBonus,
       bankCode, bankName, bankSubCode, bankSubName,
     })
     onGenerateEntries(entries, `賃金台帳から${entries.length}件の仕訳を生成しました（${fromMonth}月〜${toMonth}月・${ledger.employees.length}名）`)
@@ -395,14 +451,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     for (const m of months) {
       all = all.concat(payrollToEntries(m, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, accountTaxMaster, { salaryIndividual, perPersonSubs: ppSubs }))
     }
-    savePayrollSettings({
-      executiveNames: Array.from(execNames),
-      itemAccounts: allAccounts,
-      bankCode, bankName, bankSubCode, bankSubName,
-      salaryIndividual,
-      perPersonItems: Array.from(perPersonItems),
-      perPersonSubs,
-    })
+    savePayrollSettings(buildSettingsToSave(allAccounts, Array.from(execNames)))
     onGenerateEntries(all, `賃金台帳 ${batch.length}ヶ月分（${batch[0].period}〜${batch[batch.length - 1].period}）から${all.length}件の仕訳を生成しました`)
     onClose()
   }
@@ -432,15 +481,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       setError(`貸借が一致しません（差額 ¥${Math.abs(bal.diff).toLocaleString()}）。このまま作成すると引落口座の金額が通帳と合わなくなります。${hint}`)
       return
     }
-    // 学習データを保存
-    savePayrollSettings({
-      executiveNames: parsed.employees.filter((e) => e.isExecutive).map((e) => e.name),
-      itemAccounts: allAccounts,
-      bankCode, bankName, bankSubCode, bankSubName,
-      salaryIndividual,
-      perPersonItems: Array.from(perPersonItems),
-      perPersonSubs,
-    })
+    // 学習データを保存（賞与は借方を別バケットで学習）
+    savePayrollSettings(buildSettingsToSave(allAccounts, parsed.employees.filter((e) => e.isExecutive).map((e) => e.name)))
     onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, {
       salaryIndividual,
       perPersonSubs: ppSubs,
@@ -617,15 +659,16 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                       </div>
                     )
                   })}
-                  {/* 課税分合計の内訳: 役員報酬・給与手当 */}
+                  {/* 課税分合計の内訳: 役員報酬・給与手当（賞与は別の科目・別学習） */}
                   <div className="border-l-2 border-green-400 pl-3">
-                    <div className="text-xs font-bold text-amber-700">役員報酬</div>
+                    <div className="text-xs font-bold text-amber-700">{isBonusMode ? '役員賞与（借方）' : '役員報酬'}</div>
                     <div className="text-xs text-gray-500">¥{executiveTotal.toLocaleString()}</div>
                     {renderAccountInput('役員報酬')}
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-blue-700">給与手当</div>
+                    <div className="text-xs font-bold text-blue-700">{isBonusMode ? '従業員賞与（借方）' : '給与手当'}</div>
                     <div className="text-xs text-gray-500">¥{employeeTotal.toLocaleString()}</div>
+                    {isBonusMode && <div className="text-[10px] text-amber-600">※ 賞与の借方科目は給与とは別に記憶されます</div>}
                     {renderAccountInput('給与手当')}
                     <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600 cursor-pointer" title="ONで従業員ごとの明細行（摘要に氏名）。OFFで合計1行">
                       <input type="checkbox" checked={salaryIndividual} onChange={(e) => setSalaryIndividual(e.target.checked)} />個人別に明細
