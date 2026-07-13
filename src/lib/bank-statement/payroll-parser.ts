@@ -281,6 +281,20 @@ function parseByHeader(
     const end = dedEndIdx >= 0 ? dedEndIdx : H.length - 1
     for (let i = dedStartIdx; i <= end && i < H.length; i++) { if (nz(H[i])) dedCols.push({ name: H[i].trim(), idx: i }) }
   }
+  // 控除合計より右は通常「通勤費月額・基準額」等の情報列だが、ソフトによっては
+  // 追加の控除項目がそこに置かれる（例: 子育て支援金＝社会保険料計に含まれる徴収額）。
+  // 既知の控除名だけを拾い、控除合計の直前へ挿入する（金額列を誤って控除扱いしないため限定列挙）。
+  if (dedEndIdx >= 0) {
+    for (let i = dedEndIdx + 1; i < H.length; i++) {
+      const n = nz(H[i])
+      if (/^(こども・?)?子育て支援金$/.test(n) || /子ども・子育て支援金/.test(n)) {
+        const at = dedCols.findIndex((c) => c.idx === dedEndIdx)
+        const entry = { name: H[i].trim(), idx: i }
+        if (at >= 0) dedCols.splice(at, 0, entry)
+        else dedCols.push(entry)
+      }
+    }
+  }
   if (!payCols.length) return null
   // ソフト固有の項目名を、mapper/ダイアログが前提とする標準名へ正規化する
   // （役員報酬・給与手当の金額は項目名「課税分合計」で参照されるため名称一致が必須）
