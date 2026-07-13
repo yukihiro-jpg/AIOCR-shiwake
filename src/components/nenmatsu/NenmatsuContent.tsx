@@ -720,7 +720,7 @@ function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClo
   return (
     <div
       className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}
     >
       <div
         className={`bg-white rounded-2xl p-6 ${wide ? 'max-w-6xl' : 'max-w-2xl'} w-full max-h-[85vh] overflow-auto`}

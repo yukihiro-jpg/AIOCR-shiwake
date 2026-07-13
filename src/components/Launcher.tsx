@@ -137,7 +137,7 @@ function CommonSettingsModal({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 py-10 overflow-y-auto"
-      onClick={onClose}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}
     >
       <div
         className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-6 shadow-xl"

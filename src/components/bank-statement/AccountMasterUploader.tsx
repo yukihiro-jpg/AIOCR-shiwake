@@ -235,7 +235,7 @@ export default function AccountMasterUploader({
         return embedded ? (
           <div
             className="fixed inset-0 z-[100] bg-black/30 flex items-start justify-center pt-16 p-4"
-            onClick={() => setShowPanel(false)}
+            onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setShowPanel(false))() }}
           >
             <div
               className="w-80 max-w-full bg-white border border-gray-200 rounded-lg shadow-2xl max-h-[80vh] overflow-auto"

@@ -385,7 +385,7 @@ function MailTextDialog({ title, initialText, onClose }: { title: string; initia
     }
   }
   return (
-    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <div className="font-bold text-gray-800">✉️ {title}</div>
@@ -412,7 +412,7 @@ function MailTextDialog({ title, initialText, onClose }: { title: string; initia
 
 function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div
         className={`bg-white rounded-2xl p-6 w-full max-h-[90vh] overflow-auto ${wide ? 'max-w-5xl' : 'max-w-2xl'}`}
         onClick={(e) => e.stopPropagation()}
@@ -598,7 +598,7 @@ export function InboxModal({
   return (
     <div
       className={fullPage ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4'}
-      onClick={fullPage ? undefined : onClose}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !fullPage) onClose() }}
     >
       <div
         className={fullPage ? 'bg-white w-full h-full flex flex-col overflow-hidden' : 'bg-white rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden'}
@@ -1059,7 +1059,7 @@ function BatchDetail({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-6xl max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold text-gray-800">
@@ -1345,7 +1345,7 @@ function TransferDialog({
   const restMaster = master.filter((m) => !historyKeys.has(m.code))
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-gray-800 mb-1">📒 仕訳作成へ送る</h3>
         <p className="text-xs text-gray-500 mb-4">
@@ -2079,7 +2079,7 @@ function SendFilesDialog({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-gray-800 mb-1">📤 {client.name} へファイルを送る</h3>
         <p className="text-xs text-gray-500 mb-3">送信から90日で自動削除されます。顧問先の受け取り（DL）状況は送信済み一覧で確認できます。</p>

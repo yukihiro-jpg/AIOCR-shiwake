@@ -38,7 +38,7 @@ export default function InvoiceRegistryDialog({ open, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b">
           <h2 className="text-lg font-bold">インボイス事業者登録簿</h2>

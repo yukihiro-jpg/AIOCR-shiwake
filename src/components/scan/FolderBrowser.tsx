@@ -676,7 +676,7 @@ export default function FolderBrowser({
 
       {/* ファイル追加モーダル（D&D＋ファイル選択） */}
       {canAddFiles && uploadOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={() => { setUploadOpen(false); setPendingFiles([]); setComment('') }}>
+        <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => { setUploadOpen(false); setPendingFiles([]); setComment('') })() }}>
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
               <div className="font-bold text-gray-800">＋ ファイル追加{addFilesLabel ? `（${addFilesLabel}）` : ''}</div>
@@ -763,7 +763,7 @@ export default function FolderBrowser({
 
       {/* 移動先選択モーダル */}
       {movePicker && onMoveFile && (
-        <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={() => setMovePicker(null)}>
+        <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setMovePicker(null))() }}>
           <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
               <div className="font-bold text-gray-800 truncate">↪ 移動先を選択</div>
@@ -807,7 +807,7 @@ export default function FolderBrowser({
 // ファイルプレビュー（画像・PDF・テキスト）
 function PreviewModal({ preview, onClose }: { preview: { url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string }; onClose: () => void; onDownload?: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/60 z-[80] flex flex-col p-3 sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 z-[80] flex flex-col p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-xl w-full h-full flex flex-col overflow-hidden max-w-5xl mx-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200">
           <div className="text-sm font-semibold text-gray-800 truncate">👁 {preview.name}</div>
@@ -859,7 +859,7 @@ function AiAskModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
           <div>

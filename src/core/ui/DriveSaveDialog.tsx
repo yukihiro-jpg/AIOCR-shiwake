@@ -158,7 +158,7 @@ export default function DriveSaveDialog({ title, getFiles, onClose, onSaved }: P
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-bold text-gray-800 mb-1">📁 Google共有ドライブへ保存</h2>
         <p className="text-xs text-gray-500 mb-4">{title}</p>
