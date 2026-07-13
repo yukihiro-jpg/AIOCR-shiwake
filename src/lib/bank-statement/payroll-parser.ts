@@ -168,16 +168,15 @@ export function parsePayrollText(text: string): PayrollData {
   return parsePayrollRows(lines)
 }
 
-export async function parsePayrollFile(file: File): Promise<PayrollData> {
+async function payrollFileToRows(file: File): Promise<string[][]> {
   const name = file.name.toLowerCase()
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
     const XLSX = await import('xlsx')
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+    return (XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[])
       .map((r: unknown) => (r as unknown[]).map((c) => String(c ?? '')))
-    return parsePayrollRows(rows)
   }
   const buf = await file.arrayBuffer()
   const bytes = new Uint8Array(buf)
@@ -192,8 +191,50 @@ export async function parsePayrollFile(file: File): Promise<PayrollData> {
   // 区切り文字を自動判定（タブ or カンマ）。CSVはカンマ、貼り付け由来はタブ。
   const sample = rawLines.find((l) => l.includes('基本給')) || rawLines[0] || ''
   const useTab = sample.split('\t').length > sample.split(',').length
-  const rows = rawLines.map((l) => (useTab ? l.split('\t') : splitCsvLine(l)))
-  return parsePayrollRows(rows)
+  return rawLines.map((l) => (useTab ? l.split('\t') : splitCsvLine(l)))
+}
+
+export async function parsePayrollFile(file: File): Promise<PayrollData> {
+  return parsePayrollRows(await payrollFileToRows(file))
+}
+
+/** 1ファイル内に複数月（選択月/支給月の列で判別）が混在する場合、月ごとの行グループに分割する。
+ *  単月ならそのまま1グループを返す。 */
+function splitPayrollRowsByMonth(rows: string[][]): string[][][] {
+  let detailRowIdx = -1
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].some((c) => c.trim() === '基本給' || c.trim() === '賞与')) { detailRowIdx = i; break }
+  }
+  if (detailRowIdx < 0) return [rows]
+  const H = rows[detailRowIdx].map((c) => norm(c))
+  const monthIdx = H.findIndex((h) => ['選択月', '支給月', '対象月', '給与支給月'].includes(h))
+  if (monthIdx < 0) return [rows]
+  const head = rows.slice(0, detailRowIdx + 1)
+  const groups = new Map<string, string[][]>()
+  for (let i = detailRowIdx + 1; i < rows.length; i++) {
+    const key = norm(rows[i][monthIdx])
+    if (!key) continue
+    let g = groups.get(key)
+    if (!g) { g = []; groups.set(key, g) }
+    g.push(rows[i])
+  }
+  if (groups.size <= 1) return [rows]
+  return Array.from(groups.values()).map((g) => [...head, ...g])
+}
+
+/** 複数ファイル（または複数月混在ファイル）をまとめて解析し、月ごとの PayrollData 配列を返す。
+ *  期間（選択月）の昇順に並べる。 */
+export async function parsePayrollFilesMulti(files: File[]): Promise<PayrollData[]> {
+  const out: PayrollData[] = []
+  for (const f of files) {
+    const rows = await payrollFileToRows(f)
+    for (const group of splitPayrollRowsByMonth(rows)) {
+      const d = parsePayrollRows(group)
+      if (d.employees.length) out.push(d)
+    }
+  }
+  out.sort((a, b) => (a.period || a.paymentDate || '').localeCompare(b.period || b.paymentDate || ''))
+  return out
 }
 
 /** CSV1行を分割（ダブルクォート対応） */

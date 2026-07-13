@@ -53,6 +53,11 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [mode, setMode] = useState<'file' | 'paste'>('file')
   const [pasteText, setPasteText] = useState('')
   const [parsed, setParsed] = useState<PayrollData | null>(null)
+  // ===== 複数月一括モード（複数ファイル or 選択月が混在する1ファイル） =====
+  const [batch, setBatch] = useState<PayrollData[] | null>(null)
+  const [journalDates, setJournalDates] = useState<string[]>([]) // 月ごとの仕訳日（編集可）
+  const [ruleMonth, setRuleMonth] = useState<'same' | 'prev'>('same') // 一括設定: 選択月の当月/前月
+  const [ruleDay, setRuleDay] = useState<'end' | number>('end') // 一括設定: 末日 or ◯日
   const [error, setError] = useState('')
   const [bankCode, setBankCode] = useState('')
   const [bankName, setBankName] = useState('')
@@ -83,6 +88,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       setPasteText('')
       setParsed(null)
       setLedger(null)
+      setBatch(null)
+      setJournalDates([])
       setError('')
     }
   }, [open])
@@ -152,8 +159,72 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) processFile(file)
+    const files = e.target.files ? Array.from(e.target.files) : []
+    if (files.length) processFiles(files)
+  }
+
+  /** 月ごとの PayrollData 配列 → 表示用に合算した PayrollData（科目設定・役員チェックを全月共通で行うため） */
+  const mergeBatch = (list: PayrollData[]): PayrollData => {
+    const payHeaders: string[] = []
+    const deductHeaders: string[] = []
+    for (const m of list) {
+      for (const h of m.payHeaders) if (!payHeaders.includes(h)) payHeaders.push(h)
+      for (const h of m.deductHeaders) if (!deductHeaders.includes(h)) deductHeaders.push(h)
+    }
+    const empMap = new Map<string, { no: number; name: string; isExecutive: boolean; items: Map<string, number>; totalPay: number; totalDeductions: number; netPay: number }>()
+    for (const m of list) {
+      for (const e of m.employees) {
+        let agg = empMap.get(e.name)
+        if (!agg) { agg = { no: e.no, name: e.name, isExecutive: false, items: new Map(), totalPay: 0, totalDeductions: 0, netPay: 0 }; empMap.set(e.name, agg) }
+        for (const it of e.items) agg.items.set(it.name, (agg.items.get(it.name) || 0) + it.amount)
+        agg.totalPay += e.totalPay; agg.totalDeductions += e.totalDeductions; agg.netPay += e.netPay
+      }
+    }
+    const allHeaders = [...payHeaders, ...deductHeaders]
+    const employees = Array.from(empMap.values()).map((a, i) => ({
+      no: a.no || i + 1, name: a.name, isExecutive: false,
+      items: allHeaders.map((h) => ({ name: h, amount: a.items.get(h) || 0 })),
+      totalPay: a.totalPay, totalDeductions: a.totalDeductions, netPay: a.netPay,
+    }))
+    const first = list[0]
+    const last = list[list.length - 1]
+    return {
+      period: `${first.period || ''}〜${last.period || ''}`,
+      paymentDate: '', companyName: first.companyName,
+      employeeCount: employees.length, employees, payHeaders, deductHeaders,
+    }
+  }
+
+  const processFiles = async (files: File[]) => {
+    if (files.length === 1) { await processFile(files[0]); return }
+    setError('')
+    try {
+      const mod = await import('@/lib/bank-statement/payroll-parser')
+      const list = await mod.parsePayrollFilesMulti(files)
+      if (!list.length) throw new Error('従業員データが見つかりません')
+      if (list.length === 1) { setParsed(list[0]); return }
+      setBatch(list)
+      setJournalDates(list.map((m) => m.paymentDate || ''))
+      setParsed(mergeBatch(list))
+    } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
+  }
+
+  /** 一括設定ルールで各月の仕訳日を計算（基準＝選択月。当月/前月×末日/◯日） */
+  const applyDateRule = (mode2: 'payDate' | 'custom') => {
+    if (!batch) return
+    setJournalDates(batch.map((m) => {
+      if (mode2 === 'payDate') return m.paymentDate || ''
+      // 選択月（period 'YYYY-MM'）を基準。無ければ支給日の前月を選択月とみなす
+      let y = 0, mo = 0
+      const pm = (m.period || '').match(/^(\d{4})-(\d{2})/)
+      if (pm) { y = Number(pm[1]); mo = Number(pm[2]) }
+      else if (m.paymentDate) { const d = m.paymentDate.match(/^(\d{4})-(\d{2})/); if (d) { y = Number(d[1]); mo = Number(d[2]) - 1; if (mo === 0) { mo = 12; y-- } } }
+      if (!y || !mo) return m.paymentDate || ''
+      if (ruleMonth === 'prev') { mo--; if (mo === 0) { mo = 12; y-- } }
+      const lastDay = new Date(y, mo, 0).getDate()
+      const day = ruleDay === 'end' ? lastDay : Math.min(Math.max(1, ruleDay), lastDay)
+      return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    }))
   }
 
   const processFile = async (file: File) => {
@@ -286,7 +357,58 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     )
   }
 
+  /** 複数月一括の仕訳作成: 全月に共通の科目設定・役員フラグを適用し、月ごとに複合仕訳を生成 */
+  const handleGenerateBatch = async () => {
+    if (!parsed || !batch || !bankCode || !onGenerateEntries) return
+    setError('')
+    for (let i = 0; i < batch.length; i++) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(journalDates[i] || '')) {
+        setError(`${batch[i].period || `${i + 1}件目`} の仕訳日を設定してください。`)
+        return
+      }
+    }
+    const allAccounts = { ...accounts }
+    const ppSubs: Record<string, Record<string, { subCode: string; subName: string }>> = {}
+    for (const h of Array.from(perPersonItems)) {
+      if (accounts[h]?.code) ppSubs[h] = perPersonSubs[h] || {}
+    }
+    // 役員チェックは合算表示側で行うため、氏名で各月へ反映する
+    const execNames = new Set(parsed.employees.filter((e) => e.isExecutive).map((e) => e.name))
+    const months = batch.map((m, i) => ({
+      ...m,
+      paymentDate: journalDates[i],
+      employees: m.employees.map((e) => ({ ...e, isExecutive: execNames.has(e.name) })),
+    }))
+    // 【必須】貸借バランス検証は月ごとに行う（月によって控除項目の構成が違うことがあるため）
+    for (const m of months) {
+      const bal = payrollBalanceCheck(m, allAccounts, { salaryIndividual, perPersonSubs: ppSubs })
+      if (bal.diff !== 0) {
+        const hint = bal.unmapped.length
+          ? `科目未設定: ${bal.unmapped.map((u) => `${u.name}（¥${u.amount.toLocaleString()}）`).join('、')}`
+          : '設定済み項目の組み合わせをご確認ください。'
+        setError(`${m.period || m.paymentDate} の貸借が一致しません（差額 ¥${Math.abs(bal.diff).toLocaleString()}）。${hint}`)
+        return
+      }
+    }
+    const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
+    let all: JournalEntry[] = []
+    for (const m of months) {
+      all = all.concat(payrollToEntries(m, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, accountTaxMaster, { salaryIndividual, perPersonSubs: ppSubs }))
+    }
+    savePayrollSettings({
+      executiveNames: Array.from(execNames),
+      itemAccounts: allAccounts,
+      bankCode, bankName, bankSubCode, bankSubName,
+      salaryIndividual,
+      perPersonItems: Array.from(perPersonItems),
+      perPersonSubs,
+    })
+    onGenerateEntries(all, `賃金台帳 ${batch.length}ヶ月分（${batch[0].period}〜${batch[batch.length - 1].period}）から${all.length}件の仕訳を生成しました`)
+    onClose()
+  }
+
   const handleGenerate = () => {
+    if (batch) { handleGenerateBatch(); return }
     if (!parsed || !bankCode) return
     setError('')
     // 【必須】支給日：空だと日付なし伝票になり、CSV出力で黙って除外される
@@ -362,12 +484,12 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
               <label
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
-                onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f) }}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); const fs = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : []; if (fs.length) processFiles(fs) }}
                 className={`flex flex-col items-center justify-center gap-2 w-full py-10 px-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}`}>
                 <div className="text-3xl">📥</div>
                 <div className="text-sm text-gray-700 font-medium">ここに賃金台帳ファイルをドラッグ&ドロップ</div>
-                <div className="text-xs text-gray-500">またはクリックして選択（.pdf / .xlsx / .xls / .csv）</div>
-                <input type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+                <div className="text-xs text-gray-500">またはクリックして選択（.pdf / .xlsx / .xls / .csv）。<b>複数月のCSVをまとめて選択</b>すると月別の仕訳を一括作成できます</div>
+                <input type="file" accept=".pdf,.xlsx,.xls,.csv" multiple onChange={handleFileUpload} className="hidden" />
               </label>
             )}
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
@@ -375,18 +497,79 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
         ) : (
           <div className="px-6 py-4 space-y-5">
             {/* メタ情報 */}
-            <div className="flex gap-6 text-sm items-center flex-wrap">
-              <label className="flex items-center gap-1"><b>期間:</b>
-                <input type="text" value={parsed.period || ''} onChange={(e) => setParsed({ ...parsed, period: e.target.value })}
-                  className="px-2 py-1 border rounded text-sm w-32" placeholder="例: 2025-09" title="仕訳の摘要に入ります" />
-              </label>
-              <label className="flex items-center gap-1"><b>支給日:</b>
-                <input type="date" value={parsed.paymentDate || ''} onChange={(e) => setParsed({ ...parsed, paymentDate: e.target.value })}
-                  className="px-2 py-1 border rounded text-sm" />
-              </label>
-              <span><b>会社:</b> {parsed.companyName || '—'}</span>
-              <span><b>人数:</b> {parsed.employees.length}名</span>
-            </div>
+            {!batch ? (
+              <div className="flex gap-6 text-sm items-center flex-wrap">
+                <label className="flex items-center gap-1"><b>期間:</b>
+                  <input type="text" value={parsed.period || ''} onChange={(e) => setParsed({ ...parsed, period: e.target.value })}
+                    className="px-2 py-1 border rounded text-sm w-32" placeholder="例: 2025-09" title="仕訳の摘要に入ります" />
+                </label>
+                <label className="flex items-center gap-1"><b>支給日:</b>
+                  <input type="date" value={parsed.paymentDate || ''} onChange={(e) => setParsed({ ...parsed, paymentDate: e.target.value })}
+                    className="px-2 py-1 border rounded text-sm" />
+                </label>
+                <span><b>会社:</b> {parsed.companyName || '—'}</span>
+                <span><b>人数:</b> {parsed.employees.length}名</span>
+              </div>
+            ) : (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="text-sm font-bold text-blue-900 mb-2">複数月一括（{batch.length}ヶ月分）— 月ごとの仕訳日を確認・修正してください</div>
+                <div className="flex items-center gap-2 text-xs flex-wrap mb-2">
+                  <span className="font-bold">仕訳日の一括設定:</span>
+                  <button onClick={() => applyDateRule('payDate')} className="px-2.5 py-1 border border-blue-300 bg-white rounded hover:bg-blue-100">支給日どおり</button>
+                  <span className="flex items-center gap-1 bg-white border border-blue-300 rounded px-2 py-1">
+                    選択月の
+                    <select value={ruleMonth} onChange={(e) => setRuleMonth(e.target.value as 'same' | 'prev')} className="px-1 py-0.5 border rounded">
+                      <option value="same">当月</option>
+                      <option value="prev">前月</option>
+                    </select>
+                    <select value={ruleDay === 'end' ? 'end' : 'day'} onChange={(e) => setRuleDay(e.target.value === 'end' ? 'end' : 25)} className="px-1 py-0.5 border rounded">
+                      <option value="end">末日</option>
+                      <option value="day">指定日</option>
+                    </select>
+                    {ruleDay !== 'end' && (
+                      <input type="number" min={1} max={31} value={ruleDay} onChange={(e) => setRuleDay(Math.min(31, Math.max(1, Number(e.target.value) || 1)))} className="w-12 px-1 py-0.5 border rounded" />
+                    )}
+                    {ruleDay !== 'end' && <span>日</span>}
+                    <button onClick={() => applyDateRule('custom')} className="px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 ml-1">一括適用</button>
+                  </span>
+                </div>
+                <table className="w-full text-xs bg-white rounded border">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-1 text-left">選択月</th>
+                      <th className="px-2 py-1 text-left">支給日（CSV）</th>
+                      <th className="px-2 py-1 text-left">仕訳日（編集可）</th>
+                      <th className="px-2 py-1 text-right">人数</th>
+                      <th className="px-2 py-1 text-right">課税支給計</th>
+                      <th className="px-2 py-1 text-right">差引支給計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batch.map((m, i) => {
+                      const taxable = m.employees.reduce((s, e) => s + (e.items.find((it) => it.name === '課税分合計')?.amount || 0), 0)
+                      const net = m.employees.reduce((s, e) => s + e.netPay, 0)
+                      return (
+                        <tr key={i} className="border-t">
+                          <td className="px-2 py-1">{m.period || '—'}{m.isBonus ? '（賞与）' : ''}</td>
+                          <td className="px-2 py-1 text-gray-500">{m.paymentDate || '—'}</td>
+                          <td className="px-2 py-1">
+                            <input type="date" value={journalDates[i] || ''}
+                              onChange={(e) => setJournalDates((prev) => prev.map((d, j) => (j === i ? e.target.value : d)))}
+                              className={`px-1.5 py-0.5 border rounded ${journalDates[i] && journalDates[i] !== m.paymentDate ? 'border-blue-400 text-blue-800 font-bold' : ''}`} />
+                          </td>
+                          <td className="px-2 py-1 text-right">{m.employees.length}名</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{taxable.toLocaleString()}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{net.toLocaleString()}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  ※ 科目設定・役員チェックは全月共通です（下の金額は{batch.length}ヶ月分の合計を表示）。仕訳は月ごとに1組ずつ作成されます。
+                </div>
+              </div>
+            )}
 
             {/* 従業員一覧 */}
             <div>
@@ -541,10 +724,12 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}
 
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setParsed(null)} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">戻る</button>
-              <button onClick={handleGenerate} disabled={!bankCode || !parsed.paymentDate}
-                title={!parsed.paymentDate ? '支給日を設定してください' : !bankCode ? '引落口座を設定してください' : ''}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">仕訳作成</button>
+              <button onClick={() => { setParsed(null); setBatch(null); setJournalDates([]) }} className="px-4 py-2 text-sm bg-gray-200 rounded hover:bg-gray-300">戻る</button>
+              <button onClick={handleGenerate} disabled={!bankCode || (!batch && !parsed.paymentDate)}
+                title={!bankCode ? '引落口座を設定してください' : (!batch && !parsed.paymentDate) ? '支給日を設定してください' : ''}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">
+                {batch ? `仕訳作成（${batch.length}ヶ月分）` : '仕訳作成'}
+              </button>
             </div>
           </div>
         )}
