@@ -203,7 +203,7 @@ export async function parsePayrollFile(file: File): Promise<PayrollData> {
 function splitPayrollRowsByMonth(rows: string[][]): string[][][] {
   let detailRowIdx = -1
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i].some((c) => c.trim() === '基本給' || c.trim() === '賞与')) { detailRowIdx = i; break }
+    if (rows[i].some((c) => norm(c) === '基本給' || norm(c) === '賞与')) { detailRowIdx = i; break }
   }
   if (detailRowIdx < 0) return [rows]
   const H = rows[detailRowIdx].map((c) => norm(c))
@@ -290,7 +290,7 @@ function parseByHeader(
   }
   const nameIdx = find((h) => /^(氏名|名前|従業員名|社員名|従業員氏名)$/.test(h))
   if (nameIdx < 0) return null
-  const payTotalIdx = find((h) => h === '支給合計額' || h === '総支給額' || h === '支給合計')
+  const payTotalIdx = find((h) => h === '支給合計額' || h === '総支給額' || h === '支給合計' || h === '賞与支給総額' || h === '賞与支給額')
   const taxableIdx = find((h) => h === '課税分合計' || h === '課税支給額' || h === '課税合計' || h === '税法上支給額' || h === '課税支給合計')
   const dedEndIdx = find((h) => h === '控除合計額' || h === '控除合計')
   const netIdx = find((h) => h === '差引支給額' || h === '差引支給' || h === '差引支給額計')
@@ -340,6 +340,9 @@ function parseByHeader(
   // ソフト固有の項目名を、mapper/ダイアログが前提とする標準名へ正規化する
   // （役員報酬・給与手当の金額は項目名「課税分合計」で参照されるため名称一致が必須）
   for (const c of payCols) { if (c.idx === taxableIdx && nz(c.name) !== '課税分合計') c.name = '課税分合計' }
+  // 賞与形式など課税分合計に相当する列が無い場合は、支給合計（賞与支給総額＝全額課税）を
+  // 課税分合計として扱う（これが無いと役員報酬・給与手当の金額が0になり仕訳が作れない）
+  if (taxableIdx < 0 && payTotalIdx >= 0) payCols.push({ name: '課税分合計', idx: payTotalIdx })
   for (const c of dedCols) {
     const n = nz(c.name)
     if (n === '控除合計') c.name = '控除合計額'
@@ -422,7 +425,7 @@ function parsePayrollRows(rows: string[][]): PayrollData {
   // 2. 詳細ヘッダ行（「基本給」または「賞与」を含む行）
   let detailRowIdx = -1
   for (let i = 0; i < rows.length; i++) {
-    if (rows[i].some((c) => c.trim() === '基本給' || c.trim() === '賞与')) {
+    if (rows[i].some((c) => norm(c) === '基本給' || norm(c) === '賞与')) {
       detailRowIdx = i
       break
     }
