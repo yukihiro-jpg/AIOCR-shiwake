@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { FiscalYearData } from '@/lib/keiei/types'
 import {
   cvp, classifiableCodes, costValue, classifyOf, suggestVarFix,
   fcfAnalysis, buildFcfComment, repaymentContext, repaymentSolve,
   type KeieiSettings,
 } from '@/lib/keiei/analysis'
+import { computeCashFlow } from '@/lib/keiei/cashflow'
 import { fmtYen, fmtShort, fmtPct } from '@/lib/keiei/format'
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
@@ -388,6 +389,9 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
         </div>
       </Section>
 
+      {/* 3-2. 厳密キャッシュフロー計算書（営業/投資/財務・差額≈0） */}
+      <CashFlowStatement fy={fy} prior={prior} monthIdx={monthIdx} />
+
       {/* 4. 変動費／固定費の分類 */}
       <Section title="変動費／固定費の分類" note="売上原価＝変動・販管費＝固定が既定。実態に合わせて修正できます">
         <div className="flex gap-2 mb-3">
@@ -433,6 +437,71 @@ export default function SectionCvpFcf({ fy, prior, monthIdx, yearId, settings, o
         </div>
       </Section>
     </div>
+  )
+}
+
+// 厳密キャッシュフロー計算書（営業・投資・財務の3区分）。全B/S科目を位置で機械分類するため
+// 顧問先ごとの設定不要・API不使用で、合計は実際の現預金増減に一致（差額≈0）。
+function CashFlowStatement({ fy, prior, monthIdx }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number }) {
+  const cf = computeCashFlow(fy, prior, monthIdx)
+  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
+  const bigResidual = Math.abs(cf.residual) > 2_000_000
+  const secColor: Record<string, string> = { op: '#1e8e3e', inv: '#1a73e8', fin: '#8250df' }
+  return (
+    <Section title={`キャッシュフロー計算書（営業・投資・財務／実績・${fy.label} 期首〜${monthLabel}）`}
+      note={cf.hasPrior ? '期首＝前期末残高。全科目をB/S上の位置で自動集計' : '前期データがないため当期初月末を期首として概算'}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        {cf.sections.map((s) => (
+          <div key={s.key} className="rounded-xl border border-gray-200 bg-white p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[13px] font-bold" style={{ color: secColor[s.key] }}>{s.title.replace('によるキャッシュフロー', 'CF')}</span>
+              <span className={`text-[18px] font-extrabold tabular-nums ${s.subtotal < 0 ? 'text-red-600' : 'text-gray-900'}`}>{fmtShort(s.subtotal)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <tbody>
+            {cf.sections.map((s) => (
+              <Fragment key={s.key}>
+                <tr className="bg-gray-50">
+                  <td className="px-3 py-1.5 font-bold" style={{ color: secColor[s.key] }}>{s.title}</td>
+                  <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${s.subtotal < 0 ? 'text-red-600' : 'text-gray-800'}`}>{fmtYen(s.subtotal)}</td>
+                </tr>
+                {s.items.map((it, i) => (
+                  <tr key={i} className="border-b border-gray-100">
+                    <td className="px-3 py-1.5 text-gray-600" style={{ paddingLeft: 28 }}>{it.label}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${it.amount < 0 ? 'text-red-500' : ''}`}>{it.amount >= 0 ? '＋' : '−'}{fmtYen(Math.abs(it.amount))}</td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+            <tr className="border-t-2 border-[#1F3A5F] bg-blue-50/40">
+              <td className="px-3 py-2 font-bold text-[#1F3A5F]">現金及び現金同等物の増減（営業＋投資＋財務）</td>
+              <td className={`px-3 py-2 text-right tabular-nums font-extrabold ${cf.netCf < 0 ? 'text-red-600' : 'text-[#1F3A5F]'}`}>{fmtYen(cf.netCf)}</td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="px-3 py-1.5 text-gray-600">（参考）実際の現預金の増減（期首 {fmtShort(cf.openingCash)} → {monthLabel}末 {fmtShort(cf.closingCash)}）</td>
+              <td className={`px-3 py-1.5 text-right tabular-nums ${cf.actualCashChange < 0 ? 'text-red-500' : ''}`}>{fmtYen(cf.actualCashChange)}</td>
+            </tr>
+            <tr className={bigResidual ? 'bg-amber-50' : ''}>
+              <td className="px-3 py-1.5 font-semibold text-gray-700">差額（実際−計算上）{bigResidual && <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[11px] font-bold">⚠ 要確認</span>}</td>
+              <td className={`px-3 py-1.5 text-right tabular-nums font-bold ${bigResidual ? 'text-amber-700' : 'text-gray-400'}`}>{fmtYen(cf.residual)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+        ※ 全B/S科目を「B/S上の位置（流動/固定・資産/負債/純資産）」で営業・投資・財務に自動分類しています（借入金・リース債務のみ名称で財務へ）。
+        科目名の辞書を持たないため、どの顧問先でも・外部APIなしで同じ精度で作成できます。<br />
+        ※ 3区分の合計は貸借対照表の恒等式そのものなので、実際の現預金増減に一致します（差額は分類端数のみで、通常ゼロ〜数万円）。
+        差額が200万円を超えた場合は⚠要確認を表示します（勘定科目の異例な動きや取込漏れの手がかり）。<br />
+        ※ 投資CFの「減価償却費の調整」は、営業CFで戻した減価償却費（非資金）を控除して実際の設備投資・売却額に直すための項目です。
+        {!cf.hasPrior && <><br />※ 前期データがないため、当期初月末を期首とみなして計算しています。</>}
+      </div>
+    </Section>
   )
 }
 

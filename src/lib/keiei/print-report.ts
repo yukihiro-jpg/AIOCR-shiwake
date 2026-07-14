@@ -7,10 +7,11 @@ import { CODES, getRow, plKpisSingle, plKpisYtd, sortedYears, yoy } from './calc
 import { fmtShort, fmtPctSigned } from './format'
 import {
   cvp, safety, fcfAnalysis, workingCapital, profitBridge, landingScenarios,
-  detailsOf, rowYtd, debtAccounts, buildFcfComment, type KeieiSettings,
+  detailsOf, rowYtd, debtAccounts, type KeieiSettings,
 } from './analysis'
 import { detectIssues, debtService, type IssuesResult } from './issues'
 import { budgetVsActual, monthlyBudgetSeries } from './budget'
+import { computeCashFlow } from './cashflow'
 
 export type PrintView = 'overview' | 'budget' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash'
 
@@ -20,7 +21,7 @@ export const PRINT_VIEWS: [PrintView, string][] = [
   ['budget', '予算・予実'],
   ['report', '試算表・3期比較・推移'],
   ['detail', '原価・経費明細'],
-  ['cvpfcf', '損益分岐点・FCF分析'],
+  ['cvpfcf', '損益分岐点・キャッシュフロー'],
   ['issues', '経営課題'],
   ['cash', '資金繰り・安全性'],
 ]
@@ -228,6 +229,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     try { return detectIssues({ years, fy, monthIdx, settings, yearId: fy.id, budget }) } catch { return null }
   })()
   const fcf = fcfAnalysis(fy, prior, monthIdx)
+  const cashflow = computeCashFlow(fy, prior, monthIdx)
   const wc = workingCapital(fy, monthIdx)
   const debt = debtService(fy, monthIdx, settings, fy.id)
   const bepRatio = c.sales > 0 && c.bep > 0 ? (c.bep / c.sales) * 100 : null
@@ -613,7 +615,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const bepNote = bepRatio == null ? '' : bepRatio < 100
       ? `（売上があと${(100 - bepRatio).toFixed(0)}%落ちても黒字）`
       : '（売上が損益分岐点に届いていません）'
-    const lead = `損益分岐点比率は <b>${bepRatio != null ? bepRatio.toFixed(0) + '%' : '—'}</b>${bepNote}、期首〜${monthLabel}の簡易営業キャッシュフローは <b>${esc(fmtShort(fcf.operatingCf))}</b> です。`
+    const lead = `損益分岐点比率は <b>${bepRatio != null ? bepRatio.toFixed(0) + '%' : '—'}</b>${bepNote}。期首〜${monthLabel}の営業活動CFは <b>${esc(fmtShort(cashflow.sections[0].subtotal))}</b>、現金の純増減は <b>${esc(fmtShort(cashflow.netCf))}</b> です（差額 ${esc(sgnYen(cashflow.residual))} 円）。`
     const cvpTable = `<table>
       <tbody>
         <tr><td>売上高（期首〜${monthLabel}累計）</td><td class="tr">${esc(num(c.sales))}</td></tr>
@@ -627,25 +629,6 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       </tbody>
     </table>
     <div class="note mt1">変動費・固定費の区分は「損益分岐点・FCF分析」タブの設定（既定：売上原価＝変動費、販管費＝固定費）に従います。</div>`
-    // 簡易FCF: 各行に「見方」を付け、理論値と実際の現預金増減の差額と理由も明示する
-    const fcfGap = fcf.cashActualChg - fcf.netCash
-    const frow = (label: string, v: number, guide: string, em?: boolean) =>
-      `<tr${em ? ' class="em"' : ''}><td>${esc(label)}</td><td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td><td class="guide">${esc(guide)}</td></tr>`
-    const fcfTable = `<table>
-      <thead><tr><th>項目</th><th>金額</th><th>見方</th></tr></thead>
-      <tbody>
-        ${frow('経常利益（累計）', fcf.ordProfit, '当期の利益（税引前）からスタート')}
-        ${frow(`税引後利益（実効税率 ${p1(fcf.taxRate * 100)} で概算）`, fcf.afterTax, '概算の税金を差し引いた後に残る利益')}
-        ${frow('＋ 減価償却費', fcf.depreciation, '帳簿上の費用で現金は出ていないため足し戻す')}
-        ${frow('− 運転資本の増加', fcf.wcIncrease, '売掛・在庫の増加分はまだ現金化されていないため差し引く')}
-        ${frow('＝ 営業キャッシュフロー（簡易）', fcf.operatingCf, '本業が当期に生み出した現金（プラスが健全）', true)}
-        ${frow('＋ 借入・リースの増減（財務収支）', fcf.financeBalance, '＋＝借入で入った現金／−＝返済で出ていった現金')}
-        ${frow('＝ 現金の純増減（理論値）', fcf.netCash, '上の式から推計した現金の増減', true)}
-        ${frow(`実際の現預金の増減（期首→${monthLabel}末）`, fcf.cashActualChg, 'BSの現預金残高の実際の動き')}
-        ${frow('差額（実際 − 理論値）', fcfGap, '式に含まれない要因による差（下記※参照）')}
-      </tbody>
-    </table>
-    <div class="note mt1">※ 理論値は「税引後利益＋減価償却 − 運転資本増加 ＋ 借入増減」による概算のため、<b>設備投資（固定資産の購入・売却）、保険積立・敷金・貸付金など他の資産の増減、実際の納税額と概算税金との差、増資・配当</b>は含まれていません。差額 ${esc(sgnYen(fcfGap))} 円はこれらの要因によるものです。差額が大きい場合は、固定資産・投資その他の資産の当期の動きをご確認ください。</div>`
     // invert=true（仕入債務）は増加が資金にプラスに働くため色を反転する
     const wcRow = (label: string, close: number, chg: number, invert?: boolean) => {
       const badUp = invert ? chg < 0 : chg >= 0
@@ -667,15 +650,36 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
           ? `運転資本が期首から ${fmtShort(-fcf.wcIncrease)} 減ったため、その分だけ現金預金が増える要因になりました。売掛金の回収・在庫の圧縮が進み、立て替えに回っていたお金が手元に戻っています。`
           : '運転資本は期首から変わらず、現金預金への影響はありません。',
     )}</div>`
-    const userComment = settings.fcfComments?.[fy.id]
-    const comment = (userComment && userComment.trim()) ? esc(userComment).replace(/\n/g, '<br>') : esc(buildFcfComment(fcf, fmtShort)).replace(/\n/g, '<br>')
-    return page(no, '損益分岐点・FCF分析', `
+    // 厳密キャッシュフロー計算書（営業/投資/財務・差額≈0）— 全B/S科目を位置で自動集計
+    const cf = cashflow
+    const bigResidual = Math.abs(cf.residual) > 2_000_000
+    const shortLabel = (l: string) => l.replace(/（[^）]*）/g, '').trim()
+    // 印刷は1枚に収めるため、投資CFの固定資産明細は純額1行にまとめる（減価償却の調整行は残す）
+    const cfPrintSections = cf.sections.map((sec) => {
+      if (sec.key !== 'inv') return sec
+      const dep = sec.items.find((it) => it.label.includes('減価償却費の調整'))
+      const rest = sec.items.filter((it) => it !== dep).reduce((s, it) => s + it.amount, 0)
+      return { ...sec, items: [{ label: '固定資産の取得・売却（純額）', amount: rest }, ...(dep ? [dep] : [])] }
+    })
+    const cfRows = cfPrintSections.map((sec) => `
+      <tr class="em"><td>${esc(sec.title)}</td><td class="tr${sec.subtotal < 0 ? ' neg' : ''}">${esc(num(sec.subtotal))}</td></tr>
+      ${sec.items.map((it) => `<tr><td class="cf-ind">${esc(shortLabel(it.label))}</td><td class="tr${it.amount < 0 ? ' neg' : ''}">${it.amount >= 0 ? '＋' : '−'}${esc(num(Math.abs(it.amount)))}</td></tr>`).join('')}`).join('')
+    const cfTable = `<table>
+      <thead><tr><th>キャッシュフロー計算書（間接法）</th><th>金額</th></tr></thead>
+      <tbody>
+        ${cfRows}
+        <tr class="hl"><td>現金の増減（営業＋投資＋財務）</td><td class="tr${cf.netCf < 0 ? ' neg' : ''}">${esc(num(cf.netCf))}</td></tr>
+        <tr><td>（参考）実際の現預金の増減（期首 ${esc(fmtShort(cf.openingCash))} → ${monthLabel}末 ${esc(fmtShort(cf.closingCash))}）</td><td class="tr${cf.actualCashChange < 0 ? ' neg' : ''}">${esc(num(cf.actualCashChange))}</td></tr>
+        <tr><td>差額（実際 − 計算上）${bigResidual ? ' <b style="color:#b4690e">⚠要確認</b>' : ''}</td><td class="tr">${esc(num(cf.residual))}</td></tr>
+      </tbody>
+    </table>
+    <div class="note mt1">※ 全B/S科目をB/S上の位置（流動/固定・資産/負債/純資産）で営業・投資・財務に自動集計しています（借入金・リースのみ名称で財務へ）。3区分の合計は実際の現預金増減に一致し、差額は分類端数のみ（通常ゼロ〜数万円。200万円超は⚠要確認）。投資CFの「減価償却費の調整」は、営業CFで足し戻した減価償却（非資金）を控除して実際の設備投資・売却額に直す項目です。</div>`
+    return page(no, '損益分岐点・キャッシュフロー', `
       <div class="lead">${lead}</div>
       <div class="row2">
         <div class="blk"><div class="blk-t">損益分岐点（CVP）分析</div>${cvpTable}
           <div class="blk-t mt">運転資本の内訳</div>${wcTable}</div>
-        <div class="blk"><div class="blk-t">簡易フリーキャッシュフロー（期首〜${monthLabel}累計）</div>${fcfTable}
-          <div class="blk-t mt">所見</div><div class="txt">${comment}</div></div>
+        <div class="blk"><div class="blk-t">キャッシュフロー計算書（期首〜${monthLabel}・差額≈0）</div>${cfTable}</div>
       </div>
     `)
   }
@@ -837,6 +841,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   tr.rate td { background: #fbfcfe !important; color: #5b6675; font-size: 9.5px; }
   tr.hl td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.5px solid #c8a24b !important; border-bottom: 1.5px solid #c8a24b !important; }
   td.guide { font-size: 9px; color: #5b6675; }
+  td.cf-ind { padding-left: 6mm; color: #5b6675; }
   .tr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tc { text-align: center; white-space: nowrap; }
   .neg { color: ${RED}; } .pos { color: ${GREEN}; } .warn { color: #b4690e; }
