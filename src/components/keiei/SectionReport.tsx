@@ -239,56 +239,71 @@ export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearDat
   const fmtCell = (v: number) => (v ? fmtN(v) : '0')
   const cum = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
 
+  // レイアウト定数：科目列は元の約7割で折返し、期首月〜累計額は同じ列幅にそろえる
+  const NAME_W = 126, KI_W = 56, DATA_W = 88
+  const LINE = '#4b5563'   // 罫線（黒に近い灰色）
+  const THICK = '#1f2937'  // 太罫線（段階利益・純売上高）
   return (
     // 罫線は border-collapse:separate で描画（collapse だと横スクロール時に段階利益等の
     // 罫線が合計・累計列で途切れる Chromium の再描画不具合があるため）
     <div className="overflow-x-auto max-h-[640px] border border-gray-100 rounded-lg">
-      <table className="text-[11px]" style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+      <table className="text-[13px]" style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
         <thead className="sticky top-0 z-10 bg-[#1F3A5F] text-white">
           <tr>
-            <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 180, zIndex: 20 }}>科目</th>
-            <th className="text-center px-2 py-1.5 sticky bg-[#1F3A5F]" style={{ left: 180, width: 56, zIndex: 20 }}>期</th>
-            {months.map((m, i) => <th key={i} className="text-center px-2.5 py-1.5 whitespace-nowrap" style={{ minWidth: 74 }}>{m}月</th>)}
-            <th className="text-center px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 92 }}>合計額<div className="text-[9px] font-normal opacity-80">年計</div></th>
-            <th className="text-center px-2.5 py-1.5 whitespace-nowrap bg-[#16304f]" style={{ minWidth: 92 }}>累計額<div className="text-[9px] font-normal opacity-80">期首〜{monthLabel}</div></th>
+            <th className="text-left px-2 py-2 sticky left-0 bg-[#1F3A5F]" style={{ width: NAME_W, zIndex: 20 }}>科目</th>
+            <th className="text-center px-1 py-2 sticky bg-[#1F3A5F]" style={{ left: NAME_W, width: KI_W, zIndex: 20 }}>期</th>
+            {months.map((m, i) => <th key={i} className="text-center px-2 py-2 whitespace-nowrap" style={{ minWidth: DATA_W, width: DATA_W }}>{m}月</th>)}
+            <th className="text-center px-2 py-2 whitespace-nowrap bg-[#16304f]" style={{ minWidth: DATA_W, width: DATA_W }}>合計額<div className="text-[9px] font-normal opacity-80">年計</div></th>
+            <th className="text-center px-2 py-2 whitespace-nowrap bg-[#16304f]" style={{ minWidth: DATA_W, width: DATA_W }}>累計額<div className="text-[9px] font-normal opacity-80">期首〜{monthLabel}</div></th>
           </tr>
         </thead>
         <tbody>
           {order.map((base) => {
             const kind: RowKind = base.bracket === 'profit' ? 'profit' : base.isSubtotal ? 'group' : 'normal'
-            const nameCls = kind === 'profit' ? 'text-[#1F3A5F] font-bold' : kind === 'group' ? 'text-gray-800 font-semibold' : 'text-gray-700 font-medium'
-            // ブロック（科目）の上下罫線：段階利益＝濃紺2px、小計＝グレー1.5px、通常＝細線1px（実線）
-            const blockLine = kind === 'profit' ? '2px solid #1F3A5F' : kind === 'group' ? '1.5px solid #94a3b8' : '1px solid #dbe1e9'
-            const vLine = '1px solid #e6ebf1' // 縦の区切りは実線
+            // 段階利益（売上総利益・営業利益・経常利益・税引前・当期純利益）と【純売上高】は太罫線で強調
+            const isThick = kind === 'profit' || /純売上高/.test(base.name)
+            const nameCls = isThick ? 'text-[#1f2937] font-bold' : kind === 'group' ? 'text-gray-800 font-semibold' : 'text-gray-700 font-medium'
+            // ブロック（科目）の上下罫線：段階利益・純売上高＝2.5px太罫、小計＝1.5px、通常＝1px（すべて黒に近い灰色）
+            const blockLine = isThick ? `2.5px solid ${THICK}` : kind === 'group' ? `1.5px solid ${LINE}` : `1px solid ${LINE}`
+            const vLine = `1px solid ${LINE}`        // 縦の区切り
+            const periodDot = '1px dotted #9aa3ad'   // 科目内の期間区切り（当期/前期/前々期）
             return periods.map((y, pi) => {
               const row = y ? maps[pi].get(base.name) : undefined
               const isCur = pi === 0
               const bg = t3Bg(kind, pi)
               const totBg = t3TotBg(kind, pi)
-              // 罫線: 科目の先頭(当期)にブロック上罫、末尾(前々期)にブロック下罫。期間どうしは細い点線
-              const topB = pi === 0 ? blockLine : '1px dotted #dde3ea'
-              const botB = pi === 2 ? blockLine : undefined
-              const numCls = isCur ? 'text-gray-900 font-semibold' : 'text-gray-500'
+              const topB = pi === 0 ? blockLine : periodDot // 先頭(当期)にブロック上罫、期間どうしは点線
+              const botB = pi === 2 ? blockLine : undefined  // 末尾(前々期)にブロック下罫（太）
+              const baseColor = isCur ? '#111827' : '#6b7280'
+              const numWeight = isCur ? 600 : 400
               const totalV = row ? row.annual : null
               const cumV = cum(row)
+              // マイナスは赤字
+              const numCell = (v: number | null, tb: string) => {
+                const neg = v != null && v < 0
+                return { color: neg ? '#dc2626' : (tb === 'tot' ? (isCur ? '#111827' : '#4b5563') : baseColor), fontWeight: tb === 'tot' ? 700 : numWeight }
+              }
               return (
                 <tr key={base.name + pi}>
                   {isCur && (
-                    <td rowSpan={periods.length} className={`text-left px-3 py-1.5 whitespace-nowrap sticky left-0 align-top ${nameCls}`}
-                      style={{ paddingLeft: 10 + base.level * 8, background: bg, width: 180, maxWidth: 180, zIndex: 5, borderTop: blockLine, borderBottom: blockLine, borderRight: vLine }}>
-                      <span className="block truncate" title={base.name} style={{ maxWidth: 168 }}>{base.name}</span>
+                    <td rowSpan={periods.length} className={`text-left px-2 py-1.5 sticky left-0 align-top ${nameCls}`}
+                      style={{ fontSize: 15, lineHeight: 1.3, paddingLeft: 8 + base.level * 8, background: bg, width: NAME_W, maxWidth: NAME_W, zIndex: 5, borderTop: blockLine, borderBottom: blockLine, borderRight: vLine, whiteSpace: 'normal', wordBreak: 'break-all' }}>
+                      {base.name}
                     </td>
                   )}
-                  <td className={`text-center px-2 py-1.5 sticky whitespace-nowrap ${isCur ? 'text-[#1F3A5F] font-bold' : 'text-gray-400'}`}
-                    style={{ left: 180, background: bg, width: 56, zIndex: 4, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{periodLabels[pi]}</td>
-                  {months.map((_, mi) => (
-                    <td key={mi} className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap ${numCls}`}
-                      style={{ background: bg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{row ? fmtCell(row.monthly[mi] ?? 0) : '—'}</td>
-                  ))}
-                  <td className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
-                    style={{ background: totBg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{totalV == null ? '—' : fmtN(totalV)}</td>
-                  <td className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
-                    style={{ background: totBg, borderTop: topB, borderBottom: botB }}>{cumV == null ? '—' : fmtN(cumV)}</td>
+                  <td className={`text-center px-1 py-1.5 sticky whitespace-nowrap ${isCur ? 'text-[#1f2937] font-bold' : 'text-gray-400'}`}
+                    style={{ left: NAME_W, background: bg, width: KI_W, zIndex: 4, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{periodLabels[pi]}</td>
+                  {months.map((_, mi) => {
+                    const v = row ? (row.monthly[mi] ?? 0) : null
+                    return (
+                      <td key={mi} className="text-right px-2 py-1.5 tabular-nums whitespace-nowrap"
+                        style={{ background: bg, borderTop: topB, borderBottom: botB, borderRight: vLine, ...numCell(v, 'm') }}>{v == null ? '—' : fmtCell(v)}</td>
+                    )
+                  })}
+                  <td className="text-right px-2 py-1.5 tabular-nums whitespace-nowrap"
+                    style={{ background: totBg, borderTop: topB, borderBottom: botB, borderRight: vLine, ...numCell(totalV, 'tot') }}>{totalV == null ? '—' : fmtN(totalV)}</td>
+                  <td className="text-right px-2 py-1.5 tabular-nums whitespace-nowrap"
+                    style={{ background: totBg, borderTop: topB, borderBottom: botB, ...numCell(cumV, 'tot') }}>{cumV == null ? '—' : fmtN(cumV)}</td>
                 </tr>
               )
             })

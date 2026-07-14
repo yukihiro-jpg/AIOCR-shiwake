@@ -7,13 +7,13 @@ import { CODES, getRow, plKpisSingle, plKpisYtd, sortedYears, yoy } from './calc
 import { fmtShort, fmtPctSigned } from './format'
 import {
   cvp, safety, fcfAnalysis, workingCapital, profitBridge, landingScenarios,
-  detailsOf, rowYtd, debtAccounts, type KeieiSettings,
+  detailsOf, rowYtd, debtAccounts, aggregateRows, type AggRow, type KeieiSettings,
 } from './analysis'
 import { detectIssues, debtService, type IssuesResult } from './issues'
 import { budgetVsActual, monthlyBudgetSeries } from './budget'
 import { computeCashFlow } from './cashflow'
 
-export type PrintView = 'overview' | 'budget' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash'
+export type PrintView = 'overview' | 'budget' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'trend3pl'
 
 /** 印刷対象タブの定義（画面のタブ表示・印刷選択と共有する単一のソース） */
 export const PRINT_VIEWS: [PrintView, string][] = [
@@ -24,7 +24,11 @@ export const PRINT_VIEWS: [PrintView, string][] = [
   ['cvpfcf', '損益分岐点・キャッシュフロー'],
   ['issues', '経営課題'],
   ['cash', '資金繰り・安全性'],
+  ['trend3pl', '損益計算書（3期推移・A3縦）'],
 ]
+/** 印刷のみ（画面タブには出さない）ビュー。A3縦で出力する */
+export const PRINT_ONLY_VIEWS: PrintView[] = ['trend3pl']
+const A3_PORTRAIT_VIEWS: PrintView[] = ['trend3pl']
 
 export interface PrintReportInput {
   views: PrintView[]
@@ -781,6 +785,65 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     `)
   }
 
+  // ---------- 損益計算書（3期推移）A3縦 ----------
+  function pageTrend3(no: number): string {
+    const sorted = sortedYears(years)
+    const ci = sorted.findIndex((y) => y.id === fy.id)
+    const comp3 = sorted.slice(Math.max(0, ci - 2), ci + 1)
+    const periods = [comp3[comp3.length - 1], comp3[comp3.length - 2] ?? null, comp3[comp3.length - 3] ?? null]
+    const labels = ['当期', '前期', '前々期']
+    const pmonths = periods[0].fiscalMonths
+    const maps = periods.map((y) => { const m = new Map<string, AggRow>(); if (y) for (const r of aggregateRows(y).filter((r) => r.statement === 'PL')) m.set(r.name, r); return m })
+    // いずれかの期にあるPL科目を当期→前期→前々期の順で union
+    const merged: AggRow[] = []; const pos = new Map<string, number>()
+    const rebuild = () => { pos.clear(); merged.forEach((r, i) => pos.set(r.name, i)) }
+    const seed = periods.find((y) => y)
+    if (seed) for (const r of aggregateRows(seed).filter((r) => r.statement === 'PL')) merged.push(r)
+    rebuild()
+    const weave = (y: FiscalYearData | null) => { if (!y) return; let last = -1; for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) { if (pos.has(r.name)) last = pos.get(r.name)!; else { merged.splice(last + 1, 0, r); rebuild(); last++ } } }
+    weave(periods[1]); weave(periods[2])
+    const orderRows = merged.filter((r) => !/繰越利益剰余金/.test(r.name))
+    const cumOf = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
+    const t3n = (n: number | null) => n == null ? '—' : (!n ? '0' : (n < 0 ? '△' : '') + Math.abs(Math.round(n)).toLocaleString('ja-JP'))
+    const bandBg = (k: 'p' | 'g' | 'n', pi: number) => k === 'p' ? ['#cbdcf7', '#dfe9fb', '#eaf1fd'][pi] : k === 'g' ? ['#d7e2f2', '#e6ebf2', '#eef1f5'][pi] : ['#eaf3ff', '#ffffff', '#f4f7fb'][pi]
+    const totBand = (k: 'p' | 'g' | 'n', pi: number) => k === 'p' ? ['#bfd3f4', '#d4e2f9', '#e4edfb'][pi] : k === 'g' ? ['#cddaee', '#dde6f1', '#e7ecf3'][pi] : ['#dbe8ff', '#eef4ff', '#e8eef7'][pi]
+    const LINE = '#4b5563', THICK = '#1f2937'
+    // 科目ごとに tbody でまとめ（改ページで当期/前期/前々期の3行が分断されない）
+    let bodyGroups = ''
+    for (const base of orderRows) {
+      const kind: 'p' | 'g' | 'n' = base.bracket === 'profit' ? 'p' : base.isSubtotal ? 'g' : 'n'
+      const isThick = kind === 'p' || /純売上高/.test(base.name)
+      const blockLine = isThick ? `2px solid ${THICK}` : kind === 'g' ? `1.4px solid ${LINE}` : `1px solid ${LINE}`
+      const nameColor = isThick || kind === 'g' ? '#1f2937' : '#374151'
+      const nameWeight = isThick ? 700 : kind === 'g' ? 600 : 500
+      let trs = ''
+      periods.forEach((y, pi) => {
+        const row = y ? maps[pi].get(base.name) : undefined
+        const isCur = pi === 0
+        const b = bandBg(kind, pi), tb = totBand(kind, pi)
+        const topB = pi === 0 ? blockLine : '1px dotted #9aa3ad'
+        const botB = pi === 2 ? blockLine : 'none'
+        const baseCol = isCur ? '#111827' : '#6b7280'
+        const w = isCur ? 700 : 400
+        const col = (v: number | null, tot: boolean) => (v != null && v < 0) ? '#dc2626' : (tot ? (isCur ? '#111827' : '#4b5563') : baseCol)
+        const cells: string[] = []
+        if (isCur) cells.push(`<td rowspan="3" class="t3name" style="border-top:${blockLine};border-bottom:${blockLine};background:${b};color:${nameColor};font-weight:${nameWeight};padding-left:${1.5 + base.level * 1.6}mm">${esc(base.name)}</td>`)
+        cells.push(`<td class="t3ki" style="border-top:${topB};border-bottom:${botB};background:${b};color:${isCur ? '#1f2937' : '#9ca3af'};font-weight:${isCur ? 700 : 400}">${labels[pi]}</td>`)
+        for (let mi = 0; mi < pmonths.length; mi++) { const v = row ? (row.monthly[mi] ?? 0) : null; cells.push(`<td class="t3d" style="border-top:${topB};border-bottom:${botB};background:${b};color:${col(v, false)};font-weight:${w}">${esc(t3n(v))}</td>`) }
+        const tv = row ? row.annual : null, cv = cumOf(row)
+        cells.push(`<td class="t3d" style="border-top:${topB};border-bottom:${botB};background:${tb};color:${col(tv, true)};font-weight:700">${esc(t3n(tv))}</td>`)
+        cells.push(`<td class="t3d t3last" style="border-top:${topB};border-bottom:${botB};background:${tb};color:${col(cv, true)};font-weight:700">${esc(t3n(cv))}</td>`)
+        trs += `<tr>${cells.join('')}</tr>`
+      })
+      bodyGroups += `<tbody class="acct">${trs}</tbody>`
+    }
+    const head = `<tr><th class="t3name">科目</th><th class="t3ki">期</th>${pmonths.map((m) => `<th class="t3d">${m}月</th>`).join('')}<th class="t3d">合計額<div class="t3sub">年計</div></th><th class="t3d t3last">累計額<div class="t3sub">期首〜${monthLabel}</div></th></tr>`
+    // 科目数が多く1枚に収まらないため、A3縦を複数枚に流し込む（見出し行は各ページで繰返し）
+    return `<section class="a3sheet">${pageHead(no, '損益計算書（3期推移）')}
+      <table class="t3tbl"><thead>${head}</thead>${bodyGroups}</table>
+      <div class="note mt1">各科目を当期・前期・前々期の3期で表示（単月発生額）。合計額＝年計、累計額＝期首〜${monthLabel}。段階利益と純売上高は太罫線、マイナスは赤字。A3縦・複数ページ可。</div></section>`
+  }
+
   const renderers: Record<PrintView, (no: number) => string> = {
     overview: pageOverview,
     budget: pageBudget,
@@ -789,6 +852,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     cvpfcf: pageCvpFcf,
     issues: pageIssues,
     cash: pageCash,
+    trend3pl: pageTrend3,
   }
   const pages = views.map((v, i) => renderers[v](i + 1)).join('\n')
 
@@ -801,6 +865,19 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .toolbar button { padding: 9px 22px; font-size: 14px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: ${NAVY}; color: #fff; }
   .toolbar span { font-size: 11px; color: #5b6675; margin-left: 10px; }
   .page { width: 297mm; height: 209mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm 10mm; position: relative; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+  /* 損益計算書（3期推移）は科目が多いため A3縦・複数ページに流し込む（クリップしない） */
+  .a3sheet { width: 297mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+
+  /* 3期推移テーブル（罫線＝黒に近い灰色、段階利益・純売上高は太罫、マイナス赤字） */
+  .t3tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin-top: 1mm; }
+  .t3tbl th { background: ${NAVY}; color: #fff; font-weight: 700; font-size: 8px; padding: 1.5px 1px; text-align: center; border-right: 1px solid #4b5563; }
+  .t3tbl th.t3name { text-align: left; padding-left: 2mm; }
+  .t3tbl .t3sub { font-size: 6px; font-weight: 400; opacity: .85; }
+  .t3tbl td { border-right: 1px solid #4b5563; }
+  .t3name { width: 26mm; font-size: 9.5px; text-align: left; vertical-align: top; line-height: 1.2; word-break: break-all; padding: 0.7mm 1mm; }
+  .t3ki { width: 9mm; text-align: center; font-size: 8px; padding: 0.7mm 0.5mm; white-space: nowrap; }
+  .t3d { text-align: right; font-size: 8px; padding: 0.7mm 1mm; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .t3last { border-right: none; }
 
   /* ページ共通 */
   .p-head { display: flex; align-items: baseline; gap: 3mm; border-bottom: 2px solid ${NAVY}; padding-bottom: 1.6mm; margin-bottom: 2.6mm; }
@@ -889,6 +966,11 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     .page { margin: 0; box-shadow: none; page-break-after: always; }
     .page:last-of-type { page-break-after: auto; }
     @page { size: A4 landscape; margin: 0; }
+    /* 損益計算書（3期推移）だけ A3縦で出力（科目数が多い場合は複数ページに流す） */
+    @page a3 { size: A3 portrait; margin: 8mm; }
+    .a3sheet { page: a3; page-break-before: always; box-shadow: none; padding: 0; margin: 0; }
+    .t3tbl thead { display: table-header-group; }
+    .t3tbl tbody.acct { break-inside: avoid; page-break-inside: avoid; }
   }
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>横向き（A4ランドスケープ）でそのまま印刷されます。1資料＝1枚です。</span></div>

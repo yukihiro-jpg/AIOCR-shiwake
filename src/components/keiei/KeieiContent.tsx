@@ -130,12 +130,14 @@ export default function KeieiContent() {
   // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
   const hasAnken = !!current?.name?.includes('藤井設計')
   const PRINT_TABS: [View, string][] = PRINT_VIEWS as unknown as [View, string][]
+  // 損益計算書（3期推移・A3縦）は印刷専用。画面タブは「試算表・3期比較・推移」内に既にあるため重複させない
+  const SCREEN_TABS: [View, string][] = PRINT_TABS.filter(([v]) => (v as string) !== 'trend3pl')
   // 元帳分析・会計監査は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない
-  const TABS: [View, string][] = [...PRINT_TABS, ['ledger', '元帳分析'] as [View, string], ['audit', '会計監査'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
+  const TABS: [View, string][] = [...SCREEN_TABS, ['ledger', '元帳分析'] as [View, string], ['audit', '会計監査'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持（画面タブ用）
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
-  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'issues', 'cash'])
+  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'issues', 'cash', 'trend3pl' as View])
   const printRef = useRef<HTMLDivElement>(null)
   const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
   const orderedSel = PRINT_TABS.map(([v]) => v).filter((v) => printSel.includes(v))
