@@ -39,6 +39,20 @@ function rowBorder(r: { isSubtotal: boolean; bracket: string }): string {
     : '[&>td]:border-y [&>td]:border-slate-300'
 }
 
+// 3期PL推移表：当期/前期/前々期で背景の帯を変える（当期を最も濃く、前々期に向かって淡く）。
+// pi=0:当期 / 1:前期 / 2:前々期。段階利益(profit)・小計(group)はさらに濃い版で強調。
+type RowKind = 'normal' | 'group' | 'profit'
+function t3Bg(kind: RowKind, pi: number): string {
+  if (kind === 'profit') return ['#cbdcf7', '#dfe9fb', '#eaf1fd'][pi]
+  if (kind === 'group') return ['#d7e2f2', '#e6ebf2', '#eef1f5'][pi]
+  return ['#eaf3ff', '#ffffff', '#f4f7fb'][pi]
+}
+function t3TotBg(kind: RowKind, pi: number): string {
+  if (kind === 'profit') return ['#bfd3f4', '#d4e2f9', '#e4edfb'][pi]
+  if (kind === 'group') return ['#cddaee', '#dde6f1', '#e7ecf3'][pi]
+  return ['#dbe8ff', '#eef4ff', '#e8eef7'][pi]
+}
+
 function NumTh({ children, accent, center, w }: { children: React.ReactNode; accent?: boolean; center?: boolean; w?: number }) {
   return <th className={`${center ? 'text-center' : 'text-right'} px-3 py-1.5 font-semibold ${accent ? 'bg-[#16304f]' : ''}`} style={{ minWidth: w ?? 96, width: w }}>{children}</th>
 }
@@ -237,40 +251,41 @@ export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearDat
           </tr>
         </thead>
         <tbody>
-          {order.map((base, ai) => {
-            const isProfit = base.bracket === 'profit'
-            const isGroup = base.isSubtotal && base.bracket !== 'profit'
-            const blockBg = isProfit ? '#e8eefc' : isGroup ? '#eef1f5' : (ai % 2 === 1 ? '#f8fafc' : '#ffffff')
-            const nameCls = isProfit ? 'text-[#1F3A5F] font-bold' : isGroup ? 'text-gray-800 font-semibold' : 'text-gray-700 font-medium'
+          {order.map((base) => {
+            const kind: RowKind = base.bracket === 'profit' ? 'profit' : base.isSubtotal ? 'group' : 'normal'
+            const nameCls = kind === 'profit' ? 'text-[#1F3A5F] font-bold' : kind === 'group' ? 'text-gray-800 font-semibold' : 'text-gray-700 font-medium'
+            // ブロック（科目）の上下罫線：段階利益＝濃紺2px、小計＝グレー1.5px、通常＝細線1px（実線）
+            const blockLine = kind === 'profit' ? '2px solid #1F3A5F' : kind === 'group' ? '1.5px solid #94a3b8' : '1px solid #dbe1e9'
+            const vLine = '1px solid #e6ebf1' // 縦の区切りは実線
             return periods.map((y, pi) => {
               const row = y ? maps[pi].get(base.name) : undefined
               const isCur = pi === 0
-              const first = pi === 0, lastSub = pi === periods.length - 1
-              // 段階利益・小計はブロックの上下に強い罫線
-              const blkBorder = isProfit ? '#1F3A5F' : isGroup ? '#94a3b8' : ''
-              const topB = first && blkBorder ? `2px solid ${blkBorder}` : undefined
-              const botB = lastSub && blkBorder ? `2px solid ${blkBorder}` : (lastSub ? '1px solid #e5e7eb' : undefined)
+              const bg = t3Bg(kind, pi)
+              const totBg = t3TotBg(kind, pi)
+              // 罫線: 科目の先頭(当期)にブロック上罫、末尾(前々期)にブロック下罫。期間どうしは細い点線
+              const topB = pi === 0 ? blockLine : '1px dotted #dde3ea'
+              const botB = pi === 2 ? blockLine : undefined
               const numCls = isCur ? 'text-gray-900 font-semibold' : 'text-gray-500'
               const totalV = row ? row.annual : null
               const cumV = cum(row)
               return (
                 <tr key={base.name + pi}>
-                  {first && (
+                  {isCur && (
                     <td rowSpan={periods.length} className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 align-top ${nameCls}`}
-                      style={{ paddingLeft: 10 + base.level * 8, background: blockBg, width: 180, maxWidth: 180, zIndex: 5, borderTop: topB, borderBottom: lastSub && blkBorder ? undefined : undefined }}>
+                      style={{ paddingLeft: 10 + base.level * 8, background: bg, width: 180, maxWidth: 180, zIndex: 5, borderTop: blockLine, borderBottom: blockLine, borderRight: vLine }}>
                       <span className="block truncate" title={base.name} style={{ maxWidth: 168 }}>{base.name}</span>
                     </td>
                   )}
                   <td className={`text-center px-2 py-1 sticky whitespace-nowrap ${isCur ? 'text-[#1F3A5F] font-bold' : 'text-gray-400'}`}
-                    style={{ left: 180, background: blockBg, width: 56, zIndex: 4, borderTop: topB, borderBottom: botB }}>{periodLabels[pi]}</td>
+                    style={{ left: 180, background: bg, width: 56, zIndex: 4, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{periodLabels[pi]}</td>
                   {months.map((_, mi) => (
                     <td key={mi} className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap ${numCls}`}
-                      style={{ background: blockBg, borderTop: topB, borderBottom: botB }}>{row ? fmtCell(row.monthly[mi] ?? 0) : '—'}</td>
+                      style={{ background: bg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{row ? fmtCell(row.monthly[mi] ?? 0) : '—'}</td>
                   ))}
                   <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
-                    style={{ background: isProfit ? '#dbe6fb' : isGroup ? '#e6eaf0' : (isCur ? '#eef4ff' : '#f4f7fb'), borderTop: topB, borderBottom: botB }}>{totalV == null ? '—' : fmtN(totalV)}</td>
+                    style={{ background: totBg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{totalV == null ? '—' : fmtN(totalV)}</td>
                   <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
-                    style={{ background: isProfit ? '#dbe6fb' : isGroup ? '#e6eaf0' : (isCur ? '#eef4ff' : '#f4f7fb'), borderTop: topB, borderBottom: botB }}>{cumV == null ? '—' : fmtN(cumV)}</td>
+                    style={{ background: totBg, borderTop: topB, borderBottom: botB }}>{cumV == null ? '—' : fmtN(cumV)}</td>
                 </tr>
               )
             })

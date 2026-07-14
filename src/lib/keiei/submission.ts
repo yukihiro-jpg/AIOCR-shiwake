@@ -28,8 +28,9 @@ interface DataRow { r: AggRow; cells: string[] }
 function tableHtml(headers: string[], rows: DataRow[], colWidths?: string[]): string {
   const colgroup = colWidths ? `<colgroup><col>${colWidths.map((w) => `<col style="width:${w}">`).join('')}</colgroup>` : ''
   const head = `<tr><th class="name">科目</th>${headers.map((h) => `<th class="num">${esc(h)}</th>`).join('')}</tr>`
-  const body = rows.map(({ r, cells }) => {
-    const cls = r.isSubtotal ? (r.bracket === 'profit' ? 'sub profit' : 'sub') : ''
+  const body = rows.map(({ r, cells }, i) => {
+    // ゼブラ（z0/z1）に小計(sub)・段階利益(profit)を重ねる（画面表示と同じ配色）
+    const cls = [r.isSubtotal ? (r.bracket === 'profit' ? 'sub profit' : 'sub') : '', 'z' + (i % 2)].filter(Boolean).join(' ')
     const pad = 4 + r.level * 10
     return `<tr class="${cls}"><th class="name" style="padding-left:${pad}px">${esc(r.name)}</th>${cells.map((c) => `<td class="num">${c}</td>`).join('')}</tr>`
   }).join('')
@@ -142,27 +143,29 @@ function buildTrend3(comp: FiscalYearData[], monthIdx: number): OneReport {
   }
 }
 
-/** 選択した帳票を1ファイル（項目ごとに改ページ）として印刷ダイアログで開く */
-export function openReportsPdf(company: string, fy: FiscalYearData, comp: FiscalYearData[], monthIdx: number, keys: ReportKey[]): void {
-  if (!keys.length) return
+/** 選択した帳票のHTML（印刷用・1ファイル）を組み立てる。純関数なので単体で検証できる。
+ *  罫線は「縦＝実線・横＝細かい点線・外枠とヘッダ＝実線」。背景色は印刷でも保持する
+ *  （print-color-adjust:exact）。ゼブラ・小計・段階利益・当期/前期/前々期の帯は画面表示と同じ配色。 */
+export function buildReportsHtml(company: string, fy: FiscalYearData, comp: FiscalYearData[], monthIdx: number, keys: ReportKey[]): string {
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-  const today = new Date()
-  const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`
+  // 作成日は呼び出し側で差し替えられるよう固定文言にせず、ここで生成（Node検証では現在日時が使えないため try で保護）
+  let dateStr = ''
+  try { const t = new Date(); dateStr = `${t.getFullYear()}年${t.getMonth() + 1}月${t.getDate()}日` } catch { dateStr = '' }
   const co = company || '顧問先'
   const sections = keys.map((k) => {
     const o = buildOne(k, fy, comp, monthIdx)
     const a3 = A3_PORTRAIT_KEYS.includes(k) ? ' a3p' : ''
     return `<section class="report${a3}">
       <div class="head"><div><div class="ttl">${esc(o.title)}</div><div class="co">${esc(co)}　御中　<span class="sub2">${esc(o.sub)}</span></div></div>
-      <div class="meta">${esc(fy.label)}<br>対象：期首〜${monthLabel}<br>作成日：${dateStr}</div></div>
+      <div class="meta">${esc(fy.label)}<br>対象：期首〜${monthLabel}${dateStr ? `<br>作成日：${dateStr}` : ''}</div></div>
       ${o.table}</section>`
   }).join('')
   const title = keys.length === 1 ? `${REPORT_LABELS[keys[0]]}_${co}_${fy.label}_${monthLabel}` : `月次帳票_${co}_${fy.label}_${monthLabel}`
 
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(title)}</title>
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(title)}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif;color:#111;font-size:9px;}
+    body{font-family:'Noto Sans JP','Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif;color:#111;font-size:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .report{padding:6mm;break-before:page;}
     .report:first-child{break-before:auto;}
     .head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1F3A5F;padding-bottom:6px;margin-bottom:10px;}
@@ -170,27 +173,47 @@ export function openReportsPdf(company: string, fy: FiscalYearData, comp: Fiscal
     .head .co{font-size:12px;font-weight:700;margin-top:2px;}
     .head .co .sub2{font-size:10px;color:#666;font-weight:400;}
     .head .meta{font-size:10px;color:#444;text-align:right;line-height:1.6;}
-    table.grid{width:100%;border-collapse:collapse;}
-    table.grid th,table.grid td{border:1px solid #cfd6e0;padding:2px 4px;white-space:nowrap;}
-    table.grid thead th{background:#1F3A5F;color:#fff;font-weight:600;text-align:center;font-size:8.5px;}
-    table.grid th.name{text-align:left;background:#f3f5f8;color:#222;}
+    /* 罫線: 縦＝実線・横＝細かい点線・外枠＝実線。背景は印刷でも保持 */
+    table.grid{width:100%;border-collapse:collapse;border:1.2px solid #9fb0c4;}
+    table.grid th,table.grid td{
+      border-left:1px solid #d3dae4;border-right:1px solid #d3dae4;
+      border-top:1px dotted #b9c4d2;border-bottom:1px dotted #b9c4d2;
+      padding:2px 4px;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    /* ヘッダは横罫も実線（縦線と同じ） */
+    table.grid thead th{background:#1F3A5F;color:#fff;font-weight:600;text-align:center;font-size:8.5px;border:1px solid #16304f;}
+    table.grid th.name{text-align:left;color:#222;}
     table.grid thead th.name{background:#1F3A5F;color:#fff;}
     td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
-    tr.sub td,tr.sub th{background:#eef1f5;font-weight:700;}
-    tr.sub.profit td,tr.sub.profit th{background:#e7eefc;color:#1F3A5F;}
+    /* ゼブラ → 小計 → 段階利益 の順に背景を上書き（後勝ち） */
+    table.grid tbody tr.z0 td,table.grid tbody tr.z0 th.name{background:#ffffff;}
+    table.grid tbody tr.z1 td,table.grid tbody tr.z1 th.name{background:#f5f8fb;}
+    table.grid tbody tr.sub td,table.grid tbody tr.sub th.name{background:#eef1f5;font-weight:700;}
+    table.grid tbody tr.sub.profit td,table.grid tbody tr.sub.profit th.name{background:#e2ebfb;color:#1F3A5F;}
     /* 3期PL推移表（科目ごとに当期/前期/前々期の3行） */
     table.t3{font-size:7.5px;}
     table.t3 th.name{vertical-align:top;}
     table.t3 td.kbn,table.t3 th.kbnh{text-align:center;width:30px;}
-    table.t3 td.kbn{color:#1F3A5F;font-weight:600;}
-    table.t3 td.tot{background:#eef4ff;font-weight:700;}
+    table.t3 td.kbn{font-weight:600;}
     table.t3 thead th .th2{font-weight:400;font-size:6.5px;opacity:.85;}
-    table.t3 tr.r1 td,table.t3 tr.r2 td{color:#555;}
-    table.t3 tr.sub td,table.t3 tr.sub th{background:#eef1f5;}
-    table.t3 tr.sub.profit td,table.t3 tr.sub.profit th{background:#e7eefc;color:#1F3A5F;}
-    table.t3 tr.sub.profit td.tot{background:#dbe6fb;}
-    table.t3 tr.profit.r0 td,table.t3 tr.profit.r0 th{border-top:2px solid #1F3A5F;}
-    table.t3 tr.profit.r2 td,table.t3 tr.profit.r2 th{border-bottom:2px solid #1F3A5F;}
+    /* 当期/前期/前々期で背景の帯を変える（当期を最も濃く、前々期に向かって淡く） */
+    table.t3 tbody tr.r0 td,table.t3 tbody tr.r0 th.name{background:#eaf3ff;}
+    table.t3 tbody tr.r1 td{background:#ffffff;color:#555;}
+    table.t3 tbody tr.r2 td{background:#f4f7fb;color:#555;}
+    table.t3 tbody tr.r0 td.kbn{color:#1F3A5F;}
+    table.t3 tbody tr.r0 td.tot{background:#dbe8ff;font-weight:700;}
+    table.t3 tbody tr.r1 td.tot{background:#eef4ff;font-weight:700;}
+    table.t3 tbody tr.r2 td.tot{background:#e8eef7;font-weight:700;}
+    /* 小計・段階利益（期別に濃淡） */
+    table.t3 tbody tr.sub.r0 td,table.t3 tbody tr.sub.r0 th.name{background:#d7e2f2;}
+    table.t3 tbody tr.sub.r1 td{background:#e6ebf2;}
+    table.t3 tbody tr.sub.r2 td{background:#eef1f5;}
+    table.t3 tbody tr.sub.profit.r0 td,table.t3 tbody tr.sub.profit.r0 th.name{background:#cbdcf7;color:#1F3A5F;}
+    table.t3 tbody tr.sub.profit.r1 td{background:#dfe9fb;color:#1F3A5F;}
+    table.t3 tbody tr.sub.profit.r2 td{background:#eaf1fd;color:#1F3A5F;}
+    table.t3 tbody tr.sub.profit td.tot{background:#bfd3f4;}
+    /* 段階利益ブロックの上下は実線で強調 */
+    table.t3 tbody tr.profit.r0 td,table.t3 tbody tr.profit.r0 th{border-top:1.6px solid #1F3A5F;}
+    table.t3 tbody tr.profit.r2 td,table.t3 tbody tr.profit.r2 th{border-bottom:1.6px solid #1F3A5F;}
     table.t3 tbody.acct{break-inside:avoid;}
     table.t3 thead th{position:sticky;top:0;}
     .report.a3p{page:a3p;}
@@ -201,6 +224,12 @@ export function openReportsPdf(company: string, fy: FiscalYearData, comp: Fiscal
     }
   </style></head>
   <body onload="setTimeout(function(){window.focus();window.print();},250)">${sections}</body></html>`
+}
+
+/** 選択した帳票を1ファイル（項目ごとに改ページ）として印刷ダイアログで開く */
+export function openReportsPdf(company: string, fy: FiscalYearData, comp: FiscalYearData[], monthIdx: number, keys: ReportKey[]): void {
+  if (!keys.length) return
+  const html = buildReportsHtml(company, fy, comp, monthIdx, keys)
 
   const iframe = document.createElement('iframe')
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;'
