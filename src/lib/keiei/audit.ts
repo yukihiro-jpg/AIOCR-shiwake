@@ -161,6 +161,29 @@ export function auditMonth(
       withholdingMemos.add(mk)
     }
   }
+  // R2の理由用: 過去の (摘要×伝票日) ごとに、本体（PL科目）金額と源泉所得税（預り金）額を対にする。
+  // 複合仕訳では本体行と源泉行が同じ日付・摘要で分かれて計上されるため、日付でまとめて対応づける。
+  const whPairGrp = new Map<string, { pl: number; wh: number; plName: string; plCode: string }>()
+  for (const l of histLines) {
+    const mk = normMemo(l.memo)
+    if (!mk) continue
+    const isWh = WITHHOLDING_ACC_RE.test(l.debitName) || WITHHOLDING_ACC_RE.test(l.creditName)
+    const isPl = !!l.plCode && !l.plIsRevenue
+    if (!isWh && !isPl) continue
+    const gk = `${mk}|${l.date}`
+    let e = whPairGrp.get(gk)
+    if (!e) { e = { pl: 0, wh: 0, plName: '', plCode: '' }; whPairGrp.set(gk, e) }
+    if (isWh) e.wh += l.amount
+    if (isPl) { e.pl += l.amount; e.plName = l.plName; e.plCode = l.plCode }
+  }
+  const whPairsByMemo = new Map<string, { pl: number; wh: number; plName: string; plCode: string }[]>()
+  for (const [gk, e] of Array.from(whPairGrp.entries())) {
+    if (e.wh <= 0 || e.pl <= 0) continue
+    const mk = gk.slice(0, gk.lastIndexOf('|'))
+    const arr = whPairsByMemo.get(mk) || []
+    arr.push(e)
+    whPairsByMemo.set(mk, arr)
+  }
   // 対象月内で源泉仕訳がある摘要（R2の除外用）
   const targetWithholdingMemos = new Set<string>()
   for (const l of targetLines) {
@@ -200,8 +223,18 @@ export function auditMonth(
     if (targetWithholdingMemos.has(mk)) continue
     const key = `${l.date}|${l.amount}|${l.memo}`
     if (flaggedKeys.has(key)) continue
+    // 過去の同種取引のうち、本体金額が今回の金額に最も近いものを例示（本体・源泉額・実効率）
+    let detail = ''
+    const pairs = whPairsByMemo.get(mk)
+    if (pairs && pairs.length) {
+      const best = pairs.reduce((a, b) => (Math.abs(b.pl - l.amount) < Math.abs(a.pl - l.amount) ? b : a))
+      const rate = best.pl ? (best.wh / best.pl) * 100 : 0
+      const est = Math.round(l.amount * (best.wh / best.pl))
+      detail = `過去の同じ支払いでは、本体（${acctLabel(best.plCode, best.plName)}）${best.pl.toLocaleString()}円に対し源泉所得税 ${best.wh.toLocaleString()}円（本体の約${rate.toFixed(2)}%）を預り金に計上していました。`
+        + `今回の金額 ${l.amount.toLocaleString()}円に同率を当てると源泉所得税は約 ${est.toLocaleString()}円になります。`
+    }
     push('R2', '源泉徴収の処理漏れ疑い', l,
-      `過去は同じ摘要「${l.memo}」の支払いで源泉所得税（預り金）の仕訳を伴っていましたが、対象月には源泉の仕訳が見当たりません。源泉徴収の処理漏れでないかご確認ください。`)
+      `過去は同じ摘要「${l.memo}」の支払いで源泉所得税（預り金）の仕訳を伴っていましたが、対象月には源泉の仕訳が見当たりません。${detail}源泉徴収の処理漏れでないかご確認ください。`)
     flaggedKeys.add(key)
   }
 
