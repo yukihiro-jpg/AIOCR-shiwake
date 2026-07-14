@@ -31,6 +31,7 @@ import SectionLedger from './SectionLedger'
 import SectionAudit from './SectionAudit'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
+import { buildPrintReportHtml, PRINT_VIEWS, type PrintView } from '@/lib/keiei/print-report'
 
 type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger' | 'audit'
 
@@ -125,38 +126,42 @@ export default function KeieiContent() {
   const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]
 
-  // ===== 印刷（タブ選択式） =====
+  // ===== 印刷（タブ選択式・新規ウィンドウに「1資料＝横A4・1枚」の報告書を生成） =====
   // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
   const hasAnken = !!current?.name?.includes('藤井設計')
-  const PRINT_TABS: [View, string][] = [['overview', '概要'], ['budget', '予算・予実'], ['report', '試算表・3期比較・推移'], ['detail', '明細・経費'], ['cvpfcf', '損益分岐点・FCF分析'], ['issues', '経営課題'], ['cash', '資金繰り・安全性']]
+  const PRINT_TABS: [View, string][] = PRINT_VIEWS as unknown as [View, string][]
   // 元帳分析・会計監査は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない
   const TABS: [View, string][] = [...PRINT_TABS, ['ledger', '元帳分析'] as [View, string], ['audit', '会計監査'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
-  const TAB_LABEL = (v: View) => TABS.find(([k]) => k === v)?.[1] || ''
   const [printOpen, setPrintOpen] = useState(false)
-  // 損益分岐点シミュレーションのスライダー値を親で保持し、画面・印刷で同じ値を使う
+  // 損益分岐点シミュレーションのスライダー値を親で保持（画面タブ用）
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
   const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'detail', 'cvpfcf', 'issues', 'cash'])
-  const [printViews, setPrintViews] = useState<View[] | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
   const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
   const orderedSel = PRINT_TABS.map(([v]) => v).filter((v) => printSel.includes(v))
-  const doPrint = (views: View[]) => { if (!views.length) return; setPrintOpen(false); setPrintViews(views) }
   useEffect(() => {
     const h = (e: MouseEvent) => { if (printRef.current && !printRef.current.contains(e.target as Node)) setPrintOpen(false) }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
-  useEffect(() => {
-    if (!printViews) return
-    const prev = document.title
-    const m = fy ? `${fy.fiscalMonths[monthIdx]}月` : ''
-    document.title = `月次レポート_${current?.name || ''}_${fy?.label || ''}_${m}`
-    const after = () => { document.title = prev; setPrintViews(null) }
-    window.addEventListener('afterprint', after, { once: true })
-    const t = setTimeout(() => window.print(), 250)
-    return () => { clearTimeout(t); window.removeEventListener('afterprint', after) }
-  }, [printViews, fy, current, monthIdx])
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
+  // 選択タブの報告書を新規ウィンドウで生成（表紙に選択資料の番号付き目次。未選択の資料は番号が繰り上がる）
+  const doPrint = (views: View[]) => {
+    if (!views.length || !fy) return
+    setPrintOpen(false)
+    setErr(null)
+    const html = buildPrintReportHtml({
+      views: views as PrintView[],
+      company: current?.name || '',
+      fy, prior, years, monthIdx, settings,
+    })
+    const w = window.open('', '_blank')
+    if (!w) {
+      setErr('ポップアップがブロックされました。ブラウザの設定で許可してから、もう一度「印刷」を押してください。')
+      return
+    }
+    w.document.open(); w.document.write(html); w.document.close()
+  }
   const sorted = useMemo(() => sortedYears(years), [years])
   const comp = useMemo(() => {
     if (!fy) return []
@@ -439,8 +444,8 @@ export default function KeieiContent() {
                 <button onClick={() => setPrintOpen((o) => !o)} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷 ▾</button>
                 {printOpen && (
                   <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-3">
-                    <div className="text-xs font-bold text-gray-700 mb-1">印刷するタブを選択</div>
-                    <div className="text-[11px] text-gray-400 mb-2">クリックで選択／解除。選択したタブのみ出力します。</div>
+                    <div className="text-xs font-bold text-gray-700 mb-1">印刷する資料を選択</div>
+                    <div className="text-[11px] text-gray-400 mb-2">1資料＝横A4・1枚に要約して出力します。表紙に選択した資料の番号付き目次が付きます。</div>
                     <div className="flex flex-wrap gap-1.5 mb-3">
                       {PRINT_TABS.map(([v, l]) => { const on = printSel.includes(v); return (
                         <button key={v} onClick={() => togglePrintSel(v)}
@@ -465,72 +470,8 @@ export default function KeieiContent() {
               {renderView(view)}
             </div>
           )}
-
-          {/* 印刷専用: 選択タブをコンサル報告書調で出力（画面では非表示） */}
-          {fy && printViews && (
-            <div id="keiei-multiprint">
-              <div className="kp-cover">
-                <div className="kp-eyebrow">MONTHLY MANAGEMENT REPORT</div>
-                <h1 className="kp-title">月次経営レポート</h1>
-                <div className="kp-sub"><b>{current?.name}</b> 御中　／　{fy.label}　{fy.fiscalMonths[monthIdx]}月度　／　作成日 {(() => { const d = new Date(); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日` })()}</div>
-                <div className="kp-rule" />
-              </div>
-              {printViews.map((v, i) => (
-                <section key={v} className={i > 0 ? 'kp-section kp-break' : 'kp-section'}>
-                  <div className="kp-sec-title">{TAB_LABEL(v)}</div>
-                  {renderView(v)}
-                </section>
-              ))}
-              <div className="kp-foot">{current?.name} ｜ 月次経営レポート ｜ {fy.label} {fy.fiscalMonths[monthIdx]}月</div>
-            </div>
-          )}
         </div>
       )}
-
-      <style jsx global>{`
-        #keiei-multiprint { display: none; }
-        @media print {
-          body * { visibility: hidden; }
-          #keiei-multiprint, #keiei-multiprint * { visibility: visible; }
-          #keiei-multiprint { display: block; position: absolute; left: 0; top: 0; width: 100%; color: #243042; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #keiei-multiprint * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          #keiei-multiprint * { overflow: visible !important; max-height: none !important; }
-          @page { size: A4; margin: 14mm 12mm; }
-
-          /* コンサル報告書調（ネイビー&ゴールド） */
-          #keiei-multiprint .kp-cover { padding-bottom: 8px; margin-bottom: 18px; }
-          #keiei-multiprint .kp-eyebrow { font-size: 10px; letter-spacing: 4px; color: #c8a24b; font-weight: 700; }
-          #keiei-multiprint .kp-title { font-size: 27px; font-weight: 800; color: #1f3a5f; letter-spacing: 2px; margin: 2px 0; }
-          #keiei-multiprint .kp-sub { font-size: 12px; color: #5b6675; }
-          #keiei-multiprint .kp-rule { height: 3px; margin-top: 10px; background: linear-gradient(90deg,#1f3a5f 0%,#1f3a5f 72%,#c8a24b 72%,#c8a24b 100%); }
-          #keiei-multiprint .kp-break { break-before: page; page-break-before: always; }
-          #keiei-multiprint .kp-sec-title { font-size: 16px; font-weight: 800; color: #1f3a5f; border-left: 5px solid #c8a24b; border-bottom: 2px solid #1f3a5f; padding: 0 0 6px 10px; margin: 4px 0 14px; }
-          #keiei-multiprint .kp-foot { position: fixed; bottom: 6mm; left: 0; right: 0; text-align: center; font-size: 9px; color: #9aa3ad; }
-
-          /* カードは影を消して軽い罫線に。青系の強調はネイビーへ寄せる */
-          #keiei-multiprint .bg-white { box-shadow: none !important; border: 1px solid #d7dde6 !important; border-radius: 6px !important; break-inside: avoid; }
-          #keiei-multiprint .rounded-2xl, #keiei-multiprint .rounded-xl, #keiei-multiprint .rounded-lg { border-radius: 6px !important; }
-          #keiei-multiprint h2 { color: #1f3a5f !important; }
-          #keiei-multiprint .text-blue-700, #keiei-multiprint .text-blue-600 { color: #1f3a5f !important; }
-          #keiei-multiprint .kp-section { break-inside: auto; }
-          /* 操作系（スライダー・ボタン）は報告書では非表示。数値・入力値は残す */
-          #keiei-multiprint input[type='range'], #keiei-multiprint button { display: none !important; }
-          #keiei-multiprint input { border-color: #d7dde6 !important; }
-
-          /* 表を二次相続レポートと同系統のコンサル調に：ネイビーのヘッダ・細罫線・ゼブラ */
-          #keiei-multiprint table { border-collapse: collapse !important; width: 100%; }
-          #keiei-multiprint thead th, #keiei-multiprint thead td { background: #1f3a5f !important; color: #fff !important; border-color: #1f3a5f !important; font-weight: 700; }
-          #keiei-multiprint table th, #keiei-multiprint table td { border: 1px solid #d3dae3 !important; }
-          #keiei-multiprint tbody tr:nth-child(even) td { background: #f6f8fb !important; }
-          /* 合計・強調行（太字）は淡いネイビー地に寄せる */
-          #keiei-multiprint tbody tr.font-bold td, #keiei-multiprint tbody tr.font-semibold td { background: #e7edf5 !important; }
-          /* 損益・安全性などの良し悪しは緑/赤を維持（コンサル調でも意味色は残す） */
-          #keiei-multiprint .text-green-600, #keiei-multiprint .text-green-700 { color: #1a7f37 !important; }
-          #keiei-multiprint .text-amber-700, #keiei-multiprint .text-amber-600 { color: #b4690e !important; }
-          /* ゴールドの細い区切りをセクション見出し直後に */
-          #keiei-multiprint .kp-sec-title { background: linear-gradient(180deg,#fbfcfe,#fff); }
-        }
-      `}</style>
 
       {/* 期末年の確認ダイアログ（複数ファイルまとめて） */}
       {pending && (
