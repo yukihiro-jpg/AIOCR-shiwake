@@ -504,6 +504,48 @@ export function auditMonth(
   }
 }
 
+const monthLabel = (ym: string) => { const [y, m] = ym.split('-'); return `${y}年${Number(m)}月` }
+
+/** 範囲監査: ymFrom〜ymTo の各月を、それぞれ「その月より前の全実績」と突合して結果をまとめる。
+ *  各ルールの基準（過去実績）は月ごとに正しく積み上がる（範囲内の前の月も基準に含む）。 */
+export function auditRange(
+  target: LedgerData,
+  ymFrom: string,
+  ymTo: string,
+  history: LedgerData[],
+): AuditResult {
+  let from = ymFrom, to = ymTo
+  if (from > to) { const t = from; from = to; to = t }
+  const months: string[] = []
+  let [y, m] = from.split('-').map(Number)
+  for (let guard = 0; guard < 60; guard++) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`
+    months.push(ym)
+    if (ym === to) break
+    m++; if (m > 12) { m = 1; y++ }
+  }
+  const all: AuditFinding[] = []
+  let targetCount = 0
+  let histCount = 0
+  for (const ym of months) {
+    const r = auditMonth(target, ym, history)
+    all.push(...r.findings)
+    targetCount += r.targetCount
+    histCount = Math.max(histCount, r.historyCount) // 最終月の基準規模を代表値に
+  }
+  all.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount)
+  const label = from === to ? monthLabel(from) : `${monthLabel(from)}〜${monthLabel(to)}`
+  return {
+    findings: all,
+    targetLabel: label,
+    targetCount,
+    historyCount: histCount,
+    historyDesc: months.length === 1
+      ? `対象月より前の全実績`
+      : `各月ごとに「その月より前の全実績」と突合（${months.length}か月分）`,
+  }
+}
+
 // ---------- レポート（新規ウインドウ・印刷/PDF保存対応） ----------
 
 const esc = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -554,10 +596,10 @@ export function buildAuditReportHtml(result: AuditResult, companyName: string): 
   <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button></div>
   <div class="eyebrow">ACCOUNTING AUDIT</div>
   <h1>会計監査 — 異常・修正候補リスト</h1>
-  <div class="head-sub"><b>${esc(companyName)}</b>　／　対象月 ${esc(result.targetLabel)}　／　作成日 ${esc(dateStr)}</div>
+  <div class="head-sub"><b>${esc(companyName)}</b>　／　対象 ${esc(result.targetLabel)}　／　作成日 ${esc(dateStr)}</div>
   <div class="rule"></div>
   <div class="summary">
-    対象月の取引 <b>${result.targetCount.toLocaleString()}件</b> を、過去実績（${esc(result.historyDesc)}）と突合しました。
+    対象（${esc(result.targetLabel)}）の取引 <b>${result.targetCount.toLocaleString()}件</b> を、過去実績（${esc(result.historyDesc)}）と突合しました。
     検出 <b style="color:#b91c1c">${result.findings.length}件</b>
     ${Array.from(counts.entries()).map(([n, c]) => `／ ${esc(n)} <b>${c}件</b>`).join(' ')}
   </div>

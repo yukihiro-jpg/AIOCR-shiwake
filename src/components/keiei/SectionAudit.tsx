@@ -7,7 +7,7 @@ import type { FiscalYearData } from '@/lib/keiei/types'
 import { decodeCsv } from '@/lib/keiei/parse'
 import { type LedgerData, parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger, listLedgers } from '@/lib/keiei/ledger-store'
-import { auditMonth, buildAuditReportHtml, type AuditResult } from '@/lib/keiei/audit'
+import { auditRange, buildAuditReportHtml, type AuditResult } from '@/lib/keiei/audit'
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
@@ -33,7 +33,8 @@ export default function SectionAudit({
   const [ledgers, setLedgers] = useState<{ yearId: string; data: LedgerData }[]>([])
   const [loaded, setLoaded] = useState(false)
   const [targetId, setTargetId] = useState('')
-  const [targetYm, setTargetYm] = useState('')
+  const [ymFrom, setYmFrom] = useState('')
+  const [ymTo, setYmTo] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
@@ -105,16 +106,19 @@ export default function SectionAudit({
     return Array.from(set).sort().reverse()
   }, [target])
   useEffect(() => {
-    if (ymOptions.length && !ymOptions.includes(targetYm)) setTargetYm(ymOptions[0])
-  }, [ymOptions, targetYm])
+    if (ymOptions.length) {
+      if (!ymOptions.includes(ymTo)) setYmTo(ymOptions[0]) // 最新月
+      if (!ymOptions.includes(ymFrom)) setYmFrom(ymOptions[ymOptions.length - 1]) // 最古月
+    }
+  }, [ymOptions, ymFrom, ymTo])
 
   const runAudit = useCallback(() => {
-    if (!target || !targetYm) return
+    if (!target || !ymFrom || !ymTo) return
     setErr(''); setMsg('')
     setBusy(true)
     try {
       const history = ledgers.filter((x) => x.yearId !== target.yearId).map((x) => x.data)
-      const result = auditMonth(target.data, targetYm, history)
+      const result = auditRange(target.data, ymFrom, ymTo, history)
       setLastResult(result)
       const html = buildAuditReportHtml(result, company)
       const w = window.open('', '_blank')
@@ -127,7 +131,7 @@ export default function SectionAudit({
     } catch (e) {
       setErr('解析に失敗しました: ' + (e instanceof Error ? e.message : String(e)))
     } finally { setBusy(false) }
-  }, [target, targetYm, ledgers, company])
+  }, [target, ymFrom, ymTo, ledgers, company])
 
   if (!loaded) return <div className="text-sm text-gray-400 py-8 text-center">読み込み中…</div>
 
@@ -162,11 +166,11 @@ export default function SectionAudit({
         {err && <div className="mt-2 px-3 py-2 bg-red-50 text-red-700 text-xs rounded-lg">{err}</div>}
       </Section>
 
-      <Section title="解析の実行" note="対象月の取引を、それ以前の全実績（過去期＋進行期の過去月）と突合します">
+      <Section title="解析の実行" note="対象月（範囲指定可）の取引を、各月ごとにそれ以前の全実績と突合します">
         <div className="flex items-end gap-3 flex-wrap">
           <label className="text-xs text-gray-500">
             対象期
-            <select value={targetId} onChange={(e) => { setTargetId(e.target.value); setTargetYm('') }}
+            <select value={targetId} onChange={(e) => { setTargetId(e.target.value); setYmFrom(''); setYmTo('') }}
               className="block mt-1 px-3 py-2 border border-gray-300 rounded text-sm min-w-[220px]">
               {ledgers.map(({ yearId, data }) => (
                 <option key={yearId} value={yearId}>{ledgerLabel(yearId, data)}</option>
@@ -174,8 +178,19 @@ export default function SectionAudit({
             </select>
           </label>
           <label className="text-xs text-gray-500">
-            対象月
-            <select value={targetYm} onChange={(e) => setTargetYm(e.target.value)}
+            対象月（開始）
+            <select value={ymFrom} onChange={(e) => setYmFrom(e.target.value)}
+              className="block mt-1 px-3 py-2 border border-gray-300 rounded text-sm">
+              {ymOptions.map((ym) => {
+                const [y, m] = ym.split('-')
+                return <option key={ym} value={ym}>{y}年{Number(m)}月</option>
+              })}
+            </select>
+          </label>
+          <span className="text-sm text-gray-400 pb-2">〜</span>
+          <label className="text-xs text-gray-500">
+            対象月（終了）
+            <select value={ymTo} onChange={(e) => setYmTo(e.target.value)}
               className="block mt-1 px-3 py-2 border border-gray-300 rounded text-sm">
               {ymOptions.map((ym) => {
                 const [y, m] = ym.split('-')
@@ -185,7 +200,7 @@ export default function SectionAudit({
           </label>
           <button
             onClick={runAudit}
-            disabled={busy || !target || !targetYm || ledgers.length === 0}
+            disabled={busy || !target || !ymFrom || !ymTo || ledgers.length === 0}
             className="px-5 py-2.5 rounded-lg bg-[#1F3A5F] text-white text-sm font-bold hover:brightness-110 disabled:opacity-40"
           >
             {busy ? '解析中…' : '🔍 解析開始（別ウィンドウに表示）'}
