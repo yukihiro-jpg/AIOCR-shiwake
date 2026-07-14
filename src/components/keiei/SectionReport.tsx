@@ -232,15 +232,18 @@ export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearDat
       }
     }
     weave(periods[1]); weave(periods[2])
-    return merged
+    // 期首・期末の繰越利益剰余金は推移表では不要（当期純利益までを表示）
+    return merged.filter((r) => !/繰越利益剰余金/.test(r.name))
   }, [comp]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fmtCell = (v: number) => (v ? fmtN(v) : '0')
   const cum = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
 
   return (
+    // 罫線は border-collapse:separate で描画（collapse だと横スクロール時に段階利益等の
+    // 罫線が合計・累計列で途切れる Chromium の再描画不具合があるため）
     <div className="overflow-x-auto max-h-[640px] border border-gray-100 rounded-lg">
-      <table className="text-[11px] border-collapse" style={{ width: 'max-content', minWidth: '100%' }}>
+      <table className="text-[11px]" style={{ width: 'max-content', minWidth: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
         <thead className="sticky top-0 z-10 bg-[#1F3A5F] text-white">
           <tr>
             <th className="text-left px-3 py-1.5 sticky left-0 bg-[#1F3A5F]" style={{ width: 180, zIndex: 20 }}>科目</th>
@@ -271,20 +274,20 @@ export function Trend3View({ comp, monthIdx, monthLabel }: { comp: FiscalYearDat
               return (
                 <tr key={base.name + pi}>
                   {isCur && (
-                    <td rowSpan={periods.length} className={`text-left px-3 py-1 whitespace-nowrap sticky left-0 align-top ${nameCls}`}
+                    <td rowSpan={periods.length} className={`text-left px-3 py-1.5 whitespace-nowrap sticky left-0 align-top ${nameCls}`}
                       style={{ paddingLeft: 10 + base.level * 8, background: bg, width: 180, maxWidth: 180, zIndex: 5, borderTop: blockLine, borderBottom: blockLine, borderRight: vLine }}>
                       <span className="block truncate" title={base.name} style={{ maxWidth: 168 }}>{base.name}</span>
                     </td>
                   )}
-                  <td className={`text-center px-2 py-1 sticky whitespace-nowrap ${isCur ? 'text-[#1F3A5F] font-bold' : 'text-gray-400'}`}
+                  <td className={`text-center px-2 py-1.5 sticky whitespace-nowrap ${isCur ? 'text-[#1F3A5F] font-bold' : 'text-gray-400'}`}
                     style={{ left: 180, background: bg, width: 56, zIndex: 4, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{periodLabels[pi]}</td>
                   {months.map((_, mi) => (
-                    <td key={mi} className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap ${numCls}`}
+                    <td key={mi} className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap ${numCls}`}
                       style={{ background: bg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{row ? fmtCell(row.monthly[mi] ?? 0) : '—'}</td>
                   ))}
-                  <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
+                  <td className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
                     style={{ background: totBg, borderTop: topB, borderBottom: botB, borderRight: vLine }}>{totalV == null ? '—' : fmtN(totalV)}</td>
-                  <td className={`text-right px-2.5 py-1 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
+                  <td className={`text-right px-2.5 py-1.5 tabular-nums whitespace-nowrap font-bold ${isCur ? 'text-gray-900' : 'text-gray-600'}`}
                     style={{ background: totBg, borderTop: topB, borderBottom: botB }}>{cumV == null ? '—' : fmtN(cumV)}</td>
                 </tr>
               )

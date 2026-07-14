@@ -106,7 +106,8 @@ function unionPL(comp: FiscalYearData[]): AggRow[] {
     }
   }
   weave(periods[1]); weave(periods[2])
-  return merged
+  // 期首・期末の繰越利益剰余金は推移表では不要（当期純利益までを表示）
+  return merged.filter((r) => !/繰越利益剰余金/.test(r.name))
 }
 
 // 3期PL推移表：各科目を当期/前期/前々期の3行で縦に並べ、月次推移＋合計（年計）＋期首〜選択月累計を表示
