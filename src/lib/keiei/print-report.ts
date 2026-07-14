@@ -4,7 +4,7 @@
 // 表紙には選択した資料タイトルを「１．〇〇」の番号付きで自動記載する（未選択の資料は番号が繰り上がる）。
 import type { FiscalYearData } from './types'
 import { CODES, getRow, plKpisSingle, plKpisYtd, sortedYears, yoy } from './calc'
-import { fmtYen, fmtShort, fmtPctSigned } from './format'
+import { fmtShort, fmtPctSigned } from './format'
 import {
   cvp, safety, fcfAnalysis, workingCapital, profitBridge, landingScenarios,
   detailsOf, rowYtd, debtAccounts, buildFcfComment, type KeieiSettings,
@@ -19,7 +19,7 @@ export const PRINT_VIEWS: [PrintView, string][] = [
   ['overview', '概要'],
   ['budget', '予算・予実'],
   ['report', '試算表・3期比較・推移'],
-  ['detail', '明細・経費'],
+  ['detail', '原価・経費明細'],
   ['cvpfcf', '損益分岐点・FCF分析'],
   ['issues', '経営課題'],
   ['cash', '資金繰り・安全性'],
@@ -46,8 +46,13 @@ function esc(s: string): string {
 }
 const cut = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1) + '…' : t)
 const p1 = (n: number) => `${n.toFixed(1)}%`
-/** 符号付きの円表記（差異・増減用。負は全角マイナス） */
-const sgnYen = (n: number) => `${n >= 0 ? '+' : '−'}${fmtYen(Math.abs(n))}`
+/** 表中の金額表記（#,### 形式・円記号なし。負は全角マイナス） */
+const num = (n: number) => {
+  const v = Math.round(n)
+  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ja-JP')
+}
+/** 符号付きの金額表記（差異・増減用） */
+const sgnYen = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(Math.round(n)).toLocaleString('ja-JP')}`
 const sgnShort = (n: number) => `${n >= 0 ? '＋' : '−'}${fmtShort(Math.abs(n))}`
 
 /** 前年比の表記（黒字↔赤字の符号反転は文言で明示） */
@@ -78,13 +83,23 @@ function yoyChip(value: number, priorV?: number | null): string {
 // ===== SVG ミニチャート =====
 interface ComboSeries { type: 'bar' | 'line'; values: (number | null)[]; color: string; label: string }
 
+// 軸目盛り用のキリのよい刻み幅（1/2/5×10^n）
+function niceStep(raw: number): number {
+  const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1))))
+  const d = raw / p
+  return (d <= 1 ? 1 : d <= 2 ? 2 : d <= 5 ? 5 : 10) * p
+}
+
 function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185): string {
   const all: number[] = [0]
   for (const s of series) for (const v of s.values) if (v != null && isFinite(v)) all.push(v)
-  let min = Math.min(...all)
-  let max = Math.max(...all)
-  if (max === min) max = min + 1
-  const padT = 12, padB = 15, padL = 40, padR = 4
+  // 目盛り（約6個）がキリのよい数字になるよう、範囲を刻み幅の倍数に広げる
+  const rawMin = Math.min(...all)
+  const rawMax = Math.max(...all)
+  const step = niceStep((rawMax - rawMin || 1) / 6)
+  const min = Math.floor(rawMin / step) * step
+  const max = Math.ceil(rawMax / step) * step || step
+  const padT = 12, padB = 16, padL = 52, padR = 4
   const ih = h - padT - padB
   const iw = w - padL - padR
   const y = (v: number) => padT + ((max - v) / (max - min)) * ih
@@ -93,14 +108,11 @@ function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185): st
   const barSeries = series.filter((s) => s.type === 'bar')
   const bw = Math.max(3, Math.min(16, (slot * 0.72) / Math.max(1, barSeries.length)))
   let out = ''
-  out += `<line x1="${padL}" x2="${w - padR}" y1="${y(max).toFixed(1)}" y2="${y(max).toFixed(1)}" stroke="#e2e8f0" stroke-dasharray="3 3"/>`
-  out += `<text x="${padL - 3}" y="${(y(max) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="#7b8698">${esc(fmtShort(max))}</text>`
-  if (min < 0) {
-    out += `<line x1="${padL}" x2="${w - padR}" y1="${y(min).toFixed(1)}" y2="${y(min).toFixed(1)}" stroke="#e2e8f0" stroke-dasharray="3 3"/>`
-    out += `<text x="${padL - 3}" y="${(y(min) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="#7b8698">${esc(fmtShort(min))}</text>`
+  for (let v = min; v <= max + step / 2; v += step) {
+    const isZero = Math.abs(v) < step / 2
+    out += `<line x1="${padL}" x2="${w - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="${isZero ? GRAY : '#e2e8f0'}" ${isZero ? 'stroke-width="1"' : 'stroke-dasharray="3 3"'}/>`
+    out += `<text x="${padL - 4}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#5b6675">${esc(isZero ? '0' : fmtShort(v))}</text>`
   }
-  out += `<line x1="${padL}" x2="${w - padR}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="${GRAY}" stroke-width="1"/>`
-  out += `<text x="${padL - 3}" y="${(y(0) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="#7b8698">0</text>`
   barSeries.forEach((s, bi) => {
     s.values.forEach((v, i) => {
       if (v == null || !isFinite(v)) return
@@ -122,7 +134,7 @@ function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185): st
     if (pts.length > 1) out += `<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.8"/>`
   }
   labels.forEach((l, i) => {
-    out += `<text x="${(padL + slot * i + slot / 2).toFixed(1)}" y="${h - 4}" text-anchor="middle" font-size="8" fill="#5b6675">${esc(l)}</text>`
+    out += `<text x="${(padL + slot * i + slot / 2).toFixed(1)}" y="${h - 4}" text-anchor="middle" font-size="9" fill="#5b6675">${esc(l)}</text>`
   })
   const legend = series.map((s) => `<span style="color:${s.color}">${s.type === 'bar' ? '■' : '─●─'} ${esc(s.label)}</span>`).join('　')
   return `<div class="legend">${legend}</div><svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="xMidYMid meet">${out}</svg>`
@@ -152,8 +164,8 @@ function svgWaterfall(startLabel: string, startValue: number, steps: { label: st
     out += `<rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.5, y2 - y1).toFixed(1)}" rx="2" fill="${it.color}" fill-opacity="${it.total ? '1' : '0.88'}"/>`
     const v = it.total ? it.to : it.to - it.from
     const vLabel = it.total ? fmtShort(v) : `${v >= 0 ? '+' : '−'}${fmtShort(Math.abs(v))}`
-    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y1 - 4).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${it.color}">${esc(vLabel)}</text>`
-    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${h - padB + 13}" text-anchor="middle" font-size="8.5" fill="#5b6675">${esc(it.label)}</text>`
+    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y1 - 4).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="700" fill="${it.color}">${esc(vLabel)}</text>`
+    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${h - padB + 13}" text-anchor="middle" font-size="9.5" fill="#5b6675">${esc(it.label)}</text>`
     if (i < n - 1) {
       const nx = padL + slot * (i + 1) + (slot - bw) / 2
       out += `<line x1="${(x + bw).toFixed(1)}" x2="${nx.toFixed(1)}" y1="${y(it.to).toFixed(1)}" y2="${y(it.to).toFixed(1)}" stroke="${GRAY}" stroke-dasharray="3 2" stroke-width="1"/>`
@@ -238,18 +250,18 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       ? { label: '予算比', diff: std.opProfit - opBudgetFull }
       : priorFullOp != null ? { label: '前期比', diff: std.opProfit - priorFullOp } : null
     const yyOp = yoyText(single.opProfit, pSingle?.opProfit)
-    const lead = `${monthLabel}単月の営業利益は <b>${esc(fmtShort(single.opProfit))}</b>` +
+    const lead = `${monthLabel}単月の売上高は <b>${esc(fmtShort(single.sales))}</b>、営業利益は <b>${esc(fmtShort(single.opProfit))}</b>` +
       (yyOp ? `（前年同月比 ${esc(yyOp.label)}）` : '') +
-      `。通期は${land.partial ? '標準シナリオで' : '確定で'} <b>${esc(fmtShort(std.opProfit))}</b> の${land.partial ? '着地見込み' : '営業利益'}、手元資金は月商 <b>${s.monthlySales > 0 ? s.liquidityMonths.toFixed(1) : '—'}か月分</b>です。`
+      `。通期は${land.partial ? '標準シナリオで' : '確定で'}売上高 <b>${esc(fmtShort(std.sales))}</b>、営業利益 <b>${esc(fmtShort(std.opProfit))}</b> の${land.partial ? '着地見込み' : '実績'}、手元資金は月商 <b>${s.monthlySales > 0 ? s.liquidityMonths.toFixed(1) : '—'}か月分</b>です。`
 
     const kpiRow = (label: string, cur: number, pre: number | null | undefined, curCum: number, preCum: number | null | undefined) => {
       const diff = preCum != null ? curCum - preCum : null
       return `<tr>
         <td>${esc(label)}</td>
-        <td class="tr${cur < 0 ? ' neg' : ''}">${esc(fmtYen(cur))}</td>
-        <td class="tr">${pre != null ? esc(fmtYen(pre)) : '—'}</td>
+        <td class="tr${cur < 0 ? ' neg' : ''}">${esc(num(cur))}</td>
+        <td class="tr">${pre != null ? esc(num(pre)) : '—'}</td>
         <td class="tc">${yoyChip(cur, pre)}</td>
-        <td class="tr${curCum < 0 ? ' neg' : ''}">${esc(fmtYen(curCum))}</td>
+        <td class="tr${curCum < 0 ? ' neg' : ''}">${esc(num(curCum))}</td>
         <td class="tr ${diff == null ? '' : diff >= 0 ? 'pos' : 'neg'}">${diff == null ? '—' : esc(sgnYen(diff))}</td>
       </tr>`
     }
@@ -272,32 +284,63 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
           { type: 'line', values: Array.from({ length: 12 }, (_, i) => (i > monthIdx ? null : (getRow(fy, CODES.opProfit)?.monthly[i] ?? 0))), color: GOLD, label: '営業利益' },
         ])
 
-    const gauge = (title: string, valueLabel: string, svg: string, judge: string, tone: 'good' | 'warn' | 'bad') => `
+    // 健全度ゲージ: 判定＋その会社の数値への一言コメント＋指標の意味の簡潔な説明
+    const gauge = (title: string, valueLabel: string, svg: string, judge: string, tone: 'good' | 'warn' | 'bad', comment: string, meaning: string) => `
       <div class="gauge">
         <div class="g-head"><span class="g-title">${esc(title)}</span><span class="g-val">${esc(valueLabel)}</span></div>
         ${svg}
         <div class="g-judge ${tone === 'good' ? 'pos' : tone === 'bad' ? 'neg' : 'warn'}">${esc(judge)}</div>
+        <div class="g-comment">${esc(comment)}</div>
+        <div class="g-note">${esc(meaning)}</div>
       </div>`
     const gauges: string[] = []
     if (bepRatio != null) {
-      gauges.push(gauge('損益分岐点比率', `${bepRatio.toFixed(0)}%`,
-        svgBullet(Math.min(bepRatio, 120), 120, [{ to: 75, color: '#bfe6c8' }, { to: 90, color: '#fbe8b6' }, { to: 120, color: '#f6c6c2' }]),
-        bepRatio < 75 ? '安全（〜75%）' : bepRatio < 90 ? '注意（75〜90%）' : '危険水準（90%〜）',
-        bepRatio < 75 ? 'good' : bepRatio < 90 ? 'warn' : 'bad'))
+      const r = bepRatio
+      const comment = r >= 100
+        ? `売上が損益分岐点を${(r - 100).toFixed(0)}%下回っており、現在の売上では固定費を賄えず赤字の状態です。`
+        : r >= 90
+          ? `売上があと${(100 - r).toFixed(0)}%落ちると赤字になる、余裕の少ない状態です。`
+          : r >= 75
+            ? `売上があと${(100 - r).toFixed(0)}%落ちるまでは黒字を保てますが、もう一段の余裕がほしい水準です。`
+            : `売上があと${(100 - r).toFixed(0)}%落ちても黒字を維持できる、体力のある収益構造です。`
+      gauges.push(gauge('損益分岐点比率', `${r.toFixed(0)}%`,
+        svgBullet(Math.min(r, 120), 120, [{ to: 75, color: '#bfe6c8' }, { to: 90, color: '#fbe8b6' }, { to: 120, color: '#f6c6c2' }]),
+        r < 75 ? '安全（〜75%）' : r < 90 ? '注意（75〜90%）' : '危険水準（90%〜）',
+        r < 75 ? 'good' : r < 90 ? 'warn' : 'bad',
+        comment,
+        '※ 赤字になる売上ライン（損益分岐点）÷実際の売上高。低いほど売上減少に強い体質です（目安：75%以下が安全・90%超は危険）。'))
     }
     if (issuesResult && issuesResult.labor.share != null) {
       const sh = issuesResult.labor.share
+      const comment = sh >= 70
+        ? `稼いだ粗利の${sh.toFixed(0)}%が人件費に消えており、他の経費や利益がほとんど残らない水準です。`
+        : sh >= 60
+          ? `粗利の6割超が人件費に充てられており、昇給・増員の余力が乏しくなっています。`
+          : sh >= 50
+            ? `人件費と粗利のバランスはおおむね標準的な水準です。`
+            : `粗利に対して人件費に余裕があり、昇給・採用など人への投資余力があります。`
       gauges.push(gauge('労働分配率', `${sh.toFixed(0)}%`,
         svgBullet(Math.min(sh, 100), 100, [{ to: 50, color: '#bfe6c8' }, { to: 60, color: '#e8f0d8' }, { to: 70, color: '#fbe8b6' }, { to: 100, color: '#f6c6c2' }]),
         sh < 50 ? '健全（〜50%）' : sh < 60 ? '許容（50〜60%）' : sh < 70 ? '警戒（60〜70%）' : '危険水準（70%〜）',
-        sh < 60 ? 'good' : sh < 70 ? 'warn' : 'bad'))
+        sh < 60 ? 'good' : sh < 70 ? 'warn' : 'bad',
+        comment,
+        '※ 人件費÷売上総利益（粗利）。稼いだ粗利のうち人件費が占める割合で、低いほど利益が残ります（目安：50%前後が健全・70%超は危険）。'))
     }
     if (s.monthlySales > 0) {
       const lm = s.liquidityMonths
+      const comment = lm < 1
+        ? `手元資金が月商1か月分を切っており、入金遅れや突発的な支出で資金繰りに窮するリスクがあります。`
+        : lm < 2
+          ? `当面の支払いには足りますが、納税や賞与が重なる月には薄くなる水準です。`
+          : lm < 3
+            ? `標準的な水準です。月商3か月分あるとより安心です。`
+            : `不測の事態にも耐えられる、厚めの手元資金を確保できています。`
       gauges.push(gauge('手元資金の月商倍率', `${lm.toFixed(1)}か月`,
         svgBullet(Math.min(lm, 6), 6, [{ to: 1, color: '#f6c6c2' }, { to: 2, color: '#fbe8b6' }, { to: 3, color: '#e8f0d8' }, { to: 6, color: '#bfe6c8' }]),
         lm < 1 ? '危険（1か月未満）' : lm < 2 ? '注意（1〜2か月）' : lm < 3 ? '許容（2〜3か月）' : '安心（3か月〜）',
-        lm < 1 ? 'bad' : lm < 2 ? 'warn' : 'good'))
+        lm < 1 ? 'bad' : lm < 2 ? 'warn' : 'good',
+        comment,
+        '※ 現預金残高÷月平均売上高。手元資金が月商の何か月分あるかを示します（目安：2〜3か月分が安心・1か月未満は危険）。'))
     }
 
     let signals = ''
@@ -306,15 +349,22 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       const chips = issuesResult.issues.slice(0, 9).map((i) =>
         `<span class="chip ${i.severity === 'danger' ? 'd' : i.severity === 'warn' ? 'w' : 'g'}">${i.severity === 'danger' ? '🔴' : i.severity === 'warn' ? '🟡' : '🟢'} ${esc(i.category)}</span>`).join('')
       const more = issuesResult.issues.length > 9 ? `<span class="note">ほか${issuesResult.issues.length - 9}件</span>` : ''
-      signals = `<div class="blk mt"><div class="blk-t">今月の信号（要対応 ${cnt('danger')}件／注意 ${cnt('warn')}件／良好 ${cnt('good')}件 — 詳細は「経営課題」）</div>${chips}${more}</div>`
+      const issuesNo = views.indexOf('issues')
+      const refText = issuesNo >= 0 ? `詳細は「${issuesNo + 1}．${labelOf('issues')}」のページを参照` : '詳細は画面の「経営課題」タブを参照'
+      signals = `<div class="blk mt"><div class="blk-t">今月の信号（要対応 ${cnt('danger')}件／注意 ${cnt('warn')}件／良好 ${cnt('good')}件 — ${refText}）</div>${chips}${more}</div>`
     }
 
+    const m0 = fy.fiscalMonths[0]
+    const bridgeTitle = `前年と比べて利益がどう変化したか【前期（${m0}月〜${monthLabel}累計）→当期（${m0}月〜${monthLabel}累計）】`
     return page(no, '概要', `
       <div class="lead">${lead}</div>
-      <div class="cards">
+      <div class="cards c4">
+        <div class="card"><div class="c-label">今月の売上高（${monthLabel}単月）</div>
+          <div class="c-main">${esc(fmtShort(single.sales))}</div>
+          <div class="c-sub">${yoyChip(single.sales, pSingle?.sales)}　${esc(num(single.sales))}</div></div>
         <div class="card"><div class="c-label">今月の営業利益（${monthLabel}単月）</div>
           <div class="c-main${single.opProfit < 0 ? ' neg' : ''}">${esc(fmtShort(single.opProfit))}</div>
-          <div class="c-sub">${yoyChip(single.opProfit, pSingle?.opProfit)}　${esc(fmtYen(single.opProfit))}</div></div>
+          <div class="c-sub">${yoyChip(single.opProfit, pSingle?.opProfit)}　${esc(num(single.opProfit))}</div></div>
         <div class="card"><div class="c-label">${land.partial ? '通期の着地見込み（営業利益・標準）' : '通期の営業利益（確定）'}</div>
           <div class="c-main${std.opProfit < 0 ? ' neg' : ''}">${esc(fmtShort(std.opProfit))}</div>
           <div class="c-sub">${landCompare ? `<span class="${landCompare.diff >= 0 ? 'pos' : 'neg'}"><b>${esc(landCompare.label)} ${esc(sgnShort(landCompare.diff))}</b></span>` : `売上見込み ${esc(fmtShort(std.sales))}`}</div></div>
@@ -324,7 +374,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       </div>
       <div class="row2 mt">
         <div class="blk"><div class="blk-t">主要損益（単月と累計）</div>${kpiTable}</div>
-        <div class="blk"><div class="blk-t">${bridge ? `なぜ利益が変わったか（前年同期 → 当期・期首〜${monthLabel}累計）` : `月次推移（売上高・営業利益）`}</div>${bridgeHtml}</div>
+        <div class="blk"><div class="blk-t">${bridge ? bridgeTitle : `月次推移（売上高・営業利益）`}</div>${bridgeHtml}</div>
       </div>
       <div class="blk mt"><div class="blk-t">経営の健全度</div><div class="gauges">${gauges.join('')}</div></div>
       ${signals}
@@ -336,9 +386,9 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const landTable = `<table>
       <thead><tr><th>シナリオ</th><th>売上高</th><th>営業利益</th><th>経常利益</th></tr></thead>
       <tbody>${land.scenarios.map((sc) => `<tr${sc.key === 'standard' ? ' class="em"' : ''}>
-        <td>${esc(sc.label)}</td><td class="tr">${esc(fmtYen(sc.sales))}</td>
-        <td class="tr${sc.opProfit < 0 ? ' neg' : ''}">${esc(fmtYen(sc.opProfit))}</td>
-        <td class="tr${sc.ordProfit < 0 ? ' neg' : ''}">${esc(fmtYen(sc.ordProfit))}</td></tr>`).join('')}</tbody>
+        <td>${esc(sc.label)}</td><td class="tr">${esc(num(sc.sales))}</td>
+        <td class="tr${sc.opProfit < 0 ? ' neg' : ''}">${esc(num(sc.opProfit))}</td>
+        <td class="tr${sc.ordProfit < 0 ? ' neg' : ''}">${esc(num(sc.ordProfit))}</td></tr>`).join('')}</tbody>
     </table>`
 
     if (!hasBudget) {
@@ -349,10 +399,10 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
             <div class="note mt1">残り期間は「前年同月（保守）／前期・前々期の同月平均×今期ペース（標準）／前年同月+5%（楽観）」で補完しています。</div></div>
           <div class="blk"><div class="blk-t">当期の実績（期首〜${monthLabel}累計）</div>
             <table><tbody>
-              <tr><td>売上高</td><td class="tr">${esc(fmtYen(curY.sales))}</td></tr>
-              <tr><td>売上総利益（粗利率 ${esc(p1(curY.grossMargin))}）</td><td class="tr">${esc(fmtYen(curY.grossProfit))}</td></tr>
-              <tr><td>販管費</td><td class="tr">${esc(fmtYen(curY.sgna))}</td></tr>
-              <tr class="em"><td>営業利益</td><td class="tr${curY.opProfit < 0 ? ' neg' : ''}">${esc(fmtYen(curY.opProfit))}</td></tr>
+              <tr><td>売上高</td><td class="tr">${esc(num(curY.sales))}</td></tr>
+              <tr><td>売上総利益（粗利率 ${esc(p1(curY.grossMargin))}）</td><td class="tr">${esc(num(curY.grossProfit))}</td></tr>
+              <tr><td>販管費</td><td class="tr">${esc(num(curY.sgna))}</td></tr>
+              <tr class="em"><td>営業利益</td><td class="tr${curY.opProfit < 0 ? ' neg' : ''}">${esc(num(curY.opProfit))}</td></tr>
             </tbody></table></div>
         </div>
       `)
@@ -368,17 +418,17 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
         const d = l.actualYtd - l.budgetYtd
         return `<tr>
           <td>${esc(l.label)}</td>
-          <td class="tr">${esc(fmtYen(l.budgetYtd))}</td>
-          <td class="tr${l.actualYtd < 0 ? ' neg' : ''}">${esc(fmtYen(l.actualYtd))}</td>
+          <td class="tr">${esc(num(l.budgetYtd))}</td>
+          <td class="tr${l.actualYtd < 0 ? ' neg' : ''}">${esc(num(l.actualYtd))}</td>
           <td class="tc"><b>${l.achieveYtd != null ? l.achieveYtd.toFixed(0) + '%' : '—'}</b></td>
           <td class="tr ${d >= 0 ? 'pos' : 'neg'}">${esc(sgnYen(d))}</td>
-          <td class="tr">${esc(fmtYen(l.budgetFull))}</td>
-          <td class="tr">${l.landingFull != null ? esc(fmtYen(l.landingFull)) : '—'}</td></tr>`
+          <td class="tr">${esc(num(l.budgetFull))}</td>
+          <td class="tr">${l.landingFull != null ? esc(num(l.landingFull)) : '—'}</td></tr>`
       }).join('')}</tbody>
     </table>
     <div class="note mt1">予算の月割りは、売上・粗利＝前年の季節性、販管費＝月数按分。着地見込みは標準シナリオ（季節性×今期ペース）です。</div>`
     const chart = svgCombo(monthLabels, [
-      { type: 'bar', values: mbs.salesBudget, color: '#c9d4e2', label: '売上予算' },
+      { type: 'bar', values: mbs.salesBudget, color: '#8ba3c2', label: '売上予算' },
       { type: 'bar', values: mbs.salesActual, color: NAVY, label: '売上実績' },
       { type: 'line', values: mbs.opActual, color: GOLD, label: '営業利益実績' },
     ])
@@ -409,31 +459,39 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const lead = `期首〜${monthLabel}累計の売上高は <b>${esc(fmtShort(cur.sales))}</b>（前年同期比 ${esc(fmtPctSigned(pre ? yoy(cur.sales, pre.sales) : null))}）、営業利益は <b>${esc(fmtShort(cur.opProfit))}</b>（同 ${esc(fmtPctSigned(pre ? yoy(cur.opProfit, pre.opProfit) : null))}）です。`
     type Getter = (k: ReturnType<typeof plKpisYtd>) => number
     // isCost=true の行（売上原価・販管費）は増加＝良いとは限らないため前年比を色付けしない
-    const row = (label: string, get: Getter, rateGet?: Getter, isCost?: boolean) => {
+    const row = (label: string, get: Getter, isCost?: boolean) => {
       const vals = ks.map((k) => {
         const v = get(k)
-        const r = rateGet ? ` <span class="sm">(${p1(rateGet(k))})</span>` : ''
-        return `<td class="tr${v < 0 ? ' neg' : ''}">${esc(fmtYen(v))}${r}</td>`
+        return `<td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td>`
       }).join('')
       const g = pre ? yoy(get(cur), get(pre)) : null
       const cls = isCost || g == null ? '' : g < 0 ? 'neg' : 'pos'
       return `<tr><td>${esc(label)}</td>${vals}<td class="tc ${cls}">${esc(fmtPctSigned(g))}</td></tr>`
     }
+    // 利益率は金額と同じセルに入れると桁の位置がずれて読みにくいため、独立した率行にする
+    const rateRow = (label: string, get: Getter) => {
+      const vals = ks.map((k) => `<td class="tr">${esc(p1(get(k)))}</td>`).join('')
+      const d = pre ? get(cur) - get(pre) : null
+      return `<tr class="rate"><td>　${esc(label)}</td>${vals}<td class="tc">${d == null ? '—' : esc(`${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}pt`)}</td></tr>`
+    }
     const plTable = `<table>
       <thead><tr><th>PL（期首〜同月数累計）</th>${comp.map((y) => `<th>${esc(y.label)}</th>`).join('')}<th>前年比</th></tr></thead>
       <tbody>
         ${row('売上高', (k) => k.sales)}
-        ${row('売上原価', (k) => k.cogs, undefined, true)}
-        ${row('売上総利益', (k) => k.grossProfit, (k) => k.grossMargin)}
-        ${row('販管費', (k) => k.sgna, undefined, true)}
-        ${row('営業利益', (k) => k.opProfit, (k) => k.opMargin)}
-        ${row('経常利益', (k) => k.ordProfit, (k) => k.ordMargin)}
+        ${row('売上原価', (k) => k.cogs, true)}
+        ${row('売上総利益', (k) => k.grossProfit)}
+        ${rateRow('売上総利益率', (k) => k.grossMargin)}
+        ${row('販管費', (k) => k.sgna, true)}
+        ${row('営業利益', (k) => k.opProfit)}
+        ${rateRow('営業利益率', (k) => k.opMargin)}
+        ${row('経常利益', (k) => k.ordProfit)}
+        ${rateRow('経常利益率', (k) => k.ordMargin)}
         ${row('当期純利益', (k) => k.netProfit)}
       </tbody>
     </table>`
     const bsAt = (y: FiscalYearData, code: string) => getRow(y, code)?.monthly[Math.min(monthIdx, y.lastFilledIndex)] ?? 0
     const bsRow = (label: string, code: string) =>
-      `<tr><td>${esc(label)}</td>${comp.map((y) => { const v = bsAt(y, code); return `<td class="tr${v < 0 ? ' neg' : ''}">${esc(fmtYen(v))}</td>` }).join('')}</tr>`
+      `<tr><td>${esc(label)}</td>${comp.map((y) => { const v = bsAt(y, code); return `<td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td>` }).join('')}</tr>`
     const bsTable = `<table>
       <thead><tr><th>BS（各期の同月末残高）</th>${comp.map((y) => `<th>${esc(y.label)}</th>`).join('')}</tr></thead>
       <tbody>
@@ -448,10 +506,10 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       </tbody>
     </table>`
     const chart = svgCombo(monthLabels, [
-      ...(prior ? [{ type: 'bar' as const, values: Array.from({ length: 12 }, (_, i) => getRow(prior, CODES.sales)?.monthly[i] ?? 0), color: '#c9d4e2', label: '売上高（前期）' }] : []),
+      ...(prior ? [{ type: 'bar' as const, values: Array.from({ length: 12 }, (_, i) => getRow(prior, CODES.sales)?.monthly[i] ?? 0), color: '#8ba3c2', label: '売上高（前期）' }] : []),
       { type: 'bar', values: Array.from({ length: 12 }, (_, i) => (i > monthIdx ? null : (getRow(fy, CODES.sales)?.monthly[i] ?? 0))), color: NAVY, label: '売上高（当期）' },
       { type: 'line', values: Array.from({ length: 12 }, (_, i) => (i > monthIdx ? null : (getRow(fy, CODES.opProfit)?.monthly[i] ?? 0))), color: GOLD, label: '営業利益（当期）' },
-    ])
+    ], 660, 152)
     return page(no, '試算表・3期比較・推移', `
       <div class="lead">${lead}</div>
       <div class="row2">
@@ -486,8 +544,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
         <thead><tr><th>科目</th><th>当期累計</th><th>前年同期</th><th>増減額</th><th>増減率</th></tr></thead>
         <tbody>${list.map((r) => `<tr>
           <td>${esc(r.name)}</td>
-          <td class="tr">${esc(fmtYen(r.cur))}</td>
-          <td class="tr">${r.pre != null ? esc(fmtYen(r.pre)) : '—'}</td>
+          <td class="tr">${esc(num(r.cur))}</td>
+          <td class="tr">${r.pre != null ? esc(num(r.pre)) : '—'}</td>
           <td class="tr ${r.diff != null && r.diff >= 0 ? 'neg' : 'pos'}">${r.diff != null ? esc(sgnYen(r.diff)) : '—'}</td>
           <td class="tc">${r.pre ? esc(fmtPctSigned(((r.cur - r.pre) / Math.abs(r.pre)) * 100)) : '新規'}</td></tr>`).join('')}</tbody>
       </table>`
@@ -523,10 +581,10 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       <div class="blk"><div class="blk-t">販管費の内訳（累計の大きい順・上位20科目）</div>
         <table>
           <thead><tr><th>科目</th><th>期首〜${monthLabel}累計</th><th>販管費に占める割合</th></tr></thead>
-          <tbody>${top.map((r) => `<tr><td>${esc(r.name)}</td><td class="tr">${esc(fmtYen(r.cur))}</td><td class="tc">${curY.sgna ? esc(p1((r.cur / curY.sgna) * 100)) : '—'}</td></tr>`).join('')}</tbody>
+          <tbody>${top.map((r) => `<tr><td>${esc(r.name)}</td><td class="tr">${esc(num(r.cur))}</td><td class="tc">${curY.sgna ? esc(p1((r.cur / curY.sgna) * 100)) : '—'}</td></tr>`).join('')}</tbody>
         </table></div>`
     }
-    return page(no, '明細・経費', `<div class="lead">${lead}</div>${body}`)
+    return page(no, '原価・経費明細', `<div class="lead">${lead}</div>${body}`)
   }
 
   // ---------- 5) 損益分岐点・FCF分析 ----------
@@ -537,33 +595,40 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const lead = `損益分岐点比率は <b>${bepRatio != null ? bepRatio.toFixed(0) + '%' : '—'}</b>${bepNote}、期首〜${monthLabel}の簡易営業キャッシュフローは <b>${esc(fmtShort(fcf.operatingCf))}</b> です。`
     const cvpTable = `<table>
       <tbody>
-        <tr><td>売上高（期首〜${monthLabel}累計）</td><td class="tr">${esc(fmtYen(c.sales))}</td></tr>
-        <tr><td>変動費（売上原価ほか）</td><td class="tr">${esc(fmtYen(c.variable))}</td></tr>
-        <tr class="em"><td>限界利益（率 ${esc(p1(c.marginalRate * 100))}）</td><td class="tr">${esc(fmtYen(c.marginal))}</td></tr>
-        <tr><td>固定費（販管費ほか）</td><td class="tr">${esc(fmtYen(c.fixed))}</td></tr>
-        <tr class="em"><td>営業利益</td><td class="tr${c.opProfit < 0 ? ' neg' : ''}">${esc(fmtYen(c.opProfit))}</td></tr>
-        <tr><td>損益分岐点売上高</td><td class="tr">${esc(fmtYen(c.bep))}</td></tr>
+        <tr><td>売上高（期首〜${monthLabel}累計）</td><td class="tr">${esc(num(c.sales))}</td></tr>
+        <tr><td>変動費（売上原価ほか）</td><td class="tr">${esc(num(c.variable))}</td></tr>
+        <tr class="em"><td>限界利益（率 ${esc(p1(c.marginalRate * 100))}）</td><td class="tr">${esc(num(c.marginal))}</td></tr>
+        <tr><td>固定費（販管費ほか）</td><td class="tr">${esc(num(c.fixed))}</td></tr>
+        <tr class="em"><td>営業利益</td><td class="tr${c.opProfit < 0 ? ' neg' : ''}">${esc(num(c.opProfit))}</td></tr>
+        <tr class="hl"><td>損益分岐点売上高（＝固定費 ÷ 限界利益率）</td><td class="tr">${esc(num(c.bep))}</td></tr>
         <tr><td>損益分岐点比率</td><td class="tr"><b>${bepRatio != null ? esc(p1(bepRatio)) : '—'}</b></td></tr>
         <tr><td>安全余裕率（売上の下落余地）</td><td class="tr">${esc(p1(c.safety * 100))}</td></tr>
       </tbody>
     </table>
     <div class="note mt1">変動費・固定費の区分は「損益分岐点・FCF分析」タブの設定（既定：売上原価＝変動費、販管費＝固定費）に従います。</div>`
+    // 簡易FCF: 各行に「見方」を付け、理論値と実際の現預金増減の差額と理由も明示する
+    const fcfGap = fcf.cashActualChg - fcf.netCash
+    const frow = (label: string, v: number, guide: string, em?: boolean) =>
+      `<tr${em ? ' class="em"' : ''}><td>${esc(label)}</td><td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td><td class="guide">${esc(guide)}</td></tr>`
     const fcfTable = `<table>
+      <thead><tr><th>項目</th><th>金額</th><th>見方</th></tr></thead>
       <tbody>
-        <tr><td>経常利益（期首〜${monthLabel}累計）</td><td class="tr${fcf.ordProfit < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.ordProfit))}</td></tr>
-        <tr><td>税引後利益（実効税率 ${esc(p1(fcf.taxRate * 100))} で概算）</td><td class="tr${fcf.afterTax < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.afterTax))}</td></tr>
-        <tr><td>＋ 減価償却費</td><td class="tr">${esc(fmtYen(fcf.depreciation))}</td></tr>
-        <tr><td>− 運転資本の増加</td><td class="tr">${esc(fmtYen(fcf.wcIncrease))}</td></tr>
-        <tr class="em"><td>＝ 営業キャッシュフロー（簡易）</td><td class="tr${fcf.operatingCf < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.operatingCf))}</td></tr>
-        <tr><td>借入・リースの増減（財務収支）</td><td class="tr${fcf.financeBalance < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.financeBalance))}</td></tr>
-        <tr class="em"><td>＝ 現金の純増減（理論値）</td><td class="tr${fcf.netCash < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.netCash))}</td></tr>
-        <tr><td>（参考）実際の現預金の増減</td><td class="tr${fcf.cashActualChg < 0 ? ' neg' : ''}">${esc(fmtYen(fcf.cashActualChg))}</td></tr>
+        ${frow('経常利益（累計）', fcf.ordProfit, '当期の利益（税引前）からスタート')}
+        ${frow(`税引後利益（実効税率 ${p1(fcf.taxRate * 100)} で概算）`, fcf.afterTax, '概算の税金を差し引いた後に残る利益')}
+        ${frow('＋ 減価償却費', fcf.depreciation, '帳簿上の費用で現金は出ていないため足し戻す')}
+        ${frow('− 運転資本の増加', fcf.wcIncrease, '売掛・在庫の増加分はまだ現金化されていないため差し引く')}
+        ${frow('＝ 営業キャッシュフロー（簡易）', fcf.operatingCf, '本業が当期に生み出した現金（プラスが健全）', true)}
+        ${frow('＋ 借入・リースの増減（財務収支）', fcf.financeBalance, '＋＝借入で入った現金／−＝返済で出ていった現金')}
+        ${frow('＝ 現金の純増減（理論値）', fcf.netCash, '上の式から推計した現金の増減', true)}
+        ${frow(`実際の現預金の増減（期首→${monthLabel}末）`, fcf.cashActualChg, 'BSの現預金残高の実際の動き')}
+        ${frow('差額（実際 − 理論値）', fcfGap, '式に含まれない要因による差（下記※参照）')}
       </tbody>
-    </table>`
+    </table>
+    <div class="note mt1">※ 理論値は「税引後利益＋減価償却 − 運転資本増加 ＋ 借入増減」による概算のため、<b>設備投資（固定資産の購入・売却）、保険積立・敷金・貸付金など他の資産の増減、実際の納税額と概算税金との差、増資・配当</b>は含まれていません。差額 ${esc(sgnYen(fcfGap))} 円はこれらの要因によるものです。差額が大きい場合は、固定資産・投資その他の資産の当期の動きをご確認ください。</div>`
     // invert=true（仕入債務）は増加が資金にプラスに働くため色を反転する
     const wcRow = (label: string, close: number, chg: number, invert?: boolean) => {
       const badUp = invert ? chg < 0 : chg >= 0
-      return `<tr><td>${esc(label)}</td><td class="tr">${esc(fmtYen(close - chg))}</td><td class="tr">${esc(fmtYen(close))}</td><td class="tr ${badUp ? 'neg' : 'pos'}">${esc(sgnYen(chg))}</td></tr>`
+      return `<tr><td>${esc(label)}</td><td class="tr">${esc(num(close - chg))}</td><td class="tr">${esc(num(close))}</td><td class="tr ${badUp ? 'neg' : 'pos'}">${esc(sgnYen(chg))}</td></tr>`
     }
     const wcTable = `<table>
       <thead><tr><th>運転資本</th><th>期首</th><th>${monthLabel}末</th><th>増減</th></tr></thead>
@@ -571,10 +636,16 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
         ${wcRow('売上債権（受手・売掛）', wc.recv, fcf.recvChg)}
         ${wcRow('棚卸資産（在庫）', wc.inv, fcf.invChg)}
         ${wcRow('仕入債務（買掛・支手）', wc.pay, fcf.payChg, true)}
-        <tr class="em"><td>運転資本（債権＋在庫−債務）</td><td class="tr">${esc(fmtYen(fcf.wcOpen))}</td><td class="tr">${esc(fmtYen(fcf.wcClose))}</td><td class="tr ${fcf.wcIncrease >= 0 ? 'neg' : 'pos'}">${esc(sgnYen(fcf.wcIncrease))}</td></tr>
+        <tr class="em"><td>運転資本（債権＋在庫−債務）</td><td class="tr">${esc(num(fcf.wcOpen))}</td><td class="tr">${esc(num(fcf.wcClose))}</td><td class="tr ${fcf.wcIncrease >= 0 ? 'neg' : 'pos'}">${esc(sgnYen(fcf.wcIncrease))}</td></tr>
       </tbody>
     </table>
-    <div class="note mt1">※ 運転資本の増加は現金を寝かせます（増減の赤＝資金圧迫要因）。</div>`
+    <div class="txt mt1"><b>→ 結論：</b>${esc(
+      fcf.wcIncrease > 0
+        ? `運転資本が期首から ${fmtShort(fcf.wcIncrease)} 増えたため、その分だけ現金預金が減る要因になりました。売掛金・在庫という「立て替え」にお金が回っており、利益が出ていてもこの分は手元の現金になっていません（売掛金の早期回収・在庫圧縮が改善余地です）。`
+        : fcf.wcIncrease < 0
+          ? `運転資本が期首から ${fmtShort(-fcf.wcIncrease)} 減ったため、その分だけ現金預金が増える要因になりました。売掛金の回収・在庫の圧縮が進み、立て替えに回っていたお金が手元に戻っています。`
+          : '運転資本は期首から変わらず、現金預金への影響はありません。',
+    )}</div>`
     const userComment = settings.fcfComments?.[fy.id]
     const comment = (userComment && userComment.trim()) ? esc(userComment).replace(/\n/g, '<br>') : esc(buildFcfComment(fcf, fmtShort)).replace(/\n/g, '<br>')
     return page(no, '損益分岐点・FCF分析', `
@@ -620,8 +691,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const laborHtml = lb.share != null ? `<table>
       <tbody>
         <tr class="em"><td>労働分配率（人件費÷粗利）</td><td class="tr"><b>${esc(p1(lb.share))}</b></td></tr>
-        <tr><td>人件費（期首〜${monthLabel}累計）</td><td class="tr">${esc(fmtYen(lb.labor))}</td></tr>
-        <tr><td>売上総利益（同）</td><td class="tr">${esc(fmtYen(lb.gross))}</td></tr>
+        <tr><td>人件費（期首〜${monthLabel}累計）</td><td class="tr">${esc(num(lb.labor))}</td></tr>
+        <tr><td>売上総利益（同）</td><td class="tr">${esc(num(lb.gross))}</td></tr>
         <tr><td>前年同期の分配率</td><td class="tr">${lb.priorShare != null ? esc(p1(lb.priorShare)) : '—'}</td></tr>
       </tbody>
     </table><div class="note mt1">目安：50%前後が健全、60%超で警戒、70%超は危険水準。</div>` : '<div class="note">人件費データがありません。</div>'
@@ -662,9 +733,9 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const landTable = `<table>
       <thead><tr><th>シナリオ</th><th>売上高</th><th>営業利益</th><th>経常利益</th></tr></thead>
       <tbody>${land.scenarios.map((sc) => `<tr${sc.key === 'standard' ? ' class="em"' : ''}>
-        <td>${esc(sc.label)}</td><td class="tr">${esc(fmtYen(sc.sales))}</td>
-        <td class="tr${sc.opProfit < 0 ? ' neg' : ''}">${esc(fmtYen(sc.opProfit))}</td>
-        <td class="tr${sc.ordProfit < 0 ? ' neg' : ''}">${esc(fmtYen(sc.ordProfit))}</td></tr>`).join('')}</tbody>
+        <td>${esc(sc.label)}</td><td class="tr">${esc(num(sc.sales))}</td>
+        <td class="tr${sc.opProfit < 0 ? ' neg' : ''}">${esc(num(sc.opProfit))}</td>
+        <td class="tr${sc.ordProfit < 0 ? ' neg' : ''}">${esc(num(sc.ordProfit))}</td></tr>`).join('')}</tbody>
     </table>`
     const guide = `
       <div class="txt">
@@ -699,7 +770,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
 <title>月次レポート_${esc(company)}_${esc(fy.label)}_${monthLabel}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #243042; background: #e7ebf1; font-size: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #243042; background: #e7ebf1; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .toolbar { text-align: center; padding: 10px; }
   .toolbar button { padding: 9px 22px; font-size: 14px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: ${NAVY}; color: #fff; }
   .toolbar span { font-size: 11px; color: #5b6675; margin-left: 10px; }
@@ -709,60 +780,67 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .p-head { display: flex; align-items: baseline; gap: 3mm; border-bottom: 2px solid ${NAVY}; padding-bottom: 1.6mm; margin-bottom: 2.6mm; }
   .p-no { background: ${NAVY}; color: #fff; font-weight: 800; font-size: 12px; padding: 1px 9px; border-radius: 3px; }
   .p-title { font-size: 16px; font-weight: 800; color: ${NAVY}; letter-spacing: 1.5px; }
-  .p-meta { margin-left: auto; font-size: 9px; color: #5b6675; }
-  .p-foot { position: absolute; bottom: 3.5mm; left: 0; right: 0; text-align: center; font-size: 8px; color: #9aa3ad; }
-  .lead { font-size: 11.5px; line-height: 1.65; margin-bottom: 2.6mm; padding: 1.6mm 3mm; background: #f6f8fb; border-left: 3px solid ${GOLD}; border-radius: 0 4px 4px 0; }
-  .lead b { color: ${NAVY}; font-size: 12.5px; }
+  .p-meta { margin-left: auto; font-size: 9.5px; color: #5b6675; }
+  .p-foot { position: absolute; bottom: 3.5mm; left: 0; right: 0; text-align: center; font-size: 8.5px; color: #9aa3ad; }
+  .lead { font-size: 12.5px; line-height: 1.65; margin-bottom: 2.6mm; padding: 1.6mm 3mm; background: #f6f8fb; border-left: 3px solid ${GOLD}; border-radius: 0 4px 4px 0; }
+  .lead b { color: ${NAVY}; font-size: 13.5px; }
 
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; align-items: start; }
   .row2.r64 { grid-template-columns: 1.5fr 1fr; }
   .mt { margin-top: 3mm; } .mt1 { margin-top: 1.5mm; }
   .blk { border: 1px solid #e2e8f0; border-radius: 6px; padding: 2.4mm 3mm; background: #fff; }
-  .blk-t { font-size: 10.5px; font-weight: 800; color: ${NAVY}; margin-bottom: 1.6mm; border-left: 3px solid ${GOLD}; padding-left: 2mm; }
-  .note { font-size: 8.5px; color: #7b8698; line-height: 1.6; }
-  .txt { font-size: 9.5px; line-height: 1.8; color: #374151; }
-  .sm { font-size: 8.5px; color: #7b8698; font-weight: 400; }
+  .blk-t { font-size: 11.5px; font-weight: 800; color: ${NAVY}; margin-bottom: 1.6mm; border-left: 3px solid ${GOLD}; padding-left: 2mm; }
+  .note { font-size: 9.5px; color: #7b8698; line-height: 1.6; }
+  .txt { font-size: 10.5px; line-height: 1.8; color: #374151; }
+  .sm { font-size: 9px; color: #7b8698; font-weight: 400; }
 
   /* カード */
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3.5mm; }
+  .cards.c4 { grid-template-columns: repeat(4, 1fr); gap: 3mm; }
+  .cards.c4 .c-main { font-size: 20px; }
   .cards.c6 { grid-template-columns: repeat(6, 1fr); gap: 2.5mm; }
   .card { border: 1px solid #d7dde6; border-radius: 6px; padding: 2.6mm 3mm; background: #fbfcfe; }
-  .c-label { font-size: 9px; color: #5b6675; font-weight: 700; margin-bottom: 1mm; }
+  .c-label { font-size: 9.5px; color: #5b6675; font-weight: 700; margin-bottom: 1mm; }
   .c-main { font-size: 23px; font-weight: 800; color: #111827; line-height: 1.05; font-variant-numeric: tabular-nums; }
-  .c-main.sm2 { font-size: 17px; }
+  .c-main.sm2 { font-size: 18px; }
   .c-main.neg { color: ${RED}; }
-  .c-sub { font-size: 8.5px; color: #5b6675; margin-top: 1.2mm; }
+  .c-sub { font-size: 9px; color: #5b6675; margin-top: 1.2mm; }
 
   /* 表 */
   table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #d3dae3; padding: 1.1mm 2mm; font-size: 9.5px; line-height: 1.45; text-align: left; }
-  thead th { background: ${NAVY}; color: #fff; font-weight: 700; font-size: 9px; }
+  th, td { border: 1px solid #d3dae3; padding: 1.2mm 2mm; font-size: 10.5px; line-height: 1.45; text-align: left; }
+  thead th { background: ${NAVY}; color: #fff; font-weight: 700; font-size: 10px; text-align: center; white-space: nowrap; }
   tbody tr:nth-child(even) td { background: #f6f8fb; }
   tr.em td { background: #e7edf5 !important; font-weight: 700; }
+  tr.rate td { background: #fbfcfe !important; color: #5b6675; font-size: 9.5px; }
+  tr.hl td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.5px solid #c8a24b !important; border-bottom: 1.5px solid #c8a24b !important; }
+  td.guide { font-size: 9px; color: #5b6675; }
   .tr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tc { text-align: center; white-space: nowrap; }
   .neg { color: ${RED}; } .pos { color: ${GREEN}; } .warn { color: #b4690e; }
 
   /* チップ・課題 */
-  .chip { display: inline-block; border: 1px solid; border-radius: 999px; padding: 0.3mm 2.2mm; font-size: 8.5px; font-weight: 700; margin: 0 1mm 1mm 0; white-space: nowrap; }
+  .chip { display: inline-block; border: 1px solid; border-radius: 999px; padding: 0.3mm 2.2mm; font-size: 9.5px; font-weight: 700; margin: 0 1mm 1mm 0; white-space: nowrap; }
   .chip.d { background: #fef2f2; color: ${RED}; border-color: #fecaca; }
   .chip.w { background: #fffbeb; color: #b4690e; border-color: #fde68a; }
   .chip.g { background: #f0fdf4; color: ${GREEN}; border-color: #bbf7d0; }
   .chip.m { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
-  .iss { padding: 1.4mm 0; border-bottom: 1px dashed #e2e8f0; font-size: 10px; }
+  .iss { padding: 1.4mm 0; border-bottom: 1px dashed #e2e8f0; font-size: 11px; }
   .iss b { color: #1f2937; }
-  .iss-b { font-size: 8.8px; color: #5b6675; line-height: 1.55; margin-top: 0.6mm; }
-  .iss-goods { margin-top: 1.6mm; font-size: 9.5px; line-height: 1.9; }
+  .iss-b { font-size: 9.6px; color: #5b6675; line-height: 1.55; margin-top: 0.6mm; }
+  .iss-goods { margin-top: 1.6mm; font-size: 10.5px; line-height: 1.9; }
 
   /* ゲージ */
   .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
   .gauge { }
   .g-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1mm; }
-  .g-title { font-size: 9.5px; font-weight: 700; color: #374151; }
-  .g-val { font-size: 14px; font-weight: 800; color: ${NAVY}; }
-  .g-judge { font-size: 8.5px; font-weight: 700; margin-top: 0.8mm; }
+  .g-title { font-size: 10.5px; font-weight: 700; color: #374151; }
+  .g-val { font-size: 15px; font-weight: 800; color: ${NAVY}; }
+  .g-judge { font-size: 9.5px; font-weight: 700; margin-top: 0.8mm; }
+  .g-comment { font-size: 9.5px; color: #374151; line-height: 1.55; margin-top: 1mm; }
+  .g-note { font-size: 8.5px; color: #7b8698; line-height: 1.5; margin-top: 0.6mm; }
 
-  .legend { font-size: 8.5px; font-weight: 700; text-align: right; margin-bottom: 0.6mm; }
+  .legend { font-size: 9.5px; font-weight: 700; text-align: right; margin-bottom: 0.6mm; }
 
   /* 表紙 */
   .cover { display: flex; align-items: center; justify-content: center; }
