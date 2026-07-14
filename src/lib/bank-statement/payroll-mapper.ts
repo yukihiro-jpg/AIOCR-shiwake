@@ -75,12 +75,24 @@ export function payrollToEntries(
   const SHOKUCHI = '997'
   const SHOKUCHI_NAME = '諸口'
 
-  function getTaxInfo(code: string): { taxCode: string; taxName: string } {
-    if (!accountTaxMaster || !code) return { taxCode: '', taxName: '' }
+  function getTaxInfo(code: string): { taxCode: string; taxName: string; taxRate: string } {
+    if (!accountTaxMaster || !code) return { taxCode: '', taxName: '', taxRate: '' }
     const tax = accountTaxMaster.find((t) => t.accountCode === code)
-    if (!tax || tax.categoryCode === '0') return { taxCode: '', taxName: '' }
-    if (tax.categoryCode === '1') return { taxCode: tax.salesTaxCode, taxName: tax.salesTaxName }
-    return { taxCode: tax.purchaseTaxCode, taxName: tax.purchaseTaxName }
+    if (!tax || tax.categoryCode === '0') return { taxCode: '', taxName: '', taxRate: '' }
+    if (tax.categoryCode === '1') return { taxCode: tax.salesTaxCode, taxName: tax.salesTaxName, taxRate: tax.salesTaxRate || '' }
+    return { taxCode: tax.purchaseTaxCode, taxName: tax.purchaseTaxName, taxRate: tax.purchaseTaxRate || '' }
+  }
+
+  /** 税区分を科目の計上side（借方/貸方）に付ける。消費税コード・税率は会計大将CSVの共通欄
+   *  （借方側）に載せる仕様のため、side に関わらず debitTaxCode/debitTaxRate へ設定する。
+   *  これをしないと貸方科目（例: 給与から控除して通信費/旅費交通費へ振替）で税区分が
+   *  諸口側に付き、会計大将取込時に「不明取引」になる。 */
+  function applyTax(e: JournalEntry, isDebit: boolean, t: { taxCode: string; taxName: string; taxRate: string }) {
+    if (!t.taxCode) return
+    e.debitTaxCode = t.taxCode
+    if (t.taxRate) e.debitTaxRate = t.taxRate
+    if (isDebit) e.debitTaxType = t.taxName
+    else e.creditTaxType = t.taxName
   }
 
   // 科目設定済みの項目のみ仕訳化
@@ -179,13 +191,12 @@ export function payrollToEntries(
     parent.debitCode = first.code; parent.debitName = first.accName
     parent.debitSubCode = first.subCode; parent.debitSubName = first.subName
     parent.creditCode = SHOKUCHI; parent.creditName = SHOKUCHI_NAME
-    if (firstTax.taxCode) { parent.debitTaxCode = firstTax.taxCode; parent.debitTaxType = firstTax.taxName }
   } else {
     parent.debitCode = SHOKUCHI; parent.debitName = SHOKUCHI_NAME
     parent.creditCode = first.code; parent.creditName = first.accName
     parent.creditSubCode = first.subCode; parent.creditSubName = first.subName
-    if (firstTax.taxCode) { parent.debitTaxCode = firstTax.taxCode; parent.debitTaxType = firstTax.taxName }
   }
+  applyTax(parent, first.isDebit, firstTax)
   parent.debitAmount = first.amount
   parent.creditAmount = first.amount
   entries.push(parent)
@@ -205,7 +216,7 @@ export function payrollToEntries(
       row.creditCode = line.code; row.creditName = line.accName
       row.creditSubCode = line.subCode; row.creditSubName = line.subName
     }
-    if (lineTax.taxCode) { row.debitTaxCode = lineTax.taxCode; row.debitTaxType = lineTax.taxName }
+    applyTax(row, line.isDebit, lineTax)
     row.debitAmount = line.amount
     row.creditAmount = line.amount
     entries.push(row)

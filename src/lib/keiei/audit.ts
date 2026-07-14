@@ -162,21 +162,34 @@ export function auditMonth(
     }
   }
   // R2の理由用: 過去の (摘要×伝票日) ごとに、本体（PL科目）金額と源泉所得税（預り金）額を対にする。
-  // 複合仕訳では本体行と源泉行が同じ日付・摘要で分かれて計上されるため、日付でまとめて対応づける。
-  const whPairGrp = new Map<string, { pl: number; wh: number; plName: string; plCode: string }>()
-  for (const l of histLines) {
-    const mk = normMemo(l.memo)
-    if (!mk) continue
-    const isWh = WITHHOLDING_ACC_RE.test(l.debitName) || WITHHOLDING_ACC_RE.test(l.creditName)
-    const isPl = !!l.plCode && !l.plIsRevenue
-    if (!isWh && !isPl) continue
-    const gk = `${mk}|${l.date}`
-    let e = whPairGrp.get(gk)
-    if (!e) { e = { pl: 0, wh: 0, plName: '', plCode: '' }; whPairGrp.set(gk, e) }
-    if (isWh) e.wh += l.amount
-    if (isPl) { e.pl += l.amount; e.plName = l.plName; e.plCode = l.plCode }
+  // 科目コード（預り金側含む）を得るため、生の元帳ブロックから集計する（複合仕訳の本体行と源泉行は
+  // 同じ日付・摘要で分かれて計上されるため日付でまとめる）。
+  interface WhPair { pl: number; wh: number; plName: string; plCode: string; plTaxRate: number | null; whName: string; whCode: string }
+  const whPairGrp = new Map<string, WhPair>()
+  const isAggCode = (code: string, name: string) => /複合|諸口/.test(name) || code === '997'
+  const seenForWh = new Set<LedgerData>()
+  for (const led of [...history, target]) {
+    if (seenForWh.has(led)) continue
+    seenForWh.add(led)
+    for (const acc of led.accounts) {
+      if (isAggCode(acc.code, acc.name)) continue
+      const accIsWh = WITHHOLDING_ACC_RE.test(acc.name)
+      const accIsPl = isPlAccount(acc.code) && !isRevenueAccount(acc.code)
+      if (!accIsWh && !accIsPl) continue
+      for (const tx of acc.txs) {
+        if (isBalanceRow(tx)) continue
+        if (tx.date.slice(0, 7) >= ym) continue // 対象月以降は使わない
+        const mk = normMemo(tx.memo)
+        if (!mk) continue
+        const gk = `${mk}|${tx.date}`
+        let e = whPairGrp.get(gk)
+        if (!e) { e = { pl: 0, wh: 0, plName: '', plCode: '', plTaxRate: null, whName: '', whCode: '' }; whPairGrp.set(gk, e) }
+        if (accIsWh && tx.credit > 0) { e.wh += tx.credit; e.whName = acc.name; e.whCode = acc.code }
+        else if (accIsPl && tx.debit > 0) { e.pl += tx.debit; e.plName = acc.name; e.plCode = acc.code; if (tx.taxRate != null) e.plTaxRate = tx.taxRate }
+      }
+    }
   }
-  const whPairsByMemo = new Map<string, { pl: number; wh: number; plName: string; plCode: string }[]>()
+  const whPairsByMemo = new Map<string, WhPair[]>()
   for (const [gk, e] of Array.from(whPairGrp.entries())) {
     if (e.wh <= 0 || e.pl <= 0) continue
     const mk = gk.slice(0, gk.lastIndexOf('|'))
@@ -223,15 +236,16 @@ export function auditMonth(
     if (targetWithholdingMemos.has(mk)) continue
     const key = `${l.date}|${l.amount}|${l.memo}`
     if (flaggedKeys.has(key)) continue
-    // 過去の同種取引のうち、本体金額が今回の金額に最も近いものを例示（本体・源泉額・実効率）
+    // 過去の同種取引のうち、本体金額が今回の金額に最も近いものを例示（本体は税込表記・源泉額・実効率）
     let detail = ''
     const pairs = whPairsByMemo.get(mk)
     if (pairs && pairs.length) {
       const best = pairs.reduce((a, b) => (Math.abs(b.pl - l.amount) < Math.abs(a.pl - l.amount) ? b : a))
       const rate = best.pl ? (best.wh / best.pl) * 100 : 0
-      const est = Math.round(l.amount * (best.wh / best.pl))
-      detail = `過去の同じ支払いでは、本体（${acctLabel(best.plCode, best.plName)}）${best.pl.toLocaleString()}円に対し源泉所得税 ${best.wh.toLocaleString()}円（本体の約${rate.toFixed(2)}%）を預り金に計上していました。`
-        + `今回の金額 ${l.amount.toLocaleString()}円に同率を当てると源泉所得税は約 ${est.toLocaleString()}円になります。`
+      const gross = best.plTaxRate ? Math.round(best.pl * (1 + best.plTaxRate / 100)) : best.pl
+      const grossLabel = best.plTaxRate ? `${gross.toLocaleString()}円（税込）` : `${gross.toLocaleString()}円`
+      const whLabel = best.whCode ? acctLabel(best.whCode, best.whName) : (best.whName || '源泉所得税預り金')
+      detail = `過去の同じ支払いでは（${acctLabel(best.plCode, best.plName)}）${grossLabel}に対し（${whLabel}） ${best.wh.toLocaleString()}円（本体の約${rate.toFixed(2)}%）を預り金に計上していました。`
     }
     push('R2', '源泉徴収の処理漏れ疑い', l,
       `過去は同じ摘要「${l.memo}」の支払いで源泉所得税（預り金）の仕訳を伴っていましたが、対象月には源泉の仕訳が見当たりません。${detail}源泉徴収の処理漏れでないかご確認ください。`)

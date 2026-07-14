@@ -45,10 +45,11 @@ function entryToRow(entry: JournalEntry, clientTaxType?: string): string[] {
   const debitTaxCat = taxCategoryToNum(entry.debitTaxType)
   const creditTaxCat = taxCategoryToNum(entry.creditTaxType)
   const taxable = isTaxable(entry.debitTaxCode)
-  // 借方がPL仕入経費（debitTaxCat=2）で課税 → 借方税込=1
-  const debitTaxInclude = taxable && debitTaxCat === '2' ? '1' : '0'
-  // 貸方がPL売上（creditTaxCat=1）で課税 → 貸方税込=1
-  const creditTaxInclude = taxable && creditTaxCat === '1' ? '1' : '0'
+  // 課税取引で税区分の付いた側（売上/仕入いずれも）を税込=1にする。
+  // 通常は借方=仕入・貸方=売上だが、賃金台帳の控除振替のように仕入科目が貸方に来る
+  // ケースもあるため、区分が0でない側を税込とする（会計大将の「不明取引」防止）。
+  const debitTaxInclude = taxable && debitTaxCat !== '0' ? '1' : '0'
+  const creditTaxInclude = taxable && creditTaxCat !== '0' ? '1' : '0'
 
   return [
     entry.date,                                           // 1 伝票日付
