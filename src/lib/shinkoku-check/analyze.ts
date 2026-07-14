@@ -1181,6 +1181,7 @@ interface GaikyoField {
 const GAIKYO_FIELDS: GaikyoField[] = [
   { label: '売上（収入）総利益', re: /売上（収入）総利益/, side: 'left' },
   { label: '役員報酬', re: /^.{0,6}役員報酬$/, side: 'left' },
+  { label: '労務費', re: /労務費/, side: 'left' },
   { label: '従業員給料', re: /従業員給料/, side: 'left' },
   { label: '営業損益', re: /営業損益/, side: 'left' },
   { label: '特別利益', re: /^.{0,6}特別利益$/, side: 'left' },
@@ -1243,10 +1244,20 @@ function extractGaikyo(pages: ClassifiedPage[]): Map<string, number> {
 function extractShohizeiKazeiHyojun(pages: ClassifiedPage[]): number | null {
   for (const p of pages) {
     if (p.kind !== 'shohizei-fuhyo') continue
-    const l = findLine(p, /^.{0,6}課税標準額\d?$/)
+    const l = findLine(p, /^.{0,6}課税標準額[0-9①]?$/)
     if (!l) continue
-    const amts = amountsInBand(p, l.y - 2, l.y + 12, 100, 9999, true)
+    // 様式によりラベル行と金額行が14px程度ずれる（付表4-3等）ため下方向に広めに探す。
+    // ただし次行の「課税資産の譲渡等の対価の額」（+40px以上下）を拾わない範囲にとどめる
+    const amts = amountsInBand(p, l.y - 2, l.y + 18, 100, 9999, true)
     if (amts.length) return parseAmount(amts[amts.length - 1].s)
+  }
+  // 付表から取れない場合は第一表の課税標準額①（1マス1桁）から取得
+  for (const p of pages) {
+    if (p.kind !== 'shohizei-1') continue
+    const l = findLine(p, /^.{0,4}課税標準額/)
+    if (!l) continue
+    const v = joinDigitsNear(p, l, 190, 350)
+    if (v != null) return v
   }
   return null
 }
@@ -1773,31 +1784,49 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     if (j.yakuin != null || j.kyuyo != null || j.kei != null) {
       const plYak = fsSum(pool, ['役員報酬', '役員給与'])
       const plKyu = fsSum(pool, ['給料手当', '給与手当', '給料', '給与', '雑給', '賞与', '給料及び手当'])
-      const plChin = fsSum(pool, ['賃金', '賃金手当', '労務費', '賃金給料'])
+      // 賃金: 製造原価報告書の「労務費」は賃金・法定福利費・福利厚生費等の小計のため、
+      // 明細の賃金系科目があればそちらを使う（労務費と合算すると二重計上になる）。
+      // 明細が無く「労務費」1本で計上している決算書のみ労務費を使う。
+      const chinDetail = fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
+      const romuhi = fsGet(pool, '労務費')
+      const plChin = chinDetail != null ? chinDetail : romuhi
+      const chinLabel = chinDetail != null ? 'PL 賃金（製造原価分含む）' : 'PL 労務費'
+      const chinNote = chinDetail != null && romuhi != null
+        ? '製造原価報告書の「労務費」は賃金・法定福利費等の小計のため、明細の「賃金」と照合しています。'
+        : undefined
       if (j.yakuin != null) {
         checks.push(mk(G2, '人件費の内訳「役員給与」', '内訳書 人件費の内訳 役員給与', j.yakuin, 'PL 役員報酬', plYak, {
           note: '使用人兼務役員の使用人職務分は「給与手当」側に含まれる様式です。',
         }))
       }
       if (j.kyuyo != null) checks.push(mk(G2, '人件費の内訳「給与手当」', '内訳書 人件費の内訳 給与手当', j.kyuyo, 'PL 給料手当等', plKyu))
-      if (j.chingin != null) checks.push(mk(G2, '人件費の内訳「賃金手当」', '内訳書 人件費の内訳 賃金手当', j.chingin, 'PL 賃金・労務費', plChin))
+      if (j.chingin != null) checks.push(mk(G2, '人件費の内訳「賃金手当」', '内訳書 人件費の内訳 賃金手当', j.chingin, chinLabel, plChin, { note: chinNote }))
       if (j.kei != null && (plYak != null || plKyu != null || plChin != null)) {
-        checks.push(mk(G2, '人件費の内訳「計」', '内訳書 人件費の内訳 計', j.kei, 'PL 役員報酬＋給料手当等＋賃金', (plYak || 0) + (plKyu || 0) + (plChin || 0)))
+        checks.push(mk(G2, '人件費の内訳「計」', '内訳書 人件費の内訳 計', j.kei, 'PL 役員報酬＋給料手当等＋賃金', (plYak || 0) + (plKyu || 0) + (plChin || 0), { note: chinNote }))
       }
     }
   }
 
-  checks.push(
-    mk(
-      G2,
-      '地代家賃',
-      '内訳書 地代家賃合計',
-      uchiwakeChidai(pages),
-      'PL 地代家賃・賃借料（製造原価分含む）',
-      fsSum(pool, ['地代家賃', '賃借料', '地代・家賃']),
-      { note: '月極駐車場等を別科目で処理している場合は差異が出ます。' },
-    ),
-  )
+  // 地代家賃: 内訳書の記載対象は地代・家賃。機械等の「賃借料」（製造経費に多い）を
+  // 内訳書に含めるかは会社により異なるため、地代家賃のみ／地代家賃＋賃借料 の
+  // 一致する組み合わせで照合する（常に合算すると賃借料分が誤検知になる）。
+  {
+    const v = uchiwakeChidai(pages)
+    const chidai = fsSum(pool, ['地代家賃', '地代・家賃'])
+    const chinshaku = fsSum(pool, ['賃借料'])
+    const both = chidai == null && chinshaku == null ? null : (chidai || 0) + (chinshaku || 0)
+    let right = chidai != null ? chidai : both
+    let rightLabel = chidai != null ? 'PL 地代家賃（製造原価分含む）' : 'PL 賃借料'
+    let note = '月極駐車場等を別科目で処理している場合は差異が出ます。'
+    if (v != null && chidai != null && v !== chidai && both != null && v === both) {
+      right = both
+      rightLabel = 'PL 地代家賃＋賃借料'
+      note = '内訳書に賃借料を含めて記載しているため、地代家賃＋賃借料の合計と照合しました。'
+    } else if (v != null && chidai != null && v === chidai && chinshaku != null && chinshaku !== 0) {
+      note = `PLの賃借料 ${chinshaku.toLocaleString('ja-JP')} 円（機械等の賃借料）は地代家賃内訳書の記載対象外として照合から除外しています。`
+    }
+    checks.push(mk(G2, '地代家賃', '内訳書 地代家賃合計', v, rightLabel, right, { note }))
+  }
 
   {
     const zt = zatsuTotals(pages)
@@ -1864,12 +1893,57 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     }
     gkCheck('売上総利益', '売上（収入）総利益', '売上総利益', fsGet(pool, '売上総利益'))
     gkCheck('役員報酬', '役員報酬', '役員報酬', fsSum(pool, ['役員報酬', '役員給与']))
-    gkCheck(
-      '従業員給料',
-      '従業員給料',
-      '給料手当等',
-      fsSum(pool, ['給料手当', '給与手当', '給料', '賃金', '賞与', '雑給', '給料及び手当']),
-    )
+    // 概況「労務費」欄（売上原価のうち・福利厚生費等を除く）⇔ 製造原価の労務費。
+    // 概況に記載がある場合のみ照合する（欄の記載要否は様式・業種により異なるため）
+    {
+      const g = gk.has('労務費') ? gk.get('労務費')! : null
+      const romu = fsGet(pool, '労務費')
+      const chinDetail = fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
+      if (g != null && (romu != null || chinDetail != null)) {
+        const near = (v: number | null) => v != null && Math.abs(g - trunc1000(v)) <= 1
+        let right = romu != null ? romu : chinDetail
+        let note = '概況の労務費欄は売上原価（製造原価）のうちの金額・福利厚生費等を除いて記載します。±1千円まで許容しています。'
+        if (!near(right)) {
+          // 概況の労務費欄は「福利厚生費等を除く」ため、労務費計から福利厚生費（製造原価分）を除いた額とも照合する
+          let hit: { v: number; n: string } | null = null
+          if (romu != null) {
+            for (const f of pool.entries.get('福利厚生費') || []) {
+              if (near(romu - f)) { hit = { v: romu - f, n: `決算書の労務費 ${romu.toLocaleString('ja-JP')} 円から福利厚生費 ${f.toLocaleString('ja-JP')} 円（製造原価分）を除いた額と一致しました（概況の労務費欄は福利厚生費等を除いて記載）。` }; break }
+            }
+          }
+          if (!hit && romu != null && chinDetail != null && near(chinDetail)) hit = { v: chinDetail, n: '製造原価の賃金と一致しました。' }
+          if (hit) { right = hit.v; note = hit.n }
+        }
+        checks.push(mk(G3, '労務費（売上原価のうち）', '概況 労務費（千円）', g, '決算書 製造原価の労務費（千円換算）', right == null ? null : trunc1000(right), { tol: 1, note }))
+      }
+    }
+    // 概況「従業員給料」欄は販管費のうちの金額。製造原価の賃金・労務費を常に合算すると
+    // 製造業で誤検知になるため、販管費の給料のみを基本とし、一致しない場合に賃金との合算も試す
+    {
+      const g = gk.has('従業員給料') ? gk.get('従業員給料')! : null
+      const base = fsSum(pool, ['給料手当', '給与手当', '給料', '給与', '賞与', '雑給', '給料及び手当', '従業員給料'])
+      const chinDetail = fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
+      const romu = fsGet(pool, '労務費')
+      let right = base
+      let label = '販管費の給料手当等'
+      let note = '概況の従業員給料欄は販管費のうちの金額のため、製造原価の賃金・労務費は含めていません（±1千円許容）。'
+      if (g != null) {
+        const near = (v: number | null) => v != null && Math.abs(g - trunc1000(v)) <= 1
+        if (!near(base) && base != null && chinDetail != null && near(base + chinDetail)) {
+          right = base + chinDetail
+          label = '給料手当等＋賃金'
+          note = '概況の従業員給料欄に賃金を含めて記載しているため、給料手当等＋賃金の合計と照合しました（±1千円許容）。'
+        } else if (base == null && chinDetail != null && romu == null) {
+          // 製造原価報告書（労務費小計）が無く、給料を「賃金」科目で計上している会社
+          right = chinDetail
+          label = '賃金'
+          note = '販管費に給料科目が無いため、賃金と照合しました（±1千円許容）。'
+        }
+      }
+      if (g != null || right != null) {
+        checks.push(mk(G3, '従業員給料', '概況 従業員給料（千円）', g, `決算書 ${label}（千円換算）`, right == null ? null : trunc1000(right), { tol: 1, note }))
+      }
+    }
     gkCheck('営業損益', '営業損益', '営業利益', fsGet(pool, '営業利益', '営業損失'))
     gkCheck('特別利益', '特別利益', '特別利益合計', fsGet(pool, '特別利益合計'))
     gkCheck('税引前当期損益', '税引前当期損益', '税引前当期純利益', fsGet(pool, '税引前当期純利益', '税引前当期純損失'))
