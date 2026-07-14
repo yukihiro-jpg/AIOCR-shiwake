@@ -276,8 +276,10 @@ export function detectIssues(input: IssuesInput): IssuesResult {
     if (c.sales > 0 && c.bep > 0) {
       const ratio = (c.bep / c.sales) * 100
       if (ratio >= 100) {
+        const salesGap = c.bep - c.sales
+        const fixedGap = (c.sales - c.bep) * -1 * c.marginalRate
         push('danger', '損益分岐点', `売上が損益分岐点に届いていません（分岐点比率 ${ratio.toFixed(0)}%）`,
-          `現状の売上 ${fmtS(c.sales)}（累計）に対し、損益分岐点は ${fmtS(c.bep)} です。あと ${fmtS(c.bep - c.sales)} の売上増、または固定費 ${fmtS((c.sales - c.bep) * -1 * c.marginalRate)} 相当の削減が必要です。詳細は「損益分岐点・FCF分析」タブのシミュレーションで確認できます。`)
+          `現状の売上 ${fmtS(c.sales)}（累計）に対し、損益分岐点は ${fmtS(c.bep)} です。あと ${fmtS(salesGap)} の売上増（月平均にすると毎月 ${fmtS(salesGap / months)} の売上増が必要）、または固定費 ${fmtS(fixedGap)} 相当の削減（月平均だと毎月 ${fmtS(fixedGap / months)} 相当の削減）が必要です。詳細は「損益分岐点・FCF分析」タブのシミュレーションで確認できます。`)
       } else if (ratio >= 90) {
         push('warn', '損益分岐点', `損益分岐点比率が ${ratio.toFixed(0)}% と余裕がありません`,
           `売上があと ${(100 - ratio).toFixed(0)}% 落ちると赤字という状態です。一般に80%台なら普通、70%台以下が優良とされます。固定費体質の見直しか粗利率の改善で、下振れへの耐性を高めておきましょう。`)

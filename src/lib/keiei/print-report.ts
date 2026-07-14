@@ -81,7 +81,7 @@ function yoyChip(value: number, priorV?: number | null): string {
 }
 
 // ===== SVG ミニチャート =====
-interface ComboSeries { type: 'bar' | 'line'; values: (number | null)[]; color: string; label: string }
+interface ComboSeries { type: 'bar' | 'line'; values: (number | null)[]; color: string; label: string; showValues?: boolean }
 
 // 軸目盛り用のキリのよい刻み幅（1/2/5×10^n）
 function niceStep(raw: number): number {
@@ -90,13 +90,28 @@ function niceStep(raw: number): number {
   return (d <= 1 ? 1 : d <= 2 ? 2 : d <= 5 ? 5 : 10) * p
 }
 
-function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185): string {
+// 目盛り区間が minIntervals 以上になる、最も粗いキリのよい刻み幅（1/2/5×10^n）を選ぶ
+function pickStep(range: number, minIntervals: number): number {
+  const p0 = Math.pow(10, Math.ceil(Math.log10(Math.max(range, 1))))
+  let last = p0
+  for (let p = p0; p >= p0 / 10000; p /= 10) {
+    for (const d of [5, 2, 1]) {
+      const s = p * d
+      if (Math.ceil(range / s) >= minIntervals) return s
+      last = s
+    }
+  }
+  return last
+}
+
+function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185, minIntervals?: number): string {
   const all: number[] = [0]
   for (const s of series) for (const v of s.values) if (v != null && isFinite(v)) all.push(v)
   // 目盛り（約6個）がキリのよい数字になるよう、範囲を刻み幅の倍数に広げる
   const rawMin = Math.min(...all)
   const rawMax = Math.max(...all)
-  const step = niceStep((rawMax - rawMin || 1) / 6)
+  const range = rawMax - rawMin || 1
+  const step = minIntervals ? pickStep(range, minIntervals) : niceStep(range / 6)
   const min = Math.floor(rawMin / step) * step
   const max = Math.ceil(rawMax / step) * step || step
   const padT = 12, padB = 16, padL = 52, padR = 4
@@ -121,6 +136,12 @@ function svgCombo(labels: string[], series: ComboSeries[], w = 660, h = 185): st
       const y1 = y(Math.max(0, v))
       const y2 = y(Math.min(0, v))
       out += `<rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${(bw - 1.2).toFixed(1)}" height="${Math.max(1, y2 - y1).toFixed(1)}" rx="1" fill="${s.color}"/>`
+      // 実数値ラベル（棒の上／マイナスは下）
+      if (s.showValues && v !== 0) {
+        const tx = x + (bw - 1.2) / 2
+        const ty = v >= 0 ? y1 - 3 : y2 + 9
+        out += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="8" font-weight="700" fill="${NAVY}">${esc(fmtShort(v))}</text>`
+      }
     })
   })
   for (const s of series.filter((x) => x.type === 'line')) {
@@ -668,16 +689,16 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const warns = issuesResult.issues.filter((i) => i.severity === 'warn')
     const goods = issuesResult.issues.filter((i) => i.severity === 'good')
     const lead = dangers.length || warns.length
-      ? `自動チェックの結果、<b>要対応 ${dangers.length}件</b>・注意 ${warns.length}件・良好 ${goods.length}件。` +
+      ? `<b>要対応 ${dangers.length}件</b>・注意 ${warns.length}件・良好 ${goods.length}件。` +
         (dangers.length ? `最優先は「<b>${esc(cut(dangers[0].title, 42))}</b>」です。` : '')
-      : `自動チェックの範囲では、<b>急いで手を打つべき課題は検出されませんでした</b>（良好 ${goods.length}件）。`
+      : `<b>急いで手を打つべき課題は検出されませんでした</b>（良好 ${goods.length}件）。`
     const mainList = [...dangers, ...warns].slice(0, 8)
     const overflow = dangers.length + warns.length - mainList.length
     const issueHtml = mainList.map((i) => `
       <div class="iss">
         <span class="chip ${i.severity === 'danger' ? 'd' : 'w'}">${i.severity === 'danger' ? '🔴 ' : '🟡 '}${esc(i.category)}</span>
         <b>${esc(i.title)}</b>
-        <div class="iss-b">${esc(cut(i.body, 108))}</div>
+        <div class="iss-b">${esc(cut(i.body, 155))}</div>
       </div>`).join('') +
       (overflow > 0 ? `<div class="note">ほか ${overflow} 件（画面の「経営課題」タブに全件）</div>` : '') +
       (goods.length ? `<div class="iss-goods">${goods.slice(0, 4).map((i) => `<div><span class="chip g">🟢 ${esc(i.category)}</span> ${esc(i.title)}</div>`).join('')}</div>` : '')
@@ -726,10 +747,11 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const loanSeries = Array.from({ length: 12 }, (_, i) => (i > monthIdx ? null : loans.filter((a) => !ex[a.code]).reduce((sum, a) => sum + (a.monthly[i] ?? 0), 0)))
     const cashSeries = Array.from({ length: 12 }, (_, i) => (i > monthIdx ? null : (getRow(fy, CODES.cash)?.monthly[i] ?? 0)))
     const hasLoan = loanSeries.some((v) => (v ?? 0) > 0)
+    // 縦軸は6段階以上の細かい目盛り、棒には実数値ラベルを表示
     const chart = svgCombo(monthLabels, [
-      { type: 'bar', values: cashSeries, color: NAVY, label: '現預金残高' },
+      { type: 'bar', values: cashSeries, color: NAVY, label: '現預金残高', showValues: true },
       ...(hasLoan ? [{ type: 'line' as const, values: loanSeries, color: GOLD, label: '借入金残高' }] : []),
-    ])
+    ], 660, 185, 6)
     const landTable = `<table>
       <thead><tr><th>シナリオ</th><th>売上高</th><th>営業利益</th><th>経常利益</th></tr></thead>
       <tbody>${land.scenarios.map((sc) => `<tr${sc.key === 'standard' ? ' class="em"' : ''}>
@@ -741,7 +763,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       <div class="txt">
         <b>手元資金</b>：月商2〜3か月分が目安。1か月を切ると突発支出で資金繰りに窮するリスクがあります。<br>
         <b>債務償還年数</b>：有利子負債÷簡易CF。10年超は金融機関から「借りすぎ」と見られ、追加融資が受けにくくなります。<br>
-        <b>自己資本比率</b>：30%以上で安定、10%未満は要警戒。赤字が続くと目減りするため、内部留保の積み増しが基本です。<br>
+        <b>自己資本比率</b>（＝純資産 ÷ 資産合計）：30%以上で安定、10%未満は要警戒。赤字が続くと目減りするため、内部留保の積み増しが基本です。<br>
         <b>簡易CF</b>：税引後利益＋減価償却の概算値（経常利益を年換算し実効税率 ${esc(p1(s.taxRate * 100))} で計算）。
       </div>`
     return page(no, '資金繰り・安全性', `
