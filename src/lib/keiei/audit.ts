@@ -12,7 +12,6 @@
 //  R5 科目の税区分逸脱 … 科目全体の実績（95%以上が同じ税区分）から外れる取引（初出の摘要にも効く）
 //  R6 少額資産の確認 … 消耗品費・修繕費等への10万円以上／40万円以上の支出（資産計上の要否）
 //  R7 毎月定額の欠落・重複 … 毎月ほぼ同額の支払が対象月に無い／2回以上ある
-//  R8 年次定期支払の期ズレ … 過去2年とも同じ月に計上していた支払が対象月に無い
 //  R9 役員報酬の定期同額 … 役員報酬の月額が当期のこれまでの月額と異なる
 //  R10 現金残高マイナス … 現金勘定の日次残高が対象月中にマイナス
 //  R11 免税事業者等取引の一貫性 … 同一取引でインボイス経過措置フラグの有無が過去と異なる
@@ -153,7 +152,9 @@ export function auditMonth(
       if (mk.length >= 3 && !l.plIsRevenue) {
         let m2 = acctBase.get(mk)
         if (!m2) { m2 = new Map(); acctBase.set(mk, m2) }
-        m2.set(l.plName, (m2.get(l.plName) || 0) + 1)
+        // 「コード|科目名」をキーにして、理由文で「コード／科目名」を出せるようにする
+        const cn = `${l.plCode}|${l.plName}`
+        m2.set(cn, (m2.get(cn) || 0) + 1)
       }
     }
     if (mk && (WITHHOLDING_ACC_RE.test(l.debitName) || WITHHOLDING_ACC_RE.test(l.creditName))) {
@@ -177,6 +178,9 @@ export function auditMonth(
   }
 
   const flaggedKeys = new Set<string>() // 同一取引に複数ルールが当たったら強い方（R2/R3）を優先
+  // 理由文の科目表記は「コード／科目名」で統一する
+  const acctLabel = (code: string, name: string) => (code ? `${code}／${name}` : name)
+  const fmtCn = (cn: string) => { const i = cn.indexOf('|'); return i < 0 ? cn : acctLabel(cn.slice(0, i), cn.slice(i + 1)) }
 
   // --- R3: 補助金・保険金等の課税処理（履歴不要の絶対ルール） ---
   for (const l of targetLines) {
@@ -218,7 +222,7 @@ export function auditMonth(
     const cur = taxSig(l)
     if (cur === domSig) continue
     push('R1', '税区分の逸脱', l,
-      `同じ科目（${l.plName}）×同じ摘要の取引は、過去${total}件中${domCount}件が「${domSig}」で処理されていますが、今回は「${cur}」になっています。入力誤りでないかご確認ください。`)
+      `同じ科目（${acctLabel(l.plCode, l.plName)}）×同じ摘要の取引は、過去${total}件中${domCount}件が「${domSig}」で処理されていますが、今回は「${cur}」になっています。入力誤りでないかご確認ください。`)
     flaggedKeys.add(key)
   }
 
@@ -232,13 +236,13 @@ export function auditMonth(
     if (!dist) continue
     const total = Array.from(dist.values()).reduce((s, v) => s + v, 0)
     if (total < 3) continue
-    let domName = ''
+    let domCn = '' // 「コード|科目名」
     let domCount = 0
-    for (const [name, n] of Array.from(dist.entries())) { if (n > domCount) { domName = name; domCount = n } }
+    for (const [cn, n] of Array.from(dist.entries())) { if (n > domCount) { domCn = cn; domCount = n } }
     if (domCount / total < 0.9) continue
-    if (domName === l.plName) continue
+    if (domCn === `${l.plCode}|${l.plName}`) continue
     push('R4', '科目の相違', l,
-      `同じ摘要「${l.memo}」の取引は、過去${total}件中${domCount}件が「${domName}」に計上されていますが、今回は「${l.plName}」になっています。科目の付け替え誤りでないかご確認ください。`)
+      `同じ摘要「${l.memo}」の取引は、過去${total}件中${domCount}件が「${fmtCn(domCn)}」に計上されていますが、今回は「${acctLabel(l.plCode, l.plName)}」になっています。科目の付け替え誤りでないかご確認ください。`)
     flaggedKeys.add(key)
   }
 
@@ -269,7 +273,7 @@ export function auditMonth(
       const cur = taxSig(l)
       if (cur === domSig) continue
       push('R5', '科目の税区分逸脱', l,
-        `科目「${l.plName}」の過去実績は${total}件中${domCount}件（${Math.round((domCount / total) * 100)}%）が「${domSig}」ですが、この取引は「${cur}」になっています。初めての取引先・内容の場合も含め、税区分をご確認ください。`)
+        `科目「${acctLabel(l.plCode, l.plName)}」の過去実績は${total}件中${domCount}件（${Math.round((domCount / total) * 100)}%）が「${domSig}」ですが、この取引は「${cur}」になっています。初めての取引先・内容の場合も含め、税区分をご確認ください。`)
       flaggedKeys.add(key)
     }
   }
@@ -351,40 +355,7 @@ export function auditMonth(
     }
   }
 
-  // --- R8: 年1回・特定月の定期支払の期ズレ（過去2年とも対象月と同じ月に計上） ---
-  {
-    const [ty, tm] = ym.split('-').map(Number)
-    const byKey = new Map<string, { years: Set<number>; allMonths: Set<string>; rep: JournalLine; sum: number; n: number }>()
-    for (const l of histLines) {
-      const mk = normMemo(l.memo)
-      if (!mk || mk.length < 2 || !l.plCode) continue
-      const k = `${l.plCode}|${mk}`
-      let e = byKey.get(k)
-      if (!e) { e = { years: new Set(), allMonths: new Set(), rep: l, sum: 0, n: 0 }; byKey.set(k, e) }
-      const [ly, lm] = l.ym.split('-').map(Number)
-      e.allMonths.add(l.ym)
-      if (lm === tm && ly < ty) { e.years.add(ly); e.rep = l; e.sum += l.amount; e.n++ }
-    }
-    const targetKeys = new Set<string>()
-    for (const l of targetLines) {
-      const mk = normMemo(l.memo)
-      if (mk && l.plCode) targetKeys.add(`${l.plCode}|${mk}`)
-    }
-    for (const [k, e] of Array.from(byKey.entries())) {
-      if (e.years.size < 2) continue // 過去2年以上、対象月と同じ月に出ている
-      if (e.allMonths.size > e.years.size + 1) continue // 毎月出るものはR7の領分（年次性の確認）
-      if (targetKeys.has(k)) continue
-      const avg = e.n ? Math.round(e.sum / e.n) : 0
-      if (avg < 5000) continue
-      findings.push({
-        rule: 'R8', ruleName: '年次定期支払の計上漏れ・期ズレ疑い', date: ym,
-        debitName: e.rep.plIsRevenue ? e.rep.debitName : e.rep.plName,
-        creditName: e.rep.plIsRevenue ? e.rep.plName : e.rep.creditName,
-        taxLabel: '—', amount: avg, memo: e.rep.memo,
-        reason: `過去${e.years.size}年とも${tm}月に計上されていた取引（平均 ${avg.toLocaleString()}円）が、対象月には見当たりません。年払い費用等の計上漏れ・期ズレでないかご確認ください。`,
-      })
-    }
-  }
+  // R8（年次定期支払の期ズレ検出）はユーザー指示により無効化（誤検知が多く検索対象から除外）
 
   // --- R9: 役員報酬の定期同額チェック（対象期内の月額比較） ---
   {
@@ -492,7 +463,7 @@ const esc = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, 
 
 const RULE_COLORS: Record<string, string> = {
   R1: '#b45309', R2: '#b91c1c', R3: '#b91c1c', R4: '#1d4ed8',
-  R5: '#b45309', R6: '#7c3aed', R7: '#0e7490', R8: '#0e7490', R9: '#b91c1c', R10: '#b91c1c', R11: '#4d7c0f',
+  R5: '#b45309', R6: '#7c3aed', R7: '#0e7490', R9: '#b91c1c', R10: '#b91c1c', R11: '#4d7c0f',
 }
 
 export function buildAuditReportHtml(result: AuditResult, companyName: string): string {
@@ -508,29 +479,29 @@ export function buildAuditReportHtml(result: AuditResult, companyName: string): 
     <td class="tc">${esc(f.taxLabel)}</td>
     <td class="tr">${f.amount.toLocaleString()}</td>
     <td class="tl">${esc(f.memo)}</td>
-    <td class="tl reason">${esc(f.reason)}</td>
+    <td class="tl reason">${esc(f.reason).replace(/。(?!$)/g, '。<br>')}</td>
   </tr>`).join('\n')
   return `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
 <title>会計監査_${esc(companyName)}_${esc(result.targetLabel)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #243042; padding: 24px; font-size: 11px; }
-  .eyebrow { font-size: 10px; letter-spacing: 4px; color: #c8a24b; font-weight: 700; }
-  h1 { font-size: 24px; font-weight: 800; color: #1f3a5f; letter-spacing: 2px; margin: 2px 0; }
-  .head-sub { font-size: 12px; color: #5b6675; }
-  .rule { height: 3px; margin: 10px 0 14px; background: linear-gradient(90deg,#1f3a5f 0%,#1f3a5f 72%,#c8a24b 72%,#c8a24b 100%); }
-  .summary { margin-bottom: 14px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; line-height: 1.8; }
+  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #243042; padding: 24px; font-size: 14px; }
+  .eyebrow { font-size: 11px; letter-spacing: 4px; color: #c8a24b; font-weight: 700; }
+  h1 { font-size: 26px; font-weight: 800; color: #1f3a5f; letter-spacing: 2px; margin: 2px 0; }
+  .head-sub { font-size: 14px; color: #5b6675; }
+  .rule { height: 3px; margin: 10px 0 16px; background: linear-gradient(90deg,#1f3a5f 0%,#1f3a5f 72%,#c8a24b 72%,#c8a24b 100%); }
+  .summary { margin-bottom: 16px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; line-height: 1.9; }
   table { width: 100%; border-collapse: collapse; }
-  thead th { background: #1f3a5f; color: #fff; font-weight: 700; padding: 6px; border: 1px solid #1f3a5f; font-size: 10px; position: sticky; top: 0; }
-  td { padding: 5px 6px; border: 1px solid #d3dae3; vertical-align: top; }
+  thead th { background: #1f3a5f; color: #fff; font-weight: 700; padding: 9px 8px; border: 1px solid #1f3a5f; font-size: 13px; position: sticky; top: 0; }
+  td { padding: 9px 8px; border: 1px solid #d3dae3; vertical-align: top; font-size: 13.5px; line-height: 1.6; }
   tbody tr:nth-child(even) td { background: #f6f8fb; }
   .tl { text-align: left; } .tr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; } .tc { text-align: center; white-space: nowrap; }
-  .tag { display: inline-block; color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 9px; font-weight: 700; white-space: nowrap; }
-  .reason { min-width: 260px; color: #374151; }
-  .note { font-size: 9.5px; color: #7b8698; margin-top: 14px; line-height: 1.7; }
+  .tag { display: inline-block; color: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .reason { min-width: 320px; color: #374151; line-height: 1.7; }
+  .note { font-size: 11.5px; color: #7b8698; margin-top: 16px; line-height: 1.8; }
   .toolbar { margin-bottom: 14px; }
-  .toolbar button { padding: 8px 18px; font-size: 13px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: #1f3a5f; color: #fff; }
-  .ok { padding: 30px; text-align: center; color: #15803d; font-size: 15px; font-weight: 700; }
+  .toolbar button { padding: 9px 20px; font-size: 14px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: #1f3a5f; color: #fff; }
+  .ok { padding: 32px; text-align: center; color: #15803d; font-size: 17px; font-weight: 700; }
   @media print { .toolbar { display: none; } body { padding: 0; } @page { size: A4 landscape; margin: 12mm 10mm; } }
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button></div>
@@ -559,7 +530,6 @@ export function buildAuditReportHtml(result: AuditResult, companyName: string): 
     科目の税区分逸脱: 科目全体の実績10件以上・95%以上が同じ税区分のとき、それと異なる処理を検出（初出の取引にも適用）。
     資産計上の確認: 消耗品費・修繕費等への1取引10万円以上（および40万円以上）の支出を検出。
     毎月定額: 直前6か月のうち4か月以上・月1回・ほぼ同額（ブレ25%以内）の支払の欠落／月2回以上の計上を検出。
-    年次定期: 過去2年とも対象月と同じ月に計上されていた支払の欠落を検出。
     役員報酬: 当期の最頻月額と異なる月額（またはゼロ）を検出。
     現金残高: 現金勘定の日次残高が対象月中にマイナスとなる日を検出。
     免税事業者等取引: 同一取引でインボイス経過措置フラグの有無が過去（9割以上一貫）と異なるものを検出。<br>
