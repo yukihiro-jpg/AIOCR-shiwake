@@ -9,12 +9,19 @@
 //  R3 補助金・保険金等の課税誤り … 補助金・助成金・保険金・共済金・還付金等の入金
 //                        （原則 不課税/非課税）が課税として入力されている
 //  R4 科目の相違     … 同じ摘要の取引が過去は一貫して別の科目に計上されている
+//  R5 科目の税区分逸脱 … 科目全体の実績（95%以上が同じ税区分）から外れる取引（初出の摘要にも効く）
+//  R6 少額資産の確認 … 消耗品費・修繕費等への10万円以上／40万円以上の支出（資産計上の要否）
+//  R7 毎月定額の欠落・重複 … 毎月ほぼ同額の支払が対象月に無い／2回以上ある
+//  R8 年次定期支払の期ズレ … 過去2年とも同じ月に計上していた支払が対象月に無い
+//  R9 役員報酬の定期同額 … 役員報酬の月額が当期のこれまでの月額と異なる
+//  R10 現金残高マイナス … 現金勘定の日次残高が対象月中にマイナス
+//  R11 免税事業者等取引の一貫性 … 同一取引でインボイス経過措置フラグの有無が過去と異なる
 
 import type { LedgerData, LedgerTx } from './ledger'
 import { isPlAccount, isRevenueAccount, isBalanceRow } from './ledger'
 
 export interface AuditFinding {
-  rule: 'R1' | 'R2' | 'R3' | 'R4'
+  rule: string
   ruleName: string
   date: string
   debitName: string
@@ -44,6 +51,7 @@ interface JournalLine {
   memo: string
   taxRate: number | null
   taxCode: string
+  exempt: string // 免税事業者等取引フラグ（空=通常）
   plCode: string // PL側の科目コード（両側BSなら ''）
   plName: string
   plIsRevenue: boolean
@@ -80,6 +88,7 @@ export function toJournalLines(ledger: LedgerData): JournalLine[] {
         memo: tx.memo,
         taxRate: tx.taxRate,
         taxCode: tx.taxCode || '',
+        exempt: tx.exempt || '',
         plCode: plSide.code,
         plName: plSide.name,
         plIsRevenue: plSide.code ? isRevenueAccount(plSide.code) : false,
@@ -89,6 +98,7 @@ export function toJournalLines(ledger: LedgerData): JournalLine[] {
       else {
         // 税情報・PL側情報を持つ方で補完
         if (prev.taxRate == null && line.taxRate != null) { prev.taxRate = line.taxRate; prev.taxCode = line.taxCode }
+        if (!prev.exempt && line.exempt) prev.exempt = line.exempt
         if (!prev.plCode && line.plCode) { prev.plCode = line.plCode; prev.plName = line.plName; prev.plIsRevenue = line.plIsRevenue }
       }
     }
@@ -232,6 +242,239 @@ export function auditMonth(
     flaggedKeys.add(key)
   }
 
+  // --- R5: 科目レベルの税区分逸脱（初出の摘要にも効く。R1で判定済みの取引は除外） ---
+  {
+    const acctTax = new Map<string, Map<string, number>>() // plCode → 税署名分布
+    const acctName = new Map<string, string>()
+    for (const l of histLines) {
+      if (!l.plCode) continue
+      let m1 = acctTax.get(l.plCode)
+      if (!m1) { m1 = new Map(); acctTax.set(l.plCode, m1) }
+      const sig = taxSig(l)
+      m1.set(sig, (m1.get(sig) || 0) + 1)
+      acctName.set(l.plCode, l.plName)
+    }
+    for (const l of targetLines) {
+      if (!l.plCode) continue
+      const key = `${l.date}|${l.amount}|${l.memo}`
+      if (flaggedKeys.has(key)) continue
+      const dist = acctTax.get(l.plCode)
+      if (!dist) continue
+      const total = Array.from(dist.values()).reduce((s, v) => s + v, 0)
+      if (total < 10) continue // 科目の実績が少ないうちは判定しない
+      let domSig = ''
+      let domCount = 0
+      for (const [sig, n] of Array.from(dist.entries())) { if (n > domCount) { domSig = sig; domCount = n } }
+      if (domCount / total < 0.95) continue
+      const cur = taxSig(l)
+      if (cur === domSig) continue
+      push('R5', '科目の税区分逸脱', l,
+        `科目「${l.plName}」の過去実績は${total}件中${domCount}件（${Math.round((domCount / total) * 100)}%）が「${domSig}」ですが、この取引は「${cur}」になっています。初めての取引先・内容の場合も含め、税区分をご確認ください。`)
+      flaggedKeys.add(key)
+    }
+  }
+
+  // --- R6: 少額資産・資産計上の確認（10万円以上／40万円以上の2段階） ---
+  {
+    const EXPENSE_RE = /消耗品|事務用品|工具|器具|備品|修繕|雑費/
+    for (const l of targetLines) {
+      if (!l.plCode || l.plIsRevenue) continue
+      if (!EXPENSE_RE.test(l.plName)) continue
+      if (l.amount >= 400000) {
+        push('R6', '資産計上の確認（40万円以上）', l,
+          `${l.plName}に40万円以上の支出があります。少額減価償却資産の特例（30万円未満）の対象外のため、固定資産計上（修繕費の場合は資本的支出への該当）の要否を必ずご確認ください。`)
+      } else if (l.amount >= 100000) {
+        push('R6', '資産計上の確認（10万円以上）', l,
+          `${l.plName}に10万円以上の支出があります。固定資産・一括償却資産（20万円未満）・少額減価償却資産の特例（30万円未満・年300万円まで）のいずれで処理すべきかご確認ください。`)
+      }
+    }
+  }
+
+  // --- R7: 毎月定額の支払の欠落・重複 ---
+  {
+    // 直前6か月のうち4か月以上・ほぼ同額（ブレ25%以内）で出ている支払を「毎月定額」とみなす
+    const prevYms: string[] = []
+    {
+      let [py, pm] = ym.split('-').map(Number)
+      for (let k = 0; k < 6; k++) { pm--; if (pm === 0) { pm = 12; py-- } prevYms.push(`${py}-${String(pm).padStart(2, '0')}`) }
+    }
+    const prevSet = new Set(prevYms)
+    const byKey = new Map<string, { byYm: Map<string, { n: number; sum: number }>; rep: JournalLine }>()
+    for (const l of histLines) {
+      const mk = normMemo(l.memo)
+      if (!mk || mk.length < 2 || !l.plCode || l.plIsRevenue) continue
+      if (!prevSet.has(l.ym)) continue
+      const k = `${l.plCode}|${mk}`
+      let e = byKey.get(k)
+      if (!e) { e = { byYm: new Map(), rep: l }; byKey.set(k, e) }
+      e.rep = l
+      const cur = e.byYm.get(l.ym) || { n: 0, sum: 0 }
+      cur.n++; cur.sum += l.amount
+      e.byYm.set(l.ym, cur)
+    }
+    const targetByKey = new Map<string, JournalLine[]>()
+    for (const l of targetLines) {
+      const mk = normMemo(l.memo)
+      if (!mk || !l.plCode) continue
+      const k = `${l.plCode}|${mk}`
+      const arr = targetByKey.get(k) || []
+      arr.push(l)
+      targetByKey.set(k, arr)
+    }
+    for (const [k, e] of Array.from(byKey.entries())) {
+      const months = Array.from(e.byYm.values())
+      if (months.length < 4) continue
+      if (!months.every((v) => v.n === 1)) continue // 月1回の定期支払のみ対象
+      const amts = months.map((v) => v.sum)
+      const mean = amts.reduce((s, v) => s + v, 0) / amts.length
+      if (mean < 5000) continue
+      const sd = Math.sqrt(amts.reduce((s, v) => s + (v - mean) ** 2, 0) / amts.length)
+      if (sd / mean > 0.25) continue
+      const cur = targetByKey.get(k) || []
+      if (cur.length === 0) {
+        findings.push({
+          rule: 'R7', ruleName: '毎月定額の計上漏れ疑い', date: ym,
+          debitName: e.rep.plIsRevenue ? e.rep.debitName : e.rep.plName,
+          creditName: e.rep.plIsRevenue ? e.rep.plName : e.rep.creditName,
+          taxLabel: '—', amount: Math.round(mean), memo: e.rep.memo,
+          reason: `直前6か月のうち${months.length}か月、毎月ほぼ同額（平均 ${Math.round(mean).toLocaleString()}円）で計上されている支払が、対象月には見当たりません。計上漏れ・請求書の未着でないかご確認ください。`,
+        })
+      } else if (cur.length >= 2) {
+        for (const l of cur) {
+          const key = `${l.date}|${l.amount}|${l.memo}`
+          if (flaggedKeys.has(key)) continue
+          push('R7', '毎月定額の二重計上疑い', l,
+            `毎月1回・ほぼ同額で計上されている支払ですが、対象月には${cur.length}回計上されています。二重計上でないかご確認ください。`)
+          flaggedKeys.add(key)
+        }
+      }
+    }
+  }
+
+  // --- R8: 年1回・特定月の定期支払の期ズレ（過去2年とも対象月と同じ月に計上） ---
+  {
+    const [ty, tm] = ym.split('-').map(Number)
+    const byKey = new Map<string, { years: Set<number>; allMonths: Set<string>; rep: JournalLine; sum: number; n: number }>()
+    for (const l of histLines) {
+      const mk = normMemo(l.memo)
+      if (!mk || mk.length < 2 || !l.plCode) continue
+      const k = `${l.plCode}|${mk}`
+      let e = byKey.get(k)
+      if (!e) { e = { years: new Set(), allMonths: new Set(), rep: l, sum: 0, n: 0 }; byKey.set(k, e) }
+      const [ly, lm] = l.ym.split('-').map(Number)
+      e.allMonths.add(l.ym)
+      if (lm === tm && ly < ty) { e.years.add(ly); e.rep = l; e.sum += l.amount; e.n++ }
+    }
+    const targetKeys = new Set<string>()
+    for (const l of targetLines) {
+      const mk = normMemo(l.memo)
+      if (mk && l.plCode) targetKeys.add(`${l.plCode}|${mk}`)
+    }
+    for (const [k, e] of Array.from(byKey.entries())) {
+      if (e.years.size < 2) continue // 過去2年以上、対象月と同じ月に出ている
+      if (e.allMonths.size > e.years.size + 1) continue // 毎月出るものはR7の領分（年次性の確認）
+      if (targetKeys.has(k)) continue
+      const avg = e.n ? Math.round(e.sum / e.n) : 0
+      if (avg < 5000) continue
+      findings.push({
+        rule: 'R8', ruleName: '年次定期支払の計上漏れ・期ズレ疑い', date: ym,
+        debitName: e.rep.plIsRevenue ? e.rep.debitName : e.rep.plName,
+        creditName: e.rep.plIsRevenue ? e.rep.plName : e.rep.creditName,
+        taxLabel: '—', amount: avg, memo: e.rep.memo,
+        reason: `過去${e.years.size}年とも${tm}月に計上されていた取引（平均 ${avg.toLocaleString()}円）が、対象月には見当たりません。年払い費用等の計上漏れ・期ズレでないかご確認ください。`,
+      })
+    }
+  }
+
+  // --- R9: 役員報酬の定期同額チェック（対象期内の月額比較） ---
+  {
+    const execAccs = target.accounts.filter((a) => isPlAccount(a.code) && /役員報酬|役員給与/.test(a.name))
+    for (const acc of execAccs) {
+      const byYm = new Map<string, number>()
+      for (const tx of acc.txs) {
+        if (isBalanceRow(tx)) continue
+        const k = tx.date.slice(0, 7)
+        byYm.set(k, (byYm.get(k) || 0) + (tx.debit - tx.credit))
+      }
+      const prior = Array.from(byYm.entries()).filter(([k, v]) => k < ym && v > 0).map(([, v]) => v)
+      if (prior.length < 2) continue
+      // 最頻値（定期同額の基準額）
+      const freq = new Map<number, number>()
+      for (const v of prior) freq.set(v, (freq.get(v) || 0) + 1)
+      let mode = 0, modeN = 0
+      for (const [v, n] of Array.from(freq.entries())) { if (n > modeN) { mode = v; modeN = n } }
+      if (modeN < 2) continue
+      const cur = byYm.get(ym) || 0
+      if (cur === mode) continue
+      findings.push({
+        rule: 'R9', ruleName: '役員報酬の定期同額', date: ym,
+        debitName: acc.name, creditName: '—', taxLabel: '—',
+        amount: cur, memo: '（月次合計の比較）',
+        reason: cur === 0
+          ? `当期のこれまでの${acc.name}は月額 ${mode.toLocaleString()}円ですが、対象月は計上がありません。計上漏れでないかご確認ください。`
+          : `当期のこれまでの${acc.name}は月額 ${mode.toLocaleString()}円ですが、対象月は ${cur.toLocaleString()}円です。定期同額給与から外れると増減部分が損金不算入となる可能性があります（改定事由・時期をご確認ください）。`,
+      })
+    }
+  }
+
+  // --- R10: 現金残高のマイナス検出（対象月中の日次残高） ---
+  {
+    const cashAccs = target.accounts.filter((a) => Number(a.code) < 200 && /現金/.test(a.name))
+    for (const acc of cashAccs) {
+      const byDate = new Map<string, number>()
+      for (const tx of acc.txs) {
+        if (isBalanceRow(tx)) continue
+        byDate.set(tx.date, (byDate.get(tx.date) || 0) + (tx.debit - tx.credit))
+      }
+      const dates = Array.from(byDate.keys()).sort()
+      let bal = acc.opening
+      let worst: { date: string; bal: number } | null = null
+      for (const d of dates) {
+        bal += byDate.get(d) || 0
+        if (d.slice(0, 7) === ym && bal < 0 && (!worst || bal < worst.bal)) worst = { date: d, bal }
+      }
+      if (worst) {
+        findings.push({
+          rule: 'R10', ruleName: '現金残高マイナス', date: worst.date,
+          debitName: acc.name, creditName: '—', taxLabel: '—',
+          amount: Math.abs(worst.bal), memo: '（日次残高の検算）',
+          reason: `${acc.name}の帳簿残高が ${worst.date.replace(/-/g, '/')} 時点で ${worst.bal.toLocaleString()}円とマイナスです。入金の計上漏れ・日付の前後・二重出金の可能性が高く、現金出納の信頼性に関わるため優先的にご確認ください。`,
+        })
+      }
+    }
+  }
+
+  // --- R11: 免税事業者等取引（インボイス経過措置）の一貫性 ---
+  {
+    const base = new Map<string, { flagged: number; total: number }>()
+    for (const l of histLines) {
+      const mk = normMemo(l.memo)
+      if (!mk || !l.plCode || l.plIsRevenue) continue
+      const k = `${l.plCode}|${mk}`
+      const e = base.get(k) || { flagged: 0, total: 0 }
+      e.total++
+      if (l.exempt) e.flagged++
+      base.set(k, e)
+    }
+    for (const l of targetLines) {
+      const mk = normMemo(l.memo)
+      if (!mk || !l.plCode || l.plIsRevenue) continue
+      const key = `${l.date}|${l.amount}|${l.memo}`
+      if (flaggedKeys.has(key)) continue
+      const e = base.get(`${l.plCode}|${mk}`)
+      if (!e || e.total < 2) continue
+      if (e.flagged / e.total >= 0.9 && !l.exempt) {
+        push('R11', '免税事業者等取引の一貫性', l,
+          `過去は同じ取引を「免税事業者等取引」（インボイス経過措置）として処理していましたが（${e.total}件中${e.flagged}件）、今回はフラグがありません。相手先が適格請求書発行事業者になった場合を除き、経過措置（控除制限）の適用漏れでないかご確認ください。`)
+        flaggedKeys.add(key)
+      } else if (e.flagged === 0 && l.exempt) {
+        push('R11', '免税事業者等取引の一貫性', l,
+          `過去は同じ取引を通常の課税仕入として処理していましたが（${e.total}件）、今回は「免税事業者等取引」フラグが付いています。フラグの付け誤りでないかご確認ください。`)
+        flaggedKeys.add(key)
+      }
+    }
+  }
+
   findings.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount)
   const [y, m] = ym.split('-')
   return {
@@ -247,7 +490,10 @@ export function auditMonth(
 
 const esc = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-const RULE_COLORS: Record<string, string> = { R1: '#b45309', R2: '#b91c1c', R3: '#b91c1c', R4: '#1d4ed8' }
+const RULE_COLORS: Record<string, string> = {
+  R1: '#b45309', R2: '#b91c1c', R3: '#b91c1c', R4: '#1d4ed8',
+  R5: '#b45309', R6: '#7c3aed', R7: '#0e7490', R8: '#0e7490', R9: '#b91c1c', R10: '#b91c1c', R11: '#4d7c0f',
+}
 
 export function buildAuditReportHtml(result: AuditResult, companyName: string): string {
   const now = new Date()
@@ -255,7 +501,7 @@ export function buildAuditReportHtml(result: AuditResult, companyName: string): 
   const counts = new Map<string, number>()
   for (const f of result.findings) counts.set(f.ruleName, (counts.get(f.ruleName) || 0) + 1)
   const rows = result.findings.map((f) => `<tr>
-    <td class="tc"><span class="tag" style="background:${RULE_COLORS[f.rule]}">${esc(f.ruleName)}</span></td>
+    <td class="tc"><span class="tag" style="background:${RULE_COLORS[f.rule] || '#6b7280'}">${esc(f.ruleName)}</span></td>
     <td class="tc">${esc(f.date.replace(/-/g, '/'))}</td>
     <td class="tl">${esc(f.debitName)}</td>
     <td class="tl">${esc(f.creditName)}</td>
@@ -309,7 +555,14 @@ export function buildAuditReportHtml(result: AuditResult, companyName: string): 
     ※ 判定基準 — 税区分の逸脱: 同一科目×同一摘要で過去2件以上・9割以上が同じ税区分のとき、それと異なる処理を検出。
     源泉徴収: 過去に預り金（源泉）仕訳を伴った摘要で、対象月に源泉仕訳がないものを検出。
     補助金・保険金等: 摘要のキーワード（補助金・助成金・給付金・保険金・共済金・返戻・還付・配当等）を含む入金が課税処理されているものを検出。
-    科目の相違: 同一摘要で過去3件以上・9割以上が同じ科目のとき、異なる科目への計上を検出。<br>
+    科目の相違: 同一摘要で過去3件以上・9割以上が同じ科目のとき、異なる科目への計上を検出。
+    科目の税区分逸脱: 科目全体の実績10件以上・95%以上が同じ税区分のとき、それと異なる処理を検出（初出の取引にも適用）。
+    資産計上の確認: 消耗品費・修繕費等への1取引10万円以上（および40万円以上）の支出を検出。
+    毎月定額: 直前6か月のうち4か月以上・月1回・ほぼ同額（ブレ25%以内）の支払の欠落／月2回以上の計上を検出。
+    年次定期: 過去2年とも対象月と同じ月に計上されていた支払の欠落を検出。
+    役員報酬: 当期の最頻月額と異なる月額（またはゼロ）を検出。
+    現金残高: 現金勘定の日次残高が対象月中にマイナスとなる日を検出。
+    免税事業者等取引: 同一取引でインボイス経過措置フラグの有無が過去（9割以上一貫）と異なるものを検出。<br>
     ※ データはすべてこの端末内で処理され、外部・AIには送信されません。
   </div>
 </body></html>`
