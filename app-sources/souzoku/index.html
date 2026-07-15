@@ -3649,7 +3649,10 @@ function fmtSigned(n){ n=Math.round(num(n)); return n<0?'-'+Math.abs(n).toLocale
 function compBalance(){ const cbh=currentCase.compByHeir||{}; let s=0; currentCase.heirs.forEach(h=>s+=num(cbh[h.id])); return s; }
 function heirNetTotals(){ const totals={}; const cbh=currentCase.compByHeir||{}; const divAssets=currentCase.assets.filter(a=>a.category!=='gift'); currentCase.heirs.forEach(h=>{ totals[h.id]=divAssets.reduce((s,a)=>s+amtOf(a,h.id)*signOf(a.category),0)+num(cbh[h.id]); }); return totals; }
 function setCompByHeir(hid,val){ if(!currentCase.compByHeir)currentCase.compByHeir={}; const v=String(val).replace(/[^0-9\-]/g,''); if(v&&v!=='-')currentCase.compByHeir[hid]=v; else delete currentCase.compByHeir[hid]; updateCompRow(); renderSummary(); cacheCurrentCase(); }
-function updateCompRow(){ if(!currentCase) return; const net=heirNetTotals(); currentCase.heirs.forEach(h=>{ const el=$('net-'+h.id); if(el) el.textContent=fmtAlloc(net[h.id]); }); const bal=compBalance(); const bc=$('compBal'); if(bc){ bc.textContent=bal===0?'':fmtSigned(bal); bc.style.color=bal===0?'':'#b3261e'; } const w=$('compBalanceWarn'); if(w){ if(bal===0){ w.style.display='none'; w.textContent=''; } else { w.style.display=''; w.textContent='⚠ 代償金の授受が一致していません（差額 '+fmtSigned(bal)+' 円）。支払（−）と受取（＋）の合計が0になるよう入力してください。'; } } renderTaxBreakdown(); }
+function updateCompRow(){ if(!currentCase) return; const net=heirNetTotals(); currentCase.heirs.forEach(h=>{ const el=$('net-'+h.id); if(el) el.textContent=fmtAlloc(net[h.id]); }); const bal=compBalance(); const bc=$('compBal'); if(bc){ bc.textContent=bal===0?'':fmtSigned(bal); bc.style.color=bal===0?'':'#b3261e'; } const w=$('compBalanceWarn'); if(w){ if(bal===0){ w.style.display='none'; w.textContent=''; } else { w.style.display=''; w.textContent='⚠ 代償金の授受が一致していません（差額 '+fmtSigned(bal)+' 円）。支払（−）と受取（＋）の合計が0になるよう入力してください。'; } } renderTaxBreakdown();
+  // 同じ画面に表示されている「② 各相続人の納付税額」（相続税試算）も再計算する
+  // （従来は課税価格の内訳のみ更新され、代償金・取得額の変更が試算表に反映されず古い値のままだった）
+  try{ renderSimulation(); }catch(e){} }
 // 旧・相続人別取得額チップは廃止。既存呼び出し互換のため純取得額行と警告の更新に読み替える
 function renderHeirTotals(){ if(!currentCase) return; updateCompRow(); updateAllocWarn(); }
 
