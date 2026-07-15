@@ -1,5 +1,5 @@
 // 申告書チェック: 結果レポートを新規ウインドウに生成する（印刷・保存用）
-import type { AnalyzeResult, CheckResult } from './types'
+import { groupDocHeaders, type AnalyzeResult, type CheckResult } from './types'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -42,7 +42,7 @@ export function buildShinkokuReportHtml(
   <section class="grp">
     <h2>${esc(g.name)}</h2>
     <table>
-      <thead><tr><th class="tl">チェック項目</th><th class="tr">書類A</th><th class="tr">書類B</th><th class="tr">差額</th><th class="tc w-judge">判定</th></tr></thead>
+      <thead><tr><th class="tl">チェック項目</th><th class="tr">${esc(groupDocHeaders(g.name)[0])}</th><th class="tr">${esc(groupDocHeaders(g.name)[1])}</th><th class="tr">差額</th><th class="tc w-judge">判定</th></tr></thead>
       <tbody>
         ${g.items
           .map((c) => {

@@ -1425,28 +1425,23 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     )
   }
 
-  checks.push(
-    mk(
-      G1,
-      '受取利息と所得税控除',
-      'PL 受取利息',
-      fsGet(pool, '受取利息', '受取利息配当金'),
-      '別表六(一) 1行目 収入金額①',
-      b61 ? extractBeppyo61Row(b61, 1) : null,
-      { note: '源泉徴収のない利息（相手先貸付利息等）がある場合は差異が出ます。' },
-    ),
-  )
-
-  checks.push(
-    mk(
-      G1,
-      '受取配当金と所得税控除',
-      'PL 受取配当金',
-      fsGet(pool, '受取配当金'),
-      '別表六(一) 2行目 収入金額①',
-      b61 ? extractBeppyo61Row(b61, 2) : null,
-    ),
-  )
+  // 受取利息・受取配当金 ⇔ 別表六(一) 収入金額。
+  // 決算書に該当科目がなく（検出不可）、別表六(一)側の収入金額も0（未記載）なら
+  // 「その収入自体がない」ことで整合しているため、要確認ではなく一致扱いにする。
+  {
+    const b61Check = (name: string, kamokuDisp: string, plVal: number | null, row: number, note?: string) => {
+      const right = b61 ? extractBeppyo61Row(b61, row) : null
+      const r = mk(G1, name, `PL ${kamokuDisp}`, plVal, `別表六(一) ${row}行目 収入金額①`, right, { note })
+      if (r.status === 'warn' && (plVal == null || plVal === 0) && (right == null || right === 0)) {
+        r.status = 'ok'
+        r.note = `決算書に${kamokuDisp}の科目がなく、別表六(一)の収入金額も0のため、該当収入なしとして整合しています。`
+      }
+      checks.push(r)
+    }
+    b61Check('受取利息と所得税控除', '受取利息', fsGet(pool, '受取利息', '受取利息配当金'), 1,
+      '源泉徴収のない利息（相手先貸付利息等）がある場合は差異が出ます。')
+    b61Check('受取配当金と所得税控除', '受取配当金', fsGet(pool, '受取配当金'), 2)
+  }
 
   // 別表十六 ⇔ BS帳簿価額・PL減価償却費
   {
@@ -1591,13 +1586,33 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
   })
 
   kamokuChecks('仮払金・貸付金', '仮払金内訳書', () => {
-    const v = uchiwakeTotal(pages, '仮払金・貸付金')
-    const bs = fsSum(pool, ['仮払金', '前渡金', '短期貸付金', '長期貸付金', '貸付金'])
-    checks.push(
-      mk(G2, '仮払金・貸付金', '内訳書 仮払金（前渡金）等合計', v, 'BS 仮払金・前渡金・貸付金', bs, {
-        note: 'この内訳書に仮払金・貸付金以外の科目（出資金・保険積立金・敷金等）を記載している場合は差異が出ます。',
-      }),
-    )
+    // 上段（仮払金・前渡金の内訳）は BS の仮払金・前渡金とのみ照合する。
+    // 下段（貸付金及び受取利息の内訳書）は別項目「貸付金」で照合するため、ここのBS側に貸付金を混ぜない
+    // （混ぜると「上段が空欄・BSは貸付金のみ」の会社で常に不当な要確認になる）。
+    const upper = uchiwakeTotal(pages, '仮払金・貸付金')
+    const bsKari = fsSum(pool, ['仮払金', '前渡金'])
+    const r = mk(G2, '仮払金・前渡金', '内訳書 仮払金（前渡金）合計', upper, 'BS 仮払金・前渡金', bsKari, {
+      note:
+        upper == null && bsKari == null
+          ? '仮払金（前渡金）の記載はありません。下段の貸付金は「貸付金」の項目で照合しています。'
+          : '下段の貸付金は「貸付金」の項目で別途照合しています。',
+    })
+    if (r.status === 'warn') {
+      // 上段に貸付金等も含めて記載しているケースの救済照合: 上下段の合算 ⇔ BS 仮払金・前渡金・貸付金系の合算
+      const lower = kashitsukeTotal(pages)
+      const bsAll = fsSum(pool, ['仮払金', '前渡金', '短期貸付金', '長期貸付金', '貸付金', '役員貸付金', '従業員貸付金', '関係会社貸付金'])
+      const sum = upper != null || lower != null ? (upper || 0) + (lower || 0) : null
+      if (sum != null && bsAll != null && sum === bsAll) {
+        checks.push(
+          mk(G2, '仮払金・貸付金', '内訳書 仮払金（前渡金）＋貸付金 合計', sum, 'BS 仮払金・前渡金・貸付金', bsAll, {
+            note: '仮払金（前渡金）と下段の貸付金の内訳合算が、BSの該当科目の合算と一致しました。',
+          }),
+        )
+        return
+      }
+      r.note = 'この内訳書に仮払金・貸付金以外の科目（出資金・保険積立金・敷金等）を記載している場合は差異が出ます。下段の貸付金は「貸付金」の項目で別途照合しています。'
+    }
+    checks.push(r)
   })
 
   // 有価証券内訳書 ⇔ BS（有価証券・投資有価証券・出資金・会員権の一致する組み合わせで照合）
@@ -2069,14 +2084,13 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     }
   }
 
-  // ===== ⑤ 書類間の整合 =====
-  const G5 = '書類間の整合'
+  // ===== ⑤ 事業年度の整合（決算書 ⇔ 法人税申告書） =====
   {
     const fsP = extractFsPeriod(pages)
     const bpP = extractBeppyoPeriod(pages)
     if (fsP || bpP) {
       checks.push({
-        group: G5,
+        group: G1,
         name: '事業年度の一致',
         leftLabel: `決算書 会計期間：${fsP || '（検出不可）'}`,
         leftValue: null,

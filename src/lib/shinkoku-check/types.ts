@@ -58,3 +58,11 @@ export interface AnalyzeResult {
   checks: CheckResult[]
   pageSummary: { page: number; fileName: string; detected: string }[]
 }
+
+// グループ名「A ⇔ B」から結果表の列見出しに使う書類名を取り出す
+// （「書類A/書類B」の汎称をやめ、実際の書類名をヘッダに表示するため）
+export function groupDocHeaders(group: string): [string, string] {
+  const parts = group.replace(/（参考）\s*$/, '').split(' ⇔ ')
+  if (parts.length === 2 && parts[0] && parts[1]) return [parts[0], parts[1]]
+  return ['照合元', '照合先']
+}

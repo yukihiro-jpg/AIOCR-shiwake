@@ -4,7 +4,7 @@
 // すべてブラウザ内で処理（AIやサーバーへの送信なし・API不使用）
 import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
-import type { AnalyzeResult, CheckResult } from '@/lib/shinkoku-check/types'
+import { groupDocHeaders, type AnalyzeResult, type CheckResult } from '@/lib/shinkoku-check/types'
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   ok: { label: '✓ 一致', cls: 'bg-green-100 text-green-800' },
@@ -195,7 +195,9 @@ export default function ShinkokuCheckContent() {
         )}
 
         {/* 結果 */}
-        {groups.map((g) => (
+        {groups.map((g) => {
+          const [docL, docR] = groupDocHeaders(g.name)
+          return (
           <section key={g.name} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <h2 className="px-4 py-2.5 bg-gray-100 text-sm font-bold text-gray-800 border-b border-gray-200">
               {g.name}
@@ -205,8 +207,8 @@ export default function ShinkokuCheckContent() {
                 <thead>
                   <tr className="text-gray-500 border-b border-gray-100">
                     <th className="text-left px-3 py-2 font-medium">チェック項目</th>
-                    <th className="text-right px-3 py-2 font-medium">書類A</th>
-                    <th className="text-right px-3 py-2 font-medium">書類B</th>
+                    <th className="text-right px-3 py-2 font-medium">{docL}</th>
+                    <th className="text-right px-3 py-2 font-medium">{docR}</th>
                     <th className="text-right px-3 py-2 font-medium">差額</th>
                     <th className="text-center px-3 py-2 font-medium w-24">判定</th>
                   </tr>
@@ -253,7 +255,8 @@ export default function ShinkokuCheckContent() {
               </table>
             </div>
           </section>
-        ))}
+          )
+        })}
 
         {/* ページ認識結果 */}
         {result && (
