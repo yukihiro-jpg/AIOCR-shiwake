@@ -3864,6 +3864,7 @@ function renderSecondary(){
   const strat={insPremium1,insCount,insP,insAllow,insCompress,existIns,usedByExist,availLimit,insUsedTotal,gGenAmt,gGenPpl,gGenYrs,gSpcAmt,gSpcPpl,gSpcYrs,gGenGiven,gSpcGiven,giftGiven,gGenTaxEach,gSpcTaxEach,gGenTax,gSpcTax,giftTaxTotal,gGenComp,gSpcComp,giftCompress,giftAddback,compress,spendCash};
   // 遺産分割で配偶者に割り当てた現金・預貯金の小計／配偶者の実際の一次相続税
   const allocCash=secSpouseFirstCash();
+  const spouseComp=secSpouseComp();
   const firstTaxActual=(r.ph && r.ph[spouse.id])? Math.max(0,r.ph[spouse.id].final||0):0;
   // ===== 取得割合を細かくサンプリング（グラフ・表共通：5%刻み21点） =====
   // reduce＝二次相続の課税財産から控除する額／addTotal＝合計に上乗せする額（贈与税）
@@ -3871,7 +3872,7 @@ function renderSecondary(){
   const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress, giftTaxTotal);
-  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,firstTaxActual,strat,normal,savings,own,consume,increase,years,spouseName:(spouse.name||'配偶者')};
+  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,spouseComp,firstTaxActual,strat,normal,savings,own,consume,increase,years,spouseName:(spouse.name||'配偶者')};
   renderStrategyResults(strat);
   paintSec();
   // 財産分割（試算）の前提は通常モードの最小取得割合に固定
@@ -3889,6 +3890,8 @@ function secYenShort(v){ v=Math.round(v); if(Math.abs(v)>=1e8) return (v/1e8).to
 function secEstateCash(){ if(!currentCase) return 0; return Math.round((currentCase.assets||[]).filter(a=>a&&a.category==='cash').reduce((t,a)=>t+computeAssetValue(a),0)); }
 // 遺産分割で配偶者に割り当てた現金・預貯金の小計
 function secSpouseFirstCash(){ if(!currentCase) return 0; const sp=currentCase.heirs.find(h=>h.relationType==='spouse'); if(!sp) return 0; return Math.round((currentCase.assets||[]).filter(a=>a&&a.category==='cash').reduce((t,a)=>t+amtOf(a,sp.id),0)); }
+// 一次相続で配偶者が授受する代償金（支払−／受取＋・符号付き）。現預金で精算される前提で生活資金に反映する
+function secSpouseComp(){ if(!currentCase) return 0; const sp=currentCase.heirs.find(h=>h.relationType==='spouse'); if(!sp) return 0; return Math.round(num((currentCase.compByHeir||{})[sp.id])); }
 // 暦年課税の贈与税（現行の速算表）。type='special'（特例：直系尊属→18歳以上）/'general'（一般）。基礎控除110万円。
 function giftTaxAnnual(amount,type){
   const t=Math.max(0, num(amount)-1100000); if(t<=0) return 0;
@@ -4103,12 +4106,15 @@ function secOptimalTableHTML(opt){
 // 節税策実行後に配偶者の手元に残る現預金（遺産分割の割り当てに基づく）
 function renderSecCashBox(){
   const el=$('secCashBox'); if(!el||!_secData) return; const d=_secData; const st=d.strat;
-  const avail=d.ownCash+d.allocCash-d.firstTaxActual; const remain=avail-st.spendCash; const neg=remain<0;
+  const comp=num(d.spouseComp); // 支払−／受取＋
+  const avail=d.ownCash+d.allocCash+comp-d.firstTaxActual; const remain=avail-st.spendCash; const neg=remain<0;
   el.innerHTML='<div class="sum-box accent"><div class="sl">節税策実行後に配偶者の手元に残る現預金（生活資金）</div>'
     +'<div class="sv" style="font-size:26px;">'+yen(remain)+'</div></div>'
     +'<table class="sim-table" style="margin-top:10px;"><tbody>'
     +'<tr><td>配偶者固有の現金預金</td><td style="text-align:right;">'+yen(d.ownCash)+'</td></tr>'
     +'<tr><td>＋ 一次相続で取得した現金預金（遺産分割の小計）</td><td style="text-align:right;">'+yen(d.allocCash)+'</td></tr>'
+    +(comp<0?'<tr><td>− 一次相続で配偶者が支払う代償金</td><td style="text-align:right;">'+yen(-comp)+'</td></tr>'
+       :comp>0?'<tr><td>＋ 一次相続で配偶者が受け取る代償金</td><td style="text-align:right;">'+yen(comp)+'</td></tr>':'')
     +'<tr><td>− 一次相続で配偶者が納付した相続税</td><td style="text-align:right;">'+yen(d.firstTaxActual)+'</td></tr>'
     +'<tr style="font-weight:600;background:#f3f6fb;"><td>＝ 節税策に充てられる現預金</td><td style="text-align:right;">'+yen(avail)+'</td></tr>'
     +'<tr><td>− 生命保険の保険料支出</td><td style="text-align:right;">'+yen(st.insP)+'</td></tr>'
@@ -4116,7 +4122,7 @@ function renderSecCashBox(){
     +'<tr style="font-weight:700;background:#e7f8ec;"><td>＝ 配偶者の手元に残る現預金</td><td style="text-align:right;color:'+(neg?'#d70015':'inherit')+';">'+yen(remain)+'</td></tr>'
     +'</tbody></table>'
     +(neg?'<div class="disclaimer" style="margin-top:8px;color:#d70015;">節税策の支出が手元の現預金を上回っています。生活資金を確保できる範囲に支出額を調整してください。</div>'
-        :'<div class="muted" style="font-size:11.5px;margin-top:8px;">「一次相続で取得した現金預金」は遺産分割＆相続税試算で配偶者に割り当てた現金・預貯金の小計です。贈与税（'+yen(st.giftTaxTotal)+'）は受贈者が負担する前提のため、この残額には含めていません（税額グラフ・合計には加算）。</div>');
+        :'<div class="muted" style="font-size:11.5px;margin-top:8px;">「一次相続で取得した現金預金」は遺産分割＆相続税試算で配偶者に割り当てた現金・預貯金の小計です。'+(comp!==0?'一次相続の代償金'+(comp<0?'（配偶者が支払う '+yen(-comp)+'）は現預金で精算される前提で控除':'（配偶者が受け取る '+yen(comp)+'）は現預金で受け取る前提で加算')+'しています。':'')+'贈与税（'+yen(st.giftTaxTotal)+'）は受贈者が負担する前提のため、この残額には含めていません（税額グラフ・合計には加算）。</div>');
 }
 // 節税策の計算結果（生命保険・暦年贈与）をパネルに表示
 function renderStrategyResults(st){
@@ -5169,8 +5175,9 @@ function secondaryReportData(){
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress,giftTaxTotal);
   const allocCash=secSpouseFirstCash();
+  const spouseComp=secSpouseComp();
   const firstTaxActual=(r.ph&&r.ph[spouse.id])?Math.max(0,r.ph[spouse.id].final||0):0;
-  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,firstTaxActual,
+  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,spouseComp,firstTaxActual,
     strat:{insPremium1,insCount,insP,insAllow,insCompress,existIns,usedByExist,availLimit,insUsedTotal,gGenGiven,gSpcGiven,giftGiven,gGenTax,gSpcTax,giftTaxTotal,gGenComp,gSpcComp,giftCompress,giftAddback,compress,spendCash}};
 }
 function secSampleRows(samples,minIdx,curIdx,idxList){
@@ -5446,7 +5453,8 @@ function secV2PlanPageSavings(d,D,badge,pno,total){
   const st=D.strat;
   const nb=D.normal.samples[D.normal.minIdx], sb=D.savings.samples[D.savings.minIdx];
   const remain=Math.max(0,st.insAllow-st.insUsedTotal);
-  const avail=D.ownCash+D.allocCash-D.firstTaxActual, cashRemain=avail-st.spendCash;
+  const comp=num(D.spouseComp);
+  const avail=D.ownCash+D.allocCash+comp-D.firstTaxActual, cashRemain=avail-st.spendCash;
   let sr='';
   if(st.existIns>0) sr+='<tr><td>既加入の生命保険（枠 '+yen(st.insAllow)+' のうち '+yen(st.usedByExist)+' を消費）</td><td class="r">支出なし</td><td class="r">—</td><td class="r">-</td></tr>';
   if(st.insP>0) sr+='<tr><td>生命保険の追加加入（残り枠 '+yen(st.availLimit)+' まで圧縮）</td><td class="r">−'+yen(st.insP)+'</td><td class="r">−'+yen(st.insCompress)+'</td><td class="r">-</td></tr>';
@@ -5472,6 +5480,8 @@ function secV2PlanPageSavings(d,D,badge,pno,total){
     +'<div class="sect" style="margin-top:2px;">'+esc(D.spouseName)+' 様の手元に残る現預金</div>'
     +'<table class="v2"><tbody>'
     +'<tr><td>固有の現金預金 ＋ 一次相続で取得する現金預金</td><td class="r">'+yen(D.ownCash+D.allocCash)+'</td></tr>'
+    +(comp<0?'<tr><td>− 一次相続で支払う代償金</td><td class="r">−'+yen(-comp)+'</td></tr>'
+       :comp>0?'<tr><td>＋ 一次相続で受け取る代償金</td><td class="r">'+yen(comp)+'</td></tr>':'')
     +'<tr><td>− 一次相続で納める相続税</td><td class="r">−'+yen(D.firstTaxActual)+'</td></tr>'
     +'<tr><td>− 保険料・贈与の支出</td><td class="r">−'+yen(st.spendCash)+'</td></tr>'
     +'<tr class="tot"><td>＝ 手元に残る現預金（生活資金）</td><td class="r"'+(cashRemain<0?' style="color:#d70015;"':'')+'>'+yen(cashRemain)+'</td></tr></tbody></table>'
