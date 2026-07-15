@@ -6452,8 +6452,16 @@ function renderPassbook(){ const c=$('pbResults'); if(!c) return; const pb=_pb()
 function pbAddMovement(id,i){ const it=pbFind(id); if(!it||!it.data.flags[i])return; const f=it.data.flags[i];
   if(!currentCase.movement||typeof currentCase.movement!=='object')currentCase.movement={rows:[],usage:{}}; if(!Array.isArray(currentCase.movement.rows))currentCase.movement.rows=[];
   const note=(f.reason||'')+((f.questions&&f.questions.length)?'（確認：'+f.questions.join(' / ')+'）':'');
-  currentCase.movement.rows.push({id:uid(),date:(f.date||''),cells:{},concl:'',content:(f.desc||''),note:note});
-  cacheCurrentCase(); toast('金融資産異動一覧表に追加しました'); }
+  // 分析元の口座列に金額を入れる（入金→i / 出金→o）。分析時の口座名(label)から異動表の口座列を特定する
+  const accs=(typeof movementAccounts==='function')?movementAccounts():[];
+  const acc=accs.find(a=>assetDesc(a)===it.label);
+  const amt=num(f.amount); const cells={};
+  if(acc && amt>0){ cells[acc.id]={}; cells[acc.id][f.dir==='out'?'o':'i']=amt; }
+  currentCase.movement.rows.push({id:uid(),date:(f.date||''),cells:cells,concl:'',content:(f.desc||''),note:note});
+  cacheCurrentCase();
+  if(acc && amt>0) toast('異動一覧表に追加しました（'+(acc.name||'')+'：'+(f.dir==='out'?'出金':'入金')+' '+yen(amt)+'）');
+  else if(amt>0) toast('異動一覧表に追加しました（口座列が特定できないため金額は手動で入力してください）', true);
+  else toast('金融資産異動一覧表に追加しました'); }
 function pbToggleResolve(id,i){ const it=pbFind(id); if(!it||!it.data.flags[i])return; it.data.flags[i].resolved=!it.data.flags[i].resolved; cacheCurrentCase(); renderPassbook(); }
 function pbAddLead(id,i){ const it=pbFind(id); if(!it||!it.data.leads[i])return; const L=it.data.leads[i];
   const cat=(L.category&&typeof ASSET_BY_KEY!=='undefined'&&ASSET_BY_KEY[L.category])?L.category:'other';
