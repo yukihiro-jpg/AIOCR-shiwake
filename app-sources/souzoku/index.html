@@ -4512,8 +4512,23 @@ function downloadShindanPDF(){
   if(!d.name){ toast('被相続人氏名を入力してください', true); return; }
   const R=buildReport(); const r=R.r;
   const heirs=currentCase.heirs;
-  // 親族表
-  let famRows=heirs.map(h=>'<tr><td>'+esc(relDisp(h))+'</td><td>'+esc(h.name||'')+'</td><td>'+(h.birth?formatJDate(h.birth):'')+'</td><td class="r">'+(h.age!==''&&h.age!=null?h.age+'歳':'')+'</td><td class="r">'+fracText(r.shares[h.id])+'</td></tr>').join('');
+  // 親族表：相続税法上の法定相続人（相続放棄を「なかったもの」として順位判定した者）と、
+  // 上位順位者の相続放棄により実際に相続人となった者を分けて表示する
+  const statSet=new Set((r.stat.spouse||[]).concat(r.stat.group||[]).map(h=>h.id));
+  const statHeirs=heirs.filter(h=>statSet.has(h.id));
+  const renHeirs=heirs.filter(h=>!statSet.has(h.id));
+  let famRows=statHeirs.map(h=>'<tr><td>'+esc(relDisp(h))+'</td><td>'+esc(h.name||'')+'</td><td>'+(h.birth?formatJDate(h.birth):'')+'</td><td class="r">'+(h.age!==''&&h.age!=null?h.age+'歳':'')+'</td><td class="r">'+fracText(r.shares[h.id])+'</td><td>'+(h.isRenounced?'相続放棄':'')+'</td></tr>').join('');
+  let renRows=renHeirs.map(h=>'<tr><td>'+esc(relDisp(h))+'</td><td>'+esc(h.name||'')+'</td><td>'+(h.birth?formatJDate(h.birth):'')+'</td><td class="r">'+(h.age!==''&&h.age!=null?h.age+'歳':'')+'</td></tr>').join('');
+  let famSection='<h3 class="blk">親族関係（法定相続人）</h3>'
+    +'<table class="t"><thead><tr><th>続柄</th><th>氏名</th><th>生年月日</th><th class="r">年齢</th><th class="r">法定相続分</th><th>備考</th></tr></thead><tbody>'+famRows+'</tbody></table>';
+  if(renHeirs.length){
+    famSection+='<p class="note" style="margin-top:6px;">※ 上記の法定相続人のうち相続放棄をされた方があるため、下記の方が民法上の相続人となります。なお、法定相続人の数・相続税の総額の計算上は、相続税法の規定により相続放棄がなかったものとして上記の法定相続人で計算しています。</p>'
+      +'<h3 class="blk">相続放棄により相続人となった方</h3>'
+      +'<table class="t"><thead><tr><th>続柄</th><th>氏名</th><th>生年月日</th><th class="r">年齢</th></tr></thead><tbody>'+renRows+'</tbody></table>';
+  }
+  // 2割加算・税額控除の合計（相続人別の合算）
+  const surchargeTotal=heirs.reduce((s,h)=>s+((r.ph[h.id]&&r.ph[h.id].surchargeAmt)||0),0);
+  const creditsTotal=heirs.reduce((s,h)=>s+((r.ph[h.id]&&r.ph[h.id].credits)||0),0);
   // 資産構成
   const arow=(n,v,sub)=>'<tr'+(sub?' class="sub"':'')+'><td>'+n+'</td><td class="r">'+(v<0?'△'+yen(-v):yen(v))+'</td></tr>';
   let assetRows=arow('土地',R.land)+arow('建物',R.building)+arow('有価証券',R.sec)+arow('非上場株式（自社株）',R.unl)+arow('現金・預貯金',R.cash)+arow('生命保険金等',R.ins)+arow('退職手当金等',R.ret)+arow('その他の財産',R.other)
@@ -4527,11 +4542,12 @@ function downloadShindanPDF(){
     +'<tr><td>基礎控除額（3,000万円＋600万円×'+r.n+'人）</td><td class="r">△'+yen(r.basic)+'</td></tr>'
     +'<tr><td>課税遺産総額</td><td class="r">'+yen(r.netEstate)+'</td></tr>'
     +'<tr class="tot"><td>相続税の総額</td><td class="r">'+yen(r.totalTax)+'</td></tr>'
-    +'<tr><td>各種税額控除（配偶者の税額軽減・贈与税額控除等）</td><td class="r">△'+yen(Math.max(0,r.totalTax-r.grandTotal))+'</td></tr>'
+    +'<tr><td>各種税額控除（配偶者の税額軽減・贈与税額控除等）</td><td class="r">△'+yen(Math.round(creditsTotal))+'</td></tr>'
+    +'<tr><td>相続税額の2割加算</td><td class="r">'+(surchargeTotal>0?'＋'+yen(Math.round(surchargeTotal)):'－')+'</td></tr>'
     +'<tr class="tot"><td>納付すべき相続税額</td><td class="r">'+yen(r.grandTotal)+'</td></tr>'
     +'<tr><td>実効税率（相続税額／財産総額）</td><td class="r">'+R.effRate.toFixed(2)+'％</td></tr>';
   // 各人税額
-  let heirTaxRows=heirs.map(h=>{const p=r.ph[h.id]; return '<tr><td>'+esc(h.name||'')+'</td><td class="r">'+yen(p.taxableR)+'</td><td class="r">'+yen(Math.floor(p.base))+'</td><td class="r">'+(p.credits?'△'+yen(Math.round(p.credits)):'-')+'</td><td class="r">'+(p.final<0?'還付 '+yen(-p.final):yen(p.final))+'</td></tr>';}).join('');
+  let heirTaxRows=heirs.map(h=>{const p=r.ph[h.id]; return '<tr><td>'+esc(h.name||'')+'</td><td class="r">'+yen(p.taxableR)+'</td><td class="r">'+yen(Math.floor(p.base))+'</td><td class="r">'+(p.credits?'△'+yen(Math.round(p.credits)):'-')+'</td><td class="r">'+(p.surchargeAmt?'＋'+yen(Math.round(p.surchargeAmt)):'-')+'</td><td class="r">'+(p.final<0?'還付 '+yen(-p.final):yen(p.final))+'</td></tr>';}).join('');
   // 財産分割案
   const {totals}=heirAcquiredTotals();
   let divHead='<tr><th>種類</th>'+heirs.map(h=>'<th class="r">'+esc(h.name||'')+'</th>').join('')+'</tr>';
@@ -4584,7 +4600,7 @@ function downloadShindanPDF(){
       +'<div class="kpi"><div class="l">課税価格の合計額</div><div class="v">'+yen(r.totalTaxable)+'</div></div>'
       +'<div class="kpi"><div class="l">納付すべき相続税額</div><div class="v">'+yen(r.grandTotal)+'</div></div>'
       +'<div class="kpi"><div class="l">実効税率</div><div class="v">'+R.effRate.toFixed(2)+'%</div></div></div>'
-      +'<h3 class="blk">親族関係（法定相続人）</h3><table class="t"><thead><tr><th>続柄</th><th>氏名</th><th>生年月日</th><th class="r">年齢</th><th class="r">法定相続分</th></tr></thead><tbody>'+famRows+'</tbody></table>'
+      +famSection
       +'<p class="note">本書は、ご提供いただいた情報に基づき相続財産と相続税額を試算したものです。詳細は次ページ以降をご参照ください。</p>'
       +foot(2)+'</div>'
     +'<div class="page"><div class="sec-title">2. 資産構成<span class="pno">ASSETS</span></div>'
@@ -4597,7 +4613,7 @@ function downloadShindanPDF(){
       +foot(4)+'</div>'
     +'<div class="page"><div class="sec-title">4. 相続税の概算<span class="pno">TAX</span></div>'
       +'<table class="t"><tr><th>項目</th><th class="r">金額</th></tr>'+taxRows+'</table>'
-      +'<h3 class="blk">相続人別の納付税額</h3><table class="t"><thead><tr><th>相続人</th><th class="r">課税価格</th><th class="r">算出税額</th><th class="r">税額控除等</th><th class="r">納付税額</th></tr></thead><tbody>'+heirTaxRows+'</tbody></table>'
+      +'<h3 class="blk">相続人別の納付税額</h3><table class="t"><thead><tr><th>相続人</th><th class="r">課税価格</th><th class="r">算出税額</th><th class="r">税額控除等</th><th class="r">2割加算</th><th class="r">納付税額</th></tr></thead><tbody>'+heirTaxRows+'</tbody></table>'
       +foot(5)+'</div>'
     +'<div class="page"><div class="sec-title">5. 財産分割案<span class="pno">DIVISION</span></div>'
       +'<table class="t">'+divHead+divBody+'</table>'
@@ -4628,6 +4644,12 @@ async function downloadShindanExcel(){
   syncUIToCase();
   const d=currentCase.deceased; const R=buildReport(); const r=R.r; const heirs=currentCase.heirs;
   const {totals}=heirAcquiredTotals();
+  // 法定相続人（相続放棄を「なかったもの」として順位判定）と、放棄により相続人となった方
+  const xStatSet=new Set((r.stat.spouse||[]).concat(r.stat.group||[]).map(h=>h.id));
+  const xStatHeirs=heirs.filter(h=>xStatSet.has(h.id));
+  const xRenHeirs=heirs.filter(h=>!xStatSet.has(h.id));
+  const xSurchargeTotal=heirs.reduce((s,h)=>s+((r.ph[h.id]&&r.ph[h.id].surchargeAmt)||0),0);
+  const xCreditsTotal=heirs.reduce((s,h)=>s+((r.ph[h.id]&&r.ph[h.id].credits)||0),0);
   const wb=new ExcelJS.Workbook();
   // ---- PDFと同一の配色・罫線 ----
   const C={hdr:'FF1A3A6B', zebra:'FFF3F7FC', subBg:'FFFCF3F3', subTx:'FFBB0000', totBg:'FFDFE9F7', totTx:'FF1A3A6B', border:'FFCCCCCC'};
@@ -4673,8 +4695,14 @@ async function downloadShindanExcel(){
     {cells:['実効税率(%)',Number(R.effRate.toFixed(2))]},
   ],[2]);
   w1.addRow([]); blkTitle(w1,'親族関係（法定相続人）');
-  addTable(w1,['続柄','氏名','生年月日','年齢','法定相続分'],
-    heirs.map(h=>({cells:[relDisp(h),h.name||'',h.birth?formatJDate(h.birth):'',(h.age!==''&&h.age!=null)?h.age:'',fracText(r.shares[h.id])]})));
+  addTable(w1,['続柄','氏名','生年月日','年齢','法定相続分','備考'],
+    xStatHeirs.map(h=>({cells:[relDisp(h),h.name||'',h.birth?formatJDate(h.birth):'',(h.age!==''&&h.age!=null)?h.age:'',fracText(r.shares[h.id]),h.isRenounced?'相続放棄':'']})));
+  if(xRenHeirs.length){
+    w1.addRow([]); w1.addRow(['※ 上記の法定相続人のうち相続放棄をされた方があるため、下記の方が民法上の相続人となります（法定相続人の数・相続税の総額の計算上は相続放棄がなかったものとして計算しています）。']);
+    blkTitle(w1,'相続放棄により相続人となった方');
+    addTable(w1,['続柄','氏名','生年月日','年齢'],
+      xRenHeirs.map(h=>({cells:[relDisp(h),h.name||'',h.birth?formatJDate(h.birth):'',(h.age!==''&&h.age!=null)?h.age:'']})));
+  }
   // ===== 2. 資産構成 =====
   const w2=wb.addWorksheet('2_資産構成'); w2.getColumn(1).width=34; w2.getColumn(2).width=20;
   sectionTitle(w2,2,'資産構成');
@@ -4703,21 +4731,22 @@ async function downloadShindanExcel(){
   });
   if(!anyDetail) w6.addRow(['登録されている財産はありません。']);
   // ===== 4. 相続税の概算 =====
-  const w3=wb.addWorksheet('4_相続税'); w3.getColumn(1).width=34; for(let i=2;i<=5;i++) w3.getColumn(i).width=16;
+  const w3=wb.addWorksheet('4_相続税'); w3.getColumn(1).width=34; for(let i=2;i<=6;i++) w3.getColumn(i).width=16;
   sectionTitle(w3,4,'相続税の概算');
   addTable(w3,['項目','金額'],[
     {cells:['課税価格の合計額',r.totalTaxable]},
     {cells:['基礎控除額（3,000万円＋600万円×'+r.n+'人）',-r.basic],kind:'sub'},
     {cells:['課税遺産総額',r.netEstate]},
     {cells:['相続税の総額',r.totalTax],kind:'tot'},
-    {cells:['各種税額控除（配偶者の税額軽減・贈与税額控除等）',-Math.max(0,r.totalTax-r.grandTotal)],kind:'sub'},
+    {cells:['各種税額控除（配偶者の税額軽減・贈与税額控除等）',-Math.round(xCreditsTotal)],kind:'sub'},
+    {cells:['相続税額の2割加算',Math.round(xSurchargeTotal)]},
     {cells:['納付すべき相続税額',r.grandTotal],kind:'tot'},
     {cells:['実効税率(%)',Number(R.effRate.toFixed(2))]},
   ],[2]);
   w3.addRow([]); blkTitle(w3,'相続人別の納付税額');
-  addTable(w3,['相続人','課税価格','算出税額','税額控除等','納付税額'],
-    heirs.map(h=>{const p=r.ph[h.id]; return {cells:[h.name||'',p.taxableR,Math.floor(p.base),p.credits?-Math.round(p.credits):0,p.final]};})
-      .concat([{cells:['合計',r.totalTaxable,r.totalTax,'',r.grandTotal],kind:'tot'}]),[2,3,4,5]);
+  addTable(w3,['相続人','課税価格','算出税額','税額控除等','2割加算','納付税額'],
+    heirs.map(h=>{const p=r.ph[h.id]; return {cells:[h.name||'',p.taxableR,Math.floor(p.base),p.credits?-Math.round(p.credits):0,Math.round(p.surchargeAmt||0),p.final]};})
+      .concat([{cells:['合計',r.totalTaxable,r.totalTax,'',Math.round(xSurchargeTotal),r.grandTotal],kind:'tot'}]),[2,3,4,5,6]);
   // ===== 5. 財産分割案 =====
   const w4=wb.addWorksheet('5_財産分割案'); w4.getColumn(1).width=22; for(let i=2;i<=heirs.length+1;i++) w4.getColumn(i).width=16;
   sectionTitle(w4,5,'財産分割案');
