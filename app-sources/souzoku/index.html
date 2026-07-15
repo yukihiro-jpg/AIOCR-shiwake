@@ -6133,16 +6133,36 @@ function pbDecode(buf){ try{ const u=new TextDecoder('utf-8',{fatal:false}).deco
 function pbReadText(file){ return file.arrayBuffer().then(b=>pbDecode(b)); }
 function pbReadB64(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||''); res(s.slice(s.indexOf(',')+1)); }; r.onerror=()=>rej(new Error('読込エラー')); r.readAsDataURL(file); }); }
 const _PB_SYS='あなたは相続税申告の実務に精通した税理士アシスタントです。被相続人の預金通帳の明細を分析し、相続財産の計上漏れ・名義預金・生前贈与・未収債権・債務控除・簿外資産の手がかりを洗い出します。支払状況から契約している保険会社や貸金庫の有無なども推定します。\n【最重要】出力は指定のJSONオブジェクトのみ。前後の説明文やコードフェンスは付けない。日本語で記述。金額は数値（カンマ・記号なし）。日付はYYYY-MM-DD（不明ならそのままの表記）。\n【JSONスキーマ】\n{"summary":{"usage":"この口座の用途分析（1〜3文）","counts":{"high":整数,"mid":整数,"low":整数},"note":"全体の重要所見（未収債権・簿外資産・名義預金の示唆等。無ければ空文字）"},"flags":[{"date":"YYYY-MM-DD","amount":数値,"dir":"in または out","desc":"摘要","risk":"high|mid|low","tags":["高額入金/死亡後取引/財産関連取引/生前贈与/名義預金/その他 等"],"reason":"確認対象とした理由","questions":["確認事項1","確認事項2"],"action":"推奨対応"}],"patterns":[{"risk":"high|mid|low","name":"反復入金/定期出金 等","detail":"検出内容","reason":"確認が必要な理由","questions":["確認事項"]}],"leads":[{"category":"insurance|securities|land|building|unlisted|cash|other|debt|funeral|gift|retirement のいずれか","categoryLabel":"財産の種類の日本語","title":"推定される財産・契約（例：日本生命の保険契約の可能性）","confidence":"high|mid|low","evidence":"根拠となる通帳の動き","prefillName":"財産一覧に入れる名称（例：日本生命）","prefillSub":"区分・種類（あれば。無ければ空文字）","docHint":"取り寄せるべき資料（例：保険証券・支払通知書）"}]}\n【観点の例】保険会社・共済への口座振替→生命保険/損害保険の契約(insurance)。貸金庫使用料→貸金庫(other/中身の確認)。証券会社入出金・配当/分配金→有価証券(securities)。家賃・地代入金や固定資産税引落→不動産(land/building)。借入返済・カード引落→債務(debt)。死亡後の入金→未収債権(other)。定期的な高額出金や孫の学費→生前贈与(gift)。年金/税還付入金→未収金(other)。老人ホーム利用料→小規模宅地の要件確認・未払費用。該当が無ければ空配列。あくまで通帳から読み取れる範囲の推定であり、確度は confidence で示す。';
+// タイムアウト付き fetch（CLAUDE.md 不変条件④）。既定3分。画像PDFの多ページ解析は時間がかかるため。
+function _pbFetch(url, opts, ms){ const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(), ms||180000);
+  return fetch(url, Object.assign({}, opts, {signal:ctl.signal}))
+    .catch(e=>{ if(e&&e.name==='AbortError') throw new Error('AIの応答がタイムアウトしました（'+Math.round((ms||180000)/1000)+'秒）。ページ数を減らすか、もう一度お試しください。'); throw e; })
+    .finally(()=>clearTimeout(to)); }
 async function pbCallAI(user, file, maxTokens){
   const s=(typeof _komonSettings==='function')?_komonSettings():{}; const provider=s.aiProvider||'gemini';
+  const MAXTOK=maxTokens||32000; // 画像PDFはthinkingが枠を食うため大きめに確保（8000だとMAX_TOKENSで空応答になる）
   if(provider==='gemini'){ const key=(s.geminiApiKey||'').trim()||_suiteGeminiKey(); if(!key)throw new Error('AIキーが未設定です（ホーム画面の共通設定または顧問先管理の設定で登録してください）'); const model=s.geminiModel||'gemini-2.5-flash';
     const parts=[{text:user}]; if(file) parts.push({inlineData:{mimeType:file.mime,data:file.b64}});
-    const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:_PB_SYS}]},contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:maxTokens||8000,temperature:0.2,responseMimeType:'application/json'}})});
-    if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); const c=j.candidates&&j.candidates[0]; return(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim(); }
+    // thinkingBudget を抑えて本文（JSON）用の枠を確保する
+    const genCfg={maxOutputTokens:MAXTOK,temperature:0.2,responseMimeType:'application/json',thinkingConfig:{thinkingBudget:4096}};
+    const res=await _pbFetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:_PB_SYS}]},contents:[{role:'user',parts:parts}],generationConfig:genCfg})});
+    if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);}
+    const j=await res.json();
+    if(j.promptFeedback&&j.promptFeedback.blockReason) throw new Error('AIが入力を拒否しました（'+j.promptFeedback.blockReason+'）。');
+    const c=j.candidates&&j.candidates[0];
+    const txt=(((c&&c.content&&c.content.parts)||[]).map(p=>p.text||'').join('')||'').trim();
+    if(!txt){ const fr=c&&c.finishReason;
+      if(fr==='MAX_TOKENS') throw new Error('AIの応答が出力上限に達して途中で切れました。通帳のページ数を減らす（例：数ページずつ）か、もう一度お試しください。');
+      throw new Error('AIが空の応答を返しました'+(fr?'（'+fr+'）':'')+'。もう一度お試しください。'); }
+    return txt; }
   const key=(s.claudeApiKey||'').trim(); if(!key)throw new Error('AIキーが未設定です（顧問先管理の設定で登録してください）'); const model=s.claudeModel||'claude-opus-4-8';
   const content=[]; if(file&&file.mime==='application/pdf') content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:file.b64}}); content.push({type:'text',text:user});
-  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:maxTokens||8000,system:_PB_SYS,messages:[{role:'user',content:content}]})});
-  if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);} const j=await res.json(); return(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+  const res=await _pbFetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model,max_tokens:MAXTOK,system:_PB_SYS,messages:[{role:'user',content:content}]})});
+  if(!res.ok){let msg=res.status+'';try{const j=await res.json();msg=(j.error&&j.error.message)||msg;}catch(_){}throw new Error('AI呼び出し失敗: '+msg);}
+  const j=await res.json();
+  const txt=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+  if(!txt){ if(j.stop_reason==='max_tokens') throw new Error('AIの応答が出力上限に達して途中で切れました。通帳のページ数を減らすか、もう一度お試しください。'); throw new Error('AIが空の応答を返しました。もう一度お試しください。'); }
+  return txt;
 }
 function pbParseJSON(txt){ let t=String(txt||'').trim(); t=t.replace(/^```(json)?/i,'').replace(/```$/,'').trim(); const a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a>=0&&b>a) t=t.slice(a,b+1); return JSON.parse(t); }
 
@@ -6386,12 +6406,13 @@ async function pbAnalyze(){
   }catch(e){ toast('ファイル読込に失敗：'+e.message, true); return; }
   const btn=$('pb_analyzeBtn'); const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='AI分析中…（数分かかることがあります）'; }
   try{
-    const out=await pbCallAI(user, file, 8000);
-    let data; try{ data=pbParseJSON(out); }catch(pe){ throw new Error('AIの応答をJSONとして解析できませんでした。もう一度お試しください。'); }
+    const out=await pbCallAI(user, file, 32000);
+    let data; try{ data=pbParseJSON(out); }catch(pe){ throw new Error('AIの応答をJSONとして解析できませんでした（応答が途中で切れた可能性があります）。ページ数を減らすか、もう一度お試しください。'); }
     data.summary=data.summary||{}; data.flags=Array.isArray(data.flags)?data.flags:[]; data.patterns=Array.isArray(data.patterns)?data.patterns:[]; data.leads=Array.isArray(data.leads)?data.leads:[];
     _pb().analyses.unshift({ id:uid(), label:label||'(口座名未指定)', at:todayISO(), data:data });
     cacheCurrentCase(); renderPassbook(); toast('分析が完了しました');
-  }catch(e){ toast('分析に失敗：'+e.message, true); }
+  }catch(e){ toast('分析に失敗：'+e.message, true);
+    const c=$('pbResults'); if(c) c.innerHTML='<div class="card" style="border:1px solid #e0b4b4;background:#fdf0f0;"><b style="color:#c0392b;">分析に失敗しました</b><div style="font-size:13px;margin-top:6px;color:#8a2b2b;">'+esc(e.message)+'</div></div>'; }
   finally{ if(btn){ btn.disabled=false; btn.textContent=old; } }
 }
 function pbRiskChip(r){ const m={high:['高','#c0392b','#fdecea'],mid:['中','#b7791f','#fdf3e2'],low:['低','#2f8a5b','#e9f7ef']}; const x=m[r]||m.low; return '<span style="display:inline-block;font-size:11px;font-weight:700;color:'+x[1]+';background:'+x[2]+';border-radius:4px;padding:1px 8px;">リスク'+x[0]+'</span>'; }
