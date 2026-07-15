@@ -41,16 +41,20 @@ function rowBorder(r: { isSubtotal: boolean; bracket: string }): string {
 
 // 3期PL推移表：当期/前期/前々期で背景の帯を変える（当期を最も濃く、前々期に向かって淡く）。
 // pi=0:当期 / 1:前期 / 2:前々期。段階利益(profit)・小計(group)はさらに濃い版で強調。
+// 配色（案2）：当期＝青で強調／前期＝中間グレー／前々期＝淡グレー。
+// 当期に視線が集中し、色覚に依らず読みやすい定番配色。
 type RowKind = 'normal' | 'group' | 'profit'
 function t3Bg(kind: RowKind, pi: number): string {
-  if (kind === 'profit') return ['#cbdcf7', '#dfe9fb', '#eaf1fd'][pi]
-  if (kind === 'group') return ['#d7e2f2', '#e6ebf2', '#eef1f5'][pi]
-  return ['#eaf3ff', '#ffffff', '#f4f7fb'][pi]
+  const cur = { normal: '#e8f0fe', group: '#d2e3fc', profit: '#c6dafb' }
+  const prev = { normal: '#edeff2', group: '#e1e4e8', profit: '#d8dce1' }
+  const prev2 = { normal: '#f7f8f9', group: '#eff1f2', profit: '#e8eaed' }
+  return [cur, prev, prev2][pi][kind]
 }
 function t3TotBg(kind: RowKind, pi: number): string {
-  if (kind === 'profit') return ['#bfd3f4', '#d4e2f9', '#e4edfb'][pi]
-  if (kind === 'group') return ['#cddaee', '#dde6f1', '#e7ecf3'][pi]
-  return ['#dbe8ff', '#eef4ff', '#e8eef7'][pi]
+  const cur = { normal: '#d2e3fc', group: '#c1d6f7', profit: '#b3ccf4' }
+  const prev = { normal: '#e3e6ea', group: '#d7dbe0', profit: '#ccd1d7' }
+  const prev2 = { normal: '#eef0f1', group: '#e6e8eb', profit: '#dee1e4' }
+  return [cur, prev, prev2][pi][kind]
 }
 
 function NumTh({ children, accent, center, w }: { children: React.ReactNode; accent?: boolean; center?: boolean; w?: number }) {

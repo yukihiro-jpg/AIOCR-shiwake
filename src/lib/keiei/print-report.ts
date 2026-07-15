@@ -633,20 +633,23 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       </tbody>
     </table>
     <div class="note mt1">変動費・固定費の区分は「損益分岐点・FCF分析」タブの設定（既定：売上原価＝変動費、販管費＝固定費）に従います。</div>`
-    // invert=true（仕入債務）は増加が資金にプラスに働くため色を反転する
-    const wcRow = (label: string, close: number, chg: number, invert?: boolean) => {
-      const badUp = invert ? chg < 0 : chg >= 0
-      return `<tr><td>${esc(label)}</td><td class="tr">${esc(num(close - chg))}</td><td class="tr">${esc(num(close))}</td><td class="tr ${badUp ? 'neg' : 'pos'}">${esc(sgnYen(chg))}</td></tr>`
+    // 「現金預金への影響」列: 資産（債権・在庫）は減少＝現金増でプラス、負債（仕入債務）は減少＝現金減でマイナス。
+    // 3行の合計が運転資本行（＝−運転資本の増加）になる。cashEffect = 資産は−Δ、負債は+Δ。
+    const wcRow = (label: string, close: number, chg: number, isLiab?: boolean) => {
+      const eff = isLiab ? chg : -chg // 現金預金への影響
+      return `<tr><td>${esc(label)}</td><td class="tr">${esc(num(close - chg))}</td><td class="tr">${esc(num(close))}</td><td class="tr ${eff >= 0 ? 'pos' : 'neg'}">${esc(sgnYen(eff))}</td></tr>`
     }
+    const wcEffect = -fcf.wcIncrease // 運転資本の増減が現金預金に与える影響（増加＝現金減）
     const wcTable = `<table>
-      <thead><tr><th>運転資本</th><th>期首</th><th>${monthLabel}末</th><th>増減</th></tr></thead>
+      <thead><tr><th>運転資本</th><th>期首</th><th>${monthLabel}末</th><th>現金預金への影響</th></tr></thead>
       <tbody>
         ${wcRow('売上債権（受手・売掛）', wc.recv, fcf.recvChg)}
         ${wcRow('棚卸資産（在庫）', wc.inv, fcf.invChg)}
         ${wcRow('仕入債務（買掛・支手）', wc.pay, fcf.payChg, true)}
-        <tr class="em"><td>運転資本（債権＋在庫−債務）</td><td class="tr">${esc(num(fcf.wcOpen))}</td><td class="tr">${esc(num(fcf.wcClose))}</td><td class="tr ${fcf.wcIncrease >= 0 ? 'neg' : 'pos'}">${esc(sgnYen(fcf.wcIncrease))}</td></tr>
+        <tr class="em"><td>運転資本（債権＋在庫−債務）</td><td class="tr">${esc(num(fcf.wcOpen))}</td><td class="tr">${esc(num(fcf.wcClose))}</td><td class="tr ${wcEffect >= 0 ? 'pos' : 'neg'}">${esc(sgnYen(wcEffect))}</td></tr>
       </tbody>
     </table>
+    <div class="note mt1">「現金預金への影響」＝ 売上債権・棚卸資産は<b>減れば＋（現金化）</b>、仕入債務は<b>減れば−（支払で流出）</b>。3行の合計が運転資本の行（現金への影響合計）になります。</div>
     <div class="txt mt1"><b>→ 結論：</b>${esc(
       fcf.wcIncrease > 0
         ? `運転資本が期首から ${fmtShort(fcf.wcIncrease)} 増えたため、その分だけ現金預金が減る要因になりました。売掛金・在庫という「立て替え」にお金が回っており、利益が出ていてもこの分は手元の現金になっていません（売掛金の早期回収・在庫圧縮が改善余地です）。`
@@ -658,12 +661,13 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const cf = cashflow
     const bigResidual = Math.abs(cf.residual) > 2_000_000
     const shortLabel = (l: string) => l.replace(/（[^）]*）/g, '').trim()
-    // 印刷は1枚に収めるため、投資CFの固定資産明細は純額1行にまとめる（減価償却の調整行は残す）
+    // 印刷は1枚に収めるため、投資CFの固定資産は純額1行に集約する。
+    // 減価償却費の調整（非資金）も純額に織り込み（＝簿価純増減−減価償却＝実際の設備投資・売却）、
+    // 表に「減価償却費」が二重に出て紛らわしくならないようにする（減価償却は営業CFの1か所のみ表示）。
     const cfPrintSections = cf.sections.map((sec) => {
       if (sec.key !== 'inv') return sec
-      const dep = sec.items.find((it) => it.label.includes('減価償却費の調整'))
-      const rest = sec.items.filter((it) => it !== dep).reduce((s, it) => s + it.amount, 0)
-      return { ...sec, items: [{ label: '固定資産の取得・売却（純額）', amount: rest }, ...(dep ? [dep] : [])] }
+      const net = sec.items.reduce((s, it) => s + it.amount, 0)
+      return { ...sec, items: [{ label: '固定資産の取得・売却（純額・減価償却控除後）', amount: net }] }
     })
     const cfRows = cfPrintSections.map((sec) => `
       <tr class="em"><td>${esc(sec.title)}</td><td class="tr${sec.subtotal < 0 ? ' neg' : ''}">${esc(num(sec.subtotal))}</td></tr>
@@ -805,8 +809,15 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const orderRows = merged.filter((r) => !/繰越利益剰余金/.test(r.name))
     const cumOf = (row: AggRow | undefined) => { if (!row) return null; let s = 0; for (let i = 0; i <= monthIdx; i++) s += row.monthly[i] ?? 0; return s }
     const t3n = (n: number | null) => n == null ? '—' : (!n ? '0' : (n < 0 ? '△' : '') + Math.abs(Math.round(n)).toLocaleString('ja-JP'))
-    const bandBg = (k: 'p' | 'g' | 'n', pi: number) => k === 'p' ? ['#cbdcf7', '#dfe9fb', '#eaf1fd'][pi] : k === 'g' ? ['#d7e2f2', '#e6ebf2', '#eef1f5'][pi] : ['#eaf3ff', '#ffffff', '#f4f7fb'][pi]
-    const totBand = (k: 'p' | 'g' | 'n', pi: number) => k === 'p' ? ['#bfd3f4', '#d4e2f9', '#e4edfb'][pi] : k === 'g' ? ['#cddaee', '#dde6f1', '#e7ecf3'][pi] : ['#dbe8ff', '#eef4ff', '#e8eef7'][pi]
+    // 配色（案2）：当期＝青で強調／前期＝中間グレー／前々期＝淡グレー
+    const bandBg = (k: 'p' | 'g' | 'n', pi: number) => {
+      const cur = { p: '#c6dafb', g: '#d2e3fc', n: '#e8f0fe' }, prev = { p: '#d8dce1', g: '#e1e4e8', n: '#edeff2' }, prev2 = { p: '#e8eaed', g: '#eff1f2', n: '#f7f8f9' }
+      return [cur, prev, prev2][pi][k]
+    }
+    const totBand = (k: 'p' | 'g' | 'n', pi: number) => {
+      const cur = { p: '#b3ccf4', g: '#c1d6f7', n: '#d2e3fc' }, prev = { p: '#ccd1d7', g: '#d7dbe0', n: '#e3e6ea' }, prev2 = { p: '#dee1e4', g: '#e6e8eb', n: '#eef0f1' }
+      return [cur, prev, prev2][pi][k]
+    }
     const LINE = '#4b5563', THICK = '#1f2937'
     // 科目ごとに tbody でまとめ（改ページで当期/前期/前々期の3行が分断されない）
     let bodyGroups = ''
