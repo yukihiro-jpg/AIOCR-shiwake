@@ -1999,9 +1999,11 @@ function effSurcharge(h){ return autoSurcharge(h); }
 function switchView(view){
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
   document.querySelectorAll('.view').forEach(v=>{ let on=(v.id==='view-'+view); if(view==='plan'&&(v.id==='view-agreement'||v.id==='view-simulation')) on=true; v.classList.toggle('active',on); });
-  const asn=$('assetSubNav'); if(asn) asn.classList.toggle('open', view==='assets');
+  // 財産一覧のサブメニュー（各財産・債務）は案件を開いている間は常時表示する
+  const asn=$('assetSubNav'); if(asn) asn.classList.toggle('open', !!currentCase);
   const na=$('navAssets'); if(na) na.classList.toggle('active', view==='assets');
-  if(view==='assets'){ renderAssetNav(); renderAssetDetail(); renderSummary(); }
+  if(currentCase) renderAssetNav();
+  if(view==='assets'){ renderAssetDetail(); renderSummary(); }
   if(view==='plan'){ renderAgreement(); renderSimulation(); }
   if(view==='secondary'){ renderSecondary(); }
   if(view==='savings'){ renderSavings(); }
@@ -2551,6 +2553,7 @@ function renderAssetNav(){
   currentCase.assets.forEach(a=>{ subs[a.category]=(subs[a.category]||0)+assetVal(a); });
   const list=assetNavList();
   const sub=$('assetSubNav');
+  if(sub) sub.classList.add('open'); // 案件を開いている間は常時表示（財産一覧を選ばなくても各財産・債務を出す）
   if(sub) sub.innerHTML=list.map(t=>'<button class="nav-subitem'+(t.key===currentAssetCat?' active':'')+'" onclick="gotoAssetCat(\''+t.key+'\')"><span class="si-ic"><i class="cdot" style="background:'+t.color+'"></i></span>'+t.name+'<span class="si-amt">'+(t.key!=='movement'&&subs[t.key]?(t.sign<0?'−':'')+num(subs[t.key]).toLocaleString('ja-JP'):'')+'</span></button>').join('');
 }
 function gotoAssetCat(key){ switchView('assets'); selectAssetCat(key); }
