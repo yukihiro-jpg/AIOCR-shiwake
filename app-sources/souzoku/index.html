@@ -2563,6 +2563,7 @@ function renderAssetDetail(){
     c.innerHTML='<div class="detail-head"><div class="ic" style="background:'+MOVEMENT_META.color+'"></div><h2>'+MOVEMENT_META.name+'</h2></div>'
       +movementTableHtml()
       +'<div class="detail-note">この表は資金移動の確認用で、財産分割や税額計算には反映されません。現金預貯金で登録した口座のうち、現金・定期預金・貯蓄預金を除く口座（普通預金・通常貯金・当座預金 等）が自動で列に表示されます。各口座の入出金を記録し、口座間の資金移動や、相続財産に計上すべき過去の入出金（名義預金・生前贈与・直前引出し等）が無いかをご確認ください。日付は「R3.1.6」のように自由入力できます。</div>';
+    enhanceMovementScroll();
     return;
   }
   const t=ASSET_BY_KEY[currentAssetCat];
@@ -2608,6 +2609,18 @@ function enhanceAssetDnd(){
       tr.insertBefore(td,tr.firstChild);
     });
   });
+}
+// 異動一覧表は横スクロール＋日付列が sticky。入力欄をクリックすると、ブラウザが
+// sticky 列の裏から入力欄を出そうと横スクロールし「画面が一瞬スライドして別のセルが選択される」ことがある。
+// ポインタ操作で focus した時だけ、その直前のスクロール位置に戻して不要なスライドを打ち消す
+// （キーボードTab移動時は従来どおりスクロールして入力欄を表示する）。
+function enhanceMovementScroll(){
+  const box=($('assetDetail')||document).querySelector('.dtbl-wrap'); if(!box) return;
+  let ptr=false, sl=0, st=0;
+  box.addEventListener('pointerdown', function(){ ptr=true; sl=box.scrollLeft; st=box.scrollTop; }, true);
+  box.addEventListener('focusin', function(){ if(!ptr) return; ptr=false; const x=sl, y=st;
+    requestAnimationFrame(function(){ box.scrollLeft=x; box.scrollTop=y; }); });
+  box.addEventListener('pointercancel', function(){ ptr=false; }, true);
 }
 // 金融資産異動一覧表
 // 金融資産異動一覧表に表示する口座：現金・預貯金のうち「現金・定期預金・貯蓄預金」以外で、内容（金融機関名・口座番号・残高のいずれか）が登録されているもの
