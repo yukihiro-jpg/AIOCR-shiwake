@@ -4663,6 +4663,9 @@ function downloadShindanPDF(){
   ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; const items=currentCase.assets.filter(a=>a.category===t.key); if(!items.length) return; const sg=t.sign<0?-1:1;
     divBody+='<tr><td>'+t.name+'</td>'+heirs.map(h=>{const s=items.reduce((x,a)=>x+amtOf(a,h.id)*sg,0); return '<td class="r">'+(s<0?'△'+yen(-s):yen(s))+'</td>';}).join('')+'</tr>';
   });
+  { const cbh=currentCase.compByHeir||{}; if(heirs.some(h=>num(cbh[h.id])!==0)){
+    divBody+='<tr><td>代償金の授受（支払△／受取）</td>'+heirs.map(h=>{const s=num(cbh[h.id]); return '<td class="r">'+(s<0?'△'+yen(-s):(s>0?yen(s):'－'))+'</td>';}).join('')+'</tr>';
+  } }
   divBody+='<tr class="tot"><td>純財産 合計</td>'+heirs.map(h=>'<td class="r">'+yen(totals[h.id])+'</td>').join('')+'</tr>';
   divBody+='<tr><td>納付すべき相続税額</td>'+heirs.map(h=>'<td class="r">△'+yen(Math.max(0,r.ph[h.id].final))+'</td>').join('')+'</tr>';
 
@@ -4861,6 +4864,8 @@ async function downloadShindanExcel(){
   const divRows=[];
   ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; const items=currentCase.assets.filter(a=>a.category===t.key); if(!items.length) return; const sg=t.sign<0?-1:1;
     divRows.push({cells:[t.name].concat(heirs.map(h=>items.reduce((x,a)=>x+amtOf(a,h.id)*sg,0)))}); });
+  { const cbh=currentCase.compByHeir||{}; if(heirs.some(h=>num(cbh[h.id])!==0)){
+    divRows.push({cells:['代償金の授受（支払△／受取）'].concat(heirs.map(h=>num(cbh[h.id])))}); } }
   divRows.push({cells:['純財産 合計'].concat(heirs.map(h=>totals[h.id])),kind:'tot'});
   divRows.push({cells:['納付すべき相続税額'].concat(heirs.map(h=>Math.max(0,r.ph[h.id].final))),kind:'sub'});
   addTable(w4,['種類'].concat(heirs.map(h=>h.name||'')),divRows,heirs.map((h,i)=>i+2));
