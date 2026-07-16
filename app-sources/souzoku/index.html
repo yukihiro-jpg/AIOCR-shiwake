@@ -4696,6 +4696,7 @@ function downloadShindanPDF(){
     let rows='';
     ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
+    { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows+='<tr><td>代償金</td><td>'+(cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金')+'</td><td class="r">'+(cb<0?'△'+yen(-cb):yen(cb))+'</td></tr>'; } }
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
     heirDetail+='<h3 class="blk">'+esc(h.name||'')+' 様（'+relDisp(h)+'）　純財産合計：'+yen(totals[h.id])+'</h3>'
       +'<table class="t hd"><thead><tr><th>種類</th><th>明細</th><th class="r">取得額</th></tr></thead><tbody>'+rows+'</tbody></table>';
@@ -4877,6 +4878,7 @@ async function downloadShindanExcel(){
     const rows=[];
     ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; const sg=t.sign<0?-1:1; rows.push({cells:[t.name,assetDesc(a),sval(amt,sg)]}); }); });
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows.push({cells:['生前贈与',assetDesc(a),assetVal(a)]}); });
+    { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows.push({cells:['代償金',cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金',cb]}); } }
     if(!rows.length) rows.push({cells:['','取得財産はありません','']});
     addTable(w5,['種類','明細','取得額'],rows,[3]);
     w5.addRow([]);
