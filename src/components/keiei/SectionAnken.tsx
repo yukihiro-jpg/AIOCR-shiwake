@@ -158,25 +158,75 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
     w.document.open(); w.document.write(html); w.document.close()
   }, [groups, company, data.closingMonth])
 
-  // ---------- Excel出力（事業年度ごとにシート） ----------
+  // ---------- Excel出力（事業年度ごとにシート・罫線/背景色/Noto Sans JP） ----------
   const downloadExcel = useCallback(async () => {
-    const XLSX = await import('xlsx')
-    const wb = XLSX.utils.book_new()
+    const ExcelJS = (await import('exceljs')).default
+    const FONT = 'Noto Sans JP'
+    const NAVY = 'FF1F3A5F', INK = 'FF243042', SUBTX = 'FF5B6675'
+    const HEADFILL = 'FF1F3A5F', ZEBRA = 'FFF6F8FB', TOTALFILL = 'FFE7EDF5', GRID = 'FFD3DAE3'
+    const border = () => { const s = { style: 'thin' as const, color: { argb: GRID } }; return { top: s, bottom: s, left: s, right: s } }
+    const headers = ['物件名', '契約者', '所在地', '構造及び規模', '契約日', '契約期間', '報酬額(税込)', '報酬額(税抜)', '申請手数料', '外注費', '粗利額', '外注先']
+    const widths = [30, 22, 26, 20, 12, 22, 14, 14, 12, 12, 13, 24]
+    const isNum = (c: number) => c >= 7 && c <= 11 // 1-based: 税込〜粗利
+    const isCenter = (c: number) => c === 5 || c === 6 // 契約日・契約期間
+    const isWrap = (c: number) => c === 1 || c === 3 || c === 4 || c === 12
+    const wb = new ExcelJS.Workbook()
     for (const grp of groups) {
-      const rows: (string | number)[][] = [
-        ['物件名', '契約者', '所在地', '構造及び規模', '契約日', '契約期間', '報酬額(税込)', '報酬額(税抜)', '申請手数料', '外注費', '粗利額', '外注先'],
-        ...grp.items.map((it) => [
+      const ws = wb.addWorksheet(grp.label.replace(/[\\/?*[\]:]/g, '').slice(0, 31), { views: [{ state: 'frozen', ySplit: 3 }] })
+      ws.columns = widths.map((w) => ({ width: w }))
+      // タイトル
+      const title = ws.addRow([`${company}　案件台帳（設計業務）　${grp.label}`])
+      ws.mergeCells(1, 1, 1, headers.length)
+      title.getCell(1).font = { name: FONT, size: 14, bold: true, color: { argb: NAVY } }
+      title.height = 24
+      const sub = ws.addRow([`${grp.items.length}件　／　決算月 ${data.closingMonth}月　／　報酬額(税込)＝契約書の報酬額、報酬額(税抜)＝内消費税控除後の売上高`])
+      ws.mergeCells(2, 1, 2, headers.length)
+      sub.getCell(1).font = { name: FONT, size: 9, color: { argb: SUBTX } }
+      // ヘッダ
+      const head = ws.addRow([...headers])
+      head.height = 22
+      head.eachCell((c) => {
+        c.font = { name: FONT, size: 9.5, bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } }
+        c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+        c.border = border()
+      })
+      // データ行（ゼブラ）
+      grp.items.forEach((it, i) => {
+        const r = ws.addRow([
           it.bukken, it.keiyakusha, it.shozaichi, it.kozo, fmtDate(it.keiyakuDate), periodText(it),
           it.hoshuGross, it.hoshuNet, it.tesuryo, gaichuTotal(it), arari(it), it.gaichu.map((x) => x.name).join('、'),
-        ]),
-        ['合計', '', '', '', '', '', grp.totalHoshuGross, grp.totalHoshu, grp.totalTesuryo, grp.totalGaichu, grp.totalArari, ''],
-      ]
-      const ws = XLSX.utils.aoa_to_sheet(rows)
-      ws['!cols'] = [{ wch: 34 }, { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 11 }, { wch: 22 }, { wch: 13 }, { wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 13 }, { wch: 24 }]
-      XLSX.utils.book_append_sheet(wb, ws, grp.label.replace(/[\\/?*[\]:]/g, '').slice(0, 31))
+        ])
+        for (let c = 1; c <= headers.length; c++) {
+          const cell = r.getCell(c)
+          cell.font = { name: FONT, size: 9.5, bold: c === 1, color: { argb: c === 1 ? NAVY : INK } }
+          cell.border = border()
+          cell.alignment = { vertical: 'top', horizontal: isNum(c) ? 'right' : isCenter(c) ? 'center' : 'left', wrapText: isWrap(c) }
+          if (isNum(c)) cell.numFmt = '#,##0'
+          if (i % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ZEBRA } }
+        }
+      })
+      // 合計行
+      const tot = ws.addRow(['合計（' + grp.label + '）', '', '', '', '', '', grp.totalHoshuGross, grp.totalHoshu, grp.totalTesuryo, grp.totalGaichu, grp.totalArari, ''])
+      ws.mergeCells(tot.number, 1, tot.number, 6)
+      for (let c = 1; c <= headers.length; c++) {
+        const cell = tot.getCell(c)
+        cell.font = { name: FONT, size: 9.5, bold: true, color: { argb: NAVY } }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTALFILL } }
+        cell.border = border()
+        cell.alignment = { vertical: 'middle', horizontal: isNum(c) ? 'right' : 'left' }
+        if (isNum(c)) cell.numFmt = '#,##0'
+      }
     }
-    XLSX.writeFile(wb, `案件台帳_${company}.xlsx`)
-  }, [groups, company])
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `案件台帳_${company}.xlsx`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }, [groups, company, data.closingMonth])
 
   if (!loaded) return <div className="text-sm text-gray-400 py-8 text-center">読み込み中…</div>
 
