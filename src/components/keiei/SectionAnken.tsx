@@ -32,6 +32,8 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
   const [loaded, setLoaded] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [showPrintPanel, setShowPrintPanel] = useState(false)
+  const [printSel, setPrintSel] = useState<Record<string, boolean>>({}) // 事業年度ラベル→PDF対象か
 
   useEffect(() => {
     let alive = true
@@ -92,85 +94,99 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
     return Array.from(set).sort((a, b) => b - a)
   })()
 
-  // ---------- PDF（新規ウインドウ・月次レポートのコンサル調デザイン） ----------
-  const openPdf = useCallback(() => {
+  // ---------- PDF（新規ウインドウ・アプリ画面と同じデザイン。選択した事業年度のみ） ----------
+  const openPdf = useCallback((targetGroups: AnkenYearGroup[]) => {
+    if (!targetGroups.length) { setErr('PDFにする事業年度を1つ以上選んでください。'); return }
     const now = new Date()
     const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
-    const gHtml = groups.map((grp) => `
-  <section class="grp">
-    <h2>${esc(grp.label)}<span class="cnt">${grp.items.length}件</span></h2>
-    <table>
-      <colgroup>
-        <col style="width:17%"><col style="width:20%"><col style="width:8%"><col style="width:14%">
-        <col style="width:10%"><col style="width:10%"><col style="width:7%"><col style="width:6%"><col style="width:8%">
-      </colgroup>
-      <thead><tr>
-        <th class="tl">物件名／契約者</th><th class="tl">所在地・構造及び規模</th><th class="tc">契約日</th><th class="tc">契約期間</th>
-        <th class="tr">報酬額(税込)</th><th class="tr">報酬額(税抜)</th><th class="tr">申請手数料</th><th class="tr">外注費</th><th class="tr">粗利額</th>
-      </tr></thead>
-      <tbody>
-        ${grp.items.map((it) => `<tr>
-          <td class="tl"><div class="nm">${esc(it.bukken)}</div><div class="sub">${esc(it.keiyakusha)}</div></td>
-          <td class="tl"><div>${esc(it.shozaichi)}</div><div class="sub">${esc(it.kozo)}</div>${it.gaichu.length ? `<div class="sub">外注: ${it.gaichu.map((x) => esc(x.name)).join('、')}</div>` : ''}</td>
-          <td class="tc">${fmtDate(it.keiyakuDate)}</td>
-          <td class="tc">${esc(periodText(it))}</td>
-          <td class="tr">${it.hoshuGross.toLocaleString()}</td>
-          <td class="tr">${it.hoshuNet.toLocaleString()}</td>
-          <td class="tr">${it.tesuryo ? it.tesuryo.toLocaleString() : ''}</td>
-          <td class="tr">${gaichuTotal(it) ? gaichuTotal(it).toLocaleString() : ''}</td>
-          <td class="tr">${arari(it).toLocaleString()}</td>
-        </tr>`).join('')}
-        <tr class="total">
-          <td class="tl" colspan="4">合計（${esc(grp.label)}）</td>
-          <td class="tr">${grp.totalHoshuGross.toLocaleString()}</td>
-          <td class="tr">${grp.totalHoshu.toLocaleString()}</td>
-          <td class="tr">${grp.totalTesuryo.toLocaleString()}</td>
-          <td class="tr">${grp.totalGaichu.toLocaleString()}</td>
-          <td class="tr">${grp.totalArari.toLocaleString()}</td>
-        </tr>
-      </tbody>
-    </table>
-  </section>`).join('')
+    const money = (n: number) => `¥${Math.abs(Math.round(n)).toLocaleString('ja-JP')}`
+    // 1事業年度＝1ページ。各ページの先頭にヘッダ（案件台帳（設計業務）＋会社名）を表示する
+    const pages = targetGroups.map((grp) => `
+  <div class="page">
+    <div class="card head">
+      <div class="h-title">案件台帳（設計業務）</div>
+      <div class="h-sub"><b>${esc(company)}</b> 御中　／　決算月 ${data.closingMonth}月　／　作成日 ${dateStr}</div>
+    </div>
+    <div class="card">
+      <div class="sec-head"><span class="sec-title">${esc(grp.label)}</span><span class="sec-note">${grp.items.length}件</span></div>
+      <table class="app-table">
+        <colgroup>
+          <col style="width:16%"><col style="width:19%"><col style="width:8%"><col style="width:13%">
+          <col style="width:10%"><col style="width:10%"><col style="width:8%"><col style="width:7%"><col style="width:9%">
+        </colgroup>
+        <thead><tr>
+          <th class="tl">物件名／契約者</th><th class="tl">所在地・構造及び規模</th><th class="tc">契約日</th><th class="tc">契約期間</th>
+          <th class="tr">報酬額(税込)</th><th class="tr">報酬額(税抜)</th><th class="tr">申請手数料</th><th class="tr">外注費</th><th class="tr">粗利額</th>
+        </tr></thead>
+        <tbody>
+          ${grp.items.map((it) => `<tr>
+            <td class="tl"><div class="nm">${esc(it.bukken)}</div><div class="s1">${esc(it.keiyakusha)}</div></td>
+            <td class="tl"><div class="c7">${esc(it.shozaichi)}</div><div class="s2">${esc(it.kozo)}</div>${it.gaichu.length ? `<div class="amber">外注: ${it.gaichu.map((x) => esc(x.name) + (x.amount ? ` ${money(x.amount)}` : '')).join('、')}</div>` : ''}${it.biko ? `<div class="s2">備考: ${esc(it.biko)}</div>` : ''}</td>
+            <td class="tc">${fmtDate(it.keiyakuDate)}</td>
+            <td class="tc">${esc(periodText(it))}</td>
+            <td class="tr">${money(it.hoshuGross)}</td>
+            <td class="tr">${money(it.hoshuNet)}</td>
+            <td class="tr gray">${it.tesuryo ? money(it.tesuryo) : '—'}</td>
+            <td class="tr gray">${gaichuTotal(it) ? money(gaichuTotal(it)) : '—'}</td>
+            <td class="tr bold">${money(arari(it))}</td>
+          </tr>`).join('')}
+          <tr class="total">
+            <td class="tl" colspan="4">合計（${esc(grp.label)}）</td>
+            <td class="tr">${money(grp.totalHoshuGross)}</td>
+            <td class="tr">${money(grp.totalHoshu)}</td>
+            <td class="tr">${money(grp.totalTesuryo)}</td>
+            <td class="tr">${money(grp.totalGaichu)}</td>
+            <td class="tr">${money(grp.totalArari)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>`).join('')
     const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
 <title>案件台帳_${esc(company)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #243042; padding: 24px; font-size: 11px; }
-  .eyebrow { font-size: 10px; letter-spacing: 4px; color: #c8a24b; font-weight: 700; }
-  h1 { font-size: 24px; font-weight: 800; color: #1f3a5f; letter-spacing: 2px; margin: 2px 0; }
-  .sub { color: #5b6675; }
-  .head-sub { font-size: 12px; color: #5b6675; }
-  .rule { height: 3px; margin: 10px 0 18px; background: linear-gradient(90deg,#1f3a5f 0%,#1f3a5f 72%,#c8a24b 72%,#c8a24b 100%); }
-  .grp { margin-bottom: 20px; break-inside: avoid-page; }
-  .grp h2 { font-size: 14px; font-weight: 800; color: #1f3a5f; border-left: 5px solid #c8a24b; border-bottom: 2px solid #1f3a5f; padding: 0 0 5px 10px; margin-bottom: 8px; }
-  .grp h2 .cnt { font-size: 11px; color: #5b6675; font-weight: 500; margin-left: 10px; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  thead th { background: #1f3a5f; color: #fff; font-weight: 700; padding: 5px 6px; border: 1px solid #1f3a5f; font-size: 10px; }
-  td { padding: 5px 6px; border: 1px solid #d3dae3; vertical-align: top; word-break: break-word; }
-  tbody tr:nth-child(even) td { background: #f6f8fb; }
-  tr.total td { background: #e7edf5; font-weight: 800; color: #1f3a5f; }
-  .tl { text-align: left; } .tr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; } .tc { text-align: center; }
-  .nm { font-weight: 700; }
-  td .sub { font-size: 9.5px; color: #7b8698; margin-top: 1px; }
-  .note { font-size: 9.5px; color: #7b8698; margin-top: 14px; line-height: 1.7; }
-  .toolbar { margin-bottom: 14px; }
-  .toolbar button { padding: 8px 18px; font-size: 13px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: #1f3a5f; color: #fff; }
-  @media print { .toolbar { display: none; } body { padding: 0; } @page { size: A4 landscape; margin: 12mm 10mm; } }
+  body { font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; color: #1f2937; background: #f3f4f6; padding: 20px; font-size: 12px; }
+  .toolbar { margin-bottom: 16px; }
+  .toolbar button { padding: 8px 18px; font-size: 13px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: #1a73e8; color: #fff; }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+  .card { background: #fff; border: 1px solid #f3f4f6; border-radius: 16px; box-shadow: 0 3px 10px rgba(26,115,232,0.06); padding: 20px; margin-bottom: 16px; }
+  .head { padding: 18px 20px; }
+  .h-title { font-size: 18px; font-weight: 800; color: #1f2937; }
+  .h-sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
+  .sec-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .sec-title { font-size: 14px; font-weight: 700; color: #1f2937; }
+  .sec-note { font-size: 11px; color: #9ca3af; }
+  table.app-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+  .app-table thead tr { background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+  .app-table thead th { color: #6b7280; font-weight: 500; padding: 8px; }
+  .app-table tbody td { padding: 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; word-break: break-word; }
+  .tl { text-align: left; } .tc { text-align: center; } .tr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .nm { font-weight: 700; color: #1f2937; }
+  .s1 { font-size: 11px; color: #6b7280; margin-top: 1px; }
+  .s2 { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+  .c7 { color: #374151; }
+  .amber { font-size: 11px; color: #b45309; margin-top: 2px; }
+  .gray { color: #6b7280; } .bold { font-weight: 700; color: #1f2937; }
+  tr.total td { background: #f0f4fa; font-weight: 700; color: #1F3A5F; border-bottom: none; }
+  .note { font-size: 10px; color: #9ca3af; line-height: 1.7; padding: 0 4px; }
+  @media print {
+    .toolbar { display: none; }
+    body { padding: 0; background: #fff; }
+    .card { box-shadow: none; border: 1px solid #e5e7eb; }
+    @page { size: A4 landscape; margin: 12mm 10mm; }
+  }
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button></div>
-  <div class="eyebrow">PROJECT LEDGER</div>
-  <h1>案件台帳（設計業務）</h1>
-  <div class="head-sub"><b>${esc(company)}</b> 御中　／　決算月 ${data.closingMonth}月　／　作成日 ${dateStr}</div>
-  <div class="rule"></div>
-  ${gHtml}
-  <div class="note">※ 事業年度は履行期間の終了日（未記載の場合は契約日）を基準に、決算月${data.closingMonth}月で区切って判定しています。<br>
-  ※ 報酬額(税込)は契約書の報酬額。報酬額(税抜)はそこから（内）消費税を控除した金額で、売上高に計上されます。申請手数料は立替金の回収であり売上高には含まれません。<br>
-  ※ 外注費は契約管理表の「業務の一部委託」で受託者の氏名・名称が記載されているものの金額合計。粗利額＝報酬額（税抜）−外注費。</div>
+  ${pages}
+  <div class="note">※ 事業年度は履行期間の終了日（未記載の場合は契約日）を基準に、決算月${data.closingMonth}月で区切って判定しています（手動で移動した案件を含む）。
+  報酬額(税込)は契約書の報酬額、報酬額(税抜)はそこから（内）消費税を控除した売上高、申請手数料は立替（売上高ではありません）、粗利額＝報酬額（税抜）−外注費。</div>
 </body></html>`
     const w = window.open('', '_blank')
     if (!w) { setErr('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return }
     w.document.open(); w.document.write(html); w.document.close()
-  }, [groups, company, data.closingMonth])
+  }, [company, data.closingMonth])
 
   // ---------- Excel出力（事業年度ごとにシート・罫線/背景色/Noto Sans JP） ----------
   const downloadExcel = useCallback(async () => {
@@ -262,11 +278,39 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
           </label>
           {data.items.length > 0 && (
             <div className="ml-auto flex gap-2">
-              <button onClick={openPdf} className="px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110">🖨 PDF（新しいウインドウ）</button>
+              <button onClick={() => setShowPrintPanel((v) => !v)} className="px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110">🖨 PDF印刷（事業年度を選択）</button>
               <button onClick={downloadExcel} className="px-3 py-1.5 text-xs bg-[#1a7f37] text-white rounded-lg font-bold hover:brightness-110">📥 Excelダウンロード</button>
             </div>
           )}
         </div>
+
+        {showPrintPanel && data.items.length > 0 && (
+          <div className="mb-3 p-3 border border-[#1F3A5F]/20 bg-[#1F3A5F]/5 rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-bold text-[#1F3A5F]">PDFにする事業年度を選択</div>
+              <div className="flex gap-2">
+                <button onClick={() => setPrintSel(Object.fromEntries(groups.map((g) => [g.label, true])))} className="text-[11px] text-[#1a73e8] hover:underline">すべて選択</button>
+                <button onClick={() => setPrintSel(Object.fromEntries(groups.map((g) => [g.label, false])))} className="text-[11px] text-gray-500 hover:underline">選択解除</button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {groups.map((g) => {
+                const on = printSel[g.label] ?? true
+                return (
+                  <label key={g.label} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border cursor-pointer text-xs ${on ? 'bg-white border-[#1F3A5F] text-[#1F3A5F] font-semibold' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
+                    <input type="checkbox" checked={on} onChange={(e) => setPrintSel((s) => ({ ...s, [g.label]: e.target.checked }))} />
+                    {g.label}<span className="text-gray-400 font-normal">（{g.items.length}件）</span>
+                  </label>
+                )
+              })}
+            </div>
+            <button
+              onClick={() => openPdf(groups.filter((g) => printSel[g.label] ?? true))}
+              className="px-4 py-2 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110">
+              🖨 選択した事業年度をPDF印刷（新しいウインドウ）
+            </button>
+          </div>
+        )}
         <div className="text-[11px] text-gray-400 leading-relaxed">
           同じ物件名・契約者の案件は同一案件として上書き取込します（同じファイルへの追記運用に対応）。
           事業年度は履行期間の終了日（未記載は契約日）を決算月で区切って自動判定します。
