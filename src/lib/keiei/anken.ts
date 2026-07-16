@@ -18,6 +18,7 @@ export interface AnkenItem {
   keiyakuDate: string | null // 契約日 YYYY-MM-DD
   periodStart: string | null // 履行期間 開始
   periodEnd: string | null // 履行期間 終了
+  hoshuGross: number // 報酬額（税込＝契約書の報酬額）
   hoshuNet: number // 報酬額（税抜）
   tesuryo: number // 申請手数料（立替。売上高ではない）
   gaichu: AnkenGaichu[] // 外注（受託者名の入力がある委託のみ）
@@ -181,7 +182,7 @@ function parseBlock(g: Grid, r0: number, c0: number, rEnd: number): AnkenItem | 
   if (!bukken && !keiyakusha && !hoshuGross) return null
 
   const key = `${normKey(bukken)}|${normKey(keiyakusha)}`
-  return { key, bukken, keiyakusha, shozaichi, kozo, keiyakuDate, periodStart, periodEnd, hoshuNet, tesuryo, gaichu, biko }
+  return { key, bukken, keiyakusha, shozaichi, kozo, keiyakuDate, periodStart, periodEnd, hoshuGross, hoshuNet, tesuryo, gaichu, biko }
 }
 
 /** RTDB/localStorage から読み込んだ案件データの正規化。
@@ -203,6 +204,8 @@ export function normalizeAnkenItems(raw: unknown): AnkenItem[] {
       keiyakuDate: it.keiyakuDate || null,
       periodStart: it.periodStart || null,
       periodEnd: it.periodEnd || null,
+      // 税込は後から追加したフィールド。旧データに無い場合は税抜で代替（再取込で正確な税込に更新される）
+      hoshuGross: Number(it.hoshuGross) || Number(it.hoshuNet) || 0,
       hoshuNet: Number(it.hoshuNet) || 0,
       tesuryo: Number(it.tesuryo) || 0,
       gaichu: gaichuRaw.filter(Boolean).map((g) => ({
@@ -230,7 +233,8 @@ export interface AnkenYearGroup {
   label: string // 例: 2026年5月期
   fyEndYear: number | null // null = 期判定不能
   items: AnkenItem[]
-  totalHoshu: number
+  totalHoshuGross: number // 報酬額（税込）合計
+  totalHoshu: number // 報酬額（税抜）合計
   totalTesuryo: number
   totalGaichu: number
   totalArari: number
@@ -255,10 +259,11 @@ export function groupByFiscalYear(items: AnkenItem[], closingMonth: number): Ank
     const label = fy == null ? '期判定不能（日付なし）' : `${fy}年${closingMonth}月期`
     let grp = map.get(label)
     if (!grp) {
-      grp = { label, fyEndYear: fy, items: [], totalHoshu: 0, totalTesuryo: 0, totalGaichu: 0, totalArari: 0 }
+      grp = { label, fyEndYear: fy, items: [], totalHoshuGross: 0, totalHoshu: 0, totalTesuryo: 0, totalGaichu: 0, totalArari: 0 }
       map.set(label, grp)
     }
     grp.items.push(it)
+    grp.totalHoshuGross += it.hoshuGross
     grp.totalHoshu += it.hoshuNet
     grp.totalTesuryo += it.tesuryo
     grp.totalGaichu += gaichuTotal(it)

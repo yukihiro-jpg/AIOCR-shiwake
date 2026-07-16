@@ -86,9 +86,13 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
   <section class="grp">
     <h2>${esc(grp.label)}<span class="cnt">${grp.items.length}件</span></h2>
     <table>
+      <colgroup>
+        <col style="width:17%"><col style="width:20%"><col style="width:8%"><col style="width:14%">
+        <col style="width:10%"><col style="width:10%"><col style="width:7%"><col style="width:6%"><col style="width:8%">
+      </colgroup>
       <thead><tr>
         <th class="tl">物件名／契約者</th><th class="tl">所在地・構造及び規模</th><th class="tc">契約日</th><th class="tc">契約期間</th>
-        <th class="tr">報酬額(税抜)</th><th class="tr">申請手数料</th><th class="tr">外注費</th><th class="tr">粗利額</th>
+        <th class="tr">報酬額(税込)</th><th class="tr">報酬額(税抜)</th><th class="tr">申請手数料</th><th class="tr">外注費</th><th class="tr">粗利額</th>
       </tr></thead>
       <tbody>
         ${grp.items.map((it) => `<tr>
@@ -96,6 +100,7 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
           <td class="tl"><div>${esc(it.shozaichi)}</div><div class="sub">${esc(it.kozo)}</div>${it.gaichu.length ? `<div class="sub">外注: ${it.gaichu.map((x) => esc(x.name)).join('、')}</div>` : ''}</td>
           <td class="tc">${fmtDate(it.keiyakuDate)}</td>
           <td class="tc">${esc(periodText(it))}</td>
+          <td class="tr">${it.hoshuGross.toLocaleString()}</td>
           <td class="tr">${it.hoshuNet.toLocaleString()}</td>
           <td class="tr">${it.tesuryo ? it.tesuryo.toLocaleString() : ''}</td>
           <td class="tr">${gaichuTotal(it) ? gaichuTotal(it).toLocaleString() : ''}</td>
@@ -103,6 +108,7 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
         </tr>`).join('')}
         <tr class="total">
           <td class="tl" colspan="4">合計（${esc(grp.label)}）</td>
+          <td class="tr">${grp.totalHoshuGross.toLocaleString()}</td>
           <td class="tr">${grp.totalHoshu.toLocaleString()}</td>
           <td class="tr">${grp.totalTesuryo.toLocaleString()}</td>
           <td class="tr">${grp.totalGaichu.toLocaleString()}</td>
@@ -124,12 +130,12 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
   .grp { margin-bottom: 20px; break-inside: avoid-page; }
   .grp h2 { font-size: 14px; font-weight: 800; color: #1f3a5f; border-left: 5px solid #c8a24b; border-bottom: 2px solid #1f3a5f; padding: 0 0 5px 10px; margin-bottom: 8px; }
   .grp h2 .cnt { font-size: 11px; color: #5b6675; font-weight: 500; margin-left: 10px; }
-  table { width: 100%; border-collapse: collapse; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   thead th { background: #1f3a5f; color: #fff; font-weight: 700; padding: 5px 6px; border: 1px solid #1f3a5f; font-size: 10px; }
-  td { padding: 5px 6px; border: 1px solid #d3dae3; vertical-align: top; }
+  td { padding: 5px 6px; border: 1px solid #d3dae3; vertical-align: top; word-break: break-word; }
   tbody tr:nth-child(even) td { background: #f6f8fb; }
   tr.total td { background: #e7edf5; font-weight: 800; color: #1f3a5f; }
-  .tl { text-align: left; } .tr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; } .tc { text-align: center; white-space: nowrap; }
+  .tl { text-align: left; } .tr { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; } .tc { text-align: center; }
   .nm { font-weight: 700; }
   td .sub { font-size: 9.5px; color: #7b8698; margin-top: 1px; }
   .note { font-size: 9.5px; color: #7b8698; margin-top: 14px; line-height: 1.7; }
@@ -158,15 +164,15 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
     const wb = XLSX.utils.book_new()
     for (const grp of groups) {
       const rows: (string | number)[][] = [
-        ['物件名', '契約者', '所在地', '構造及び規模', '契約日', '契約期間', '報酬額(税抜)', '申請手数料', '外注費', '粗利額', '外注先'],
+        ['物件名', '契約者', '所在地', '構造及び規模', '契約日', '契約期間', '報酬額(税込)', '報酬額(税抜)', '申請手数料', '外注費', '粗利額', '外注先'],
         ...grp.items.map((it) => [
           it.bukken, it.keiyakusha, it.shozaichi, it.kozo, fmtDate(it.keiyakuDate), periodText(it),
-          it.hoshuNet, it.tesuryo, gaichuTotal(it), arari(it), it.gaichu.map((x) => x.name).join('、'),
+          it.hoshuGross, it.hoshuNet, it.tesuryo, gaichuTotal(it), arari(it), it.gaichu.map((x) => x.name).join('、'),
         ]),
-        ['合計', '', '', '', '', '', grp.totalHoshu, grp.totalTesuryo, grp.totalGaichu, grp.totalArari, ''],
+        ['合計', '', '', '', '', '', grp.totalHoshuGross, grp.totalHoshu, grp.totalTesuryo, grp.totalGaichu, grp.totalArari, ''],
       ]
       const ws = XLSX.utils.aoa_to_sheet(rows)
-      ws['!cols'] = [{ wch: 34 }, { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 11 }, { wch: 22 }, { wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 13 }, { wch: 24 }]
+      ws['!cols'] = [{ wch: 34 }, { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 11 }, { wch: 22 }, { wch: 13 }, { wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 13 }, { wch: 24 }]
       XLSX.utils.book_append_sheet(wb, ws, grp.label.replace(/[\\/?*[\]:]/g, '').slice(0, 31))
     }
     XLSX.writeFile(wb, `案件台帳_${company}.xlsx`)
@@ -213,28 +219,42 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
       {groups.map((grp) => (
         <Section key={grp.label} title={grp.label} note={`${grp.items.length}件`}>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
+              {/* 全事業年度で列幅を揃えるため固定レイアウト＋共通の列幅指定 */}
+              <colgroup>
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '19%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '6%' }} />
+                <col style={{ width: '3%' }} />
+              </colgroup>
               <thead>
                 <tr className="text-gray-500 border-b border-gray-200 bg-gray-50">
                   <th className="text-left px-2 py-2 font-medium">物件名／契約者</th>
                   <th className="text-left px-2 py-2 font-medium">所在地・構造及び規模</th>
-                  <th className="text-center px-2 py-2 font-medium whitespace-nowrap">契約日</th>
-                  <th className="text-center px-2 py-2 font-medium whitespace-nowrap">契約期間</th>
-                  <th className="text-right px-2 py-2 font-medium whitespace-nowrap">報酬額(税抜)</th>
-                  <th className="text-right px-2 py-2 font-medium whitespace-nowrap">申請手数料</th>
-                  <th className="text-right px-2 py-2 font-medium whitespace-nowrap">外注費</th>
-                  <th className="text-right px-2 py-2 font-medium whitespace-nowrap">粗利額</th>
-                  <th className="w-8" />
+                  <th className="text-center px-2 py-2 font-medium">契約日</th>
+                  <th className="text-center px-2 py-2 font-medium">契約期間</th>
+                  <th className="text-right px-2 py-2 font-medium">報酬額(税込)</th>
+                  <th className="text-right px-2 py-2 font-medium">報酬額(税抜)</th>
+                  <th className="text-right px-2 py-2 font-medium">申請手数料</th>
+                  <th className="text-right px-2 py-2 font-medium">外注費</th>
+                  <th className="text-right px-2 py-2 font-medium">粗利額</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
                 {grp.items.map((it) => (
                   <tr key={it.key} className="border-b border-gray-100 align-top hover:bg-sky-50/40">
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-2 break-words">
                       <div className="font-bold text-gray-800">{it.bukken}</div>
                       <div className="text-[11px] text-gray-500">{it.keiyakusha}</div>
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-2 break-words">
                       <div className="text-gray-700">{it.shozaichi}</div>
                       <div className="text-[11px] text-gray-400">{it.kozo}</div>
                       {it.gaichu.length > 0 && (
@@ -244,8 +264,9 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
                       )}
                       {it.biko && <div className="text-[11px] text-gray-400 mt-0.5">備考: {it.biko}</div>}
                     </td>
-                    <td className="px-2 py-2 text-center whitespace-nowrap">{fmtDate(it.keiyakuDate)}</td>
-                    <td className="px-2 py-2 text-center whitespace-nowrap">{periodText(it)}</td>
+                    <td className="px-2 py-2 text-center">{fmtDate(it.keiyakuDate)}</td>
+                    <td className="px-2 py-2 text-center">{periodText(it)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(it.hoshuGross)}</td>
                     <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(it.hoshuNet)}</td>
                     <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-gray-500">{it.tesuryo ? fmtYen(it.tesuryo) : '—'}</td>
                     <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-gray-500">{gaichuTotal(it) ? fmtYen(gaichuTotal(it)) : '—'}</td>
@@ -256,7 +277,8 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
                   </tr>
                 ))}
                 <tr className="font-bold bg-[#f0f4fa] text-[#1F3A5F]">
-                  <td className="px-2 py-2" colSpan={4}>合計（{grp.label}）</td>
+                  <td className="px-2 py-2 break-words" colSpan={4}>合計（{grp.label}）</td>
+                  <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(grp.totalHoshuGross)}</td>
                   <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(grp.totalHoshu)}</td>
                   <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(grp.totalTesuryo)}</td>
                   <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{fmtYen(grp.totalGaichu)}</td>
