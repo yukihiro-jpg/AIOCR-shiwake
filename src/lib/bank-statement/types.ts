@@ -1,4 +1,22 @@
 // 通帳の1取引
+// 画像上の参照領域（画像の幅・高さに対する 0〜1 の比率座標）
+export interface NormBox {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+// 1取引が画像上で参照した領域（行全体と各フィールド）。
+// Geminiの行ボックスをローカルで検出した行バンド・文字位置へスナップ補正した結果
+export interface TxRegion {
+  row?: NormBox
+  date?: NormBox
+  description?: NormBox
+  amount?: NormBox // 入金または出金のセル
+  balance?: NormBox
+}
+
 export interface BankTransaction {
   id: string
   pageIndex: number
@@ -9,6 +27,7 @@ export interface BankTransaction {
   withdrawal: number | null
   balance: number
   boundingBox?: { x: number; y: number; width: number; height: number }
+  refRegion?: TxRegion // 仕訳クリック時に左の画像上でマークする参照領域
   // 追加列（複合仕訳用: 家賃収入、預り敷金等の内訳列）
   extras?: { name: string; amount: number; direction: 'credit' | 'debit'; memo?: string }[]
   // 備考列（パターン適用後も摘要に連結）

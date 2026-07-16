@@ -276,6 +276,27 @@ export default function BankStatementContent() {
     (result: ParseResult, config: UploadConfig) => {
       setPages((prev) => [...prev, ...result.pages])
 
+      // 画像PDF（OCR）の通帳: 仕訳クリック時の参照ハイライト用に、各取引の
+      // 画像上の位置をバックグラウンドで特定して付与する（失敗しても仕訳に影響なし）
+      if (result.sourceType === 'pdf-ocr' && result.pages.some((p) => p.imageDataUrl && p.transactions.length > 0)) {
+        import('@/lib/bank-statement/region-locator')
+          .then(({ annotateRegionsForPages }) => annotateRegionsForPages(result.pages, geminiModel))
+          .then((regionMap) => {
+            if (!regionMap || regionMap.size === 0) return
+            setPages((prev) => prev.map((p) => {
+              if (!p.transactions.some((t) => regionMap.has(t.id))) return p
+              return {
+                ...p,
+                transactions: p.transactions.map((t) => {
+                  const rg = regionMap.get(t.id)
+                  return rg ? { ...t, refRegion: rg } : t
+                }),
+              }
+            }))
+          })
+          .catch((e) => console.log('参照ハイライトの領域特定をスキップ:', e))
+      }
+
       // 期間を保存（次回の「前回の期間をセット」用）
       if (config.periodFrom) setLastPeriodFrom(config.periodFrom)
       if (config.periodTo) setLastPeriodTo(config.periodTo)
@@ -403,7 +424,7 @@ export default function BankStatementContent() {
         }
       }
     },
-    [accountMaster],
+    [accountMaster, geminiModel],
   )
 
   const handleUpload = useCallback(

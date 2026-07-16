@@ -34,6 +34,7 @@ export default function StatementViewer({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
+  const highlightRowRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(100)
   // 画像の回転（0/90/180/270度）。ページ切替でリセット
   const [rotation, setRotation] = useState(0)
@@ -43,6 +44,13 @@ export default function StatementViewer({
   useEffect(() => {
     if (selectedTransactionId && selectedRowRef.current) {
       selectedRowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedTransactionId, currentPageIndex])
+
+  // 画像上のハイライト行へスクロール（画像表示のとき）
+  useEffect(() => {
+    if (selectedTransactionId && highlightRowRef.current) {
+      highlightRowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }
   }, [selectedTransactionId, currentPageIndex])
 
@@ -87,6 +95,22 @@ export default function StatementViewer({
   const handleZoomOut = () => setZoom((z) => Math.max(z - ZOOM_STEP, ZOOM_MIN))
 
   if (!currentPage) return null
+
+  // 選択中の仕訳に対応する取引の参照領域（画像上ハイライト用）
+  const selectedTx = selectedTransactionId
+    ? currentPage.transactions.find((t) => t.id === selectedTransactionId)
+    : undefined
+  const region = selectedTx?.refRegion
+  const pct = (v: number) => `${(v * 100).toFixed(3)}%`
+  const boxStyle = (b: { x0: number; y0: number; x1: number; y1: number }) => ({
+    left: pct(b.x0), top: pct(b.y0), width: pct(b.x1 - b.x0), height: pct(b.y1 - b.y0),
+  })
+  const FIELD_STYLES = [
+    { key: 'date' as const, label: '日付', cls: 'border-blue-500 bg-blue-400/25' },
+    { key: 'description' as const, label: '摘要', cls: 'border-emerald-600 bg-emerald-400/25' },
+    { key: 'amount' as const, label: '金額', cls: 'border-rose-500 bg-rose-400/25' },
+    { key: 'balance' as const, label: '残高', cls: 'border-violet-500 bg-violet-400/25' },
+  ]
 
   return (
     <div className="flex flex-col h-full">
@@ -167,6 +191,17 @@ export default function StatementViewer({
         </div>
       </div>
 
+      {/* 参照ハイライトの凡例（ハイライト表示中のみ） */}
+      {region && (
+        <div className="flex items-center gap-3 px-4 py-1 bg-amber-50 border-b border-amber-200 text-[11px] text-gray-600 shrink-0">
+          <span className="font-semibold text-amber-700">参照箇所を表示中:</span>
+          <span className="flex items-center gap-1"><i className="inline-block w-3 h-3 rounded-sm border-2 border-blue-500 bg-blue-400/25" />日付</span>
+          <span className="flex items-center gap-1"><i className="inline-block w-3 h-3 rounded-sm border-2 border-emerald-600 bg-emerald-400/25" />摘要</span>
+          <span className="flex items-center gap-1"><i className="inline-block w-3 h-3 rounded-sm border-2 border-rose-500 bg-rose-400/25" />金額</span>
+          <span className="flex items-center gap-1"><i className="inline-block w-3 h-3 rounded-sm border-2 border-violet-500 bg-violet-400/25" />残高</span>
+        </div>
+      )}
+
       {/* 画像表示エリア（ドラッグ移動対応） */}
       <div
         ref={containerRef}
@@ -188,13 +223,41 @@ export default function StatementViewer({
           />
         ) : currentPage.imageDataUrl ? (
           <div className="flex justify-center items-start" style={{ width: `${zoom}%`, minWidth: '100%' }}>
-            <img
-              src={currentPage.imageDataUrl}
-              alt={`通帳ページ ${currentPageIndex + 1}`}
-              className="max-w-full h-auto select-none pointer-events-none"
+            {/* 画像とハイライトを同じラッパーに入れ、回転もラッパーごと行う（%座標が常に画像と一致） */}
+            <div
+              className="relative inline-block"
               style={{ transform: `rotate(${rotation}deg)`, transformOrigin: 'center center' }}
-              draggable={false}
-            />
+            >
+              <img
+                src={currentPage.imageDataUrl}
+                alt={`通帳ページ ${currentPageIndex + 1}`}
+                className="max-w-full h-auto select-none pointer-events-none block"
+                draggable={false}
+              />
+              {region && (
+                <>
+                  {region.row && (
+                    <div
+                      ref={highlightRowRef}
+                      className="absolute border-y-2 border-amber-400 bg-amber-300/15 pointer-events-none"
+                      style={boxStyle(region.row)}
+                    />
+                  )}
+                  {FIELD_STYLES.map(({ key, label, cls }) => {
+                    const b = region[key]
+                    if (!b) return null
+                    return (
+                      <div
+                        key={key}
+                        title={label}
+                        className={`absolute border-2 rounded-sm pointer-events-none ${cls}`}
+                        style={boxStyle(b)}
+                      />
+                    )
+                  })}
+                </>
+              )}
+            </div>
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded overflow-auto">
