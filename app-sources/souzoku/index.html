@@ -3866,13 +3866,14 @@ function renderSecondary(){
   const allocCash=secSpouseFirstCash();
   const spouseComp=secSpouseComp();
   const firstTaxActual=(r.ph && r.ph[spouse.id])? Math.max(0,r.ph[spouse.id].final||0):0;
+  const firstTotalActual=Math.max(0,r.grandTotal||0); // 実際の遺産分割・各種税額控除まで反映した一次相続税の合計（遺産分割＆相続税試算と同値）
   // ===== 取得割合を細かくサンプリング（グラフ・表共通：5%刻み21点） =====
   // reduce＝二次相続の課税財産から控除する額／addTotal＝合計に上乗せする額（贈与税）
   const N=21;
   const mk=(reduce,addTotal)=>{ const arr=[]; for(let i=0;i<N;i++){ const rr=i/(N-1); const f=firstInheritance(E1,nCh,rr); const sc2=secondInheritance(f.spouseAcquired,own,consume+reduce-increase,nCh,years,f.spouseTax); arr.push({r:rr,first:f.first,acq:f.spouseAcquired,spouseTax:f.spouseTax,second:sc2.second,giftTax:addTotal,total:f.first+sc2.second+addTotal}); } let mi=0; arr.forEach((sm,i)=>{ if(sm.total<arr[mi].total-0.5) mi=i; }); return {samples:arr,minIdx:mi}; };
   let curIdx=0; for(let i=0;i<N;i++){ if(Math.abs(i/(N-1)-actualR)<Math.abs(curIdx/(N-1)-actualR)) curIdx=i; }
   const normal=mk(0,0), savings=mk(compress, giftTaxTotal);
-  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,spouseComp,firstTaxActual,strat,normal,savings,own,consume,increase,years,spouseName:(spouse.name||'配偶者')};
+  _secData={E1,nCh,actualR,curIdx,ownCash,allocCash,spouseComp,firstTaxActual,firstTotalActual,strat,normal,savings,own,consume,increase,years,spouseName:(spouse.name||'配偶者')};
   renderStrategyResults(strat);
   paintSec();
   // 財産分割（試算）の前提は通常モードの最小取得割合に固定
@@ -3953,6 +3954,13 @@ function paintSec(){
         +(saved&&Math.abs(ratioCut)>1?'<div style="font-size:12.5px;color:#555;margin-top:6px;line-height:1.7;">内訳：① 節税策による軽減 <b>'+yen(stratCut)+'</b>（取得割合を'+nr+'%のままにした場合。下表「最小取得割合」の削減額と一致）＋ ② 取得割合の見直し（'+nr+'%→'+br+'%）による軽減 <b>'+yen(ratioCut)+'</b></div>':'')
         +'</div>'; } }
   else if(Math.abs(curS.total-best.total)>1){ reco+='<div class="disclaimer" style="margin-top:10px;">現在の分割案（配偶者 '+Math.round(md.samples[d.curIdx].r*100)+'%・合計 '+yen(curS.total)+'）と比べ、最小案は <b>'+yen(curS.total-best.total)+'</b> 軽減できる可能性があります。</div>'; }
+  // 遺産分割＆相続税試算の納付税額との差の説明（簡易モデルであることの明示）
+  if(d.firstTotalActual!=null && d.normal && d.normal.samples[d.curIdx]){
+    const modelFirst=d.normal.samples[d.curIdx].first;
+    const diffNote=Math.abs(modelFirst-d.firstTotalActual)>100;
+    reco+='<div class="muted" style="font-size:11.5px;margin-top:10px;line-height:1.8;">※ 本シミュレーションの一次相続税は、取得割合を0〜100%に動かして比較するための<b>簡易モデル</b>（課税価格の合計を配偶者と子で機械的に按分し、配偶者の税額軽減のみを適用）による試算です。現案 '+Math.round(md.samples[d.curIdx].r*100)+'% は実際の取得割合 '+(Math.round(d.actualR*1000)/10)+'% を5%刻みに丸めた点で、現案の一次相続税 '+yen(modelFirst)+' も簡易モデルの値です。'
+      +(diffNote?'実際の遺産分割（財産ごとの割り当て・代償金・生前贈与加算・2割加算・贈与税額控除・未成年者控除等）まで反映した一次相続税の合計は <b>'+yen(d.firstTotalActual)+'</b>（遺産分割＆相続税試算の納付税額合計と同値）で、簡易モデルとの差はこれらの個別事情によるものです。':'')+'</div>';
+  }
   $('secReco').innerHTML=reco;
   if($('secEffect')) $('secEffect').innerHTML=(_secMode==='savings')?secEffectHTML(d):'';
   if($('secScaleTable')) $('secScaleTable').innerHTML=secScaleTableHTML(md.samples,md.minIdx,d.curIdx);
@@ -5181,7 +5189,8 @@ function secondaryReportData(){
   const allocCash=secSpouseFirstCash();
   const spouseComp=secSpouseComp();
   const firstTaxActual=(r.ph&&r.ph[spouse.id])?Math.max(0,r.ph[spouse.id].final||0):0;
-  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,spouseComp,firstTaxActual,
+  const firstTotalActual=Math.max(0,r.grandTotal||0);
+  return {spouseName:spouse.name||'配偶者',E1,nCh,own,ownCash,consume,increase,decPerYear,incPerYear,years,actualR,curIdx,normal,savings,hasSavings,allocCash,spouseComp,firstTaxActual,firstTotalActual,
     strat:{insPremium1,insCount,insP,insAllow,insCompress,existIns,usedByExist,availLimit,insUsedTotal,gGenGiven,gSpcGiven,giftGiven,gGenTax,gSpcTax,giftTaxTotal,gGenComp,gSpcComp,giftCompress,giftAddback,compress,spendCash}};
 }
 function secSampleRows(samples,minIdx,curIdx,idxList){
@@ -5493,7 +5502,8 @@ function secV2ChartPage(d,D,samp,overlay,badge,mode,pno,total){
     +'<div class="kbox p"><div class="l">現在の分割案（現案）</div><div class="v">'+esc(D.spouseName)+' 様 '+Math.round(cur.r*100)+'%</div>'
     +'<div class="l" style="margin-top:2px;">合計 '+yen(cur.total)+(Math.abs(cur.total-best.total)>1?'（最小との差 '+yen(cur.total-best.total)+'）':'（最小と同水準）')+'</div></div>'
     +(overlay?'<div class="kbox o"><div class="l">赤の破線＝対策をしない場合の合計</div><div class="v" style="font-size:14px;">棒との差＝節税策の効果</div><div class="l" style="margin-top:2px;">最小取得割合での削減 '+yen(Math.max(0,overlay[samp.minIdx]-best.total))+'</div></div>':'')
-    +'<div class="note2" style="margin-top:4px;">・青＝一次相続税、オレンジ＝二次相続税'+(mode!=='normal'?'、グレー＝贈与税':'')+'。棒の高さが合計です。<br>・左へ行くほどお子様が多く取得、右へ行くほど配偶者が多く取得します。<br>・緑の枠＝合計が最小になる分け方、紫の枠＝現在の分割案です。</div>';
+    +'<div class="note2" style="margin-top:4px;">・青＝一次相続税、オレンジ＝二次相続税'+(mode!=='normal'?'、グレー＝贈与税':'')+'。棒の高さが合計です。<br>・左へ行くほどお子様が多く取得、右へ行くほど配偶者が多く取得します。<br>・緑の枠＝合計が最小になる分け方、紫の枠＝現在の分割案です。'
+    +(D.firstTotalActual!=null&&Math.abs(D.normal.samples[D.curIdx].first-D.firstTotalActual)>100?'<br>・本グラフの一次相続税は、取得割合を動かして比較するための簡易モデル（課税価格を配偶者と子で按分し、配偶者の税額軽減のみ適用）の値です。実際の遺産分割・各種税額控除（2割加算・贈与税額控除等）まで反映した一次相続税の合計は <b>'+yen(D.firstTotalActual)+'</b> です（遺産分割＆相続税試算と同値）。':'')+'</div>';
   return '<div class="pg">'+secV2Header('配偶者の取得割合で、税額はこう変わる',badge,d,D)
     +'<div class="cols"><div class="col" style="flex:2.1;"><div class="card2" style="flex:1;">'+secChartSVG(samp.samples,samp.minIdx,null,D.curIdx,overlay)+'</div></div>'
     +'<div class="col" style="flex:0.9;">'+kpis+'</div></div>'+secV2Foot(pno,total)+'</div>';
