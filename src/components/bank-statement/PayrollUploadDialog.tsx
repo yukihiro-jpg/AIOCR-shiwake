@@ -276,8 +276,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       } finally { setBusy('') }
       return
     }
-    if (!(lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv'))) {
-      setError('PDF・Excel（.xlsx / .xls）・.csv のいずれかを選択してください'); return
+    if (!(lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.ods') || lower.endsWith('.csv'))) {
+      setError('PDF・Excel（.xlsx / .xls / .ods）・.csv のいずれかを選択してください'); return
     }
     try {
       const mod = await import('@/lib/bank-statement/payroll-parser')
@@ -531,7 +531,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                 <div className="text-3xl">📥</div>
                 <div className="text-sm text-gray-700 font-medium">ここに賃金台帳ファイルをドラッグ&ドロップ</div>
                 <div className="text-xs text-gray-500">またはクリックして選択（.pdf / .xlsx / .xls / .csv）。<b>複数月のCSVをまとめて選択</b>すると月別の仕訳を一括作成できます</div>
-                <input type="file" accept=".pdf,.xlsx,.xls,.csv" multiple onChange={handleFileUpload} className="hidden" />
+                <input type="file" accept=".pdf,.xlsx,.xls,.ods,.csv" multiple onChange={handleFileUpload} className="hidden" />
               </label>
             )}
             {error && <div className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</div>}

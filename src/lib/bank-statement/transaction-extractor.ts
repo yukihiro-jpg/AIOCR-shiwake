@@ -975,7 +975,7 @@ function extractTransactions(
 export async function parseFile(file: File, accountCode?: string): Promise<ParseResult> {
   const fileName = file.name.toLowerCase()
 
-  if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+  if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.ods')) {
     return parseExcelFile(file)
   } else if (fileName.endsWith('.csv')) {
     return parseCsvFile(file)
@@ -983,7 +983,7 @@ export async function parseFile(file: File, accountCode?: string): Promise<Parse
     return parsePdfFile(file, accountCode)
   } else {
     throw new Error(
-      '対応していないファイル形式です。PDF (.pdf), Excel (.xlsx, .xls), CSV (.csv) のいずれかを選択してください。',
+      '対応していないファイル形式です。PDF (.pdf), Excel (.xlsx, .xls, .ods), CSV (.csv) のいずれかを選択してください。',
     )
   }
 }

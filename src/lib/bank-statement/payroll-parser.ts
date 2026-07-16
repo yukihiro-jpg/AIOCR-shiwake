@@ -156,7 +156,7 @@ export async function parsePayrollLedgerFile(file: File): Promise<PayrollLedger>
 /** ファイルが年間賃金台帳形式かを判定（.xls/.xlsx） */
 export async function detectPayrollLedgerFile(file: File): Promise<boolean> {
   const name = file.name.toLowerCase()
-  if (!(name.endsWith('.xlsx') || name.endsWith('.xls'))) return false
+  if (!(name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods'))) return false
   const XLSX = await import('xlsx')
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf, { type: 'array' })
@@ -170,7 +170,7 @@ export function parsePayrollText(text: string): PayrollData {
 
 async function payrollFileToRows(file: File): Promise<string[][]> {
   const name = file.name.toLowerCase()
-  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+  if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods')) {
     const XLSX = await import('xlsx')
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { type: 'array' })

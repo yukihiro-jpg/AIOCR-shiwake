@@ -463,7 +463,7 @@ export default function BankStatementContent() {
 
         if (config.documentType === 'credit-card') {
           const fName = config.file.name.toLowerCase()
-          const isCsvOrExcel = fName.endsWith('.csv') || fName.endsWith('.xlsx') || fName.endsWith('.xls')
+          const isCsvOrExcel = fName.endsWith('.csv') || fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.ods')
 
           if (isCsvOrExcel) {
             // クレジットカード CSV/Excel 処理（コード解析、Gemini不要）
@@ -557,7 +557,7 @@ export default function BankStatementContent() {
         if (config.documentType === 'receipt') {
           // Excel/CSV: 列マッピングダイアログを表示
           const fName = config.file.name.toLowerCase()
-          if (fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.csv')) {
+          if (fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.ods') || fName.endsWith('.csv')) {
             let rows: RawTableRow[] = []
             if (fName.endsWith('.csv')) {
               const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
@@ -713,7 +713,7 @@ export default function BankStatementContent() {
         if (config.documentType === 'sales-invoice' || config.documentType === 'purchase-invoice') {
           // Excel/CSV: 列マッピングダイアログで処理
           const ext = config.file.name.toLowerCase().split('.').pop() || ''
-          if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+          if (ext === 'xlsx' || ext === 'xls' || ext === 'ods' || ext === 'csv') {
             const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
             let sheetRows: RawTableRow[] = []
             if (ext === 'csv') {

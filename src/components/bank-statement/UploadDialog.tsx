@@ -143,7 +143,7 @@ export default function UploadDialog({ accountMaster, subAccountMaster, onUpload
       )
   )
 
-  const acceptFiles = isCreditCard ? '.pdf,.csv,.xlsx,.xls' : isReceipt ? '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv' : isInvoice ? '.pdf,.xlsx,.xls,.csv' : '.pdf,.xlsx,.xls,.csv'
+  const acceptFiles = isCreditCard ? '.pdf,.csv,.xlsx,.xls,.ods' : isReceipt ? '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.ods,.csv' : isInvoice ? '.pdf,.xlsx,.xls,.ods,.csv' : '.pdf,.xlsx,.xls,.ods,.csv'
 
   const renderAccountSelector = (
     label: string, code: string, onCodeChange: (c: string) => void, name: string, onNameChange: (n: string) => void,
