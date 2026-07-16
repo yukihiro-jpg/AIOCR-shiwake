@@ -16,6 +16,9 @@ interface Props {
 
 const BANK_ROLES = [
   { key: 'dateColumn', label: '日付', color: 'bg-blue-100 border-blue-400', multi: false },
+  { key: 'yearColumn', label: '年(別列)', color: 'bg-sky-100 border-sky-400', multi: false },
+  { key: 'monthColumn', label: '月(別列)', color: 'bg-sky-100 border-sky-400', multi: false },
+  { key: 'dayColumn', label: '日(別列)', color: 'bg-sky-100 border-sky-400', multi: false },
   { key: 'descriptionColumn', label: '摘要', color: 'bg-green-100 border-green-400', multi: true },
   { key: 'depositColumn', label: '入金', color: 'bg-yellow-100 border-yellow-400', multi: false },
   { key: 'withdrawalColumn', label: '出金', color: 'bg-red-100 border-red-400', multi: false },
@@ -35,6 +38,9 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
   const COLUMN_ROLES = isCreditCard ? CREDIT_CARD_ROLES : BANK_ROLES
   const [mapping, setMapping] = useState<Record<string, number>>({
     dateColumn: initialMapping?.dateColumn ?? -1,
+    yearColumn: initialMapping?.yearColumn ?? -1,
+    monthColumn: initialMapping?.monthColumn ?? -1,
+    dayColumn: initialMapping?.dayColumn ?? -1,
     depositColumn: initialMapping?.depositColumn ?? -1,
     withdrawalColumn: initialMapping?.withdrawalColumn ?? -1,
     amountColumn: initialMapping?.signedAmountColumn ?? -1,
@@ -107,7 +113,10 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
   const hasAmount = isCreditCard
     ? mapping.depositColumn >= 0
     : (mapping.depositColumn >= 0 || mapping.withdrawalColumn >= 0 || mapping.amountColumn >= 0)
-  const canConfirm = mapping.dateColumn >= 0 && hasAmount
+  // 日付は「日付列」か、または「月＋日の別列」（年は西暦/和暦どちらも可・省略時は当年）のどちらかで指定
+  const hasSplitDate = mapping.monthColumn >= 0 && mapping.dayColumn >= 0
+  const hasDate = mapping.dateColumn >= 0 || hasSplitDate
+  const canConfirm = hasDate && hasAmount
 
   const handleConfirm = () => {
     // 内訳列: 有効かつ列が選択済みのものだけ採用
@@ -116,6 +125,9 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
       : []
     onConfirm({
       dateColumn: mapping.dateColumn,
+      yearColumn: mapping.yearColumn >= 0 ? mapping.yearColumn : undefined,
+      monthColumn: mapping.monthColumn >= 0 ? mapping.monthColumn : undefined,
+      dayColumn: mapping.dayColumn >= 0 ? mapping.dayColumn : undefined,
       descriptionColumn: descColumns.length > 0 ? descColumns[0] : -1,
       descriptionColumns: descColumns.length > 1 ? descColumns : undefined,
       depositColumn: useSingleAmount ? -1 : (mapping.depositColumn >= 0 ? mapping.depositColumn : mapping.withdrawalColumn),
@@ -168,6 +180,12 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
             上のボタンで役割を選択 → 下のテーブルで列ヘッダーをクリック
             {activeRole === 'descriptionColumn' && <span className="text-green-600 font-bold ml-1">（摘要: 複数列選択可）</span>}
           </p>
+          {!isCreditCard && (
+            <p className="text-xs text-sky-700 mt-1 bg-sky-50 rounded px-2 py-1">
+              日付が<b>年・月・日で別々のセル</b>に分かれている場合は、「日付」の代わりに <b>年(別列)・月(別列)・日(別列)</b> をそれぞれ指定してください（月・日は必須、年は任意）。
+              <b>年は西暦（2025）・和暦（令和7／R7／7）どちらでも自動判定</b>します。年や日付が空欄の行は直前の値を引き継ぎます。
+            </p>
+          )}
           {!isCreditCard && (
             <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded px-2 py-1">
               金額の指定は次の3通り：
@@ -350,8 +368,11 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
         <div className="p-4 flex justify-between items-center">
           <div className="text-xs">
             {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
-            {mapping.dateColumn >= 0 && !hasAmount && (
+            {hasDate && !hasAmount && (
               <span className="text-red-500 font-bold">※ {isCreditCard ? '利用金額' : '入金/出金、または金額(1列)'}の列を選択してください</span>
+            )}
+            {!hasDate && (
+              <span className="text-red-500 font-bold">※ 「日付」、または「月(別列)・日(別列)」を選択してください</span>
             )}
           </div>
           <div className="flex gap-2">

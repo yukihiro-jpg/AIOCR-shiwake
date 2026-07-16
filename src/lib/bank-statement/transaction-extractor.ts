@@ -431,6 +431,41 @@ function eraToWestern(era: string, year: number): number | null {
   return base ? base + year : null
 }
 
+// 全角数字→半角
+function zenToHan(s: string): string {
+  return (s || '').replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+}
+
+/** 年セル単独の解釈（西暦4桁・和暦元号つき・和暦数字のみ に対応）。西暦の年を返す */
+function parseYearCell(text: string): number | null {
+  const t = zenToHan(text).trim()
+  if (!t) return null
+  // 元号（正式名）: 令和7 / 平成30
+  let m = t.match(/(令和|平成|昭和|大正)\s*(\d{1,2})/)
+  if (m) {
+    const map: Record<string, string> = { 令和: 'R', 平成: 'H', 昭和: 'S', 大正: 'T' }
+    return eraToWestern(map[m[1]], parseInt(m[2], 10))
+  }
+  // 元号（略記）: R7 / H30 / R.7
+  m = t.match(/^([RrHhSsTt])\.?\s*(\d{1,2})/)
+  if (m) return eraToWestern(m[1].toUpperCase(), parseInt(m[2], 10))
+  // 数字のみ
+  const digits = t.replace(/[^\d]/g, '')
+  if (!digits) return null
+  const n = parseInt(digits, 10)
+  if (n >= 1868) return n // 西暦（4桁）
+  if (n >= 1 && n <= 99) return 2018 + n // 和暦（元号省略時は令和として扱う）
+  return null
+}
+
+/** 月・日セル単独を数値化（範囲チェック付き） */
+function parseIntInRange(text: string, min: number, max: number): number | null {
+  const digits = zenToHan(text).replace(/[^\d]/g, '')
+  if (!digits) return null
+  const n = parseInt(digits, 10)
+  return n >= min && n <= max ? n : null
+}
+
 function formatDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
@@ -766,6 +801,14 @@ function extractTransactions(
   const hasBalanceCol = mapping.balanceColumn >= 0
   let runningBalance = 0 // 残高列がない場合のために running 集計
   let lastDate: string | null = null // 日付空欄時の引継ぎ用
+  // 年・月・日が別セルの場合。設定されていればこちらを優先して日付を組み立てる
+  const yCol = mapping.yearColumn
+  const moCol = mapping.monthColumn
+  const dCol = mapping.dayColumn
+  const hasSplitDate = (typeof moCol === 'number' && moCol >= 0) && (typeof dCol === 'number' && dCol >= 0)
+  let lastY: number | null = null // 年は空欄が続くことが多いので各成分を引き継ぐ
+  let lastMo: number | null = null
+  let lastD: number | null = null
 
   // X座標の範囲ベースでセルを取得（ヘッダ位置から次のヘッダ位置の範囲内を検索）
   const headerXPos = mapping.columnXPositions
@@ -794,12 +837,29 @@ function extractTransactions(
       const cl = (c || '').replace(/[\s　]/g, '')
       return cl === '合計' || cl === '計' || cl === '小計' || cl === '総計'
     })) continue
-    const dateText = getCellByColumn(row, mapping.dateColumn)
-    let date = parseDate(dateText)
-    if (!date && lastDate && row.cells.some((c, i) => i !== mapping.dateColumn && c && c.trim())) {
-      // 日付が空でも他の列にデータがある → 直前の日付を引き継ぐ
-      if (row.cells.some((c) => /合計|小計|総計/.test(c || ''))) continue
-      date = lastDate
+    let date: string | null = null
+    if (hasSplitDate) {
+      // 年・月・日が別セル。各成分を読み、空欄は直前の値を引き継いで組み立てる
+      const yCell = typeof yCol === 'number' && yCol >= 0 ? parseYearCell(getCellByColumn(row, yCol)) : null
+      const moCell = parseIntInRange(getCellByColumn(row, moCol!), 1, 12)
+      const dCell = parseIntInRange(getCellByColumn(row, dCol!), 1, 31)
+      if (yCell != null) lastY = yCell
+      if (moCell != null) lastMo = moCell
+      if (dCell != null) lastD = dCell
+      // 摘要・金額などの実データがある行のみ日付を確定（ヘッダや空行を除外）
+      const hasOtherData = row.cells.some((c, i) => i !== yCol && i !== moCol && i !== dCol && c && c.trim())
+      if (lastMo != null && lastD != null && hasOtherData) {
+        const yy = lastY != null ? lastY : new Date().getFullYear()
+        date = formatDate(yy, lastMo, lastD)
+      }
+    } else {
+      const dateText = getCellByColumn(row, mapping.dateColumn)
+      date = parseDate(dateText)
+      if (!date && lastDate && row.cells.some((c, i) => i !== mapping.dateColumn && c && c.trim())) {
+        // 日付が空でも他の列にデータがある → 直前の日付を引き継ぐ
+        if (row.cells.some((c) => /合計|小計|総計/.test(c || ''))) continue
+        date = lastDate
+      }
     }
     if (!date) continue // 日付もデータもない行はスキップ（ヘッダー等）
     lastDate = date

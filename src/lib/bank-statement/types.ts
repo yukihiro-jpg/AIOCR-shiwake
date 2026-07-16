@@ -153,6 +153,10 @@ export interface RawTableRow {
 // 列マッピング設定
 export interface ColumnMapping {
   dateColumn: number
+  // 年・月・日が別セルの場合の列指定（設定時は dateColumn より優先。年は西暦/和暦どちらも可）
+  yearColumn?: number
+  monthColumn?: number
+  dayColumn?: number
   descriptionColumn: number
   descriptionColumns?: number[]   // 摘要が複数列の場合（結合して摘要にする）
   depositColumn: number
