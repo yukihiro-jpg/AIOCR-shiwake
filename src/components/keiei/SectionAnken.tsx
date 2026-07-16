@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   type AnkenData, type AnkenItem, type AnkenYearGroup,
-  parseAnkenGrid, mergeAnken, groupByFiscalYear, gaichuTotal, arari, fmtDate,
+  parseAnkenGrid, mergeAnken, groupByFiscalYear, gaichuTotal, arari, fmtDate, autoFiscalYearOf,
 } from '@/lib/keiei/anken'
 import { loadAnken, saveAnken } from '@/lib/keiei/store'
 import { fmtYen } from '@/lib/keiei/format'
@@ -76,7 +76,21 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
     persist({ ...data, items: data.items.filter((x) => x.key !== key) })
   }, [data, persist])
 
+  // 案件を任意の事業年度へ移動（year=null で自動判定に戻す）
+  const setFyOverride = useCallback((key: string, year: number | null) => {
+    persist({ ...data, items: data.items.map((x) => (x.key === key ? { ...x, fyOverride: year } : x)) })
+  }, [data, persist])
+
   const groups = groupByFiscalYear(data.items, data.closingMonth)
+
+  // 移動先の候補年（既存案件の自動判定年＋当年前後）を新しい順に
+  const candidateYears = (() => {
+    const set = new Set<number>()
+    for (const it of data.items) { const y = autoFiscalYearOf(it, data.closingMonth); if (y != null) set.add(y) }
+    const thisYear = new Date().getFullYear()
+    for (let y = thisYear - 4; y <= thisYear + 1; y++) set.add(y)
+    return Array.from(set).sort((a, b) => b - a)
+  })()
 
   // ---------- PDF（新規ウインドウ・月次レポートのコンサル調デザイン） ----------
   const openPdf = useCallback(() => {
@@ -303,6 +317,22 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
                     <td className="px-2 py-2 break-words">
                       <div className="font-bold text-gray-800">{it.bukken}</div>
                       <div className="text-[11px] text-gray-500">{it.keiyakusha}</div>
+                      {grp.fyEndYear == null ? (
+                        <select
+                          value=""
+                          onChange={(e) => { if (e.target.value) setFyOverride(it.key, Number(e.target.value)) }}
+                          className="mt-1 w-full px-1 py-0.5 border border-amber-300 rounded text-[11px] text-amber-800 bg-amber-50"
+                          title="この案件を事業年度へ移動">
+                          <option value="">▸ 事業年度へ移動…</option>
+                          {candidateYears.map((y) => <option key={y} value={y}>{y}年{data.closingMonth}月期へ移動</option>)}
+                        </select>
+                      ) : it.fyOverride != null ? (
+                        <button onClick={() => setFyOverride(it.key, null)}
+                          className="mt-1 text-[11px] text-amber-700 hover:text-amber-900 underline"
+                          title="手動で指定した事業年度を解除し、日付からの自動判定に戻す">
+                          ↩ 手動指定を解除
+                        </button>
+                      ) : null}
                     </td>
                     <td className="px-2 py-2 break-words">
                       <div className="text-gray-700">{it.shozaichi}</div>

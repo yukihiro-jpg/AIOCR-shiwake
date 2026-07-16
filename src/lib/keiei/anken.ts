@@ -23,6 +23,7 @@ export interface AnkenItem {
   tesuryo: number // 申請手数料（立替。売上高ではない）
   gaichu: AnkenGaichu[] // 外注（受託者名の入力がある委託のみ）
   biko: string // 備考
+  fyOverride?: number | null // 手動で指定した事業年度（期末の年）。期判定不能の案件を任意の期へ移動するのに使う。未設定=自動判定
 }
 
 export interface AnkenData {
@@ -236,7 +237,11 @@ export function normalizeAnkenItems(raw: unknown): AnkenItem[] {
 export function mergeAnken(existing: AnkenItem[], parsed: AnkenItem[]): AnkenItem[] {
   const map = new Map<string, AnkenItem>()
   for (const it of existing) map.set(it.key, it)
-  for (const it of parsed) map.set(it.key, it)
+  // 再取込で上書きする際、手動で指定した事業年度（fyOverride）は引き継ぐ
+  for (const it of parsed) {
+    const prev = map.get(it.key)
+    map.set(it.key, prev?.fyOverride != null ? { ...it, fyOverride: prev.fyOverride } : it)
+  }
   return Array.from(map.values())
 }
 
@@ -256,13 +261,19 @@ export interface AnkenYearGroup {
 export const gaichuTotal = (it: AnkenItem): number => (it.gaichu || []).reduce((s, x) => s + (x?.amount || 0), 0)
 export const arari = (it: AnkenItem): number => it.hoshuNet - gaichuTotal(it)
 
-/** 履行期間の終了日（無ければ契約日→開始日）が属する事業年度（決算月で区切る）を判定 */
-export function fiscalYearOf(it: AnkenItem, closingMonth: number): number | null {
+/** 日付から自動判定した事業年度（手動指定は考慮しない） */
+export function autoFiscalYearOf(it: AnkenItem, closingMonth: number): number | null {
   const base = it.periodEnd || it.keiyakuDate || it.periodStart
   if (!base) return null
   const y = Number(base.slice(0, 4))
   const m = Number(base.slice(5, 7))
   return m <= closingMonth ? y : y + 1
+}
+
+/** 事業年度を判定。手動指定（fyOverride）があればそれを優先し、無ければ日付から自動判定する */
+export function fiscalYearOf(it: AnkenItem, closingMonth: number): number | null {
+  if (it.fyOverride != null) return it.fyOverride
+  return autoFiscalYearOf(it, closingMonth)
 }
 
 export function groupByFiscalYear(items: AnkenItem[], closingMonth: number): AnkenYearGroup[] {
