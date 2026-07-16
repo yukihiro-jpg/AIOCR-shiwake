@@ -150,7 +150,7 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
   <div class="rule"></div>
   ${gHtml}
   <div class="note">※ 事業年度は履行期間の終了日（未記載の場合は契約日）を基準に、決算月${data.closingMonth}月で区切って判定しています。<br>
-  ※ 報酬額は税抜（契約書の報酬額から（内）消費税を控除した金額）。申請手数料は立替金の回収であり売上高には含まれません。<br>
+  ※ 報酬額(税込)は契約書の報酬額。報酬額(税抜)はそこから（内）消費税を控除した金額で、売上高に計上されます。申請手数料は立替金の回収であり売上高には含まれません。<br>
   ※ 外注費は契約管理表の「業務の一部委託」で受託者の氏名・名称が記載されているものの金額合計。粗利額＝報酬額（税抜）−外注費。</div>
 </body></html>`
     const w = window.open('', '_blank')
@@ -206,7 +206,7 @@ export default function SectionAnken({ clientId, company }: { clientId: string; 
         <div className="text-[11px] text-gray-400 leading-relaxed">
           同じ物件名・契約者の案件は同一案件として上書き取込します（同じファイルへの追記運用に対応）。
           事業年度は履行期間の終了日（未記載は契約日）を決算月で区切って自動判定します。
-          報酬額は税抜、申請手数料は立替（売上高ではありません）、粗利額＝報酬額（税抜）−外注費。
+          報酬額(税込)は契約書の報酬額、報酬額(税抜)はそこから内消費税を控除した売上高、申請手数料は立替（売上高ではありません）、粗利額＝報酬額（税抜）−外注費。
         </div>
         {msg && <div className="mt-2 px-3 py-2 bg-green-50 text-green-700 text-xs rounded-lg">{msg}</div>}
         {err && <div className="mt-2 px-3 py-2 bg-red-50 text-red-700 text-xs rounded-lg">{err}</div>}

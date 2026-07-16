@@ -139,19 +139,32 @@ function parseBlock(g: Grid, r0: number, c0: number, rEnd: number): AnkenItem | 
     }
   }
 
+  // 報酬額（＝契約書の報酬額）は税込。ここから（内）消費税を控除した金額が税抜報酬。
   const rHoshu = findRow('報酬額', c0)
   const hoshuGross = rHoshu >= 0 ? toNumber(cell(g, rHoshu, c0 + 1)) : 0
-  // （内）消費税: 報酬額と同じ行の右側
+  // （内）消費税・申請手数料: 報酬額の行〜数行下の右側ブロックにラベルがある。
+  // 様式の列ずれに強くするため、ラベルセルの右隣で最初に見つかった数値を値とする。
   let shohizei = 0
   let tesuryo = 0
+  const valueRightOf = (r: number, labelCol: number): number => {
+    for (let c = labelCol + 1; c <= labelCol + 3 && c < (g[r]?.length ?? 0) + 3; c++) {
+      const n = toNumber(cell(g, r, c))
+      if (n) return n
+    }
+    return 0
+  }
   if (rHoshu >= 0) {
-    for (let r = rHoshu; r <= rHoshu + 3 && r < rEnd; r++) {
-      const lbl = cellStr(g, r, c0 + 4).replace(/[\s　]/g, '')
-      if (/消費税/.test(lbl)) shohizei = toNumber(cell(g, r, c0 + 5))
-      if (/申請手数料/.test(lbl)) tesuryo = toNumber(cell(g, r, c0 + 5))
+    for (let r = rHoshu; r <= rHoshu + 4 && r < rEnd; r++) {
+      for (let c = c0 + 2; c <= c0 + 6; c++) {
+        const lbl = cellStr(g, r, c).replace(/[\s　（）()]/g, '')
+        if (!lbl) continue
+        if (!shohizei && /消費税/.test(lbl)) shohizei = valueRightOf(r, c)
+        if (!tesuryo && /申請手数料/.test(lbl)) tesuryo = valueRightOf(r, c)
+      }
     }
   }
-  const hoshuNet = hoshuGross - shohizei
+  // 消費税額が見当たらない場合は 10% の内税（税抜＝税込÷1.1）とみなす（設計業務の報酬は課税10%が標準）
+  const hoshuNet = shohizei > 0 ? hoshuGross - shohizei : (hoshuGross > 0 ? Math.round(hoshuGross / 1.1) : 0)
 
   // 外注（業務の一部委託）: 「委託業務概要」行の受託者 氏名・名称が入力されている場合のみ計上
   const gaichu: AnkenGaichu[] = []
@@ -204,8 +217,8 @@ export function normalizeAnkenItems(raw: unknown): AnkenItem[] {
       keiyakuDate: it.keiyakuDate || null,
       periodStart: it.periodStart || null,
       periodEnd: it.periodEnd || null,
-      // 税込は後から追加したフィールド。旧データに無い場合は税抜で代替（再取込で正確な税込に更新される）
-      hoshuGross: Number(it.hoshuGross) || Number(it.hoshuNet) || 0,
+      // 税込は後から追加したフィールド。旧データ（税込未保存）は税抜×1.1で暫定推定（再取込で正確化）
+      hoshuGross: it.hoshuGross != null ? (Number(it.hoshuGross) || 0) : Math.round((Number(it.hoshuNet) || 0) * 1.1),
       hoshuNet: Number(it.hoshuNet) || 0,
       tesuryo: Number(it.tesuryo) || 0,
       gaichu: gaichuRaw.filter(Boolean).map((g) => ({
