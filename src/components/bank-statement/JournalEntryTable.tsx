@@ -15,8 +15,8 @@ import {
 import { learnFromEntriesWithRange, getPatterns, savePatterns } from '@/lib/bank-statement/pattern-store'
 import { getAccountUsage } from '@/lib/bank-statement/account-usage'
 import type { PatternEntry } from '@/lib/bank-statement/types'
-import { saveSubAccountMaster } from '@/lib/bank-statement/account-master'
-import { isPL, isBS, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
+import { saveSubAccountMaster, loadAccountTaxMaster, resolveAccountTax } from '@/lib/bank-statement/account-master'
+import { isBS } from '@/lib/bank-statement/tax-codes'
 import JournalEntryRow from './JournalEntryRow'
 import LearnPatternDialog from './LearnPatternDialog'
 import ApplyPatternDialog from './ApplyPatternDialog'
@@ -571,17 +571,16 @@ export default function JournalEntryTable({
       entries.map((entry) => {
         if (!selectedRange.has(entry.id)) return entry
         const u = { ...entry, [bulkField]: bulkValue }
+        // 消費税CDは科目本来の正残で判定（借方・貸方どちらに置いても売上=課税売上、経費=課税仕入/対象外）
+        const taxMaster = loadAccountTaxMaster()
         if (bulkField === 'debitCode' && acc) {
           u.debitName = acc.shortName || acc.name
-          // PL科目の場合は消費税CDも自動設定
-          if (isPL(acc.bsPl) && acc.normalBalance === '借方') {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
-          } else if (isPL(acc.bsPl) && acc.normalBalance === '貸方') {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
+          const tax = resolveAccountTax(acc, taxMaster)
+          if (tax) {
+            if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode }
+            else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = tax.taxRate || '4' }
           } else if (isBS(acc.bsPl)) {
-            // BS科目の場合: 相手科目もBSかチェック
+            // BS科目の場合: 相手科目もBSなら消費税をクリア
             const otherAcc = accountMaster.find((a) => a.code === u.creditCode)
             if (otherAcc && isBS(otherAcc.bsPl)) {
               u.debitTaxCode = ''; u.debitTaxType = ''; u.debitTaxRate = ''
@@ -590,13 +589,10 @@ export default function JournalEntryTable({
         }
         if (bulkField === 'creditCode' && acc) {
           u.creditName = acc.shortName || acc.name
-          // PL科目の場合は消費税CDも自動設定
-          if (isPL(acc.bsPl) && acc.normalBalance === '貸方') {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
-          } else if (isPL(acc.bsPl) && acc.normalBalance === '借方') {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode } else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = '4' } }
+          const tax = resolveAccountTax(acc, taxMaster)
+          if (tax) {
+            if (u.taxLocked) { if (!u.debitTaxCode) u.debitTaxCode = tax.taxCode }
+            else { u.debitTaxCode = tax.taxCode; u.debitTaxType = tax.taxName; u.debitTaxRate = tax.taxRate || '4' }
           } else if (isBS(acc.bsPl)) {
             const otherAcc = accountMaster.find((a) => a.code === u.debitCode)
             if (otherAcc && isBS(otherAcc.bsPl)) {
@@ -625,9 +621,10 @@ export default function JournalEntryTable({
           const code = value as string
           const acc = currentAccountMaster.find((a) => a.code === code)
           const updated = { ...e, debitCode: code, debitName: acc ? (acc.shortName || acc.name) : '' }
-          if (acc && isPL(acc.bsPl) && acc.normalBalance === '借方' && !e.debitTaxCode) {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'purchase')
-            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' } }
+          // 科目本来の正残で判定（売上科目を借方に置いても課税売上のまま。マスタ→科目名の順で解決）
+          if (acc && !e.debitTaxCode) {
+            const tax = resolveAccountTax(acc, loadAccountTaxMaster())
+            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = tax.taxRate || '4' } }
           }
           return updated
         }
@@ -636,9 +633,10 @@ export default function JournalEntryTable({
           const code = value as string
           const acc = currentAccountMaster.find((a) => a.code === code)
           const updated = { ...e, creditCode: code, creditName: acc ? (acc.shortName || acc.name) : '' }
-          if (acc && isPL(acc.bsPl) && acc.normalBalance === '貸方' && !e.debitTaxCode) {
-            const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, 'sales')
-            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = '4' } }
+          // 科目本来の正残で判定（経費科目を貸方に置いても課税仕入/対象外のまま。マスタ→科目名の順で解決）
+          if (acc && !e.debitTaxCode) {
+            const tax = resolveAccountTax(acc, loadAccountTaxMaster())
+            if (tax) { if (updated.taxLocked) { if (!updated.debitTaxCode) updated.debitTaxCode = tax.taxCode } else { updated.debitTaxCode = tax.taxCode; updated.debitTaxType = tax.taxName; updated.debitTaxRate = tax.taxRate || '4' } }
           }
           return updated
         }
@@ -1106,14 +1104,13 @@ export default function JournalEntryTable({
                 const acc = accountMaster.find((a) => a.code === newCode)
                 const newName = acc ? (acc.shortName || acc.name) : ''
                 const idSet = new Set(visibleIds)
-                // 消費税コード自動設定
+                // 消費税コード自動設定（科目本来の正残で判定・マスタ→科目名の順で解決）
                 let taxCode = ''
                 let taxName = ''
                 let taxRate = ''
-                if (acc && isPL(acc.bsPl)) {
-                  const taxType = acc.normalBalance === '借方' ? 'purchase' : 'sales'
-                  const tax = getDefaultTaxCodeByName(acc.name || acc.shortName, taxType)
-                  if (tax) { taxCode = tax.taxCode; taxName = tax.taxName; taxRate = '4' }
+                {
+                  const tax = resolveAccountTax(acc, loadAccountTaxMaster())
+                  if (tax) { taxCode = tax.taxCode; taxName = tax.taxName; taxRate = tax.taxRate || '4' }
                 }
                 onEntriesChange(entries.map((entry) => {
                   if (!idSet.has(entry.id)) return entry

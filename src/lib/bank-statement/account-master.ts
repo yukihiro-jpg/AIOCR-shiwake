@@ -1,5 +1,6 @@
 import type { AccountItem, SubAccountItem, AccountTaxItem } from './types'
 import { clientStorageKey, getSelectedClientId } from './client-store'
+import { isPL, getDefaultTaxCodeByName } from './tax-codes'
 
 // 保存時に Firebase（合言葉設定時）へも自動反映する小ヘルパー
 function pushFb(key: string, data: unknown): void {
@@ -299,4 +300,28 @@ export function getDefaultTaxCode(
   if (item.categoryCode === '1') return sales
   if (item.categoryCode === '2') return purchase
   return sales || purchase
+}
+
+/**
+ * 1科目の消費税区分を、借方・貸方どちらに置かれても科目本来の区分で解決する。
+ * PL科目の正残（貸方＝売上系 / 借方＝経費・仕入系）で売上/仕入を決め、
+ *   1. 科目別消費税マスタに登録があればそれ（対象外40等もそのまま）
+ *   2. 無ければ科目名ベースのデフォルト（課税売上/課税仕入/非課税/対象外）
+ * を返す。BS科目（現金・預金等）は対象外として null。
+ *
+ * これにより、売上科目を借方（売上返金）に入れても課税売上のまま、
+ * 経費科目を貸方（経費の戻し）に入れても課税仕入/対象外のまま付与できる。
+ */
+export function resolveAccountTax(
+  account: { code: string; name?: string; shortName?: string; bsPl?: string; normalBalance?: string } | undefined,
+  taxMaster: AccountTaxItem[],
+): { taxCode: string; taxName: string; taxRate?: string } | null {
+  if (!account || !isPL(account.bsPl)) return null
+  const prefer: 'sales' | 'purchase' | null =
+    account.normalBalance === '貸方' ? 'sales' : account.normalBalance === '借方' ? 'purchase' : null
+  const master = getDefaultTaxCode(taxMaster, account.code, prefer)
+  if (master) return master
+  if (!prefer) return null
+  const nameTax = getDefaultTaxCodeByName(account.name || account.shortName || '', prefer)
+  return nameTax ? { taxCode: nameTax.taxCode, taxName: nameTax.taxName } : null
 }
