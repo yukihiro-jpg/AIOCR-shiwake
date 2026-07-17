@@ -258,29 +258,45 @@ export function parseAccountTaxMasterFile(text: string): AccountTaxItem[] {
 }
 
 /**
- * 科目コードから消費税コードを取得
- * category: 1=売上, 2=仕入 で判定しコードを返す
+ * 科目コードから消費税コードを取得。
+ * 科目に登録された税区分（売上税 or 仕入税）を、借方・貸方どちらに来ても
+ * 同じ区分で返す（＝側に依存しない）。売上科目を借方（売上返金等）に入れても
+ * 課税売上のまま、経費科目を貸方に入れても課税仕入／対象外のまま返す。
+ *
+ * 判定の優先順位:
+ *   1. マスタの科目区分（categoryCode: 1=売上 / 2=仕入）で該当列が登録済みならそれ
+ *   2. 呼び出し側のヒント prefer（科目の正残から求めた売上/仕入）で登録済みの列
+ *   3. 片方の列だけ登録があればその列
+ *   4. 両方登録あり・手掛かり無し → categoryCode由来、無ければ売上を優先
+ * @param prefer 科目の正残から判定した区分（貸方正残の売上系='sales' / 借方正残の経費系='purchase'）
  */
 export function getDefaultTaxCode(
   accountTaxMaster: AccountTaxItem[],
   accountCode: string,
+  prefer?: 'sales' | 'purchase' | null,
 ): { taxCode: string; taxName: string; taxRate?: string } | null {
   const item = accountTaxMaster.find((t) => t.accountCode === accountCode)
   if (!item) return null
 
-  if (item.categoryCode === '1') {
-    // 売上: 売上消費税コードを使用
-    if (item.salesTaxCode && item.salesTaxCode !== '0') {
-      return { taxCode: item.salesTaxCode, taxName: item.salesTaxName || '', taxRate: item.salesTaxRate }
-    }
-  }
-  if (item.categoryCode === '2') {
-    // 仕入: 仕入消費税コードを使用
-    if (item.purchaseTaxCode && item.purchaseTaxCode !== '0') {
-      return { taxCode: item.purchaseTaxCode, taxName: item.purchaseTaxName || '', taxRate: item.purchaseTaxRate }
-    }
-  }
+  const sales = item.salesTaxCode && item.salesTaxCode !== '0'
+    ? { taxCode: item.salesTaxCode, taxName: item.salesTaxName || '', taxRate: item.salesTaxRate }
+    : null
+  const purchase = item.purchaseTaxCode && item.purchaseTaxCode !== '0'
+    ? { taxCode: item.purchaseTaxCode, taxName: item.purchaseTaxName || '', taxRate: item.purchaseTaxRate }
+    : null
+  if (!sales && !purchase) return null
 
-  // 対象外や0の場合はnull
-  return null
+  // 1. 科目区分で確定
+  if (item.categoryCode === '1' && sales) return sales
+  if (item.categoryCode === '2' && purchase) return purchase
+  // 2. 呼び出し側のヒント（科目の正残）で確定
+  if (prefer === 'sales' && sales) return sales
+  if (prefer === 'purchase' && purchase) return purchase
+  // 3. 片方だけ登録があればそれ
+  if (sales && !purchase) return sales
+  if (purchase && !sales) return purchase
+  // 4. 両方登録あり・手掛かり無し
+  if (item.categoryCode === '1') return sales
+  if (item.categoryCode === '2') return purchase
+  return sales || purchase
 }

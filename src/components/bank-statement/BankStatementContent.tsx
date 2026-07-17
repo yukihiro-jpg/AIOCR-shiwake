@@ -332,9 +332,16 @@ export default function BankStatementContent() {
         const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
         const needsTaxRate = !updated.debitTaxRate
         if (needsTaxCode || needsTaxRate) {
+          const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
+          const creditAcc = accountMaster.find((a) => a.code === updated.creditCode)
+          // 科目の正残から売上/仕入区分を判定（借方・貸方どちらに来ても科目の性質で決める）。
+          // 貸方正残のPL科目＝売上系、借方正残のPL科目＝経費/仕入系。BS科目（現金等）は対象外。
+          const preferOf = (acc?: { bsPl?: string; normalBalance?: string }): 'sales' | 'purchase' | null =>
+            acc && isPL(acc.bsPl) ? (acc.normalBalance === '貸方' ? 'sales' : acc.normalBalance === '借方' ? 'purchase' : null) : null
           // 1. 科目別消費税マスタを参照（空欄のときのみ補完。パターン等で既に設定済みの値は尊重）
-          const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode)
-          const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode)
+          //    売上科目を借方（売上返金）に入れても課税売上、経費科目を貸方に入れても課税仕入/対象外のまま。
+          const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode, preferOf(debitAcc))
+          const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode, preferOf(creditAcc))
           const tax = debitTax || creditTax
           if (tax) {
             if (needsTaxCode) {
@@ -346,19 +353,19 @@ export default function BankStatementContent() {
             }
           } else if (needsTaxCode) {
             // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
-            const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
-            const creditAcc = accountMaster.find((a) => a.code === updated.creditCode)
-            // PL売上/仕入の判定
+            //    エントリ内のPL科目（売上/経費）を借方・貸方問わず探し、その科目の性質で判定する。
+            const debitPrefer = preferOf(debitAcc)
+            const creditPrefer = preferOf(creditAcc)
             let category: 'sales' | 'purchase' | null = null
-            if (creditAcc && isPL(creditAcc.bsPl) && creditAcc.normalBalance === '貸方') {
-              category = 'sales'
-            } else if (debitAcc && isPL(debitAcc.bsPl) && debitAcc.normalBalance === '借方') {
-              category = 'purchase'
+            let targetName = ''
+            if (debitPrefer) {
+              category = debitPrefer
+              targetName = debitAcc?.name || debitAcc?.shortName || ''
+            } else if (creditPrefer) {
+              category = creditPrefer
+              targetName = creditAcc?.name || creditAcc?.shortName || ''
             }
-            const nameTax = getDefaultTaxCodeByName(
-              category === 'sales' ? (creditAcc?.name || creditAcc?.shortName || '') : (debitAcc?.name || debitAcc?.shortName || ''),
-              category,
-            )
+            const nameTax = getDefaultTaxCodeByName(targetName, category)
             if (nameTax) {
               updated.debitTaxCode = nameTax.taxCode
               updated.debitTaxType = nameTax.taxName
@@ -1463,10 +1470,18 @@ export default function BankStatementContent() {
                       onSubAccountUpdate={handleSubAccountMasterUpdate}
                       onAccountTaxUpdate={(items) => {
                         setAccountTaxMaster(items)
-                        // マスタ更新時、既存仕訳は空欄のときだけ補完（既に設定済みの値は尊重）
+                        // マスタ更新時、既存仕訳は空欄のときだけ補完（既に設定済みの値は尊重）。
+                        // 売上科目を借方（売上返金）に入れても課税売上、経費科目を貸方に入れても
+                        // 課税仕入/対象外のまま。科目の正残から売上/仕入区分を判定して側依存を排除する。
+                        const preferOf = (code: string): 'sales' | 'purchase' | null => {
+                          const acc = accountMaster.find((a) => a.code === code)
+                          return acc && isPL(acc.bsPl)
+                            ? (acc.normalBalance === '貸方' ? 'sales' : acc.normalBalance === '借方' ? 'purchase' : null)
+                            : null
+                        }
                         setJournalEntries((prev) => prev.map((e) => {
-                          const debitTax = getDefaultTaxCode(items, e.debitCode)
-                          const creditTax = getDefaultTaxCode(items, e.creditCode)
+                          const debitTax = getDefaultTaxCode(items, e.debitCode, preferOf(e.debitCode))
+                          const creditTax = getDefaultTaxCode(items, e.creditCode, preferOf(e.creditCode))
                           const tax = debitTax || creditTax
                           if (!tax) return e
                           const updated = { ...e }
