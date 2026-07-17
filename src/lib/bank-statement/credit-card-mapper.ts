@@ -157,8 +157,9 @@ export async function parseCreditCardCsv(file: File): Promise<CreditCardData | n
     rows = parseCsvText(text)
   } else {
     const XLSX = await import('xlsx')
+    const { readSpreadsheet } = await import('./spreadsheet-reader')
     const buffer = await file.arrayBuffer()
-    const wb = XLSX.read(buffer, { type: 'array' })
+    const wb = readSpreadsheet(buffer)
     const sheet = wb.Sheets[wb.SheetNames[0]]
     if (!sheet) return null
     rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '' })

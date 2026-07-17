@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { RawTableRow } from './types'
+import { readSpreadsheet } from './spreadsheet-reader'
 
 interface ExcelPageResult {
   rows: RawTableRow[]
@@ -12,8 +13,8 @@ export function parseExcel(file: File): Promise<ExcelPageResult[]> {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer)
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true })
+        const data = e.target?.result as ArrayBuffer
+        const workbook = readSpreadsheet(data, { cellDates: true })
         const results: ExcelPageResult[] = []
 
         for (const sheetName of workbook.SheetNames) {

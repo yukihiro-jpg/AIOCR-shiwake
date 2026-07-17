@@ -148,8 +148,9 @@ export function parsePayrollLedgerWorkbook(wb: { SheetNames: string[]; Sheets: R
 /** ファイルを年間賃金台帳としてパース（.xls/.xlsx） */
 export async function parsePayrollLedgerFile(file: File): Promise<PayrollLedger> {
   const XLSX = await import('xlsx')
+  const { readSpreadsheet } = await import('./spreadsheet-reader')
   const buf = await file.arrayBuffer()
-  const wb = XLSX.read(buf, { type: 'array' })
+  const wb = readSpreadsheet(buf)
   return parsePayrollLedgerWorkbook(wb as never, XLSX)
 }
 
@@ -158,8 +159,9 @@ export async function detectPayrollLedgerFile(file: File): Promise<boolean> {
   const name = file.name.toLowerCase()
   if (!(name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods'))) return false
   const XLSX = await import('xlsx')
+  const { readSpreadsheet } = await import('./spreadsheet-reader')
   const buf = await file.arrayBuffer()
-  const wb = XLSX.read(buf, { type: 'array' })
+  const wb = readSpreadsheet(buf)
   return wb.SheetNames.some((sn) => sheetLooksLikeLedger(wb.Sheets[sn], XLSX))
 }
 
@@ -172,8 +174,9 @@ async function payrollFileToRows(file: File): Promise<string[][]> {
   const name = file.name.toLowerCase()
   if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods')) {
     const XLSX = await import('xlsx')
+    const { readSpreadsheet } = await import('./spreadsheet-reader')
     const buf = await file.arrayBuffer()
-    const wb = XLSX.read(buf, { type: 'array' })
+    const wb = readSpreadsheet(buf)
     const ws = wb.Sheets[wb.SheetNames[0]]
     return (XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[])
       .map((r: unknown) => (r as unknown[]).map((c) => String(c ?? '')))
