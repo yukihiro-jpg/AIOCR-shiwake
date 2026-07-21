@@ -52,6 +52,11 @@ async function main() {
     const idx = JSON.parse(readFileSync(join(INDEX_DIR, f), 'utf8'))
     const sheets = new Set()
     for (const c of idx.cities) for (const arr of Object.values(c.towns)) for (const s of arr) sheets.add(s)
+    // 隣接図面ナビの接続先（町丁名索引に出ない図面もあり得る）もミラー対象に含める
+    for (const [s, dirs] of Object.entries(idx.adj || {})) {
+      sheets.add(s)
+      for (const t of Object.values(dirs)) if (t) sheets.add(t)
+    }
     const dir = join(DEST, idx.year, idx.prefSlug)
     mkdirSync(dir, { recursive: true })
     console.log(`${idx.year}/${idx.prefSlug}: ${sheets.size}図面`)

@@ -232,6 +232,13 @@ export default function RosenkaMapContent() {
   const mappleUrl = point ? `https://labs.mapple.com/mapplexml.html#17.00/${point.lat.toFixed(6)}/${point.lng.toFixed(6)}` : ''
   const gsiMapUrl = point ? `https://maps.gsi.go.jp/#17/${point.lat.toFixed(6)}/${point.lng.toFixed(6)}` : ''
 
+  // 隣接図面（東西南北）ナビ
+  const adjacent = (index?.adj && selSheet && index.adj[selSheet]) || null
+  const goAdjacent = useCallback((dir: 'n' | 's' | 'e' | 'w') => {
+    const target = adjacent?.[dir]
+    if (target) setSelSheet(target)
+  }, [adjacent])
+
   const fmtPct = (v?: number) => (v != null && v > 0 ? `${v}` : '—')
 
   return (
@@ -392,6 +399,26 @@ export default function RosenkaMapContent() {
             {gsiMapUrl && (
               <a href={gsiMapUrl} target="_blank" rel="noreferrer"
                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400">地理院地図 ↗</a>
+            )}
+            {/* 隣接図面ナビ（東西南北）: 索引の接続図データから移動 */}
+            {selSheet && (
+              <span className="ml-auto flex items-center gap-1">
+                <span className="text-[11px] text-gray-500 font-mono mr-0.5">図{selSheet}</span>
+                <button onClick={() => goAdjacent('w')} disabled={!adjacent?.w}
+                  title={adjacent?.w ? `西の図面（${adjacent.w}）へ` : '西の接続図なし'}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent font-bold">←西</button>
+                <span className="flex flex-col gap-0.5">
+                  <button onClick={() => goAdjacent('n')} disabled={!adjacent?.n}
+                    title={adjacent?.n ? `北の図面（${adjacent.n}）へ` : '北の接続図なし'}
+                    className="px-2 py-0 text-[11px] border border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent font-bold leading-4">↑北</button>
+                  <button onClick={() => goAdjacent('s')} disabled={!adjacent?.s}
+                    title={adjacent?.s ? `南の図面（${adjacent.s}）へ` : '南の接続図なし'}
+                    className="px-2 py-0 text-[11px] border border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent font-bold leading-4">↓南</button>
+                </span>
+                <button onClick={() => goAdjacent('e')} disabled={!adjacent?.e}
+                  title={adjacent?.e ? `東の図面（${adjacent.e}）へ` : '東の接続図なし'}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent font-bold">東→</button>
+              </span>
             )}
           </div>
           <div className="flex-1 bg-gray-700 min-h-0">

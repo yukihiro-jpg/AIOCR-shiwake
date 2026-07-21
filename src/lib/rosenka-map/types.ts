@@ -13,6 +13,8 @@ export interface RosenkaIndex {
   prefName: string // 茨城県
   generatedAt: string
   cities: RosenkaCity[]
+  /** 隣接図面（東西南北ナビ）: 図番号 → {n:北, s:南, e:東, w:西} の図番号 */
+  adj?: Record<string, { n?: string; s?: string; e?: string; w?: string }>
 }
 
 export interface RosenkaCity {

@@ -20,8 +20,8 @@ const OUT_DIR = join(ROOT, 'public', 'rosenka-data', 'index')
 
 const NTA = 'https://www.rosenka.nta.go.jp'
 const UA = 'aiocr-shiwake-rosenka-index-builder (tax office internal tool; low-volume yearly crawl)'
-const DELAY_MS = 400
-const MAX_REQUESTS = 600
+const DELAY_MS = 250
+const MAX_REQUESTS = 8000 // 隣接図面の抽出で図面ビューアページ（年千件程度）も取得するため
 
 // 対象都道府県（追加するときはここに登録: 国税局スラッグはURLで要確認）
 const PREFS = [
@@ -140,6 +140,44 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
   return towns
 }
 
+/** 図面ビューアページ（html/{no}f.htm）から隣接図面（北/南/東/西）を抽出する。
+ *  ページ内の「接続図」リンク（方位の文字 or 画像altを持つ 5桁f.htm リンク）を探す。 */
+async function fetchAdjacency(year, pref, sheets, debugFirst = false) {
+  const DIR_MAP = [
+    [/北|上/, 'n'], [/南|下/, 's'], [/東|右/, 'e'], [/西|左/, 'w'],
+  ]
+  const adj = {}
+  let first = true
+  for (const s of sheets) {
+    const url = `${NTA}/main_${year}/${pref.bureau}/${pref.slug}/prices/html/${s}f.htm`
+    let pages = []
+    try { pages = await fetchWithFrames(url) } catch { continue }
+    const found = {}
+    for (const p of pages) {
+      // <a href="…01029f.htm">北</a> / <a href="…"><img alt="北" …></a> の両対応
+      const re = /<a[^>]*href\s*=\s*["']?[^"'>\s]*?(\d{5})f\.htm["']?[^>]*>([\s\S]*?)<\/a>/gi
+      let m
+      while ((m = re.exec(p.html))) {
+        const target = m[1]
+        if (target === s) continue
+        const inner = m[2]
+        const altM = inner.match(/alt\s*=\s*["']([^"']*)["']/i)
+        const label = (altM ? altM[1] : '') + stripTags(inner)
+        for (const [rex, key] of DIR_MAP) {
+          if (rex.test(label) && !found[key]) found[key] = target
+        }
+      }
+    }
+    if (Object.keys(found).length) adj[s] = found
+    else if (first && debugFirst && pages.length) {
+      console.log(`--- 隣接リンク未検出のサンプル(${pages[0].url}) 先頭2500文字 ---`)
+      console.log(pages[0].html.slice(0, 2500))
+    }
+    first = false
+  }
+  return adj
+}
+
 /** 最新年分の自動判定: 令和N = 西暦-2018。存在チェックして最新から KEEP_YEARS 分 */
 async function detectYears() {
   const latestGuess = new Date().getFullYear() - 2018
@@ -202,10 +240,28 @@ async function main() {
         console.error(`${year}/${pref.slug}: 町丁を1件も抽出できませんでした。JSONは出力しません（既存データ保護）`)
         continue
       }
+      // 隣接図面（東西南北ナビ用）: 既存JSONに同数の隣接データがあれば再取得しない（毎年1回で十分）
+      const allSheets = new Set()
+      for (const c of outCities) for (const arr of Object.values(c.towns)) for (const s of arr) allSheets.add(s)
+      let adj = null
+      if (existsSync(outPath)) {
+        try {
+          const prev = JSON.parse(readFileSync(outPath, 'utf8'))
+          if (prev.adj && Object.keys(prev.adj).length >= allSheets.size * 0.9) adj = prev.adj
+        } catch { /* ignore */ }
+      }
+      if (!adj) {
+        console.log(`  隣接図面を抽出中…（${allSheets.size}図面）`)
+        adj = await fetchAdjacency(year, pref, Array.from(allSheets).sort(), true)
+        console.log(`  隣接図面: ${Object.keys(adj).length}/${allSheets.size}図面で検出`)
+      } else {
+        console.log(`  隣接図面: 既存データを再利用（${Object.keys(adj).length}図面）`)
+      }
       const idx = {
         year, yearLabel: yearLabel(year), bureau: pref.bureau, prefSlug: pref.slug, prefName: pref.name,
         generatedAt: new Date().toISOString(),
         cities: outCities,
+        adj,
       }
       writeFileSync(outPath, JSON.stringify(idx))
       console.log(`書き出し: ${outPath}（${townTotal}町丁）`)
