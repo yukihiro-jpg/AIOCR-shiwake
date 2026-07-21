@@ -455,6 +455,10 @@
       <div class="field"><label>月次レポート</label><select id="cl_useKeiei"><option>未利用</option><option>利用</option></select></div>
       <div class="field"><label>書類スキャン受信</label><select id="cl_useScan"><option>未利用</option><option>利用</option></select></div>
     </div>
+    <div style="font-weight:700;font-size:14px;margin:18px 0 8px;padding-bottom:5px;border-bottom:2px solid #2563eb;color:#1e3a5f">メモ<span style="font-weight:400;font-size:12px;color:#6b7280;margin-left:8px">この顧問先に関する自由メモ（全端末で共有されます）</span></div>
+    <div class="form-grid g3">
+      <div class="field full"><label>メモ</label><textarea id="cl_memo" rows="3" placeholder="自由に記入できます"></textarea></div>
+    </div>
     <div class="reward-box" style="margin-top:14px;border-top:1px solid var(--line,#e5e7eb);padding-top:14px">
       <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px">
         <label style="font-weight:600;font-size:15px">報酬</label>
@@ -1062,7 +1066,7 @@ function renderClients(){
       <td class="actions"><button class="text sm" onclick="openSummary('${c.id}')">📋 まとめ</button><button class="text sm" onclick="openClientModal('${c.id}')">編集</button><button class="text sm danger" onclick="deleteClient('${c.id}')">削除</button></td></tr>`).join('')+`</tbody></table></div>`;
   enhanceValueFilter(el.querySelector('table'),'clients',[0,11]);
 }
-const CL_FIELDS=['name','kana','code','type','rep','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','gensenProcessor','payDay','taxOffice','payrollSoftware','noticeMethod','staff','status','useShiwake','useSouzoku','useNenmatsu','useKeiei','useScan','useProgMonthly','useProgHotei','useProgShokyaku','useProgNencho','deathDate','filingDeadline','notes'];
+const CL_FIELDS=['name','kana','code','type','rep','zip','fiscal','addr','tel','email','contract','payMethod','gensenStatus','gensenProcessor','payDay','taxOffice','payrollSoftware','noticeMethod','staff','status','useShiwake','useSouzoku','useNenmatsu','useKeiei','useScan','useProgMonthly','useProgHotei','useProgShokyaku','useProgNencho','deathDate','filingDeadline','notes','memo'];
 // 相続税申告期限（簡易）：相続開始（死亡日）から10か月後の応当日
 function souzokuDeadline(deathISO){ if(!deathISO)return ''; const d=new Date(deathISO); if(isNaN(d))return ''; const y=d.getFullYear(), m=d.getMonth()+10, day=d.getDate(); const lastDay=new Date(y,m+1,0).getDate(); const t=new Date(y, m, Math.min(day,lastDay)); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
 function recalcFilingDeadline(){ const el=document.getElementById('cl_filingDeadline'); if(el)el.value=souzokuDeadline(val('cl_deathDate')); }
