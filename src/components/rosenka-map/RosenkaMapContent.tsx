@@ -10,7 +10,8 @@ import 'leaflet/dist/leaflet.css'
 import type { Map as LeafletMap, Rectangle, CircleMarker } from 'leaflet'
 import {
   type RosenkaIndex, type RosenkaManifest, type TownMatch,
-  rosenkaPdfUrl, rosenkaViewerUrl, rosenkaCityIndexUrl, rosenkaYearTopUrl, NTA_TOP_URL,
+  rosenkaPdfUrl, rosenkaViewerUrl, rosenkaCityIndexUrl, rosenkaYearTopUrl, rosenkaRatiosUrl,
+  rosenkaMirrorPdfUrl, NTA_TOP_URL,
 } from '@/lib/rosenka-map/types'
 import { loadManifest, loadIndex, matchAddress, normalizeTown } from '@/lib/rosenka-map/index-store'
 import { geocode, geocodeTownCached, type GeocodeHit } from '@/lib/rosenka-map/gsi'
@@ -46,6 +47,9 @@ export default function RosenkaMapContent() {
   const [extentNote, setExtentNote] = useState('')
   const [toshi, setToshi] = useState<ToshiData | null | undefined>(undefined)
   const [toshiHit, setToshiHit] = useState<ToshiHit | null>(null)
+  // PDF表示: ミラー（raw・CORS可）から取得して blob URL で表示。'loading' | 'error' | blob URL
+  const [pdfView, setPdfView] = useState<'none' | 'loading' | 'error' | string>('none')
+  const pdfBlobRef = useRef<string | null>(null)
 
   const mapRef = useRef<LeafletMap | null>(null)
   const markerRef = useRef<CircleMarker | null>(null)
@@ -191,6 +195,30 @@ export default function RosenkaMapContent() {
     })()
   }, [index, selSheet, selTown, matches])
 
+  // ---- PDFの取得（ミラー→blob。国税庁PDFはXFOで直接iframe不可のため） ----
+  useEffect(() => {
+    if (pdfBlobRef.current) { URL.revokeObjectURL(pdfBlobRef.current); pdfBlobRef.current = null }
+    if (!index || !selSheet) { setPdfView('none'); return }
+    let cancelled = false
+    setPdfView('loading')
+    ;(async () => {
+      try {
+        const res = await fetch(rosenkaMirrorPdfUrl(index, selSheet))
+        if (!res.ok) throw new Error(String(res.status))
+        const buf = await res.arrayBuffer()
+        const head = new Uint8Array(buf.slice(0, 5))
+        if (String.fromCharCode(head[0], head[1], head[2], head[3], head[4]) !== '%PDF-') throw new Error('not pdf')
+        if (cancelled) return
+        const url = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }))
+        pdfBlobRef.current = url
+        setPdfView(url)
+      } catch {
+        if (!cancelled) setPdfView('error')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [index, selSheet])
+
   // ---- 表示用 ----
   const curMatch = matches.find((m) => m.town === selTown) || null
   const pdfUrl = index && selSheet ? rosenkaPdfUrl(index, selSheet) : ''
@@ -249,8 +277,11 @@ export default function RosenkaMapContent() {
                 </span>
               )}
               {index && !curMatch && matches.length === 0 && (
-                <span className="text-amber-700">この住所は町丁名索引と自動照合できませんでした。
-                  <a className="underline ml-1" href={index ? rosenkaYearTopUrl(index.year) : NTA_TOP_URL} target="_blank" rel="noreferrer">国税庁で町丁名索引を開く</a>
+                <span className="text-amber-700">
+                  この住所は町丁名索引と自動照合できませんでした。
+                  路線価図が無い市町村（<b>倍率地域</b>）の可能性があります —
+                  <a className="underline mx-1" href={rosenkaRatiosUrl(index)} target="_blank" rel="noreferrer">評価倍率表を開く ↗</a>／
+                  <a className="underline ml-1" href={rosenkaYearTopUrl(index.year)} target="_blank" rel="noreferrer">町丁名索引 ↗</a>
                 </span>
               )}
               {matches.length > 0 && (
@@ -361,8 +392,18 @@ export default function RosenkaMapContent() {
             )}
           </div>
           <div className="flex-1 bg-gray-700 min-h-0">
-            {pdfUrl ? (
-              <iframe key={pdfUrl} src={pdfUrl} title="路線価図PDF" className="w-full h-full border-0" />
+            {typeof pdfView === 'string' && pdfView.startsWith('blob:') ? (
+              <iframe key={pdfView} src={pdfView} title="路線価図PDF" className="w-full h-full border-0" />
+            ) : pdfView === 'loading' ? (
+              <div className="h-full flex items-center justify-center text-gray-300 text-sm">路線価図PDFを読み込み中…</div>
+            ) : pdfView === 'error' && pdfUrl ? (
+              <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-300 text-sm px-8 text-center leading-relaxed">
+                <div>画面内表示用のPDFミラーを取得できませんでした（ミラー生成前の可能性があります）。</div>
+                <a href={pdfUrl} target="_blank" rel="noreferrer"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700">
+                  国税庁のPDFを別タブで開く ↗
+                </a>
+              </div>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-300 text-sm px-8 text-center leading-relaxed">
                 {manifest === undefined ? '読み込み中…'

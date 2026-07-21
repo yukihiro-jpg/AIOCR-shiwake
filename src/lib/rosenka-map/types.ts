@@ -67,4 +67,14 @@ export function rosenkaCityIndexUrl(idx: RosenkaIndex, cityCode: string): string
 export function rosenkaYearTopUrl(year: string): string {
   return `${NTA_BASE}/main_${year}/index.htm`
 }
+/** 評価倍率表の市区町村選択ページ（路線価図が無い＝倍率地域の市町村の案内用） */
+export function rosenkaRatiosUrl(idx: RosenkaIndex): string {
+  return `${NTA_BASE}/main_${idx.year}/${idx.bureau}/${idx.prefSlug}/ratios/city_frm.htm`
+}
 export const NTA_TOP_URL = NTA_BASE + '/'
+
+// 路線価図PDFのミラー（国税庁PDFは X-Frame-Options: SAMEORIGIN のため直接iframe不可。
+// GitHub Actions が rosenka-pdfs ブランチへミラーし、CORS可の raw から取得して blob 表示する）
+export function rosenkaMirrorPdfUrl(idx: RosenkaIndex, sheet: string): string {
+  return `https://raw.githubusercontent.com/yukihiro-jpg/AIOCR-shiwake/rosenka-pdfs/${idx.year}/${idx.prefSlug}/${sheet}.pdf`
+}

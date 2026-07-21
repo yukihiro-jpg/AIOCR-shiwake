@@ -28,18 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 診断: 国税庁・国交省系サイトへの到達性とレスポンスヘッダを記録
-      # （X-Frame-Options / CORS の確認、海外IP遮断の有無の確認用）
-      - name: Probe connectivity (diagnostics)
+      # 診断: 都市計画データ（国土数値情報 A55/A29 茨城県）のダウンロードURL探索
+      - name: Probe toshi-keikaku data URLs (diagnostics)
         continue-on-error: true
         run: |
-          set -x
-          curl -sS -I --max-time 25 https://www.rosenka.nta.go.jp/ | head -25 || true
-          curl -sS -I --max-time 25 "https://www.rosenka.nta.go.jp/main_r08/kanto/ibaraki/prices/c17202fr.htm" | head -25 || true
-          curl -sS -I --max-time 25 "https://www.rosenka.nta.go.jp/main_r08/kanto/ibaraki/prices/pdf/01040.pdf" | head -25 || true
-          curl -sS --max-time 25 https://www.rosenka.nta.go.jp/robots.txt || true
-          curl -sS -I --max-time 25 "https://nlftp.mlit.go.jp/ksj/" | head -15 || true
-          curl -sS -I --max-time 25 "https://www.reinfolib.mlit.go.jp/" | head -15 || true
+          for u in \
+            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-24/A55-24_08_GML.zip" \
+            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-23/A55-23_08_GML.zip" \
+            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-22/A55-22_08_GML.zip" \
+            "https://nlftp.mlit.go.jp/ksj/gml/data/A29/A29-19/A29-19_08_GML.zip" \
+            ; do
+            echo "== $u"
+            curl -sS -I --max-time 25 "$u" | head -8 || true
+          done
+          echo "== A55 データ一覧ページ"
+          curl -sS --max-time 25 "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A55-2024.html" | grep -o 'A55[^"]*\.zip' | sort -u | head -40 || true
+          curl -sS --max-time 25 "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A55.html" | grep -o 'A55[^"]*\.zip' | sort -u | head -40 || true
 
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +52,8 @@ jobs:
       - name: Build rosenka index
         run: node tools/rosenka/build-rosenka-index.mjs
 
-      - name: Commit and push data
+      - name: Commit and push index data
+        id: commit_index
         run: |
           if [[ -n "$(git status --porcelain public/rosenka-data)" ]]; then
             git config user.name "github-actions[bot]"
@@ -61,6 +66,38 @@ jobs:
             gh workflow run deploy-pages.yml --ref main
           else
             echo "変更なし（データは最新）"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # 路線価図PDFのミラー（X-Frame-Options対策: raw.githubusercontent.com 経由で画面内表示するため）
+      # 専用ブランチ rosenka-pdfs に置き、main のリポジトリサイズには影響させない。
+      - name: Mirror rosenka PDFs to rosenka-pdfs branch
+        run: |
+          set -e
+          MIRROR_DIR="${RUNNER_TEMP}/rosenka-pdfs"
+          mkdir -p "$MIRROR_DIR"
+          cd "$MIRROR_DIR"
+          git init -q -b rosenka-pdfs .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth=1 origin rosenka-pdfs 2>/dev/null; then
+            git checkout -q -B rosenka-pdfs FETCH_HEAD
+            echo "既存ミラーを取得（差分ダウンロード）"
+          else
+            echo "ミラーブランチ新規作成"
+            echo "路線価図PDFの自動ミラー（出典: 国税庁 財産評価基準書 https://www.rosenka.nta.go.jp/ ）" > README.md
+          fi
+          node "${GITHUB_WORKSPACE}/tools/rosenka/mirror-rosenka-pdfs.mjs" \
+            --index-dir "${GITHUB_WORKSPACE}/public/rosenka-data/index" --dest .
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add -A
+            git commit -q -m "路線価図PDFミラーを更新（自動生成）"
+            git push -q origin rosenka-pdfs
+            echo "ミラーをpushしました"
+          else
+            echo "ミラーは最新"
           fi
         env:
           GH_TOKEN: ${{ github.token }}

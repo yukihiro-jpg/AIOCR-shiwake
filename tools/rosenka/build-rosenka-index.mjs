@@ -115,7 +115,9 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
       let lm
       while ((lm = linkRe.exec(row))) sheets.push(lm[1])
       if (!sheets.length) continue
-      // 町丁名: 行の最初の <td> のテキスト（リンクを含まないセル）
+      // 町丁名: リンクを含まないテキストセルのうち「最後」のもの。
+      // （五十音セクションの先頭行は <td rowspan>あ</td><td>青柳町</td><td>リンク…</td> の形になり、
+      //   最初のセルは見出しの仮名1文字のため、リンク直前のセルを町丁名として採用する）
       let town = ''
       const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
       let cm
@@ -123,9 +125,10 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
         const cellHtml = cm[1]
         if (/f\.htm/.test(cellHtml)) continue // 図番号リンクのセル
         const text = stripTags(cellHtml)
-        if (text && !/^[\d\s,]+$/.test(text)) { town = text; break }
+        if (text && !/^[\d\s,]+$/.test(text)) town = text
       }
       if (!town) continue
+      if (/^[ぁ-んァ-ヶ]$/.test(town)) continue // 五十音見出しのみの行は除外
       if (!towns[town]) towns[town] = []
       for (const s of sheets) if (!towns[town].includes(s)) towns[town].push(s)
     }
