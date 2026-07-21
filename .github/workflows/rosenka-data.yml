@@ -41,15 +41,21 @@ jobs:
           mkdir -p /tmp/a29 && (cd /tmp/a29 && unzip -o /tmp/a29.zip >/dev/null)
           echo "== zip 内容 =="
           find /tmp/a29 -type f | sort
-          SHP=$(find /tmp/a29 -iname '*.shp' | head -1)
-          if [ -z "$SHP" ]; then
+          # zipには市町村・都市計画区域ごとに複数のシェープファイルが入っているため全て変換して結合する
+          N=0
+          mkdir -p /tmp/a29/geojson
+          while IFS= read -r SHP; do
+            N=$((N+1))
+            npx -y mapshaper "$SHP" encoding=shift_jis -o format=geojson precision=0.00001 "/tmp/a29/geojson/part$N.geojson"
+          done < <(find /tmp/a29 -iname '*.shp' | sort)
+          echo "変換したシェープファイル数: $N"
+          if [ "$N" -eq 0 ]; then
             echo "シェープファイルが見つかりません。XMLサンプル:"
             X=$(find /tmp/a29 -iname '*.xml' | head -1)
             [ -n "$X" ] && head -c 2500 "$X"
             exit 1
           fi
-          npx -y mapshaper "$SHP" encoding=shift_jis -o format=geojson precision=0.00001 /tmp/a29/youto.geojson
-          node tools/rosenka/build-toshi-data.mjs --geojson /tmp/a29/youto.geojson --out public/rosenka-data/toshi/ibaraki.json
+          node tools/rosenka/build-toshi-data.mjs --geojson-dir /tmp/a29/geojson --out public/rosenka-data/toshi/ibaraki.json
 
       - name: Build rosenka index
         run: node tools/rosenka/build-rosenka-index.mjs

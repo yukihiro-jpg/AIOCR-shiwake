@@ -2,25 +2,38 @@
 // 国土数値情報 用途地域データ（A29）のシェープファイルを mapshaper で GeoJSON 化したものを
 // 入力に、路線価マップが読む軽量JSON（public/rosenka-data/toshi/{pref}.json）へ変換する。
 //
-// 使い方: node tools/rosenka/build-toshi-data.mjs --geojson <input.geojson> --out <output.json>
+// 使い方: node tools/rosenka/build-toshi-data.mjs (--geojson <input.geojson> | --geojson-dir <dir>) --out <output.json>
+//   --geojson-dir はディレクトリ内の *.geojson を全て結合する（県zipは市町村別の複数ファイルのため）
 //
 // 「間違ったものを出さない」方針:
 //   属性キーは候補から自動検出し、値の内容（用途地域名らしさ・建蔽率/容積率の範囲）を検証。
 //   検証に通らない場合はサンプルを出力して異常終了し、既存データを壊さない。
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const args = process.argv.slice(2)
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null }
 const IN = opt('--geojson')
+const IN_DIR = opt('--geojson-dir')
 const OUT = opt('--out')
-if (!IN || !OUT) { console.error('使い方: --geojson <in> --out <out>'); process.exit(1) }
+if ((!IN && !IN_DIR) || !OUT) { console.error('使い方: (--geojson <in> | --geojson-dir <dir>) --out <out>'); process.exit(1) }
 
 const YOUTO_RE = /住居|商業|工業|田園/
 
-const gj = JSON.parse(readFileSync(IN, 'utf8'))
-const feats = gj.features || []
+const inputs = IN_DIR
+  ? readdirSync(IN_DIR).filter((f) => f.endsWith('.geojson')).map((f) => join(IN_DIR, f))
+  : [IN]
+const feats = []
+for (const p of inputs) {
+  try {
+    const gj = JSON.parse(readFileSync(p, 'utf8'))
+    if (Array.isArray(gj.features)) feats.push(...gj.features)
+  } catch (e) {
+    console.warn(`読込失敗（スキップ）: ${p}: ${e.message}`)
+  }
+}
+console.log(`入力: ${inputs.length}ファイル / ${feats.length}フィーチャ`)
 if (feats.length < 20) {
   console.error(`フィーチャ数が少なすぎます: ${feats.length}`)
   process.exit(1)
