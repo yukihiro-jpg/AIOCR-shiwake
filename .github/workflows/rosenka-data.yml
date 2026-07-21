@@ -57,20 +57,21 @@ jobs:
           fi
           node tools/rosenka/build-toshi-data.mjs --geojson-dir /tmp/a29/geojson --out public/rosenka-data/toshi/ibaraki.json
 
-      # 診断: いばらきデジタルまっぷ（都市計画GIS）の地点ジャンプURL形式の探索
-      - name: Probe Ibaraki digital map URL (diagnostics)
+      # 診断: いばらきデジタルまっぷの「都市計画」マップID一覧と地点ジャンプURLの動作確認
+      - name: Probe Ibaraki digital map IDs (diagnostics)
         continue-on-error: true
         run: |
-          for slug in pref-ibaraki ibaraki-pref ibaraki ibarakiken; do
-            echo "== https://www2.wagmap.jp/$slug/Portal"
-            curl -s -o /dev/null -w "%{http_code} -> %{url_effective}\n" -L --max-time 20 "https://www2.wagmap.jp/$slug/Portal" || true
-          done
-          echo "== 検索エンジンからの発見（wagmap系URLの抽出）"
-          curl -sL --max-time 25 "https://www.bing.com/search?q=%E3%81%84%E3%81%B0%E3%82%89%E3%81%8D%E3%83%87%E3%82%B8%E3%82%BF%E3%83%AB%E3%81%BE%E3%81%A3%E3%81%B7" | grep -oE 'https?://[a-z0-9.]*wagmap[^"&<]*' | sort -u | head -10 || true
-          curl -sL --max-time 25 "https://www.bing.com/search?q=%E8%8C%A8%E5%9F%8E%E7%9C%8C+%E9%83%BD%E5%B8%82%E8%A8%88%E7%94%BB%E6%83%85%E5%A0%B1+GIS+%E3%81%84%E3%81%B0%E3%82%89%E3%81%8D%E3%83%87%E3%82%B8%E3%82%BF%E3%83%AB%E3%81%BE%E3%81%A3%E3%81%B7" | grep -oE 'https?://[^"&<]{10,120}' | grep -iE 'wagmap|ibaraki' | sort -u | head -15 || true
-          echo "== ポータル本体の地図一覧（mid探索）"
-          for slug in pref-ibaraki ibaraki-pref ibaraki; do
-            curl -sL --max-time 25 "https://www2.wagmap.jp/$slug/Portal" | grep -oE '(Map\?[^"]*mid=[0-9]+[^"]*|[^<>]{0,20}都市計画[^<>]{0,30})' | head -25 || true
+          echo "== 全マップ一覧（MapId と MapName）"
+          curl -sL --max-time 30 "https://www2.wagmap.jp/ibaraki/Portal" -o /tmp/portal.html
+          grep -oE '"MapId":[0-9]+,"MapName":"[^"]*"' /tmp/portal.html | head -120 || true
+          echo "== 地点ジャンプURLの動作確認（結城市 mid=65 で各形式を試す）"
+          for u in \
+            "https://www2.wagmap.jp/ibaraki/Map?mid=65&mpx=139.8747&mpy=36.3053&mps=2500" \
+            "https://www2.wagmap.jp/ibaraki/Map?mid=65" \
+            "https://www2.wagmap.jp/ibaraki/Agreement?mid=65" \
+            ; do
+            echo "-- $u"
+            curl -s -o /dev/null -w "%{http_code} -> %{url_effective}\n" -L --max-time 20 "$u" || true
           done
 
       - name: Build rosenka index
