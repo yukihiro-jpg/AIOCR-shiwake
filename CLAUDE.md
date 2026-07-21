@@ -23,6 +23,7 @@
 | 年調アップロード（従業員向け公開ページ） | `/nenmatsu-upload` | React | `src/components/nenmatsu/NenmatsuUpload.tsx` |
 | 月次レポート | `/keiei` | React | `src/components/keiei/` `src/lib/keiei/` |
 | 税務チェック（①申告書PDFの書類間金額突合 ②総勘定元帳CSVの会計監査・API不使用） | `/shinkoku-check` | React | `src/components/shinkoku-check/` `src/lib/shinkoku-check/`（監査ロジックは `src/lib/keiei/audit.ts` を共用） |
+| 路線価マップ（住所→地図＋国税庁路線価図PDF・年分切替・都市計画区分） | `/rosenka-map` | React | `src/components/rosenka-map/` `src/lib/rosenka-map/`。索引データは `tools/rosenka/build-rosenka-index.mjs` が生成し `public/rosenka-data/` に置く（`.github/workflows/rosenka-data.yml` が毎年7/2に自動更新） |
 
 ## ビルド・デプロイ手順（重要）
 

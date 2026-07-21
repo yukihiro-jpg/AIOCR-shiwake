@@ -74,6 +74,14 @@ export const MODULES: ModuleDef[] = [
     status: 'ready',
   },
   {
+    key: 'rosenka-map',
+    label: '路線価マップ',
+    desc: '住所検索で相続税路線価図PDFと地図を並列表示（年分切替・都市計画区分・公図リンク）',
+    path: '/rosenka-map',
+    icon: '🗺',
+    status: 'ready',
+  },
+  {
     key: 'shinkoku-check',
     label: '税務チェック',
     desc: '申告書PDFの書類間突合と総勘定元帳CSVの会計監査（決算書⇔別表⇔内訳書等）',

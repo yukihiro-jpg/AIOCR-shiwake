@@ -1,0 +1,55 @@
+# 路線価マップの索引データ自動更新。
+# 毎年7月1日に国税庁が新年度分を公開するため、7月2日に自動実行して
+# 「町丁名→図番号」対応表JSONを再生成し main へコミットする（Pagesが自動再デプロイ）。
+# 手動実行（workflow_dispatch）も可能。
+name: Update rosenka data
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 3 2 7 *' # 毎年7月2日 12:00 JST
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rosenka-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 診断: 国税庁・国交省系サイトへの到達性とレスポンスヘッダを記録
+      # （X-Frame-Options / CORS の確認、海外IP遮断の有無の確認用）
+      - name: Probe connectivity (diagnostics)
+        continue-on-error: true
+        run: |
+          set -x
+          curl -sS -I --max-time 25 https://www.rosenka.nta.go.jp/ | head -25 || true
+          curl -sS -I --max-time 25 "https://www.rosenka.nta.go.jp/main_r08/kanto/ibaraki/prices/c17202fr.htm" | head -25 || true
+          curl -sS -I --max-time 25 "https://www.rosenka.nta.go.jp/main_r08/kanto/ibaraki/prices/pdf/01040.pdf" | head -25 || true
+          curl -sS --max-time 25 https://www.rosenka.nta.go.jp/robots.txt || true
+          curl -sS -I --max-time 25 "https://nlftp.mlit.go.jp/ksj/" | head -15 || true
+          curl -sS -I --max-time 25 "https://www.reinfolib.mlit.go.jp/" | head -15 || true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build rosenka index
+        run: node tools/rosenka/build-rosenka-index.mjs
+
+      - name: Commit and push data
+        run: |
+          if [[ -n "$(git status --porcelain public/rosenka-data)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/rosenka-data
+            git commit -m "路線価索引データを更新（自動生成）"
+            git push
+          else
+            echo "変更なし（データは最新）"
+          fi

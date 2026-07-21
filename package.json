@@ -12,6 +12,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@types/archiver": "^7.0.0",
+    "@types/leaflet": "^1.9.21",
     "archiver": "^7.0.1",
     "dotenv": "^17.3.1",
     "encoding-japanese": "^2.2.0",
@@ -21,6 +22,7 @@
     "googleapis": "^144.0.0",
     "idb": "^8.0.3",
     "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
     "next": "^14.2.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
