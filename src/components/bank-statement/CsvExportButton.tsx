@@ -11,7 +11,7 @@ interface Props {
   dateTo: string
   onDateFromChange: (v: string) => void
   onDateToChange: (v: string) => void
-  onExported?: () => void
+  onExported?: (exported: JournalEntry[]) => void
 }
 
 export default function CsvExportButton({ entries, dateFrom, dateTo, onDateFromChange, onDateToChange, onExported }: Props) {
@@ -38,7 +38,7 @@ export default function CsvExportButton({ entries, dateFrom, dateTo, onDateFromC
     // 一括パターン学習（自動計算後の金額で学習）
     const learned = learnAllFromEntries(finalEntries)
     console.log(`${learned}件のパターンを学習しました`)
-    onExported?.()
+    onExported?.(finalEntries)
     setShowPanel(false)
   }
 

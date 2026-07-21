@@ -51,6 +51,9 @@ export function subscribeFbStatus(fn: (s: FbStatus) => void): () => void {
 
 const DEBOUNCE_MS = 1500
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+// デバウンス待機中のpush内容。タブを閉じる直前に flushPendingPushes で即時送信するために保持する
+// （1.5秒待ちの間にタブが閉じるとRTDBに旧データが残り、次回起動の同期受信で復活してしまう）
+const pendingPushes = new Map<string, { clientId: string; key: string; data: unknown }>()
 // 自分が直近に push した内容（受信時の自己エコー抑止用）
 const lastPushedJson = new Map<string, string>()
 
@@ -59,14 +62,34 @@ export function schedulePushToFirebase(clientId: string, key: string, data: unkn
   const mapKey = `${clientId}:${key}`
   const prev = debounceTimers.get(mapKey)
   if (prev) clearTimeout(prev)
+  pendingPushes.set(mapKey, { clientId, key, data })
   const t = setTimeout(() => {
     debounceTimers.delete(mapKey)
+    pendingPushes.delete(mapKey)
     pushNow(clientId, key, data).catch((err) => {
       console.warn('[firebase-sync] push failed', err)
       emit({ error: err instanceof Error ? err.message : 'push error' })
     })
   }, DEBOUNCE_MS)
   debounceTimers.set(mapKey, t)
+}
+
+/** デバウンス待機中のpushを全て即時送信する（アプリ終了・タブを閉じる前に呼ぶ） */
+export async function flushPendingPushes(): Promise<void> {
+  const pending = Array.from(pendingPushes.values())
+  debounceTimers.forEach((timer) => clearTimeout(timer))
+  debounceTimers.clear()
+  pendingPushes.clear()
+  await Promise.all(
+    pending.map((p) =>
+      pushNow(p.clientId, p.key, p.data).catch((err) => console.warn('[firebase-sync] flush push failed', err)),
+    ),
+  )
+}
+
+// タブが閉じられる/隠れる際の保険（ベストエフォート。確実に届けたい場面では明示的に flush を await する）
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => { void flushPendingPushes() })
 }
 
 export async function pushNow(clientId: string, key: string, data: unknown): Promise<void> {

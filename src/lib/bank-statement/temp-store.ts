@@ -41,6 +41,14 @@ export function clearTempEntries(): void {
   // 【重要】localStorageだけ消すとRTDB側に旧データが残り、同期の受信で復活して
   // 次回の一括CSV出力に前回分が混ざる。空配列を保存してRTDBにも空を反映する。
   saveTempEntries([])
+  // saveTempEntries のpushは1.5秒デバウンスされるため、その間にタブを閉じると
+  // RTDBに旧データが残って次回復活する。クリアだけはデバウンスを待たず即時送信する。
+  const cid = getSelectedClientId()
+  if (cid) {
+    import('./firebase-sync')
+      .then(({ pushNow }) => pushNow(cid, 'temp-entries', []))
+      .catch(() => { /* firebase 未設定なら無視 */ })
+  }
 }
 
 export function getTempEntryCount(): number {

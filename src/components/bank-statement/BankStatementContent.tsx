@@ -235,6 +235,12 @@ export default function BankStatementContent() {
   const handleExitApp = useCallback(async () => {
     if (!window.confirm('アプリを終了してブラウザのタブを閉じます。よろしいですか？\n（データはFirebaseとこのPCに保存済みです）')) return
     setExitingApp(true)
+    // デバウンス待機中のFirebase push（一時保存クリア等）を送り切ってから閉じる。
+    // これを待たずに閉じるとRTDBに旧データが残り、次回起動時に復活してしまう。
+    try {
+      const { flushPendingPushes } = await import('@/lib/bank-statement/firebase-sync')
+      await flushPendingPushes()
+    } catch { /* firebase 未設定なら無視 */ }
     window.close()
     // window.close() が効かない環境用の代替メッセージ
     setTimeout(() => {
@@ -880,6 +886,9 @@ export default function BankStatementContent() {
         if (changedKeys.includes('processing-status')) {
           setProcessingStatusVersion((v) => v + 1)
         }
+        if (changedKeys.includes('temp-entries')) {
+          setTempCount(getTempEntryCount())
+        }
         setInfo('他の端末の変更を取り込みました')
       })
       if (cancelled) stopFirebaseSync()
@@ -1321,7 +1330,8 @@ export default function BankStatementContent() {
     // 処理状況を更新: uploadConfigRef から確実に科目コードを取得
     const cfgAccountCode = uploadConfigRef.current?.accountCode
     if (cfgAccountCode) {
-      const dates = completed.map((e) => e.date).filter((d) => d && d.length === 8)
+      // 日付は "2025/04/01" 等の区切り付きでも反映できるよう数字だけに正規化する
+      const dates = completed.map((e) => (e.date || '').replace(/\D/g, '')).filter((d) => d.length === 8)
       if (dates.length > 0) {
         updateProcessingStatus(cfgAccountCode, uploadConfigRef.current?.accountName || '', dates, completed.length)
         setProcessingStatusVersion((v) => v + 1)
@@ -1577,7 +1587,18 @@ export default function BankStatementContent() {
               <CsvExportButton entries={journalEntries}
                 dateFrom={dateFrom} dateTo={dateTo}
                 onDateFromChange={setDateFrom} onDateToChange={setDateTo}
-                onExported={() => { if (selectedClient) recordCsvExport(selectedClient.id) }} />
+                onExported={(exported) => {
+                  if (selectedClient) recordCsvExport(selectedClient.id)
+                  // 一時保存を経由しない直接CSV出力でも進捗管理表へ解析日を反映する
+                  const cfgAccountCode = uploadConfigRef.current?.accountCode
+                  if (cfgAccountCode) {
+                    const dates = exported.map((e) => (e.date || '').replace(/\D/g, '')).filter((d) => d.length === 8)
+                    if (dates.length > 0) {
+                      updateProcessingStatus(cfgAccountCode, uploadConfigRef.current?.accountName || '', dates, exported.length)
+                      setProcessingStatusVersion((v) => v + 1)
+                    }
+                  }
+                }} />
             </>
           )}
           {tempCount > 0 && (
