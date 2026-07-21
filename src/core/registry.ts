@@ -75,8 +75,8 @@ export const MODULES: ModuleDef[] = [
   },
   {
     key: 'shinkoku-check',
-    label: '申告書チェック',
-    desc: '申告書一式PDFの書類間の金額整合を自動チェック（決算書⇔別表⇔内訳書等）',
+    label: '税務チェック',
+    desc: '申告書PDFの書類間突合と総勘定元帳CSVの会計監査（決算書⇔別表⇔内訳書等）',
     path: '/shinkoku-check',
     icon: '🧾',
     status: 'ready',

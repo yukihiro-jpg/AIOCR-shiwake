@@ -1,10 +1,13 @@
 'use client'
 
-// 申告書チェック: 税務書類PDFをアップロードし、別種類の書類間で金額の整合を確認する
+// 税務チェック: 2つの入口を持つ
+//  ① 申告書チェック … 税務書類PDFをアップロードし、別種類の書類間で金額の整合を確認する
+//  ② 会計監査 … 総勘定元帳CSVを取り込み、過去実績・消費税マスタと突合して要確認取引を抽出する
 // すべてブラウザ内で処理（AIやサーバーへの送信なし・API不使用）
 import { useCallback, useRef, useState } from 'react'
 import Link from 'next/link'
 import { groupDocHeaders, type AnalyzeResult, type CheckResult } from '@/lib/shinkoku-check/types'
+import LedgerAuditTab from './LedgerAuditTab'
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   ok: { label: '✓ 一致', cls: 'bg-green-100 text-green-800' },
@@ -19,6 +22,7 @@ function fmt(v: number | null): string {
 }
 
 export default function ShinkokuCheckContent() {
+  const [mode, setMode] = useState<'pdf' | 'audit'>('pdf')
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState('')
@@ -87,13 +91,38 @@ export default function ShinkokuCheckContent() {
         <Link href="/" className="text-sm text-blue-600 hover:underline shrink-0">
           ← ホーム
         </Link>
-        <h1 className="text-lg font-bold text-gray-800">🧾 申告書チェック</h1>
+        <h1 className="text-lg font-bold text-gray-800">🧾 税務チェック</h1>
         <span className="text-xs text-gray-500 hidden sm:inline">
-          税務書類PDFの書類間の金額整合をブラウザ内で自動チェック（外部送信なし）
+          申告書PDFの書類間突合・総勘定元帳の会計監査をブラウザ内で実行（外部送信なし）
         </span>
       </header>
 
       <main className="max-w-5xl mx-auto p-4 space-y-4">
+        {/* 入口の切替（申告書チェック / 会計監査） */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={() => setMode('pdf')}
+            className={`text-left rounded-xl border-2 p-4 transition-colors ${mode === 'pdf' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'}`}
+          >
+            <div className="text-sm font-bold text-gray-800">📄 申告書チェック</div>
+            <div className="text-xs text-gray-500 mt-1">
+              申告書一式のPDFをアップロードし、決算書⇔別表⇔内訳書等の書類間の金額整合を自動チェック
+            </div>
+          </button>
+          <button
+            onClick={() => setMode('audit')}
+            className={`text-left rounded-xl border-2 p-4 transition-colors ${mode === 'audit' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-blue-300'}`}
+          >
+            <div className="text-sm font-bold text-gray-800">🔍 会計監査</div>
+            <div className="text-xs text-gray-500 mt-1">
+              総勘定元帳CSVをアップロードし、過去実績・消費税マスタ（仕訳作成と共有）と突合して要確認取引を抽出
+            </div>
+          </button>
+        </div>
+
+        {mode === 'audit' && <LedgerAuditTab />}
+
+        {mode === 'pdf' && (<>
         {/* アップロード */}
         <section
           className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-6 text-center cursor-pointer hover:border-blue-400 transition-colors"
@@ -288,6 +317,7 @@ export default function ShinkokuCheckContent() {
             最終判断は必ず元の書類でご確認ください。データはすべてこの端末内で処理され、外部には送信されません。
           </p>
         )}
+        </>)}
       </main>
     </div>
   )

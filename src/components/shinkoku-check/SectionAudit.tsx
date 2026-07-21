@@ -2,12 +2,14 @@
 
 // 会計監査: 直近2期＋進行期の総勘定元帳CSVを蓄積し、対象期・対象月を選んで
 // 過去実績と突合。税務的に修正すべき可能性のある取引を別ウィンドウに一覧表示する。
+// （月次レポートから税務チェックへ移設。消費税マスタ照合 R12 を追加）
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FiscalYearData } from '@/lib/keiei/types'
 import { decodeCsv } from '@/lib/keiei/parse'
 import { type LedgerData, parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger, listLedgers } from '@/lib/keiei/ledger-store'
 import { auditRange, buildAuditReportHtml, type AuditResult } from '@/lib/keiei/audit'
+import type { AccountTaxItem } from '@/lib/bank-statement/types'
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
@@ -25,10 +27,12 @@ export default function SectionAudit({
   clientId,
   years,
   company,
+  taxMaster,
 }: {
   clientId: string
   years: Record<string, FiscalYearData>
   company: string
+  taxMaster: AccountTaxItem[]
 }) {
   const [ledgers, setLedgers] = useState<{ yearId: string; data: LedgerData }[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -118,7 +122,7 @@ export default function SectionAudit({
     setBusy(true)
     try {
       const history = ledgers.filter((x) => x.yearId !== target.yearId).map((x) => x.data)
-      const result = auditRange(target.data, ymFrom, ymTo, history)
+      const result = auditRange(target.data, ymFrom, ymTo, history, taxMaster)
       setLastResult(result)
       const html = buildAuditReportHtml(result, company)
       const w = window.open('', '_blank')
@@ -131,7 +135,7 @@ export default function SectionAudit({
     } catch (e) {
       setErr('解析に失敗しました: ' + (e instanceof Error ? e.message : String(e)))
     } finally { setBusy(false) }
-  }, [target, ymFrom, ymTo, ledgers, company])
+  }, [target, ymFrom, ymTo, ledgers, company, taxMaster])
 
   if (!loaded) return <div className="text-sm text-gray-400 py-8 text-center">読み込み中…</div>
 
@@ -145,7 +149,7 @@ export default function SectionAudit({
               onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = '' }} />
           </label>
           <span className="text-[11px] text-gray-400">
-            過去期の試算表が未取込でも登録できます。データはこの端末にのみ保存（元帳分析タブと共用）。
+            過去期の試算表が未取込でも登録できます。データはこの端末にのみ保存（月次レポートの元帳分析タブと共用）。
           </span>
         </div>
         {ledgers.length === 0 ? (
@@ -227,7 +231,8 @@ export default function SectionAudit({
           ⑦<b>毎月定額支払の計上漏れ・二重計上</b>
           ⑧<b>役員報酬の定期同額</b>チェック
           ⑩<b>現金残高のマイナス</b>検出
-          ⑪<b>免税事業者等取引（インボイス経過措置）の一貫性</b>。
+          ⑪<b>免税事業者等取引（インボイス経過措置）の一貫性</b>
+          ⑫<b>消費税マスタとの課税区分不一致</b>（仕訳作成の科目別消費税マスタと照合。履歴が無い・最初から誤っている場合も検出）。
           すべてブラウザ内の機械判定で、外部・AIには送信されません。
         </div>
       </Section>

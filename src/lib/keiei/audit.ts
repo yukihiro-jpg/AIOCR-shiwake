@@ -15,9 +15,15 @@
 //  R9 役員報酬の定期同額 … 役員報酬の月額が当期のこれまでの月額と異なる
 //  R10 現金残高マイナス … 現金勘定の日次残高が対象月中にマイナス
 //  R11 免税事業者等取引の一貫性 … 同一取引でインボイス経過措置フラグの有無が過去と異なる
+//  R12 消費税マスタとの課税区分不一致 … 仕訳作成の科目別消費税マスタ（共有）で課税登録の
+//      科目が税なし／対象外登録の科目が課税になっている取引（履歴が無くても・最初から
+//      一貫して誤っている場合も検出できる）。税率(8/10)の妥当性は品目次第（軽減税率）の
+//      ため R12 では判定せず、履歴ベースの R1/R5 に任せる。
 
 import type { LedgerData, LedgerTx } from './ledger'
 import { isPlAccount, isRevenueAccount, isBalanceRow } from './ledger'
+import type { AccountTaxItem } from '@/lib/bank-statement/types'
+import { getDefaultTaxCode } from '@/lib/bank-statement/account-master'
 
 export interface AuditFinding {
   rule: string
@@ -121,6 +127,7 @@ export function auditMonth(
   target: LedgerData,
   ym: string, // 対象月 'YYYY-MM'
   history: LedgerData[], // 過去の元帳（対象期自身を含めてよい。対象月より前の月だけ使う）
+  taxMaster?: AccountTaxItem[], // 仕訳作成の科目別消費税マスタ（あればR12が有効になる）
 ): AuditResult {
   const targetLines = toJournalLines(target).filter((l) => l.ym === ym)
   // 比較対象: 過去元帳の全取引 ＋ 対象元帳の対象月より前の取引
@@ -325,6 +332,40 @@ export function auditMonth(
     }
   }
 
+  // --- R12: 消費税マスタとの課税区分不一致（履歴不要・最初から誤っている場合も検出） ---
+  // 課税⇄非課税・不課税・対象外のクラス違いのみ判定する。税率(8/10)の違いは品目次第
+  // （軽減税率対象か）でマスタからは断定できないため、履歴ベースの R1/R5 に任せる。
+  if (taxMaster && taxMaster.length) {
+    const NONTAX_CODES = new Set(['30', '40', '41']) // 非課税・不課税（会計大将の税区分CD）
+    for (const l of targetLines) {
+      if (!l.plCode) continue
+      const key = `${l.date}|${l.amount}|${l.memo}`
+      if (flaggedKeys.has(key)) continue
+      const item = taxMaster.find((t) => t.accountCode === l.plCode)
+      if (!item) continue // マスタ未登録の科目は判定しない
+      // 期待される税区分: 科目の性質（収益/費用）をヒントに売上側/仕入側を選ぶ
+      const expected = getDefaultTaxCode(taxMaster, l.plCode, l.plIsRevenue ? 'sales' : 'purchase')
+      const expNoTax = item.categoryCode === '0' || (!!expected && NONTAX_CODES.has(expected.taxCode))
+      // 取引側のクラス: 税率あり=課税 / 税CDなし or 非課税・不課税CD=税なし / それ以外=判定不能
+      const lineTaxable = l.taxRate != null
+      const lineNoTax = l.taxRate == null && (!l.taxCode || NONTAX_CODES.has(l.taxCode))
+      if (expNoTax) {
+        if (lineTaxable) {
+          const expLabel = item.categoryCode === '0' ? '対象外' : `${expected?.taxName || '非課税・不課税'}`
+          push('R12', 'マスタとの課税区分不一致', l,
+            `仕訳作成の消費税マスタでは科目「${acctLabel(l.plCode, l.plName)}」は「${expLabel}」の登録ですが、この取引は課税${l.taxRate}%で入力されています。課税区分の誤りでないかご確認ください。`)
+          flaggedKeys.add(key)
+        }
+      } else if (expected && !NONTAX_CODES.has(expected.taxCode)) {
+        if (lineNoTax) {
+          push('R12', 'マスタとの課税区分不一致', l,
+            `仕訳作成の消費税マスタでは科目「${acctLabel(l.plCode, l.plName)}」は「${expected.taxName || '課税'}」（課税）の登録ですが、この取引は「${taxSig(l)}」になっています。課税処理の漏れでないかご確認ください。`)
+          flaggedKeys.add(key)
+        }
+      }
+    }
+  }
+
   // --- R6: 少額資産・資産計上の確認（10万円以上／40万円以上の2段階） ---
   {
     const EXPENSE_RE = /消耗品|事務用品|工具|器具|備品|修繕|雑費/
@@ -513,6 +554,7 @@ export function auditRange(
   ymFrom: string,
   ymTo: string,
   history: LedgerData[],
+  taxMaster?: AccountTaxItem[],
 ): AuditResult {
   let from = ymFrom, to = ymTo
   if (from > to) { const t = from; from = to; to = t }
@@ -528,7 +570,7 @@ export function auditRange(
   let targetCount = 0
   let histCount = 0
   for (const ym of months) {
-    const r = auditMonth(target, ym, history)
+    const r = auditMonth(target, ym, history, taxMaster)
     all.push(...r.findings)
     targetCount += r.targetCount
     histCount = Math.max(histCount, r.historyCount) // 最終月の基準規模を代表値に
@@ -553,6 +595,7 @@ const esc = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, 
 const RULE_COLORS: Record<string, string> = {
   R1: '#b45309', R2: '#b91c1c', R3: '#b91c1c', R4: '#1d4ed8',
   R5: '#b45309', R6: '#7c3aed', R7: '#0e7490', R9: '#b91c1c', R10: '#b91c1c', R11: '#4d7c0f',
+  R12: '#9d174d',
 }
 
 export function buildAuditReportHtml(result: AuditResult, companyName: string): string {

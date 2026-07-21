@@ -28,12 +28,11 @@ import { buildSummaryStory } from '@/lib/keiei/narrative'
 import { detectIssues, laborShare } from '@/lib/keiei/issues'
 import SectionAnken from './SectionAnken'
 import SectionLedger from './SectionLedger'
-import SectionAudit from './SectionAudit'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
 import { buildPrintReportHtml, PRINT_VIEWS, type PrintView } from '@/lib/keiei/print-report'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger' | 'audit'
+type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -132,8 +131,8 @@ export default function KeieiContent() {
   const PRINT_TABS: [View, string][] = PRINT_VIEWS as unknown as [View, string][]
   // 損益計算書（3期推移・A3縦）は印刷専用。画面タブは「試算表・3期比較・推移」内に既にあるため重複させない
   const SCREEN_TABS: [View, string][] = PRINT_TABS.filter(([v]) => (v as string) !== 'trend3pl')
-  // 元帳分析・会計監査は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない
-  const TABS: [View, string][] = [...SCREEN_TABS, ['ledger', '元帳分析'] as [View, string], ['audit', '会計監査'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
+  // 元帳分析は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない（会計監査は税務チェックへ移設済み）
+  const TABS: [View, string][] = [...SCREEN_TABS, ['ledger', '元帳分析'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
   const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持（画面タブ用）
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
@@ -173,7 +172,6 @@ export default function KeieiContent() {
 
   const renderView = (v: View) => {
     if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
-    if (v === 'audit') return <SectionAudit clientId={clientId} years={years} company={current?.name || ''} />
     if (!fy) return null
     if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} monthIdx={monthIdx} reloadKey={ledgerReload} />
     switch (v) {
@@ -467,7 +465,7 @@ export default function KeieiContent() {
             </div>
           </div>
 
-          {(fy || view === 'anken' || view === 'audit') && (
+          {(fy || view === 'anken') && (
             <div className="space-y-5">
               {renderView(view)}
             </div>
