@@ -16,6 +16,7 @@ import {
 import { loadManifest, loadIndex, matchAddress, normalizeTown } from '@/lib/rosenka-map/index-store'
 import { geocode, geocodeTownCached, type GeocodeHit } from '@/lib/rosenka-map/gsi'
 import { loadToshiData, lookupToshi, type ToshiHit } from '@/lib/rosenka-map/toshi'
+import { IBARAKI_DIGITAL_MAP, cityToshiUrl } from '@/lib/rosenka-map/toshi-links'
 import type { ToshiData } from '@/lib/rosenka-map/types'
 
 const HISTORY_KEY = 'rosenka-map-history'
@@ -352,10 +353,25 @@ export default function RosenkaMapContent() {
                 <span className="text-gray-600">建蔽率 {fmtPct(toshiHit.youto.kenpei)}％ ／ 容積率 {fmtPct(toshiHit.youto.yoseki)}％</span>
               )}
               <span className="text-gray-400">
-                出典: {toshi.source}（{toshi.year}）※参考情報。最終確認は市町村の都市計画課で
+                ※{toshi.year}の参考判定です。<b>最新の確認は右のボタンの公式図で</b>
               </span>
             </>
           )}
+          {/* 最新の公式図への導線（判定データの有無に関わらず表示） */}
+          <span className="ml-auto flex items-center gap-1.5">
+            <a href={IBARAKI_DIGITAL_MAP.point(point.lng, point.lat)} target="_blank" rel="noreferrer"
+              title="茨城県の統合型GIS（都市計画情報レイヤー）をこの地点で開く"
+              className="px-2 py-1 bg-emerald-700 text-white rounded font-bold hover:brightness-110">
+              🗾 {IBARAKI_DIGITAL_MAP.label}で確認 ↗
+            </a>
+            {curMatch && (
+              <a href={cityToshiUrl(curMatch.city.name)} target="_blank" rel="noreferrer"
+                title={`${curMatch.city.name}の都市計画図（公式サイト）を開く`}
+                className="px-2 py-1 border border-emerald-700 text-emerald-800 rounded font-bold hover:bg-emerald-50">
+                {curMatch.city.name}の都市計画図 ↗
+              </a>
+            )}
+          </span>
         </div>
       )}
 
