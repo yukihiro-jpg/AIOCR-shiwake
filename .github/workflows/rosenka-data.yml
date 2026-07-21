@@ -28,26 +28,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 診断: 都市計画データ（国土数値情報 A55/A29 茨城県）のダウンロードURL探索
-      - name: Probe toshi-keikaku data URLs (diagnostics)
-        continue-on-error: true
-        run: |
-          for u in \
-            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-24/A55-24_08_GML.zip" \
-            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-23/A55-23_08_GML.zip" \
-            "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-22/A55-22_08_GML.zip" \
-            "https://nlftp.mlit.go.jp/ksj/gml/data/A29/A29-19/A29-19_08_GML.zip" \
-            ; do
-            echo "== $u"
-            curl -sS -I --max-time 25 "$u" | head -8 || true
-          done
-          echo "== A55 データ一覧ページ"
-          curl -sS --max-time 25 "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A55-2024.html" | grep -o 'A55[^"]*\.zip' | sort -u | head -40 || true
-          curl -sS --max-time 25 "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A55.html" | grep -o 'A55[^"]*\.zip' | sort -u | head -40 || true
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # 都市計画（用途地域）データの生成: 国土数値情報 A29（茨城県）→ 軽量JSON
+      # 失敗しても路線価の更新は継続する（既存の都市計画データは保護される）
+      - name: Build toshi-keikaku data (用途地域)
+        continue-on-error: true
+        run: |
+          curl -sS --max-time 120 -o /tmp/a29.zip "https://nlftp.mlit.go.jp/ksj/gml/data/A29/A29-19/A29-19_08_GML.zip"
+          mkdir -p /tmp/a29 && (cd /tmp/a29 && unzip -o /tmp/a29.zip >/dev/null)
+          echo "== zip 内容 =="
+          find /tmp/a29 -type f | sort
+          SHP=$(find /tmp/a29 -iname '*.shp' | head -1)
+          if [ -z "$SHP" ]; then
+            echo "シェープファイルが見つかりません。XMLサンプル:"
+            X=$(find /tmp/a29 -iname '*.xml' | head -1)
+            [ -n "$X" ] && head -c 2500 "$X"
+            exit 1
+          fi
+          npx -y mapshaper "$SHP" encoding=shift_jis -o format=geojson precision=0.00001 /tmp/a29/youto.geojson
+          node tools/rosenka/build-toshi-data.mjs --geojson /tmp/a29/youto.geojson --out public/rosenka-data/toshi/ibaraki.json
 
       - name: Build rosenka index
         run: node tools/rosenka/build-rosenka-index.mjs
