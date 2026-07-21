@@ -3,6 +3,14 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { MODULES } from '@/core/registry'
+
+// 別ウィンドウで起動するモジュール（地図とPDFの並列表示など広い画面が要るもの）。
+// 同じウィンドウ名を使うため、既に開いていれば再利用（フォーカス）される。
+function openModuleWindow(key: string, path: string): void {
+  const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
+  const w = window.open(`${base}${path}/`, `suite-${key}`, 'width=1600,height=920')
+  if (w) w.focus()
+}
 import { hasRoom } from '@/core/room'
 import {
   exportSuiteBackup, readSuiteBackupFile, restoreSuiteBackup, getSuiteLastBackupAt,
@@ -349,7 +357,13 @@ export default function Launcher() {
               </>
             )
             return ready ? (
-              <Link key={m.key} href={m.path} className={cls}>{inner}</Link>
+              m.newWindow ? (
+                <a key={m.key} href={m.path}
+                  onClick={(e) => { e.preventDefault(); openModuleWindow(m.key, m.path) }}
+                  className={cls}>{inner}</a>
+              ) : (
+                <Link key={m.key} href={m.path} className={cls}>{inner}</Link>
+              )
             ) : (
               <div key={m.key} className={cls + ' opacity-60 cursor-default'} title="準備中">{inner}</div>
             )
@@ -413,7 +427,12 @@ export default function Launcher() {
                   </div>
                 )
                 return ready ? (
-                  <Link key={m.key} href={m.path} className="block h-full">{inner}</Link>
+                  m.newWindow ? (
+                    <a key={m.key} href={m.path} className="block h-full"
+                      onClick={(e) => { e.preventDefault(); openModuleWindow(m.key, m.path) }}>{inner}</a>
+                  ) : (
+                    <Link key={m.key} href={m.path} className="block h-full">{inner}</Link>
+                  )
                 ) : (
                   <div key={m.key} className="h-full" title="準備中">{inner}</div>
                 )

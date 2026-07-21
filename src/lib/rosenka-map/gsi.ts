@@ -53,6 +53,32 @@ export async function geocode(query: string, timeoutMs = 10000): Promise<Geocode
   }
 }
 
+export interface ReverseHit {
+  muniCd: string // 市区町村コード（JIS X 0402。先頭ゼロ無しで返ることがある）
+  lv01Nm: string // 町丁名（例: 姫子二丁目）
+}
+
+/** 逆ジオコーダ: 緯度経度→市区町村コード＋町丁名（地図クリック用） */
+export async function reverseGeocode(lat: number, lng: number, timeoutMs = 8000): Promise<ReverseHit | null> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(
+      `https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${lat}&lon=${lng}`,
+      { signal: ctrl.signal },
+    )
+    if (!res.ok) return null
+    const j = (await res.json()) as { results?: { muniCd?: string | number; lv01Nm?: string } }
+    const r = j?.results
+    if (!r?.muniCd) return null
+    return { muniCd: String(r.muniCd), lv01Nm: String(r.lv01Nm || '') }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** 町丁名の座標を取得（キャッシュ付き・図郭の推定範囲の計算用） */
 export async function geocodeTownCached(prefName: string, cityName: string, town: string): Promise<[number, number] | null> {
   const q = `${prefName}${cityName}${town.replace(/(\d+)$/, '$1丁目')}`
