@@ -332,9 +332,12 @@ export default function RosenkaMapContent() {
           )}
           {toshi && toshiHit && (
             <>
-              <span className={`px-2 py-0.5 rounded font-bold ${toshiHit.kubun ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
-                {toshiHit.kubun ? toshiHit.kubun.name : '区域区分の該当なし'}
-              </span>
+              {/* 区域区分はデータに区分レイヤーがあるときのみ表示（無いのに「該当なし」と出すと誤解を招く） */}
+              {toshi.features.some((f) => f.layer === 'kubun') && (
+                <span className={`px-2 py-0.5 rounded font-bold ${toshiHit.kubun ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
+                  {toshiHit.kubun ? toshiHit.kubun.name : '区域区分の該当なし'}
+                </span>
+              )}
               <span className={`px-2 py-0.5 rounded font-bold ${toshiHit.youto ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-500'}`}>
                 {toshiHit.youto ? toshiHit.youto.name : '用途地域の指定なし'}
               </span>
