@@ -57,23 +57,6 @@ jobs:
           fi
           node tools/rosenka/build-toshi-data.mjs --geojson-dir /tmp/a29/geojson --out public/rosenka-data/toshi/ibaraki.json
 
-      # 診断: いばらきデジタルまっぷの「都市計画」マップID一覧と地点ジャンプURLの動作確認
-      - name: Probe Ibaraki digital map IDs (diagnostics)
-        continue-on-error: true
-        run: |
-          echo "== 全マップ一覧（MapId と MapName）"
-          curl -sL --max-time 30 "https://www2.wagmap.jp/ibaraki/Portal" -o /tmp/portal.html
-          grep -oE '"MapId":[0-9]+,"MapName":"[^"]*"' /tmp/portal.html | head -120 || true
-          echo "== 地点ジャンプURLの動作確認（結城市 mid=65 で各形式を試す）"
-          for u in \
-            "https://www2.wagmap.jp/ibaraki/Map?mid=65&mpx=139.8747&mpy=36.3053&mps=2500" \
-            "https://www2.wagmap.jp/ibaraki/Map?mid=65" \
-            "https://www2.wagmap.jp/ibaraki/Agreement?mid=65" \
-            ; do
-            echo "-- $u"
-            curl -s -o /dev/null -w "%{http_code} -> %{url_effective}\n" -L --max-time 20 "$u" || true
-          done
-
       - name: Build rosenka index
         run: node tools/rosenka/build-rosenka-index.mjs
 

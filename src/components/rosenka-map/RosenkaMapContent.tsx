@@ -16,7 +16,7 @@ import {
 import { loadManifest, loadIndex, matchAddress, normalizeTown } from '@/lib/rosenka-map/index-store'
 import { geocode, geocodeTownCached, type GeocodeHit } from '@/lib/rosenka-map/gsi'
 import { loadToshiData, lookupToshi, type ToshiHit } from '@/lib/rosenka-map/toshi'
-import { IBARAKI_DIGITAL_MAP, cityToshiUrl } from '@/lib/rosenka-map/toshi-links'
+import { ibarakiDigitalMapUrl, cityToshiUrl } from '@/lib/rosenka-map/toshi-links'
 import type { ToshiData } from '@/lib/rosenka-map/types'
 
 const HISTORY_KEY = 'rosenka-map-history'
@@ -359,11 +359,13 @@ export default function RosenkaMapContent() {
           )}
           {/* 最新の公式図への導線（判定データの有無に関わらず表示） */}
           <span className="ml-auto flex items-center gap-1.5">
-            <a href={IBARAKI_DIGITAL_MAP.point(point.lng, point.lat)} target="_blank" rel="noreferrer"
-              title="茨城県の統合型GIS（都市計画情報レイヤー）をこの地点で開く"
-              className="px-2 py-1 bg-emerald-700 text-white rounded font-bold hover:brightness-110">
-              🗾 {IBARAKI_DIGITAL_MAP.label}で確認 ↗
-            </a>
+            {curMatch && ibarakiDigitalMapUrl(curMatch.city.name, point.lng, point.lat) && (
+              <a href={ibarakiDigitalMapUrl(curMatch.city.name, point.lng, point.lat)!} target="_blank" rel="noreferrer"
+                title={`いばらきデジタルまっぷの「都市計画（${curMatch.city.name}）」をこの地点で開く`}
+                className="px-2 py-1 bg-emerald-700 text-white rounded font-bold hover:brightness-110">
+                🗾 デジタルまっぷで確認 ↗
+              </a>
+            )}
             {curMatch && (
               <a href={cityToshiUrl(curMatch.city.name)} target="_blank" rel="noreferrer"
                 title={`${curMatch.city.name}の都市計画図（公式サイト）を開く`}
