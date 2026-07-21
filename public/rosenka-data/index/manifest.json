@@ -1,0 +1,24 @@
+{
+ "updatedAt": "2026-07-21T14:38:04.013Z",
+ "years": [
+  {
+   "id": "r08",
+   "label": "令和8年分"
+  },
+  {
+   "id": "r07",
+   "label": "令和7年分"
+  },
+  {
+   "id": "r06",
+   "label": "令和6年分"
+  }
+ ],
+ "prefs": [
+  {
+   "slug": "ibaraki",
+   "name": "茨城県",
+   "bureau": "kanto"
+  }
+ ]
+}
