@@ -200,6 +200,20 @@ const yearLabel = (y) => {
 async function main() {
   const args = process.argv.slice(2)
   const debug = args.includes('--sample')
+  // 図面ビューアページの構造診断: 1ページを全文ダンプして終了（隣接リンクの実装調査用）
+  if (args.includes('--adj-sample')) {
+    const sheet = args[args.indexOf('--adj-sample') + 1] || '01040'
+    const pref = PREFS[0]
+    const y = `r${String(new Date().getFullYear() - 2018).padStart(2, '0')}`
+    const url = `${NTA}/main_${y}/${pref.bureau}/${pref.slug}/prices/html/${sheet}f.htm`
+    const html = await fetchText(url)
+    console.log(`=== ${url} 全文（${html ? html.length : 0}文字） ===`)
+    console.log(html || '(取得失敗)')
+    const js = await fetchText(`${NTA}/main_${y}/common/js/rosenka.js`)
+    console.log(`=== rosenka.js 先頭8000文字（全${js ? js.length : 0}文字） ===`)
+    console.log((js || '(取得失敗)').slice(0, 8000))
+    return
+  }
   const yearsArg = args.find((a) => a.startsWith('--years'))
   const years = yearsArg
     ? (yearsArg.split('=')[1] || args[args.indexOf(yearsArg) + 1]).split(',')
@@ -250,7 +264,10 @@ async function main() {
           if (prev.adj && Object.keys(prev.adj).length >= allSheets.size * 0.9) adj = prev.adj
         } catch { /* ignore */ }
       }
-      if (!adj) {
+      if (!adj && process.env.SKIP_ADJ === '1') {
+        adj = {}
+        console.log('  隣接図面: SKIP_ADJ=1 のためスキップ')
+      } else if (!adj) {
         console.log(`  隣接図面を抽出中…（${allSheets.size}図面）`)
         adj = await fetchAdjacency(year, pref, Array.from(allSheets).sort(), true)
         console.log(`  隣接図面: ${Object.keys(adj).length}/${allSheets.size}図面で検出`)

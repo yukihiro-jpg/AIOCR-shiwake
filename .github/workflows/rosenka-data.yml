@@ -57,8 +57,15 @@ jobs:
           fi
           node tools/rosenka/build-toshi-data.mjs --geojson-dir /tmp/a29/geojson --out public/rosenka-data/toshi/ibaraki.json
 
+      # 図面ビューアページの構造診断（隣接図面リンクの実装調査用・数秒で完了）
+      - name: Dump viewer page sample (diagnostics)
+        continue-on-error: true
+        run: node tools/rosenka/build-rosenka-index.mjs --adj-sample 01040
+
       - name: Build rosenka index
         run: node tools/rosenka/build-rosenka-index.mjs
+        env:
+          SKIP_ADJ: '1' # 隣接抽出のパーサ確定まで一時スキップ（確定後に外す）
 
       - name: Commit and push index data
         id: commit_index
