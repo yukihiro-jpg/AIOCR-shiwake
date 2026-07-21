@@ -39,8 +39,10 @@ if (feats.length < 20) {
   process.exit(1)
 }
 
-// 属性キーの自動検出（値の内容で検証する）
-const sampleProps = feats.slice(0, 200).map((f) => f.properties || {})
+// 属性キーの自動検出（値の内容で検証する）。
+// サンプルは全件から等間隔に取る（先頭ファイル＝1市だけだと容積率の値域が偏り検出に失敗する）
+const step = Math.max(1, Math.floor(feats.length / 500))
+const sampleProps = feats.filter((_, i) => i % step === 0).slice(0, 500).map((f) => f.properties || {})
 function detectKey(pred) {
   const keys = Object.keys(sampleProps[0] || {})
   for (const k of keys) {
@@ -49,10 +51,27 @@ function detectKey(pred) {
   }
   return null
 }
+/** 数値列の統計（9割以上が数値でなければnull） */
+function numStats(k) {
+  const vals = sampleProps.map((p) => p[k]).filter((v) => v != null && v !== '')
+  if (!vals.length) return null
+  const nums = vals.map(Number).filter((n) => Number.isFinite(n))
+  if (nums.length < vals.length * 0.9) return null
+  const pct10 = nums.filter((n) => n % 10 === 0).length / nums.length
+  return { min: Math.min(...nums), max: Math.max(...nums), pct10 }
+}
 const nameKey = detectKey((v) => typeof v === 'string' && YOUTO_RE.test(v))
-const kenpeiKey = detectKey((v) => { const n = Number(v); return Number.isFinite(n) && n >= 30 && n <= 90 })
-const yosekiKey = detectKey((v) => { const n = Number(v); return Number.isFinite(n) && n >= 50 && n <= 1400 && n % 10 === 0 && n > 90 })
+// 建蔽率: 30〜90%（最大が90以下）／ 容積率: 50〜1500%（最大が100以上）— 値域で列を区別する
+let kenpeiKey = null
+let yosekiKey = null
+for (const k of Object.keys(sampleProps[0] || {})) {
+  const s = numStats(k)
+  if (!s || s.pct10 < 0.9) continue
+  if (!kenpeiKey && s.min >= 30 && s.max <= 90) kenpeiKey = k
+  else if (!yosekiKey && s.min >= 50 && s.max >= 100 && s.max <= 1500) yosekiKey = k
+}
 console.log(`属性キー検出: 用途地域名=${nameKey} 建蔽率=${kenpeiKey} 容積率=${yosekiKey}`)
+console.log('数値列の統計:', Object.keys(sampleProps[0] || {}).map((k) => { const s = numStats(k); return s ? `${k}[${s.min}..${s.max}]` : null }).filter(Boolean).join(' '))
 if (!nameKey) {
   console.error('用途地域名の属性キーを検出できませんでした。属性サンプル:')
   console.error(JSON.stringify(sampleProps.slice(0, 3), null, 1))
