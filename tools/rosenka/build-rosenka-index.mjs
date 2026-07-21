@@ -141,39 +141,45 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
 }
 
 /** 図面ビューアページ（html/{no}f.htm）から隣接図面（北/南/東/西）を抽出する。
- *  ページ内の「接続図」リンク（方位の文字 or 画像altを持つ 5桁f.htm リンク）を探す。 */
+ *  ページ内の「接続図」テーブル（class=tbl_connectmap）は3×3グリッドで、
+ *  中央が当図・上段中央=北・下段中央=南・中段左=西・中段右=東。 */
 async function fetchAdjacency(year, pref, sheets, debugFirst = false) {
-  const DIR_MAP = [
-    [/北|上/, 'n'], [/南|下/, 's'], [/東|右/, 'e'], [/西|左/, 'w'],
-  ]
   const adj = {}
-  let first = true
+  let dumped = false
   for (const s of sheets) {
     const url = `${NTA}/main_${year}/${pref.bureau}/${pref.slug}/prices/html/${s}f.htm`
-    let pages = []
-    try { pages = await fetchWithFrames(url) } catch { continue }
-    const found = {}
-    for (const p of pages) {
-      // <a href="…01029f.htm">北</a> / <a href="…"><img alt="北" …></a> の両対応
-      const re = /<a[^>]*href\s*=\s*["']?[^"'>\s]*?(\d{5})f\.htm["']?[^>]*>([\s\S]*?)<\/a>/gi
-      let m
-      while ((m = re.exec(p.html))) {
-        const target = m[1]
-        if (target === s) continue
-        const inner = m[2]
-        const altM = inner.match(/alt\s*=\s*["']([^"']*)["']/i)
-        const label = (altM ? altM[1] : '') + stripTags(inner)
-        for (const [rex, key] of DIR_MAP) {
-          if (rex.test(label) && !found[key]) found[key] = target
-        }
+    let html = null
+    try { html = await fetchText(url) } catch { continue }
+    if (!html) continue
+    const tm = html.match(/<table[^>]*class="[^"]*tbl_connectmap[^"]*"[^>]*>([\s\S]*?)<\/table>/i)
+    if (!tm) {
+      if (debugFirst && !dumped) {
+        dumped = true
+        console.log(`--- 接続図テーブル未検出のサンプル(${url}) 先頭3000文字 ---`)
+        console.log(html.slice(0, 3000))
       }
+      continue
     }
-    if (Object.keys(found).length) adj[s] = found
-    else if (first && debugFirst && pages.length) {
-      console.log(`--- 隣接リンク未検出のサンプル(${pages[0].url}) 先頭2500文字 ---`)
-      console.log(pages[0].html.slice(0, 2500))
+    const rows = Array.from(tm[1].matchAll(/<tr[\s>][\s\S]*?<\/tr>/gi)).map((r) =>
+      Array.from(r[0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map((c) => {
+        const lm = c[1].match(/href\s*=\s*["']?(?:\.\/)?(\d{5})f\.htm/i)
+        return lm ? lm[1] : null
+      }),
+    )
+    if (rows.length !== 3 || rows.some((r) => r.length !== 3)) {
+      if (debugFirst && !dumped) {
+        dumped = true
+        console.log(`--- 接続図テーブルが3×3でないサンプル(${url}) ---`)
+        console.log(tm[0].slice(0, 1500))
+      }
+      continue
     }
-    first = false
+    const d = {}
+    if (rows[0][1]) d.n = rows[0][1]
+    if (rows[2][1]) d.s = rows[2][1]
+    if (rows[1][0]) d.w = rows[1][0]
+    if (rows[1][2]) d.e = rows[1][2]
+    if (Object.keys(d).length) adj[s] = d
   }
   return adj
 }
