@@ -14,7 +14,8 @@ import {
   rosenkaMirrorPdfUrl, NTA_TOP_URL,
 } from '@/lib/rosenka-map/types'
 import { loadManifest, loadIndex, matchAddress, normalizeTown } from '@/lib/rosenka-map/index-store'
-import { geocode, geocodeTownCached, type GeocodeHit } from '@/lib/rosenka-map/gsi'
+import { geocode, geocodeTownCached, reverseGeocode, type GeocodeHit } from '@/lib/rosenka-map/gsi'
+import { muniName } from '@/lib/rosenka-map/muni'
 import { loadToshiData, lookupToshi, type ToshiHit } from '@/lib/rosenka-map/toshi'
 import { ibarakiDigitalMapUrl, cityToshiUrl } from '@/lib/rosenka-map/toshi-links'
 import type { ToshiData } from '@/lib/rosenka-map/types'
@@ -57,6 +58,8 @@ export default function RosenkaMapContent() {
   const rectRef = useRef<Rectangle | null>(null)
   const mapDivRef = useRef<HTMLDivElement>(null)
   const extentSeq = useRef(0)
+  // 地図クリックのハンドラ（Leafletのイベント登録は1回きりのため、最新のハンドラをrefで参照する）
+  const mapClickRef = useRef<((lat: number, lng: number) => void) | null>(null)
 
   // ---- 初期化: マニフェスト・都市計画データ・地図 ----
   useEffect(() => {
@@ -79,6 +82,10 @@ export default function RosenkaMapContent() {
         maxZoom: 18,
         attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル</a>',
       }).addTo(map)
+      // 地図クリックでその地点を基準に路線価図を表示
+      map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
+        mapClickRef.current?.(e.latlng.lat, e.latlng.lng)
+      })
       mapRef.current = map
     })()
     return () => {
@@ -133,7 +140,8 @@ export default function RosenkaMapContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, busy, index, toshi])
 
-  const selectHit = useCallback((hit: GeocodeHit) => {
+  const selectHit = useCallback((hit: GeocodeHit, opts?: { pan?: boolean }) => {
+    const pan = opts?.pan !== false
     setPoint({ lat: hit.lat, lng: hit.lng, title: hit.title })
     // 地図
     const map = mapRef.current
@@ -144,7 +152,7 @@ export default function RosenkaMapContent() {
         markerRef.current = L.circleMarker([hit.lat, hit.lng], {
           radius: 9, color: '#1d4ed8', weight: 3, fillColor: '#3b82f6', fillOpacity: 0.5,
         }).addTo(mapRef.current)
-        mapRef.current.setView([hit.lat, hit.lng], 16)
+        if (pan) mapRef.current.setView([hit.lat, hit.lng], 16)
       })
     }
     // 町丁の照合
@@ -158,6 +166,25 @@ export default function RosenkaMapContent() {
     if (toshi) setToshiHit(lookupToshi(toshi, hit.lng, hit.lat))
     else setToshiHit(null)
   }, [index, toshi])
+
+  // 地図クリック: 逆ジオコーディングで町丁名を取得し、その地点を基準に照合・表示する
+  useEffect(() => {
+    mapClickRef.current = async (lat: number, lng: number) => {
+      setErr('')
+      setHits([])
+      const rev = await reverseGeocode(lat, lng)
+      const muni = rev ? muniName(rev.muniCd) : null
+      if (muni) {
+        const title = `${muni.pref}${muni.city}${rev!.lv01Nm || ''}`
+        setQuery(title)
+        selectHit({ title, lat, lng }, { pan: false })
+      } else {
+        // 住所が取れなくても地点は移動し、都市計画判定は行う（路線価の照合のみ不可）
+        selectHit({ title: `地図上の地点（${lat.toFixed(5)}, ${lng.toFixed(5)}）`, lat, lng }, { pan: false })
+        setErr('この地点の町丁名を取得できなかったため、路線価図の自動対応はできませんでした。')
+      }
+    }
+  }, [selectHit])
 
   // ---- 図郭の推定範囲（同じ図番号の町丁の位置から概算・キャッシュ付き） ----
   useEffect(() => {
@@ -381,6 +408,9 @@ export default function RosenkaMapContent() {
       <div className="flex-1 flex min-h-0">
         <div className="w-1/2 relative border-r border-gray-300">
           <div ref={mapDivRef} className="absolute inset-0" />
+          <div className="absolute right-2 top-2 z-[1000] bg-white/90 rounded px-2 py-1 text-[11px] text-gray-600 shadow pointer-events-none">
+            地図をクリックすると、その地点の路線価図を表示します
+          </div>
           {extentNote && (
             <div className="absolute left-2 bottom-2 z-[1000] bg-white/90 rounded px-2 py-1 text-[11px] text-amber-800 shadow">
               {extentNote}

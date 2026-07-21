@@ -13,6 +13,8 @@ export interface ModuleDef {
   path: string
   icon: string
   status: ModuleStatus
+  /** trueなら起動時に別ウィンドウで開く（地図等の広い画面が要るモジュール用） */
+  newWindow?: boolean
 }
 
 export const MODULES: ModuleDef[] = [
@@ -80,6 +82,7 @@ export const MODULES: ModuleDef[] = [
     path: '/rosenka-map',
     icon: '🗺',
     status: 'ready',
+    newWindow: true, // 起動時に別ウィンドウで開く（広い画面で地図とPDFを並列表示するため）
   },
   {
     key: 'shinkoku-check',
