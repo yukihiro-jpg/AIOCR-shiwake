@@ -85,6 +85,41 @@ export function mergePatternsFromDrive(remote: PatternEntry[]): { added: number;
   return { added, updated }
 }
 
+// 学習パターンの方向（借方学習/貸方学習の分離用）
+// - 'withdrawal': 出金取引（貸方=通帳口座）から学習 → 相手科目は借方側
+// - 'deposit'  : 入金取引（借方=通帳口座）から学習 → 相手科目は貸方側
+export type PatternSide = 'deposit' | 'withdrawal'
+
+/**
+ * パターンが入金・出金どちらの取引から学習されたかを判定する。
+ * 1行目（lines[0]）の借方/貸方どちらに通帳口座コードがあるかで判定し、
+ * どちらとも判定できないパターン（クレカ等の口座非依存・旧形式）は
+ * null（方向制約なし）を返す。
+ */
+export function getPatternSide(p: PatternEntry, accountCode?: string): PatternSide | null {
+  const acct = p.accountCode || accountCode
+  if (!acct) return null
+  const l0 = p.lines?.[0]
+  const debit = l0 ? l0.debitCode : (p.debitCode || '')
+  const credit = l0 ? l0.creditCode : (p.creditCode || '')
+  if (credit === acct && debit !== acct) return 'withdrawal'
+  if (debit === acct && credit !== acct) return 'deposit'
+  return null
+}
+
+/** 仕訳行の方向: 借方=通帳口座なら入金、貸方=通帳口座なら出金。判定不能は null */
+export function getEntrySide(e: JournalEntry | undefined, accountCode?: string): PatternSide | null {
+  if (!e || !accountCode) return null
+  if (e.creditCode === accountCode && e.debitCode !== accountCode) return 'withdrawal'
+  if (e.debitCode === accountCode && e.creditCode !== accountCode) return 'deposit'
+  return null
+}
+
+// 2つの方向が矛盾しないか（どちらかが不明なら許容＝旧パターン互換）
+function sideCompatible(a: PatternSide | null, b: PatternSide | null): boolean {
+  return !a || !b || a === b
+}
+
 /**
  * 摘要と金額からパターンを検索
  */
@@ -93,6 +128,7 @@ export function findPattern(
   description: string,
   amount?: number,
   accountCode?: string,
+  side?: PatternSide,
 ): PatternEntry | null {
   if (!description) return null
   const desc = description.toLowerCase()
@@ -104,6 +140,13 @@ export function findPattern(
       // （例：136筑波銀行で学習したパターンが144千葉銀行に誤適用されないように）
       // accountCode を持たない（旧式・口座非依存）パターンは引き続き全口座にマッチする。
       if (p.accountCode && accountCode && p.accountCode !== accountCode) return false
+      // 方向スコープ: 出金（借方学習）のパターンは出金にのみ、入金（貸方学習）の
+      // パターンは入金にのみ適用する（同じ摘要でも借方学習が貸方に影響しないように分離）。
+      // 方向が判定できないパターンは従来どおり両方向にマッチする。
+      if (side) {
+        const pSide = getPatternSide(p, accountCode)
+        if (pSide && pSide !== side) return false
+      }
       const matchText = (p.matchText || p.keyword).toLowerCase()
       const isExact = p.matchType === 'exact'
       let keyMatch: boolean
@@ -174,11 +217,14 @@ export function learnFromEntriesWithRange(
     amount: e.debitAmount || e.creditAmount || 0,
   }))
 
-  // 同じキーワード+金額範囲のパターンがあれば更新、なければ新規
+  // 同じキーワード+金額範囲+方向のパターンがあれば更新、なければ新規
+  // （出金で学習したパターンを入金の学習が上書きしないよう、方向が食い違う場合は別パターンにする）
+  const groupSide = getEntrySide(entries[0], accountCode)
   const existing = patterns.find(
     (p) => p.keyword.toLowerCase() === originalDescription.toLowerCase() &&
       p.amountMin === amountMin && p.amountMax === amountMax &&
-      (p.accountCode || '') === (accountCode || ''),
+      (p.accountCode || '') === (accountCode || '') &&
+      sideCompatible(getPatternSide(p, accountCode), groupSide),
   )
 
   if (existing) {
@@ -321,11 +367,14 @@ export function learnAllFromEntries(entries: JournalEntry[], accountCode?: strin
       }
     }
 
-    // 同じキーワード+科目コード+金額範囲のパターンがあれば更新
+    // 同じキーワード+科目コード+金額範囲+方向のパターンがあれば更新
+    // （出金で学習したパターンを入金の一括学習が上書きしないよう、方向が食い違う場合は別パターンにする）
+    const groupSide = getEntrySide(primary, accountCode)
     const existing = patterns.find(
       (p) => p.keyword.toLowerCase() === originalDesc.toLowerCase() &&
         (p.accountCode || '') === (accountCode || '') &&
-        isAmountInRange(amount, p.amountMin, p.amountMax),
+        isAmountInRange(amount, p.amountMin, p.amountMax) &&
+        sideCompatible(getPatternSide(p, accountCode), groupSide),
     )
     if (existing) {
       existing.lines = lines

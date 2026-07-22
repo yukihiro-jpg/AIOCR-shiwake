@@ -61,7 +61,9 @@ export function mapTransactionsToJournalEntries(
       const amount = isDeposit ? tx.deposit! : tx.withdrawal!
 
       // 学習パターンから科目を推定（金額も考慮）
-      const pattern = findPattern(patterns, tx.description, amount, accountCode)
+      // 入金/出金の方向も渡し、出金（借方）で学習したパターンが同じ摘要の入金（貸方）に
+      // 流用されないようにする（借方学習と貸方学習の分離）
+      const pattern = findPattern(patterns, tx.description, amount, accountCode, isDeposit ? 'deposit' : 'withdrawal')
 
       let entry: JournalEntry
 

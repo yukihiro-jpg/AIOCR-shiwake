@@ -12,7 +12,7 @@ import {
   createBlankEntry,
   createCompoundEntry,
 } from '@/lib/bank-statement/journal-mapper'
-import { learnFromEntriesWithRange, getPatterns, savePatterns } from '@/lib/bank-statement/pattern-store'
+import { learnFromEntriesWithRange, getPatterns, savePatterns, getEntrySide } from '@/lib/bank-statement/pattern-store'
 import { getAccountUsage } from '@/lib/bank-statement/account-usage'
 import type { PatternEntry } from '@/lib/bank-statement/types'
 import { saveSubAccountMaster, loadAccountTaxMaster, resolveAccountTax } from '@/lib/bank-statement/account-master'
@@ -146,7 +146,9 @@ export default function JournalEntryTable({
   const handleLearnConfirm = useCallback(
     (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean, replaceEntireDescription?: boolean) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
-      const originalDesc = learnDialogEntry.originalDescription || learnDialogEntry.description
+      // 複合仕訳でもキーワードは常に親（1行目）の通帳摘要を使う
+      const groupParent = learnRelatedEntries.find((x) => !x.parentId) || learnDialogEntry
+      const originalDesc = groupParent.originalDescription || groupParent.description
       if (!originalDesc) { setLearnDialogEntry(null); return }
 
       const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax, bankAccountCode)
@@ -162,11 +164,12 @@ export default function JournalEntryTable({
         }
       }
       const learnedIds = new Set(learnRelatedEntries.map((e) => e.id))
-      const primaryId = learnDialogEntry.id
       const effectiveMatchTextRaw = matchText || originalDesc
       const isExactMatch = matchType === 'exact'
       const fullReplace = isExactMatch || !!replaceEntireDescription
       const effectiveMatchText = effectiveMatchTextRaw.toLowerCase()
+      // 学習した仕訳グループの方向（入金/出金）。反映時に逆方向の行へ当てないために使う
+      const learnedSide = getEntrySide(groupParent, bankAccountCode)
 
       // ある仕訳に対する変換後摘要を計算（変換後摘要が空なら元の摘要を維持）
       const computeDesc = (e: JournalEntry): string => {
@@ -175,12 +178,19 @@ export default function JournalEntryTable({
         if (fullReplace) return convertedDesc
         return effectiveMatchTextRaw ? sourceText.replace(effectiveMatchTextRaw, convertedDesc) : convertedDesc
       }
+      // 複合仕訳の全行にそろえる摘要（1行目の変換後摘要）
+      const groupDesc = computeDesc(groupParent)
       // この仕訳がパターンの一致条件を満たすか
       const matchesPattern = (e: JournalEntry): boolean => {
         if (e.parentId) return false
         const eDesc = (e.originalDescription || e.description || '').toLowerCase()
         if (!eDesc) return false
         if (isExactMatch ? eDesc !== effectiveMatchText : !eDesc.includes(effectiveMatchText)) return false
+        // 方向が判定できる場合、学習時と逆方向（入金⇄出金）の行には反映しない
+        if (learnedSide) {
+          const rowSide = getEntrySide(e, bankAccountCode)
+          if (rowSide && rowSide !== learnedSide) return false
+        }
         const amt = e.debitAmount || e.creditAmount || 0
         if (amountMin != null && amt < amountMin) return false
         if (amountMax != null && amt > amountMax) return false
@@ -191,7 +201,8 @@ export default function JournalEntryTable({
       const updatedEntries = entries.map((e) => {
         if (learnedIds.has(e.id)) {
           const updated: JournalEntry = { ...e, patternId }
-          if (convertedDesc && e.id === primaryId) updated.description = computeDesc(e)
+          // 変換後摘要は1行目だけでなく複合仕訳の2行目3行目にも適用する
+          if (convertedDesc) updated.description = groupDesc
           return updated
         }
         if (applyToAll && convertedDesc && matchesPattern(e)) {
@@ -226,7 +237,7 @@ export default function JournalEntryTable({
       setLearnDialogEntry(null)
       setLearnRelatedEntries([])
     },
-    [learnDialogEntry, learnRelatedEntries, entries, onEntriesChange],
+    [learnDialogEntry, learnRelatedEntries, entries, onEntriesChange, bankAccountCode],
   )
 
   // 反映確定
@@ -706,10 +717,17 @@ export default function JournalEntryTable({
     const entry = list.find((e) => e.id === id)
     if (!entry) return
     if (!entry.originalDescription && !entry.description) return
+    // 複合仕訳は子行から学習を開いても常に親（1行目）を基準にする
+    // （キーワード＝通帳の元摘要は親行が持っているため）
     const groupId = entry.parentId || entry.id
-    const groupEntries = list.filter((e) => e.id === groupId || e.parentId === groupId)
-    setLearnDialogEntry(entry)
-    setLearnRelatedEntries(groupEntries.length > 0 ? groupEntries : [entry])
+    const parent = list.find((e) => e.id === groupId) || entry
+    // グループ = 親 + parentId で紐づく子行 + 同一取引（transactionId）由来の行。
+    // 2行目3行目もまとめて1つの複合仕訳パターンとして学習する
+    const groupEntries = list.filter((e) =>
+      e.id === groupId || e.parentId === groupId ||
+      (!!parent.transactionId && e.transactionId === parent.transactionId))
+    setLearnDialogEntry(parent)
+    setLearnRelatedEntries(groupEntries.length > 0 ? groupEntries : [parent])
   }, [])
 
   const handleAddBlankAfter = useCallback((id: string) => {
