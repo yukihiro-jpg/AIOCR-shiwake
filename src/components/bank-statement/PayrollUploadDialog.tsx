@@ -308,10 +308,23 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
         setLedger(led)
         return
       }
-      const data = await mod.parsePayrollFile(file)
-      if (data.employees.length === 0) throw new Error('従業員データが見つかりません')
-      setParsed(data)
-      applyDebitDefaults(!!data.isBonus)
+      // 1ファイルでも複数月が入っている形式（氏名・年・月の行形式／選択月列）に対応するため
+      // 複数月対応の解析を通す。単月なら従来どおり単月画面、複数月なら一括画面になる。
+      const list = await mod.parsePayrollFilesMulti([file])
+      if (!list.length || list.every((m) => m.employees.length === 0)) throw new Error('従業員データが見つかりません')
+      const bonusCount = list.filter((m) => m.isBonus).length
+      if (bonusCount > 0 && bonusCount < list.length) {
+        throw new Error('給与と賞与のデータが混在しています。借方科目が異なるため、給与と賞与は分けて取り込んでください。')
+      }
+      if (list.length === 1) {
+        setParsed(list[0])
+        applyDebitDefaults(!!list[0].isBonus)
+        return
+      }
+      setBatch(list)
+      setJournalDates(list.map((m) => m.paymentDate || ''))
+      setParsed(mergeBatch(list))
+      applyDebitDefaults(bonusCount === list.length)
     } catch (e) { setError(e instanceof Error ? e.message : '解析に失敗しました') }
   }
 
@@ -511,7 +524,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
               <button onClick={() => setMode('paste')} className={`px-3 py-1.5 text-sm rounded ${mode === 'paste' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>テキスト貼り付け</button>
               <button onClick={() => setMode('file')} className={`px-3 py-1.5 text-sm rounded ${mode === 'file' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>ファイル選択</button>
             </div>
-            <div className="text-[11px] text-gray-500">※ 給与明細一覧表の<b>PDF</b>も取り込めます（列＝従業員／行＝項目の表をAIで読み取り）。従業員別シート・月列形式の「年間賃金台帳」Excelは人別×月別の複合仕訳を作成します。</div>
+            <div className="text-[11px] text-gray-500">※ 給与明細一覧表の<b>PDF</b>も取り込めます（列＝従業員／行＝項目の表をAIで読み取り）。従業員別シート・月列形式の「年間賃金台帳」Excelは人別×月別の複合仕訳を作成します。「氏名・年・月」の列を持つ行形式のExcel（1ファイルに複数月）は月ごとの仕訳を一括作成できます（仕訳日は取込後に指定）。</div>
             {busy && <div className="text-sm text-blue-700 bg-blue-50 p-2 rounded flex items-center gap-2"><span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></span>{busy}</div>}
             {mode === 'paste' ? (
               <>

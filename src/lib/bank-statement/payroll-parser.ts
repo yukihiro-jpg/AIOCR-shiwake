@@ -201,6 +201,121 @@ export async function parsePayrollFile(file: File): Promise<PayrollData> {
   return parsePayrollRows(await payrollFileToRows(file))
 }
 
+/** 「氏名・年・月」列を持つ行形式（1シート・従業員×月の行・2段ヘッダー可）の賃金台帳をパースする。
+ *  例: 氏名 | 年 | 月 | 日勤…通勤手当 | 課税支給合計 | 支給額合計 | 健康保険…控除合計 | 差引金額
+ *  該当しない形式なら null を返す（従来の解析へフォールバック）。
+ *  月（年+月）ごとに分割した PayrollData 配列を返す。支給日はファイルに無いため空とし、
+ *  仕訳日はダイアログの複数月一括UIでユーザーが指定する。 */
+export function parseNameYearMonthLedgerRows(rows: string[][]): PayrollData[] | null {
+  // ヘッダ行: 「氏名」「年」「月」をすべて含む行を先頭10行から探す
+  let hdrIdx = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const r = rows[i]
+    if (!r) continue
+    const has = (s: string) => r.some((c) => norm(c) === s)
+    if (has('氏名') && has('年') && has('月')) { hdrIdx = i; break }
+  }
+  if (hdrIdx < 0) return null
+  const groupRow = rows[hdrIdx]
+  const detailRow = rows[hdrIdx + 1] || []
+  // 列ヘッダ = 明細行（2段目）の名称。空なら大見出し行（1段目）の名称
+  // （氏名/年/月/差引金額は1段目のみ、支給・控除の内訳名は2段目のみにあるため合成する）
+  const width = Math.max(groupRow.length, detailRow.length)
+  const H: string[] = []
+  for (let c = 0; c < width; c++) {
+    const d = String(detailRow[c] ?? '').trim()
+    const g = String(groupRow[c] ?? '').trim()
+    H.push(d || g)
+  }
+  const idxOf = (names: string[]) => H.findIndex((h) => names.includes(norm(h)))
+  const nameIdx = idxOf(['氏名'])
+  const yearIdx = idxOf(['年'])
+  const monthIdx = idxOf(['月'])
+  if (nameIdx < 0 || yearIdx < 0 || monthIdx < 0) return null
+  const payTotalIdx = idxOf(['支給額合計', '支給合計額', '支給合計', '総支給額'])
+  const taxableIdx = idxOf(['課税支給合計', '課税分合計', '課税支給額', '課税合計'])
+  const netIdx = idxOf(['差引金額', '差引支給額', '差引支給金額'])
+  if (payTotalIdx < 0 && netIdx < 0) return null // 賃金台帳として成立しない
+  // 控除ブロックの開始 = 大見出し行の「控除」列。無ければ支給合計の次列
+  let dedStartIdx = groupRow.findIndex((c) => norm(c) === '控除')
+  if (dedStartIdx < 0) dedStartIdx = payTotalIdx >= 0 ? payTotalIdx + 1 : -1
+  const dedEndIdx = idxOf(['控除合計', '控除合計額'])
+
+  // 支給項目 = 月の次〜控除開始の手前（集計列の課税支給合計・支給額合計は除く）
+  const metaIdx = new Set([nameIdx, yearIdx, monthIdx, payTotalIdx, taxableIdx, netIdx])
+  const payCols: { name: string; idx: number }[] = []
+  const payEnd = dedStartIdx >= 0 ? dedStartIdx - 1 : (netIdx >= 0 ? netIdx - 1 : H.length - 1)
+  for (let i = monthIdx + 1; i <= payEnd && i < H.length; i++) {
+    if (norm(H[i]) && !metaIdx.has(i)) payCols.push({ name: H[i], idx: i })
+  }
+  // 役員報酬・給与手当の金額参照名は「課税分合計」で統一（mapper の前提）。
+  // 参照列は支給額合計を優先する：この形式の差引金額は支給額合計から控除を引いた値で、
+  // 課税支給合計とは丸め差（±1円）が出ることがあり、課税支給合計基準だと貸借が合わなくなるため。
+  if (payTotalIdx >= 0) payCols.push({ name: '課税分合計', idx: payTotalIdx })
+  else if (taxableIdx >= 0) payCols.push({ name: '課税分合計', idx: taxableIdx })
+  // 控除項目 = 控除開始〜控除合計（項目名は mapper/ダイアログの標準名へ正規化）
+  const dedCols: { name: string; idx: number }[] = []
+  if (dedStartIdx >= 0) {
+    const end = dedEndIdx >= 0 ? dedEndIdx : (netIdx >= 0 ? netIdx - 1 : H.length - 1)
+    for (let i = dedStartIdx; i <= end && i < H.length; i++) {
+      if (!norm(H[i]) || metaIdx.has(i)) continue
+      const n = norm(H[i])
+      let name = H[i]
+      if (n === '控除合計') name = '控除合計額'
+      else if (n === '社会保険合計' || n === '社会保険料計' || n === '社保合計') name = '社会保険料合計'
+      dedCols.push({ name, idx: i })
+    }
+  }
+  if (!payCols.length) return null
+
+  // 同名ヘッダの一意化（name 突合の二重計上防止）
+  const payNames = uniquifyNames(payCols.map((c) => c.name))
+  payCols.forEach((c, i) => { c.name = payNames[i] })
+  const dedNames = uniquifyNames(dedCols.map((c) => c.name))
+  dedCols.forEach((c, i) => { c.name = dedNames[i] })
+
+  // データ行を年+月でグループ化（空行・合計行・年月不正の行はスキップ）
+  const byMonth = new Map<string, { period: string; employees: PayrollEmployee[] }>()
+  for (let i = hdrIdx + 1; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row) continue
+    const name = String(row[nameIdx] ?? '').trim()
+    if (!name || /^(合計|計|総合計)$/.test(norm(name))) continue
+    let y = toNum(row[yearIdx])
+    const mo = toNum(row[monthIdx])
+    if (y >= 1 && y <= 99) y += 2018 // 和暦数字（令和）とみなす
+    if (y < 1990 || y > 2100 || mo < 1 || mo > 12) continue
+    const items = [
+      ...payCols.map((c) => ({ name: c.name, amount: toNum(row[c.idx]) })),
+      ...dedCols.map((c) => ({ name: c.name, amount: toNum(row[c.idx]) })),
+    ]
+    const totalPay = payTotalIdx >= 0 ? toNum(row[payTotalIdx]) : (taxableIdx >= 0 ? toNum(row[taxableIdx]) : 0)
+    const netPay = netIdx >= 0 ? toNum(row[netIdx]) : 0
+    if (totalPay === 0 && netPay === 0) continue // 支給のない月（全0行）は対象外
+    // この形式の「控除合計」は社会保険を含まないことがあるため、支給−差引で総控除額を出す
+    const totalDeductions = totalPay && netPay ? totalPay - netPay
+      : items.filter((it) => dedCols.some((c) => c.name === it.name) && it.name !== '控除合計額' && it.name !== '社会保険料合計').reduce((s, it) => s + it.amount, 0)
+    const key = `${y}-${String(mo).padStart(2, '0')}`
+    let g = byMonth.get(key)
+    if (!g) { g = { period: key, employees: [] }; byMonth.set(key, g) }
+    g.employees.push({ no: g.employees.length + 1, name, isExecutive: false, items, totalPay, totalDeductions, netPay })
+  }
+  if (!byMonth.size) return null
+
+  const payHeaders = payCols.map((c) => c.name)
+  const deductHeaders = dedCols.map((c) => c.name)
+  return Array.from(byMonth.values())
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map((g) => ({
+      period: g.period,
+      paymentDate: '', // 支給日はファイルに無い → 仕訳日はユーザーが指定
+      companyName: '',
+      employeeCount: g.employees.length,
+      employees: g.employees,
+      payHeaders, deductHeaders,
+    }))
+}
+
 /** 1ファイル内に複数月（選択月/支給月の列で判別）が混在する場合、月ごとの行グループに分割する。
  *  単月ならそのまま1グループを返す。 */
 function splitPayrollRowsByMonth(rows: string[][]): string[][][] {
@@ -231,6 +346,12 @@ export async function parsePayrollFilesMulti(files: File[]): Promise<PayrollData
   const out: PayrollData[] = []
   for (const f of files) {
     const rows = await payrollFileToRows(f)
+    // 「氏名・年・月」行形式（1ファイルに複数月）はここで月別に分割して解析
+    const nym = parseNameYearMonthLedgerRows(rows)
+    if (nym) {
+      for (const d of nym) if (d.employees.length) out.push(d)
+      continue
+    }
     for (const group of splitPayrollRowsByMonth(rows)) {
       const d = parsePayrollRows(group)
       if (d.employees.length) out.push(d)
