@@ -927,7 +927,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
       </div>
       <div class="card">
         <h2>財産診断書</h2>
-        <div class="card-sub">表紙・総括・親族関係・資産構成・相続税の概算・財産分割案・留意事項をまとめた報告書です。</div>
+        <div class="card-sub">表紙・総括・親族関係・資産構成・相続税の概算・財産分割案・留意事項をまとめた報告書です。<b>財産分割案・税額は「現在の分割」（遺産分割＆相続税試算の入力）を使用します</b>（分割パターンを使う場合は、遺産分割画面でそのパターンを「適用」してから出力してください）。</div>
         <div class="btn-row">
           <button class="btn primary" onclick="downloadShindanPDF()">財産診断書 PDF</button>
           <button class="btn green" onclick="downloadShindanExcel()">財産診断書 Excel</button>
@@ -3695,14 +3695,17 @@ function renderDivPatternPicker(cid, current, setter){
   const ps=(currentCase&&currentCase.divPatterns)||[];
   if(!ps.length){ el.innerHTML=''; return; }
   const cur=findDivPattern(current)?current:'';
-  el.innerHTML='<div class="card" style="padding:12px 16px;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+  const accent=cur?'#7c3aed':'#64748b';
+  const label=cur?'パターン「'+esc(findDivPattern(cur).name)+'」で計算中':'「現在の分割」で計算中';
+  el.innerHTML='<div class="card" style="padding:12px 16px;border-left:5px solid '+accent+';"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
     +'<b style="font-size:13.5px;">使用する遺産分割</b>'
     +'<select style="max-width:300px;" onchange="'+setter+'(this.value)">'
     +'<option value=""'+(cur?'':' selected')+'>現在の分割（遺産分割＆相続税試算の入力）</option>'
     +ps.map(p=>'<option value="'+p.id+'"'+(cur===p.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')
     +'</select>'
-    +(cur?'<span class="muted" style="font-size:12px;">パターン「'+esc(findDivPattern(cur).name)+'」の分割・代償金で計算しています（遺産分割画面の入力は変更されません）</span>'
-        :'<span class="muted" style="font-size:12px;">遺産分割画面で保存したパターンを選ぶと、その分割内容でこのシミュレーションを計算します</span>')
+    +'<span style="background:'+accent+';color:#fff;border-radius:12px;padding:3px 12px;font-size:12px;font-weight:700;">📌 '+label+'</span>'
+    +(cur?'<span class="muted" style="font-size:12px;">遺産分割画面の入力は変更されません。報告書PDFもこのパターンで出力されます</span>'
+        :'<span class="muted" style="font-size:12px;">遺産分割画面で保存したパターンを選ぶと、その分割内容でこのシミュレーション・報告書を計算します</span>')
     +'</div></div>';
 }
 
@@ -3758,16 +3761,25 @@ function renderAllocations(){
   const netT=heirNetTotals();
   body+='<tr class="total-row"><td class="l">純取得額（代償金反映後）</td><td></td>'+heirs.map(h=>'<td id="net-'+h.id+'">'+fmtAlloc(netT[h.id])+'</td>').join('')+'</tr>';
   const pats=currentCase.divPatterns||[];
+  // 各パターン（および現在の分割）がどこで使われているかのバッジ
+  const useTags=(pid)=>{ const tags=[];
+    if(secUsePatternId()===pid) tags.push(['二次相続で使用中','#7c3aed']);
+    if(savUsePatternId()===pid) tags.push(['節税シミュで使用中','#0e7490']);
+    if(pid==='') tags.push(['資料出力・協議書で使用','#64748b']);
+    return tags.map(t=>'<span style="background:'+t[1]+';color:#fff;border-radius:9px;padding:1.5px 8px;font-size:10.5px;font-weight:700;white-space:nowrap;">'+t[0]+'</span>').join(''); };
+  const curTags=useTags('');
   const patBar='<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#f6f8fb;border:1px solid #e1e7ef;border-radius:10px;">'
     +'<b style="font-size:13px;">分割パターン:</b>'
-    +(pats.length?pats.map(p=>'<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #d5dce6;border-radius:16px;padding:3px 6px 3px 12px;font-size:12.5px;"><b>'+esc(p.name)+'</b>'
+    +'<span style="display:inline-flex;align-items:center;gap:6px;background:#eef5ff;border:1.5px solid #7aa7e0;border-radius:16px;padding:3px 12px;font-size:12.5px;"><b>現在の分割</b><span class="muted" style="font-size:10.5px;">（この画面の入力）</span>'+curTags+'</span>'
+    +(pats.length?pats.map(p=>{ const tg=useTags(p.id);
+      return '<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid '+(tg?'#8b5cf6':'#d5dce6')+';border-radius:16px;padding:3px 6px 3px 12px;font-size:12.5px;"><b>'+esc(p.name)+'</b>'+tg
       +'<button class="btn sm" style="padding:2px 8px;" title="このパターンを現在の分割に読み込む" onclick="applyDivPattern(\''+p.id+'\')">適用</button>'
       +'<button class="btn sm" style="padding:2px 8px;" title="現在の分割内容でこのパターンを上書き保存" onclick="overwriteDivPattern(\''+p.id+'\')">上書き</button>'
       +'<button class="btn sm" style="padding:2px 7px;" title="名前を変更" onclick="renameDivPattern(\''+p.id+'\')">✎</button>'
       +'<button class="btn red sm" style="padding:2px 7px;" title="このパターンを削除" onclick="deleteDivPattern(\''+p.id+'\')">×</button>'
-      +'</span>').join(''):'<span class="muted" style="font-size:12px;">未保存</span>')
+      +'</span>'; }).join(''):'')
     +'<button class="btn sm primary" onclick="saveDivPattern()">＋ 現在の分割をパターン保存</button>'
-    +'<span class="muted" style="font-size:12px;">保存したパターンは二次相続・節税シミュレーションで「使用する遺産分割」として選択できます。</span>'
+    +'<span class="muted" style="font-size:12px;">二次相続・節税シミュレーションで使う分割は各画面の「使用する遺産分割」で選択します。財産診断書・遺産分割協議書などの資料出力は常に「現在の分割」を使用します。</span>'
     +'</div>';
   c.innerHTML=patBar
     +'<div style="margin-bottom:10px;"><button class="btn sm primary" onclick="openPctAllocModal()">％ で一括配分</button><span class="muted" style="font-size:12px;margin-left:10px;">財産種類を選んで相続人ごとの取得割合（％）を入力すると、その種類の分割金額を一括設定できます。</span></div>'
