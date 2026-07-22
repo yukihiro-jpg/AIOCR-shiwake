@@ -249,6 +249,33 @@ export default function BankStatementContent() {
     }, 500)
   }, [])
 
+  // 表示中のページだけを削除（そのページから作成された仕訳も一緒に削除。他ページは残す）
+  const handleDeleteCurrentPage = useCallback(() => {
+    const page = pages[currentPageIndex]
+    if (!page) return
+    if (!window.confirm(`表示中のページ（${currentPageIndex + 1}/${pages.length}）と、このページから作成された仕訳を削除しますか？\n（他のページと仕訳はそのまま残ります）`)) return
+    const txIds = new Set(page.transactions.map((t) => t.id))
+    // このページ由来の仕訳（レシート等は sourcePageId、通帳等は transactionId で紐付く）
+    const removedIds = new Set<string>()
+    for (const e of journalEntries) {
+      if ((page.id && e.sourcePageId === page.id) || (e.transactionId && txIds.has(e.transactionId))) removedIds.add(e.id)
+    }
+    // 複合仕訳の子（親が消える場合は子も消す）
+    for (const e of journalEntries) {
+      if (e.parentId && removedIds.has(e.parentId)) removedIds.add(e.id)
+    }
+    const remainingPages = pages.filter((_, i) => i !== currentPageIndex)
+    if (remainingPages.length === 0) {
+      setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null)
+      setInfo('最後のページを削除したため、アップロードファイルをすべて削除しました')
+      return
+    }
+    setPages(remainingPages)
+    setJournalEntries((prev) => prev.filter((e) => !removedIds.has(e.id)))
+    setCurrentPageIndex((i) => Math.min(i, remainingPages.length - 1))
+    setInfo(`ページを削除しました（仕訳${removedIds.size}件も削除）`)
+  }, [pages, currentPageIndex, journalEntries])
+
   const handleBackToClientList = useCallback(() => {
     setSelectedClientId(null)
     setSelectedClient(null)
@@ -686,7 +713,21 @@ export default function BankStatementContent() {
           const receipts = data.receipts || []
           if (receipts.length === 0) throw new Error('レシートデータを抽出できませんでした')
 
-          const statementPages = imageDataUrls.map((url, i) => ({
+          // 横・上下逆スキャンの自動補正: Geminiが返す orientation（正位置にするための時計回り角度）で
+          // 解析元画像を回転してから表示する（各ページの最初のレシートの値を採用）
+          const { rotateImageDataUrl } = await import('@/lib/bank-statement/image-utils')
+          const pageOrientation = new Map<number, number>()
+          for (const r of receipts) {
+            const deg = Number(r.orientation) || 0
+            if (!pageOrientation.has(r.pageIndex) && (deg === 90 || deg === 180 || deg === 270)) {
+              pageOrientation.set(r.pageIndex, deg)
+            }
+          }
+          const uprightUrls = await Promise.all(
+            imageDataUrls.map((url, i) => rotateImageDataUrl(url, pageOrientation.get(i) || 0)),
+          )
+
+          const statementPages = uprightUrls.map((url, i) => ({
             pageIndex: i, transactions: [],
             openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
             imageDataUrl: url,
@@ -1706,7 +1747,11 @@ export default function BankStatementContent() {
               bankAccountCode={uploadConfig?.accountCode || ''}
               hideBalance={uploadConfig?.documentType === 'credit-card' || uploadConfig?.documentType === 'payroll'}
               onBalanceOverride={handleBalanceOverride}
-              onFileDelete={() => { setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null); setInfo('アップロードファイルを削除しました') }}
+              onFileDelete={() => {
+                if (!window.confirm('アップロードした全ファイルと画面上の仕訳をすべて削除しますか？\n（一時保存済みの仕訳は消えません）')) return
+                setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null); setInfo('アップロードファイルをすべて削除しました')
+              }}
+              onPageDelete={handleDeleteCurrentPage}
             />
           }
           right={

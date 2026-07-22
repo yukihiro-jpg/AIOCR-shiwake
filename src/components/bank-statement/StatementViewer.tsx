@@ -13,7 +13,8 @@ interface Props {
   bankAccountCode?: string
   hideBalance?: boolean
   onBalanceOverride?: (pageIndex: number, field: 'openingBalance' | 'closingBalance', value: number) => void
-  onFileDelete?: () => void
+  onFileDelete?: () => void // 全ファイル削除
+  onPageDelete?: () => void // 表示中のページのみ削除
 }
 
 const ZOOM_STEP = 10
@@ -31,6 +32,7 @@ export default function StatementViewer({
   hideBalance,
   onBalanceOverride,
   onFileDelete,
+  onPageDelete,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedRowRef = useRef<HTMLTableRowElement>(null)
@@ -138,10 +140,16 @@ export default function StatementViewer({
         </div>
 
         <div className="flex items-center gap-1">
+          {onPageDelete && (
+            <button onClick={onPageDelete} title={`表示中のページ（${currentPageIndex + 1}/${pages.length}）と、このページから作成された仕訳だけを削除します`}
+              className="px-2 py-1 text-xs bg-amber-50 text-amber-700 border border-amber-300 rounded hover:bg-amber-100">
+              このページを削除
+            </button>
+          )}
           {onFileDelete && (
-            <button onClick={onFileDelete} title="アップロードファイルを削除"
+            <button onClick={onFileDelete} title="アップロードした全ファイルと画面上の仕訳を削除します"
               className="px-2 py-1 text-xs bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 mr-1">
-              ファイル削除
+              全ファイル削除
             </button>
           )}
           {currentPage.imageDataUrl && !currentPage.pdfDataUrl && (
