@@ -1108,8 +1108,14 @@ function getStock_(symbol){
 <!-- 遺産分割：財産種類ごとに取得割合（％）で一括配分 -->
 <div class="modal-ov" id="pctAllocModal">
   <div class="modal" style="max-width:640px;">
-    <h2>％で一括配分</h2>
-    <div class="m-sub">財産種類を選び、相続人ごとの取得割合（％）を入力すると、その種類の全明細の分割金額を一括で設定します。合計が100％になるようにしてください。1円未満の端数は、指定した相続人に寄せます。</div>
+    <h2>一括変更</h2>
+    <div class="m-sub">財産種類を選び、相続人ごとの取得割合を入力すると、その種類の全明細の分割金額を一括で設定します。1円未満の端数は、指定した相続人に寄せます。</div>
+    <div class="field" style="margin-top:12px;"><label>配分方法</label>
+      <div style="display:flex;gap:8px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="radio" name="pa_mode" value="pct" checked onchange="pctAllocSetMode('pct')" style="width:auto;">％（パーセント）で分ける</label>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="radio" name="pa_mode" value="frac" onchange="pctAllocSetMode('frac')" style="width:auto;">分数で分ける</label>
+      </div>
+    </div>
     <div class="field" style="margin-top:12px;"><label>財産種類</label><select id="pa_cat" onchange="pctAllocPreview()"></select></div>
     <div id="pa_rows" style="margin-top:10px;"></div>
     <div id="pa_sum" style="margin-top:8px;font-size:13px;font-weight:600;"></div>
@@ -3575,6 +3581,7 @@ function renderAgreement(){
   renderHeirTotals();
 }
 // ===== ％で一括配分（財産種類×相続人の取得割合、端数は指定相続人へ） =====
+let _paMode='pct'; // 'pct'=％で分ける / 'frac'=分数で分ける
 function openPctAllocModal(){
   if(!currentCase) return;
   const heirs=currentCase.heirs||[];
@@ -3582,36 +3589,75 @@ function openPctAllocModal(){
   const cats=ASSET_TYPES.filter(t=>t.key!=='gift'&&currentCase.assets.some(a=>a.category===t.key));
   if(!cats.length){ toast('財産が登録されていません', true); return; }
   $('pa_cat').innerHTML=cats.map(t=>'<option value="'+t.key+'">'+t.name+'（'+currentCase.assets.filter(a=>a.category===t.key).length+'件・'+yen(currentCase.assets.filter(a=>a.category===t.key).reduce((s,a)=>s+assetVal(a),0))+'）</option>').join('');
-  $('pa_rows').innerHTML='<table class="dtbl" style="width:100%;"><thead><tr><th style="text-align:left;">相続人</th><th style="width:140px;">取得割合（％）</th></tr></thead><tbody>'
-    +heirs.map((h,i)=>'<tr><td style="text-align:left;">'+esc(h.name||'(無名)')+'<span class="muted" style="font-size:11px;margin-left:6px;">'+relDisp(h)+'</span></td>'
-      +'<td><input type="text" class="num" id="pa-h-'+h.id+'" style="width:110px;text-align:right;" placeholder="0" value="'+(i===0?'100':'')+'" oninput="pctAllocPreview()"> %</td></tr>').join('')
-    +'</tbody></table>';
   $('pa_rounder').innerHTML=heirs.map((h,i)=>'<option value="'+h.id+'"'+(i===0?' selected':'')+'>'+esc(h.name||'(無名)')+'</option>').join('');
-  pctAllocPreview();
+  _paMode='pct';
+  const r=document.querySelector('input[name="pa_mode"][value="pct"]'); if(r) r.checked=true;
+  pctAllocRenderRows();
   openModal('pctAllocModal');
 }
-function _paPct(h){ const el=$('pa-h-'+h.id); const v=parseFloat(String(el&&el.value||'').replace(/[^0-9.]/g,'')); return isFinite(v)?v:0; }
+function pctAllocSetMode(m){ _paMode=(m==='frac')?'frac':'pct'; pctAllocRenderRows(); }
+function pctAllocRenderRows(){
+  const heirs=currentCase.heirs||[];
+  if(_paMode==='frac'){
+    // 分数モード: 各人に分子、共通の分母を1つ入力（例: 分母3、里朱2/かおり1）
+    $('pa_rows').innerHTML='<table class="dtbl" style="width:100%;"><thead><tr><th style="text-align:left;">相続人</th><th style="width:160px;">取得割合（分子）</th></tr></thead><tbody>'
+      +heirs.map((h,i)=>'<tr><td style="text-align:left;">'+esc(h.name||'(無名)')+'<span class="muted" style="font-size:11px;margin-left:6px;">'+relDisp(h)+'</span></td>'
+        +'<td><input type="text" class="num" id="pa-h-'+h.id+'" style="width:130px;text-align:right;" placeholder="0" value="'+(i===0?'1':'')+'" oninput="pctAllocPreview()"></td></tr>').join('')
+      +'</tbody></table>'
+      +'<div class="field" style="margin-top:10px;max-width:220px;"><label>分母<span class="muted" style="font-weight:400;font-size:11px;"> 各相続人の分子／この分母</span></label><input type="text" class="num" id="pa_den" style="text-align:right;" placeholder="例：3" value="1" oninput="pctAllocPreview()"></div>'
+      +'<div class="muted" style="font-size:12px;margin-top:4px;">例）3人で均等なら分母3・各人の分子1。里朱2/3・かおり1/3なら分母3・里朱の分子2・かおりの分子1。</div>';
+  } else {
+    $('pa_rows').innerHTML='<table class="dtbl" style="width:100%;"><thead><tr><th style="text-align:left;">相続人</th><th style="width:140px;">取得割合（％）</th></tr></thead><tbody>'
+      +heirs.map((h,i)=>'<tr><td style="text-align:left;">'+esc(h.name||'(無名)')+'<span class="muted" style="font-size:11px;margin-left:6px;">'+relDisp(h)+'</span></td>'
+        +'<td><input type="text" class="num" id="pa-h-'+h.id+'" style="width:110px;text-align:right;" placeholder="0" value="'+(i===0?'100':'')+'" oninput="pctAllocPreview()"> %</td></tr>').join('')
+      +'</tbody></table>';
+  }
+  pctAllocPreview();
+}
+function _paNum(h){ const el=$('pa-h-'+h.id); const v=parseFloat(String(el&&el.value||'').replace(/[^0-9.]/g,'')); return isFinite(v)?v:0; }
+function _paDen(){ const el=$('pa_den'); const v=parseFloat(String(el&&el.value||'').replace(/[^0-9.]/g,'')); return isFinite(v)&&v>0?v:0; }
+// 各相続人の取得比率（0〜1）の配列を返す。合計が1でなければ null（未確定）
+function _paRatios(){
+  const heirs=currentCase.heirs||[];
+  if(_paMode==='frac'){
+    const den=_paDen(); if(den<=0) return null;
+    const nums=heirs.map(h=>_paNum(h)); const sum=nums.reduce((s,v)=>s+v,0);
+    if(Math.abs(sum-den)>0.0001) return null; // 分子の合計＝分母 でなければ未確定
+    return nums.map(n=>n/den);
+  }
+  const pcts=heirs.map(h=>_paNum(h)); const sum=pcts.reduce((s,v)=>s+v,0);
+  if(Math.abs(sum-100)>=0.001) return null;
+  return pcts.map(p=>p/100);
+}
 function pctAllocPreview(){
   if(!currentCase) return;
   const heirs=currentCase.heirs||[];
-  const sum=heirs.reduce((s,h)=>s+_paPct(h),0);
-  const ok=Math.abs(sum-100)<0.001;
-  const el=$('pa_sum'); if(el){ el.textContent='合計：'+(Math.round(sum*100)/100)+' %'+(ok?'':'（100％になるように入力してください）'); el.style.color=ok?'#1a7f37':'#b3261e'; }
+  const el=$('pa_sum'); if(!el) return;
+  if(_paMode==='frac'){
+    const den=_paDen(); const nums=heirs.map(h=>_paNum(h)); const sum=nums.reduce((s,v)=>s+v,0);
+    const ok=(den>0)&&Math.abs(sum-den)<0.0001;
+    el.textContent='分子の合計：'+(Math.round(sum*100)/100)+' ／ 分母 '+(den||'—')+(ok?'（合計 = 分母 でOK）':'（各相続人の分子の合計が分母と一致するように入力してください）');
+    el.style.color=ok?'#1a7f37':'#b3261e';
+  } else {
+    const sum=heirs.reduce((s,h)=>s+_paNum(h),0);
+    const ok=Math.abs(sum-100)<0.001;
+    el.textContent='合計：'+(Math.round(sum*100)/100)+' %'+(ok?'':'（100％になるように入力してください）');
+    el.style.color=ok?'#1a7f37':'#b3261e';
+  }
 }
 function pctAllocApply(){
   if(!currentCase) return;
   const heirs=currentCase.heirs||[];
   const cat=$('pa_cat').value;
-  const pcts=heirs.map(h=>_paPct(h));
-  const sum=pcts.reduce((s,v)=>s+v,0);
-  if(Math.abs(sum-100)>=0.001){ toast('取得割合の合計が100％ではありません（現在 '+(Math.round(sum*100)/100)+'％）', true); return; }
+  const ratios=_paRatios();
+  if(!ratios){ toast(_paMode==='frac'?'各相続人の分子の合計が分母と一致していません':'取得割合の合計が100％ではありません', true); return; }
   const rounderId=$('pa_rounder').value||heirs[0].id;
   const items=currentCase.assets.filter(a=>a.category===cat);
   if(!items.length){ toast('選択した財産種類に明細がありません', true); return; }
   items.forEach(a=>{
     const total=Math.round(assetVal(a));
-    // 各人＝floor(評価額×％)。割り切れない端数（合計との差）は指定相続人へ寄せる
-    const amts=heirs.map((h,i)=>Math.floor(total*pcts[i]/100));
+    // 各人＝floor(評価額×比率)。割り切れない端数（合計との差）は指定相続人へ寄せる
+    const amts=heirs.map((h,i)=>Math.floor(total*ratios[i]));
     const rem=total-amts.reduce((s,v)=>s+v,0);
     const ri=Math.max(0,heirs.findIndex(h=>h.id===rounderId));
     amts[ri]+=rem;
@@ -3620,7 +3666,8 @@ function pctAllocApply(){
   closeModal('pctAllocModal');
   renderAllocations(); renderHeirTotals(); cacheCurrentCase();
   const t=ASSET_BY_KEY[cat];
-  toast((t?t.name:cat)+' '+items.length+'件を '+heirs.map((h,i)=>((h.name||'')+' '+(Math.round(pcts[i]*100)/100)+'%')).join('・')+' で配分しました');
+  const label=(i)=>{ if(_paMode==='frac'){ const den=_paDen(); return _paNum(heirs[i])+'/'+den; } return (Math.round(ratios[i]*10000)/100)+'%'; };
+  toast((t?t.name:cat)+' '+items.length+'件を '+heirs.map((h,i)=>((h.name||'')+' '+label(i))).filter((_,i)=>ratios[i]>0).join('・')+' で配分しました');
 }
 // 代償金
 function addComp(){ if(!currentCase) return; if(!currentCase.compensations) currentCase.compensations=[]; currentCase.compensations.push({id:uid(),from:'',to:'',amount:''}); renderComp(); renderHeirTotals(); cacheCurrentCase(); }
@@ -3833,7 +3880,7 @@ function renderAllocations(){
     +'<span class="muted" style="font-size:12px;">パターン名クリックで切替（編集は自動保存）。<b>「適用」したパターン</b>が二次相続・節税シミュレーション・資料出力（財産診断書・遺産分割協議書）で使われます。</span>'
     +'</div>';
   c.innerHTML=patBar
-    +'<div style="margin-bottom:10px;"><button class="btn sm primary" onclick="openPctAllocModal()">％ で一括配分</button><span class="muted" style="font-size:12px;margin-left:10px;">財産種類を選んで相続人ごとの取得割合（％）を入力すると、その種類の分割金額を一括設定できます。</span></div>'
+    +'<div style="margin-bottom:10px;"><button class="btn sm primary" onclick="openPctAllocModal()">一括変更</button><span class="muted" style="font-size:12px;margin-left:10px;">財産種類を選び、相続人ごとの取得割合を％または分数で入力すると、その種類の分割金額を一括設定できます。</span></div>'
     +'<div class="dtbl-wrap"><table class="alloc-grid">'+head+body+'</table></div>'
     +'<div id="compBalanceWarn" style="display:none;margin-top:10px;padding:8px 12px;background:#fdecea;color:#b3261e;border:1px solid #f5c6cb;border-radius:8px;font-size:13px;font-weight:600;"></div>'
     +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額です（贈与額そのものとは一致しないことがあります）。<br>※ 代償金の授受：多く取得する相続人の欄に支払額をマイナス（例 −12,000,000）、受け取る相続人の欄にプラス（例 6,000,000）で入力します。支払（−）と受取（＋）の合計が0（過不足なし）になるようにしてください。純取得額・相続税の課税価格に反映されます。</div>'
