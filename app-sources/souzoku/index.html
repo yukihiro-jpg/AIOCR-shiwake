@@ -6220,7 +6220,7 @@ function allocAmt(a,h){ const al=(a.allocations||[]).find(x=>x.heirId===h.id); r
 function buildAgreement(){ return withDivPattern(appliedDivPatternId(), buildAgreementBody); }
 function buildAgreementBody(){
   if(!currentCase){ toast('案件がありません', true); return; }
-  syncUIToCase();
+  syncUIToCase(); applyOfficeSettings();
   const d=currentCase.deceased;
   if(!d.name){ toast('被相続人氏名を入力してください', true); return; }
   const heirs=currentCase.heirs.filter(h=>h.name.trim());
@@ -6513,10 +6513,32 @@ function buildAgreementBody(){
     .sig-notes{margin-top:14px;font-size:9pt;color:#333;line-height:1.8;}
     .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
     .pgbreak{page-break-before:always;break-before:page;}
+    /* 表紙 */
+    .agr-cover{min-height:245mm;display:flex;flex-direction:column;page-break-after:always;position:relative;padding-top:8mm;}
+    .agr-cover .cv-rule{border-top:3px double #1F3A5F;border-bottom:3px double #1F3A5F;padding:26px 0;margin:34mm 8mm 0;text-align:center;}
+    .agr-cover .cv-title{font-size:30pt;letter-spacing:14px;font-weight:700;color:#1F3A5F;}
+    .agr-cover .cv-sub{margin-top:14px;font-size:12pt;letter-spacing:4px;color:#5a6b82;}
+    .agr-cover .cv-dec{margin:20mm 8mm 0;text-align:center;font-size:13pt;line-height:2.2;}
+    .agr-cover .cv-dec .nm{font-size:16pt;font-weight:700;letter-spacing:4px;}
+    .agr-cover .cv-foot{margin-top:auto;text-align:center;font-size:10.5pt;color:#333;line-height:1.9;padding-bottom:6mm;}
+    .agr-cover .cv-office{font-weight:700;font-size:11.5pt;color:#1F3A5F;letter-spacing:1px;}
     /* 製本（ホチキス）用に左余白を広めに確保 */
     @media print{ @page{ size:A4; margin:18mm 16mm 18mm 30mm; } }
   `;
-  const body='<h1>遺 産 分 割 協 議 書</h1>'
+  const coverDate=currentCase.agreement.date? toWarekiDate(currentCase.agreement.date) : '';
+  const cover='<div class="agr-cover">'
+    +'<div class="cv-rule"><div class="cv-title">遺 産 分 割 協 議 書</div><div class="cv-sub">Estate Division Agreement</div></div>'
+    +'<div class="cv-dec">被相続人<div class="nm">'+esc(d.name)+'</div>'
+    +(d.deathDate?'<div style="font-size:11pt;color:#5a6b82;">'+toWarekiDate(d.deathDate)+' 相続開始</div>':'')
+    +'</div>'
+    +'<div class="cv-foot">'
+    +(coverDate?'<div>'+coverDate+' 作成</div>':'')
+    +'<div class="cv-office" style="margin-top:10px;">'+esc(OFFICE.name||'')+'</div>'
+    +(OFFICE.addr?'<div>'+esc(OFFICE.addr)+'</div>':'')
+    +((OFFICE.tel||OFFICE.fax)?'<div>'+(OFFICE.tel?'TEL '+esc(OFFICE.tel):'')+(OFFICE.fax?'　FAX '+esc(OFFICE.fax):'')+'</div>':'')
+    +'</div></div>';
+  const body=cover
+    +'<h1>遺 産 分 割 協 議 書</h1>'
     +'<p class="intro">被相続人 '+esc(d.name)+' の死亡により開始した相続について、共同相続人全員は、その相続財産の分割につき次のとおり協議し、これを確定した。</p>'
     +sections
     +lastPage(false,'')
