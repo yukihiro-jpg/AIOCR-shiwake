@@ -785,6 +785,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
     <!-- ===== Secondary inheritance ===== -->
     <section class="view" id="view-secondary">
       <div class="view-head"><h1>二次相続シミュレーション</h1><p>今回の相続（一次相続）で配偶者が取得した財産は、将来の配偶者の相続（二次相続）で再び課税されます。配偶者の取得割合を変えて、一次＋二次の合計税額を比較します。</p></div>
+      <div id="secPatternBar" style="margin-bottom:14px;"></div>
 
       <div class="card">
         <h2>前提条件</h2>
@@ -877,6 +878,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
     <!-- ===== Savings simulation ===== -->
     <section class="view" id="view-savings">
       <div class="view-head"><h1>相続税節税シミュレーション</h1><p>一般的な相続税の節税対策をテンプレートから選び、金額・年数などを入力して節税効果を試算します。現在の課税価格・相続税の総額を基準に、対策後の税額と削減額を比較します。</p></div>
+      <div id="savPatternBar" style="margin-bottom:14px;"></div>
 
       <div class="card">
         <h2>効果サマリー（対策前 → 対策後）</h2>
@@ -1582,10 +1584,16 @@ function ensureCaseShape(c){
   if(!Array.isArray(c.compensations)) c.compensations=[];
   if(!c.compByHeir||typeof c.compByHeir!=='object'||Array.isArray(c.compByHeir)) c.compByHeir={};
   if(!Object.keys(c.compByHeir).length && c.compensations.length){ c.compensations.forEach(cm=>{ const amt=num(cm.amount); if(cm.from) c.compByHeir[cm.from]=String(num(c.compByHeir[cm.from])-amt); if(cm.to) c.compByHeir[cm.to]=String(num(c.compByHeir[cm.to])+amt); }); }
+  // 旧形式(compensations)は一度移行したら空にする。残しておくと、代償金を全て削除して
+  // compByHeirが空になるたびに上の移行が再実行され「削除した代償金が復活する」ため。
+  if(c.compensations.length) c.compensations=[];
+  if(!Array.isArray(c.divPatterns)) c.divPatterns=[]; // 遺産分割パターン（複数の分割案の保存）
+  if(typeof c.savingsPatternId!=='string') c.savingsPatternId=''; // 節税シミュで使う分割パターン
   if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:'',includeDebt:true};
   if(c.agreement.includeDebt===undefined) c.agreement.includeDebt=true;
   if(!c.progress||typeof c.progress!=='object') c.progress={};
   if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:'',ownCash:'',insPremium:'',insCount:'',gGenAmt:'',gGenPpl:'',gGenYrs:'',gSpcAmt:'',gSpcPpl:'',gSpcYrs:'',optYears:'',existIns:'',spouseWants:[]};
+  if(typeof c.secondary.usePatternId!=='string') c.secondary.usePatternId=''; // 二次相続シミュで使う分割パターン
   if(!Array.isArray(c.secondary.spouseWants)) c.secondary.spouseWants=[];
   if(!c.secondary.spouseAssets||typeof c.secondary.spouseAssets!=='object'||Array.isArray(c.secondary.spouseAssets)) c.secondary.spouseAssets={};
   if(!c.movement||typeof c.movement!=='object') c.movement={rows:[],usage:{}};
@@ -1605,6 +1613,7 @@ const Realtime=(function(){
   const BAD=/[.#$\/\[\]~]/g;
   const EMBED=!!(window.__SOUZOKU_EMBED__); // 総合アプリ(ホスト)にiframe埋め込みされている場合true（同期はホストcore経由）
   let ref=null, ready=false, lastSnap={}, pushTimer=null, fbPending=false, bridgeInit=false;
+  let pendingLocal=false; // 未送信のローカル編集がある間 true（古いエコーによる巻き戻り防止）
   function enc(k){ return '_'+String(k).replace(BAD,c=>'~'+c.charCodeAt(0).toString(16)); }
   function dec(k){ return String(k).replace(/^_/,'').replace(/~([0-9a-f]{2})/g,(m,h)=>String.fromCharCode(parseInt(h,16))); }
   function isObj(o){ return o&&typeof o==='object'&&!Array.isArray(o); }
@@ -1627,6 +1636,10 @@ const Realtime=(function(){
   }
   // リモートスナップショット(エンコード済みrawツリー)を取り込む
   function applyRemoteSnapshot(remoteRaw){
+    // 【重要】未送信のローカル編集がある間は取り込まない。
+    // 直前のpushのエコー（古いスナップショット）が、その後に行った編集（例: 代償金の削除）を
+    // 上書きして「消した値が復活する」ため。push後に届く次のスナップショットで追いつく。
+    if(pendingLocal) return;
     // 自分の書き込みの反射（echo）では実質変化が無い。変化が無いのに再描画すると、
     // 編集中の項目（相続人・財産など動的描画の入力欄）が作り直されてフォーカスを奪われ、
     // 「修正・入力できない」状態になる。komon と同様に、実際に変化した時だけ再描画する。
@@ -1682,6 +1695,7 @@ const Realtime=(function(){
   }
   function connect(){ return EMBED? connectBridge() : connectDirect(); }
   function pushNow(seed){
+    pendingLocal=false; // ここでローカル状態を取り込むので、以後のスナップショットは適用可
     const up={}; const cur=syncedView(); const prev=seed?{}:lastSnap;
     SYNC_KEYS.forEach(k=>diffInto(up,enc(k),cur[k],(prev||{})[k])); lastSnap=clone(cur);
     if(!Object.keys(up).length) return;
@@ -1700,7 +1714,7 @@ const Realtime=(function(){
     if(EMBED){ try{ parent.postMessage({source:'souzoku', type:'update', updates: up}, '*'); }catch(e){} setSyncStatus('on'); }
     else if(ref){ ref.update(up).then(()=>setSyncStatus('on')).catch(e=>{ console.error(e); setSyncStatus('off'); }); }
   }
-  function push(){ if(!ready) return; if(!EMBED && !ref) return; clearTimeout(pushTimer); pushTimer=setTimeout(()=>pushNow(false),200); }
+  function push(){ if(!ready) return; if(!EMBED && !ref) return; pendingLocal=true; clearTimeout(pushTimer); pushTimer=setTimeout(()=>pushNow(false),200); }
   // 入力中はblurまで再描画を遅延し、タイプ中の値を守る
   function rerender(){ const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)&&ae.closest&&ae.closest('main')){ if(!fbPending){ fbPending=true; ae.addEventListener('blur',()=>{ fbPending=false; applyCloudToUI(); },{once:true}); } return; } applyCloudToUI(); }
   function disconnect(){ try{ if(ref)ref.off(); }catch(_){ } ref=null; ready=false; setSyncStatus('off'); }
@@ -3617,6 +3631,71 @@ function renderComp(){
   html+='</tbody></table></div>';
   c.innerHTML=html;
 }
+// ============================================================
+//  遺産分割パターン（複数の分割案を保存し、二次相続・節税シミュで選択使用）
+// ============================================================
+function _cloneJS(o){ return o===undefined?undefined:JSON.parse(JSON.stringify(o)); }
+function snapshotDivision(){ const alloc={}; (currentCase.assets||[]).filter(a=>a.category!=='gift').forEach(a=>{ alloc[a.id]=_cloneJS(a.allocations||[]); }); return { alloc, compByHeir:_cloneJS(currentCase.compByHeir||{}) }; }
+function findDivPattern(id){ return ((currentCase&&currentCase.divPatterns)||[]).find(p=>p.id===id)||null; }
+function saveDivPattern(){ if(!currentCase) return; if(!Array.isArray(currentCase.divPatterns)) currentCase.divPatterns=[];
+  const def='パターン'+(currentCase.divPatterns.length+1);
+  const name=prompt('パターン名を入力してください', def); if(name===null) return;
+  const s=snapshotDivision();
+  currentCase.divPatterns.push({id:uid(),name:(name.trim()||def),savedAt:new Date().toISOString(),alloc:s.alloc,compByHeir:s.compByHeir});
+  cacheCurrentCase(); renderAllocations(); renderHeirTotals(); toast('現在の分割を「'+(name.trim()||def)+'」として保存しました'); }
+function applyDivPattern(id){ const p=findDivPattern(id); if(!p) return;
+  if(!confirm('パターン「'+p.name+'」を現在の分割に読み込みます。今の入力内容は上書きされます（残したい場合は先に「＋ 現在の分割をパターン保存」してください）。よろしいですか？')) return;
+  (currentCase.assets||[]).forEach(a=>{ if(a.category==='gift') return; a.allocations=_cloneJS((p.alloc&&p.alloc[a.id])||[]); });
+  currentCase.compByHeir=_cloneJS(p.compByHeir||{});
+  cacheCurrentCase(); renderAllocations(); renderHeirTotals(); renderSummary(); renderTaxBreakdown(); try{ renderSimulation(); }catch(e){}
+  toast('パターン「'+p.name+'」を現在の分割に読み込みました'); }
+function overwriteDivPattern(id){ const p=findDivPattern(id); if(!p) return;
+  if(!confirm('パターン「'+p.name+'」を、現在の分割内容で上書き保存しますか？')) return;
+  const s=snapshotDivision(); p.alloc=s.alloc; p.compByHeir=s.compByHeir; p.savedAt=new Date().toISOString();
+  cacheCurrentCase(); toast('「'+p.name+'」を上書き保存しました'); }
+function renameDivPattern(id){ const p=findDivPattern(id); if(!p) return;
+  const name=prompt('新しいパターン名', p.name); if(name===null||!name.trim()) return;
+  p.name=name.trim(); cacheCurrentCase(); renderAllocations(); }
+function deleteDivPattern(id){ const p=findDivPattern(id); if(!p) return;
+  if(!confirm('パターン「'+p.name+'」を削除しますか？（現在の分割入力には影響しません）')) return;
+  currentCase.divPatterns=currentCase.divPatterns.filter(x=>x.id!==id);
+  if(currentCase.secondary&&currentCase.secondary.usePatternId===id) currentCase.secondary.usePatternId='';
+  if(currentCase.savingsPatternId===id) currentCase.savingsPatternId='';
+  cacheCurrentCase(); renderAllocations(); }
+// 指定パターンの割当・代償金でfnを実行（実データは一時差し替え後、必ず復元。ネスト時は外側を維持）
+let _divPatternDepth=0;
+function withDivPattern(pid, fn){
+  const p=pid?findDivPattern(pid):null;
+  if(!p||_divPatternDepth>0||!currentCase) return fn();
+  _divPatternDepth++;
+  const savedAlloc=(currentCase.assets||[]).map(a=>a.allocations);
+  const savedComp=currentCase.compByHeir;
+  (currentCase.assets||[]).forEach(a=>{ if(a.category!=='gift') a.allocations=_cloneJS((p.alloc&&p.alloc[a.id])||[]); });
+  currentCase.compByHeir=_cloneJS(p.compByHeir||{});
+  try{ return fn(); }
+  finally{ (currentCase.assets||[]).forEach((a,i)=>{ a.allocations=savedAlloc[i]; }); currentCase.compByHeir=savedComp; _divPatternDepth--; }
+}
+function secUsePatternId(){ return (currentCase&&currentCase.secondary&&currentCase.secondary.usePatternId)||''; }
+function savUsePatternId(){ return (currentCase&&currentCase.savingsPatternId)||''; }
+function setSecUsePattern(v){ if(!currentCase) return; if(!currentCase.secondary) currentCase.secondary={}; currentCase.secondary.usePatternId=v||''; cacheCurrentCase(); renderSecondary(); }
+function setSavUsePattern(v){ if(!currentCase) return; currentCase.savingsPatternId=v||''; cacheCurrentCase(); renderSavings(); }
+// シミュレーション画面の「使用する遺産分割」セレクタ（パターンが無いときは非表示）
+function renderDivPatternPicker(cid, current, setter){
+  const el=$(cid); if(!el) return;
+  const ps=(currentCase&&currentCase.divPatterns)||[];
+  if(!ps.length){ el.innerHTML=''; return; }
+  const cur=findDivPattern(current)?current:'';
+  el.innerHTML='<div class="card" style="padding:12px 16px;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+    +'<b style="font-size:13.5px;">使用する遺産分割</b>'
+    +'<select style="max-width:300px;" onchange="'+setter+'(this.value)">'
+    +'<option value=""'+(cur?'':' selected')+'>現在の分割（遺産分割＆相続税試算の入力）</option>'
+    +ps.map(p=>'<option value="'+p.id+'"'+(cur===p.id?' selected':'')+'>'+esc(p.name)+'</option>').join('')
+    +'</select>'
+    +(cur?'<span class="muted" style="font-size:12px;">パターン「'+esc(findDivPattern(cur).name)+'」の分割・代償金で計算しています（遺産分割画面の入力は変更されません）</span>'
+        :'<span class="muted" style="font-size:12px;">遺産分割画面で保存したパターンを選ぶと、その分割内容でこのシミュレーションを計算します</span>')
+    +'</div></div>';
+}
+
 function renderAllocations(){
   const c=$('allocContainer'); const heirs=currentCase.heirs;
   if(!heirs.length){ c.innerHTML='<div class="center-msg">先に「基本情報」で相続人を登録してください。</div>'; return; }
@@ -3668,7 +3747,20 @@ function renderAllocations(){
     +heirs.map(h=>{ const v=num(cbh[h.id]); return '<td><input id="comp-'+h.id+'" value="'+(v?fmtSigned(v):'')+'" placeholder="0" oninput="setCompByHeir(\''+h.id+'\',this.value)" onblur="this.value=(num(this.value)?fmtSigned(num(this.value)):\'\')"></td>'; }).join('')+'</tr>';
   const netT=heirNetTotals();
   body+='<tr class="total-row"><td class="l">純取得額（代償金反映後）</td><td></td>'+heirs.map(h=>'<td id="net-'+h.id+'">'+fmtAlloc(netT[h.id])+'</td>').join('')+'</tr>';
-  c.innerHTML='<div style="margin-bottom:10px;"><button class="btn sm primary" onclick="openPctAllocModal()">％ で一括配分</button><span class="muted" style="font-size:12px;margin-left:10px;">財産種類を選んで相続人ごとの取得割合（％）を入力すると、その種類の分割金額を一括設定できます。</span></div>'
+  const pats=currentCase.divPatterns||[];
+  const patBar='<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#f6f8fb;border:1px solid #e1e7ef;border-radius:10px;">'
+    +'<b style="font-size:13px;">分割パターン:</b>'
+    +(pats.length?pats.map(p=>'<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #d5dce6;border-radius:16px;padding:3px 6px 3px 12px;font-size:12.5px;"><b>'+esc(p.name)+'</b>'
+      +'<button class="btn sm" style="padding:2px 8px;" title="このパターンを現在の分割に読み込む" onclick="applyDivPattern(\''+p.id+'\')">適用</button>'
+      +'<button class="btn sm" style="padding:2px 8px;" title="現在の分割内容でこのパターンを上書き保存" onclick="overwriteDivPattern(\''+p.id+'\')">上書き</button>'
+      +'<button class="btn sm" style="padding:2px 7px;" title="名前を変更" onclick="renameDivPattern(\''+p.id+'\')">✎</button>'
+      +'<button class="btn red sm" style="padding:2px 7px;" title="このパターンを削除" onclick="deleteDivPattern(\''+p.id+'\')">×</button>'
+      +'</span>').join(''):'<span class="muted" style="font-size:12px;">未保存</span>')
+    +'<button class="btn sm primary" onclick="saveDivPattern()">＋ 現在の分割をパターン保存</button>'
+    +'<span class="muted" style="font-size:12px;">保存したパターンは二次相続・節税シミュレーションで「使用する遺産分割」として選択できます。</span>'
+    +'</div>';
+  c.innerHTML=patBar
+    +'<div style="margin-bottom:10px;"><button class="btn sm primary" onclick="openPctAllocModal()">％ で一括配分</button><span class="muted" style="font-size:12px;margin-left:10px;">財産種類を選んで相続人ごとの取得割合（％）を入力すると、その種類の分割金額を一括設定できます。</span></div>'
     +'<div class="dtbl-wrap"><table class="alloc-grid">'+head+body+'</table></div>'
     +'<div id="compBalanceWarn" style="display:none;margin-top:10px;padding:8px 12px;background:#fdecea;color:#b3261e;border:1px solid #f5c6cb;border-radius:8px;font-size:13px;font-weight:600;"></div>'
     +'<div class="detail-note">※ 2人目以降の取得額を入力すると、1人目の取得額が自動計算されます（評価額−他の相続人の合計）。債務・葬式費用もここで負担者・取得者を指定でき、相続税試算に反映されます。<br>※ 「生前贈与加算」の小計は、暦年贈与の加算期間（3年以内は全額／延長3〜7年分は合計100万円控除）や相続時精算課税の年110万円控除を適用した後の、実際に各人の課税価格へ加算される額です（贈与額そのものとは一致しないことがあります）。<br>※ 代償金の授受：多く取得する相続人の欄に支払額をマイナス（例 −12,000,000）、受け取る相続人の欄にプラス（例 6,000,000）で入力します。支払（−）と受取（＋）の合計が0（過不足なし）になるようにしてください。純取得額・相続税の課税価格に反映されます。</div>'
@@ -3820,7 +3912,13 @@ function secondInheritance(spouseAcquired, spouseOwn, consume, nChildren, years,
   const final=Math.max(0,Math.floor((total-souji)/100)*100);
   return {E2,total2:total,souji,second:final};
 }
+// 二次相続シミュレーション: 選択した分割パターン（未選択なら現在の分割）で計算する
 function renderSecondary(){
+  if(!currentCase) return;
+  renderDivPatternPicker('secPatternBar', secUsePatternId(), 'setSecUsePattern');
+  withDivPattern(secUsePatternId(), renderSecondaryBody);
+}
+function renderSecondaryBody(){
   if(!currentCase) return;
   const s=currentCase.secondary||{};
   // 旧データ（二次相続までに減少する額を直接保存）からの移行：1年あたり額へ換算
@@ -4387,7 +4485,13 @@ function savingsCompute(){
   const save=baseTax-afterTax;
   return {T0,T1,baseTax,afterTax,dTtotal,dnTotal,gTaxTotal,rows,save,netSave:save-gTaxTotal};
 }
+// 節税シミュレーション: 選択した分割パターン（未選択なら現在の分割）で計算する
 function renderSavings(){
+  if(!currentCase) return;
+  renderDivPatternPicker('savPatternBar', savUsePatternId(), 'setSavUsePattern');
+  withDivPattern(savUsePatternId(), renderSavingsBody);
+}
+function renderSavingsBody(){
   if(!currentCase) return;
   const sel=$('savTemplateSel'); if(sel && !sel.options.length) sel.innerHTML=SAVING_TEMPLATES.map(t=>'<option value="'+t.key+'">'+esc(t.name)+'</option>').join('');
   // measures
@@ -4450,7 +4554,8 @@ function savingBasisLines(key,p,row){
 function toggleSavingSel(id,val){ const s=(currentCase.savings||[]).find(x=>x.id===id); if(!s) return; s.sel=!!val; refreshSavingsResult(); cacheCurrentCase(); }
 // 実質額の表示（net>=0は節税＝「−¥」緑、net<0は負担増＝「＋¥」赤）
 function netDisp(net){ return net>=0 ? '<span class="sav-eff">−'+yen(net)+'</span>' : '<span class="sav-cost">＋'+yen(-net)+'</span>'; }
-function refreshSavingsResult(){
+function refreshSavingsResult(){ withDivPattern(savUsePatternId(), refreshSavingsResultBody); }
+function refreshSavingsResultBody(){
   if(!currentCase) return;
   const all=(currentCase.savings||[]); const selList=all.filter(s=>s.sel!==false);
   const R=savingsWaterfall(selList);
@@ -5103,7 +5208,8 @@ function renderStoryControls(){
   const on=_story().on!==false;
   const a=$('story_on_sav'), b=$('story_on_sec'); if(a)a.checked=on; if(b)b.checked=on;
 }
-function downloadSavingsPDF(){
+function downloadSavingsPDF(){ return withDivPattern(savUsePatternId(), downloadSavingsPDFBody); }
+function downloadSavingsPDFBody(){
   if(!currentCase){ toast('案件がありません', true); return; }
   syncUIToCase();
   const d=currentCase.deceased;
@@ -5157,7 +5263,8 @@ function downloadSavingsPDF(){
 }
 
 // 二次相続シミュレーションの試算データ（報告書PDF用に独立計算）
-function secondaryReportData(){
+function secondaryReportData(){ return withDivPattern(secUsePatternId(), secondaryReportDataBody); }
+function secondaryReportDataBody(){
   if(!currentCase) return null;
   const s=currentCase.secondary||{};
   const r=calcTax(); const E1=r.totalTaxable;
@@ -5639,7 +5746,8 @@ function secV2StoryPage(d,D,kind,A,badge,pno,total){
   if(!blk) return '';
   return '<div class="pg">'+secV2Header('解説：この結果をどう読むか',badge,d,D)+blk+secV2Foot(pno,total)+'</div>';
 }
-function downloadSecondaryPDF(mode){
+function downloadSecondaryPDF(mode){ return withDivPattern(secUsePatternId(), function(){ return downloadSecondaryPDFBody(mode); }); }
+function downloadSecondaryPDFBody(mode){
   mode=(mode==='savings')?'savings':'normal';
   if(!currentCase){ toast('案件がありません', true); return; }
   syncUIToCase();
@@ -5811,7 +5919,8 @@ function _legacyDownloadSecondaryPDF(mode){
   openPrintWindow('二次相続シミュレーション_'+(mode==='savings'?'節税策込み':'通常')+'_'+d.name, body, styles);
 }
 // 最適解レポートPDF（V2・A4横）：一次相続の配偶者取得割合＋節税策（生命保険・暦年贈与）の最適な組み合わせ
-function downloadOptimalPDF(){
+function downloadOptimalPDF(){ return withDivPattern(secUsePatternId(), downloadOptimalPDFBody); }
+function downloadOptimalPDFBody(){
   if(!currentCase){ toast('案件がありません', true); return; }
   syncUIToCase();
   const D=secondaryReportData();
