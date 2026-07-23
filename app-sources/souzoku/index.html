@@ -6537,22 +6537,34 @@ function buildAgreementBody(){
     .agr-cover{min-height:245mm;display:flex;flex-direction:column;page-break-after:always;position:relative;padding-top:8mm;}
     .agr-cover .cv-rule{border-top:3px double #1F3A5F;border-bottom:3px double #1F3A5F;padding:26px 0;margin:90mm 8mm 0;text-align:center;}
     .agr-cover .cv-title{font-size:30pt;letter-spacing:14px;font-weight:700;color:#1F3A5F;}
-    /* 製本（ホチキス）用に左余白を広めに確保。
-       @page の余白を0にし、実際の余白は body の padding で確保することで、
-       ブラウザ印刷時に余白領域へ自動挿入される日時・タイトル・URL（ヘッダー/フッター）が印字されないようにする */
-    @media print{ @page{ size:A4; margin:0; } body{ padding:18mm 16mm 18mm 30mm; } }
+    /* 全ページ共通の上下余白フレーム。
+       印刷時、表の thead/tfoot は各ページの上端・下端に自動で繰り返されるため、
+       ここへ高さのあるスペーサーを置くことで、全ページ（途中ページを含む）に
+       上下余白を確保できる。左右余白は body の padding で確保する。 */
+    .print-frame{width:100%;border-collapse:collapse;}
+    .print-frame>thead>tr>td,.print-frame>tbody>tr>td,.print-frame>tfoot>tr>td{border:0;padding:0;}
+    .pf-sp{height:0;border:0;padding:0;}
+    /* @page の余白を0にし、実際の余白は body padding（左右）と print-frame（上下）で確保する。
+       これにより、ブラウザ印刷時に余白領域へ自動挿入される日時・タイトル・URL
+       （ヘッダー/フッター）が印字されないうえ、全ページに上下左右の余白が付く。
+       左は製本（ホチキス）用に広めに確保する。 */
+    @media print{ @page{ size:A4; margin:0; } body{ padding:0 16mm 0 30mm; } .pf-sp{height:16mm;} }
   `;
   // 表紙はタイトルのみ（英字サブタイトル・被相続人表示・作成日・事務所情報は記載しない）
   const cover='<div class="agr-cover">'
     +'<div class="cv-rule"><div class="cv-title">遺 産 分 割 協 議 書</div></div>'
     +'</div>';
-  const body=cover
+  const inner=cover
     +'<h1>遺 産 分 割 協 議 書</h1>'
     +'<p class="intro">被相続人 '+esc(d.name)+' の死亡により開始した相続について、共同相続人全員は、その相続財産の分割につき次のとおり協議し、これを確定した。</p>'
     +sections
     +lastPage(false,'')
     +'<div class="pgbreak"></div>'
     +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。');
+  // 全ページの上下余白を thead/tfoot スペーサーで確保するため、本文をフレーム表で包む
+  const body='<table class="print-frame"><thead><tr><td class="pf-sp"></td></tr></thead>'
+    +'<tbody><tr><td>'+inner+'</td></tr></tbody>'
+    +'<tfoot><tr><td class="pf-sp"></td></tr></tfoot></table>';
   return {title:'遺産分割協議書_'+d.name, body, styles};
 }
 function downloadAgreement(){ const r=buildAgreement(); if(r) openPrintWindow(r.title, r.body, r.styles); }
