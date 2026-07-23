@@ -7,6 +7,7 @@ import PatternListDialog from '@/components/bank-statement/PatternListDialog'
 import FixedJournalDialog from '@/components/bank-statement/FixedJournalDialog'
 import InvoiceRegistryDialog from '@/components/bank-statement/InvoiceRegistryDialog'
 import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog'
+import KikuchiGasRentDialog from '@/components/bank-statement/KikuchiGasRentDialog'
 import StatementViewer from '@/components/bank-statement/StatementViewer'
 import JournalEntryTable from '@/components/bank-statement/JournalEntryTable'
 import ColumnMappingDialog from '@/components/bank-statement/ColumnMappingDialog'
@@ -97,6 +98,8 @@ export default function BankStatementContent() {
   const [showFixedJournal, setShowFixedJournal] = useState(false)
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
   const [showPayroll, setShowPayroll] = useState(false)
+  // キクチ・エステート専用: ガス・家賃集計表取込（顧問先名で判定して表示）
+  const [showKikuchi, setShowKikuchi] = useState(false)
   const [geminiModel, setGeminiModel] = useState(() => {
     if (typeof window === 'undefined') return 'gemini-2.5-flash'
     const stored = localStorage.getItem('bs-gemini-model')
@@ -1499,6 +1502,13 @@ export default function BankStatementContent() {
             className="fbtn fbtn-soft">
             定型仕訳
           </button>
+          {/* キクチ・エステート専用: ガス料金・家賃集計表Excel → 仕訳作成（他の顧問先には表示しない） */}
+          {selectedClient && selectedClient.name.replace(/[\s　・･]/g, '').includes('キクチエステート') && (
+            <button onClick={() => setShowKikuchi(true)}
+              className="fbtn fbtn-soft" title="ガス料金・家賃 請求受領金額集計表（Excel）から仕訳を作成">
+              ガス・家賃取込
+            </button>
+          )}
           {/* メニュー: 保存/全件/読込・科目マスタ・インボイス登録簿・Gemini モデル */}
           <HeaderMenuDropdown
             buttonLabel="メニュー"
@@ -1945,6 +1955,18 @@ export default function BankStatementContent() {
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(`${data.period} 賃金台帳から${entries.length}件の仕訳を生成しました（${data.employees.length}名）`)
         }}
+        onGenerateEntries={(entries, info) => {
+          setJournalEntries((prev) => [...prev, ...entries])
+          setInfo(info)
+        }}
+      />
+
+      {/* キクチ・エステート専用: ガス・家賃集計表取込 */}
+      <KikuchiGasRentDialog
+        open={showKikuchi}
+        onClose={() => setShowKikuchi(false)}
+        accountMaster={accountMaster}
+        subAccountMaster={subAccountMaster}
         onGenerateEntries={(entries, info) => {
           setJournalEntries((prev) => [...prev, ...entries])
           setInfo(info)
