@@ -729,16 +729,22 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 
       <div class="card">
         <h2>協議書の設定</h2>
-        <div class="grid grid-2">
+        <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:start;">
           <div class="field"><label>協議成立日</label><input type="date" id="ag_date" oninput="onAgreementInput()"></div>
           <div class="field"><label>後日判明財産の取得者</label>
             <select id="ag_extraHeir" onchange="onAgreementInput()"></select>
           </div>
-          <div class="field"><label>作成通数<span class="muted" style="font-weight:400;font-size:11px;margin-left:6px;">1通の場合は文言が「各自署名押印のうえ、保管する。」になります</span></label>
+          <div class="field"><label>作成通数</label>
             <select id="ag_copies" onchange="onAgreementInput()"><option value="">相続人数と同じ</option><option value="1">1通</option><option value="2">2通</option><option value="3">3通</option><option value="4">4通</option><option value="5">5通</option><option value="6">6通</option><option value="7">7通</option><option value="8">8通</option></select>
+            <div class="muted" style="font-size:11px;margin-top:4px;line-height:1.5;">※ 1通の場合は文言が「各自署名押印のうえ、保管する。」になります</div>
           </div>
-          <div class="field"><label>預貯金の手続代表者<span class="muted" style="font-weight:400;font-size:11px;margin-left:6px;">預貯金を複数人で分ける場合の代理受領条項に使用</span></label>
+          <div class="field"><label>預貯金の手続代表者</label>
             <select id="ag_bankRep" onchange="onAgreementInput()"></select>
+            <div class="muted" style="font-size:11px;margin-top:4px;line-height:1.5;">※ 預貯金を複数人で分ける場合の代理受領条項に使用</div>
+          </div>
+          <div class="field"><label>代償金支払日</label>
+            <input type="date" id="ag_compDue" oninput="onAgreementInput()">
+            <div class="muted" style="font-size:11px;margin-top:4px;line-height:1.5;">※ 代償金条項の支払期限（未設定なら「令和　年　月　日」の空欄になります）</div>
           </div>
         </div>
         <div class="field" style="margin-top:14px;"><label>記載項目</label>
@@ -1605,6 +1611,7 @@ function ensureCaseShape(c){
   if(typeof c.savingsPatternId!=='string') c.savingsPatternId=''; // 節税シミュで使う分割パターン
   if(!c.agreement||typeof c.agreement!=='object') c.agreement={date:'',notes:'',extraHeirId:'',includeDebt:true};
   if(typeof c.agreement.copies!=='string') c.agreement.copies='';
+  if(typeof c.agreement.compDueDate!=='string') c.agreement.compDueDate=''; // 代償金の支払期日
   if(typeof c.agreement.bankRepId!=='string') c.agreement.bankRepId='';
   if(c.agreement.includeDebt===undefined) c.agreement.includeDebt=true;
   if(!c.progress||typeof c.progress!=='object') c.progress={};
@@ -2208,6 +2215,7 @@ function syncUIToCase(){
   currentCase.agreement.notes=$('ag_notes').value;
   currentCase.agreement.extraHeirId=$('ag_extraHeir').value;
   if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked;
+  if($('ag_compDue')) currentCase.agreement.compDueDate=$('ag_compDue').value;
 }
 // 変更があるたびに共有ストアへ反映＋ローカル保存＋Firebaseへ同期（デバウンス）
 function updateSaveStatus(state){
@@ -2247,6 +2255,7 @@ function loadCaseIntoUI(){
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
   if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
+  if($('ag_compDue')) $('ag_compDue').value=currentCase.agreement.compDueDate||'';
   calcDeadlines();
   renderHeirs();
   renderChecklist();
@@ -3522,7 +3531,7 @@ function calcTax(){
 // ============================================================
 //  Agreement (遺産分割協議書)
 // ============================================================
-function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked; if($('ag_copies')) currentCase.agreement.copies=$('ag_copies').value; if($('ag_bankRep')) currentCase.agreement.bankRepId=$('ag_bankRep').value; renderHeirTotals(); cacheCurrentCase(); }
+function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked; if($('ag_copies')) currentCase.agreement.copies=$('ag_copies').value; if($('ag_bankRep')) currentCase.agreement.bankRepId=$('ag_bankRep').value; if($('ag_compDue')) currentCase.agreement.compDueDate=$('ag_compDue').value; renderHeirTotals(); cacheCurrentCase(); }
 function refreshAcquirerSelects(){ if(document.getElementById('view-agreement').classList.contains('active')) renderAgreement(); }
 function heirSelectHtml(currentId){
   let opts='<option value="">未定 / 共有</option>';
@@ -3578,6 +3587,7 @@ function renderAgreement(){
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
   if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
+  if($('ag_compDue')) $('ag_compDue').value=currentCase.agreement.compDueDate||'';
   renderHeirTotals();
 }
 // ===== ％で一括配分（財産種類×相続人の取得割合、端数は指定相続人へ） =====
@@ -6434,12 +6444,15 @@ function buildAgreementBody(){
         if(r.amt<=0) ri++;
       }
       inner+='<p class="agr-lead">'+(payers.length>1?'<b>'+pno+'</b>　':'')
-        +'相続人 '+esc(p.name)+' は、前各条により取得する遺産の代償として、下記の相続人に金 '+Math.abs(num(cbh[p.id])).toLocaleString('ja-JP')+' 円を支払う。</p>'
+        +'相続人 '+esc(p.name)+' は、前各条の規定により取得する遺産の代償として、次のとおり代償金合計金 '+Math.abs(num(cbh[p.id])).toLocaleString('ja-JP')+' 円を支払うものとする。</p>'
         +'<div class="agr-par" style="margin-left:2em;">'
         +dist.map(x=>'相続人 '+esc(x.h.name)+'　金 '+x.amt.toLocaleString('ja-JP')+' 円').join('<br>')
         +'</div>';
     });
-    inner+=par(payers.length>1?pno+1:2,(payers.length>1?'前各項':'前項')+'の代償金は、本協議成立後すみやかに、受領する各相続人が指定する口座に振り込む方法により支払うものとする。');
+    // 支払期日（協議書の設定で登録。未設定なら手書き用の空欄）と振込手数料の負担者（支払う相続人）
+    const dueStr=currentCase.agreement.compDueDate? toWarekiDate(currentCase.agreement.compDueDate) : '令和　　年　　月　　日';
+    const feePayer=namesJoin(payers.map(p=>esc(p.name)));
+    inner+=par(payers.length>1?pno+1:2,(payers.length>1?'前各項':'前項')+'の代償金は、'+dueStr+'までに、受領する各相続人が指定する金融機関の口座に振り込む方法により支払うものとする。なお、振込手数料は相続人 '+feePayer+' の負担とする。');
     sec('代償金',inner);
   }
 
@@ -6487,15 +6500,18 @@ function buildAgreementBody(){
     ?'上記のとおり、相続人全員による遺産分割の協議が成立したので、これを証するため本協議書を1通作成し、各自署名押印のうえ、保管する。'
     :'上記のとおり、相続人全員による遺産分割の協議が成立したので、これを証するため本協議書を'+copies+'通作成し、各自署名押印のうえ、各1通を保有する。';
   const dateStr=currentCase.agreement.date? toWarekiDate(currentCase.agreement.date) : '令和　　年　　月　　日';
-  const sigArea=(filled)=>{ let sigs=''; heirs.forEach(h=>{ sigs+='<table class="sig-table"><tbody><tr>'
+  // 署名欄: 全相続人を1つの表にし、1人＝1行（tr）にする。
+  // 表の行は途中で分割されない（行ごと次ページへ送られる）ため、
+  // 住所と氏名の間など相続人ブロックの途中で改ページが入らない。
+  const sigArea=(filled)=>{ let sigs=''; heirs.forEach(h=>{ sigs+='<tr class="sig-row">'
     +'<td class="seal-cell"><div class="seal-cap">捨印</div><div class="seal-mark">㊞</div></td>'
-    +'<td class="sig-cell"><table class="sig-inner"><tbody>'
-    +'<tr><td class="sl">住　所</td><td class="sv">'+(filled?esc(h.address||''):'')+'</td></tr>'
-    +'<tr><td class="sl">氏　名</td><td class="sv">'+(filled?esc(h.name):'')+'</td></tr>'
-    +'</tbody></table></td>'
+    +'<td class="sig-cell">'
+    +'<div class="sig-line-row"><span class="sl">住　所</span><span class="sv">'+(filled?esc(h.address||''):'')+'</span></div>'
+    +'<div class="sig-line-row"><span class="sl">氏　名</span><span class="sv">'+(filled?esc(h.name):'')+'</span></div>'
+    +'</td>'
     +'<td class="seal-cell"><div class="seal-cap">実印</div><div class="seal-mark">㊞</div></td>'
-    +'</tr></tbody></table>'; });
-    return '<div class="sig-area">'+sigs+'</div>'; };
+    +'</tr>'; });
+    return '<div class="sig-area"><table class="sig-area-tbl"><tbody>'+sigs+'</tbody></table></div>'; };
   const lastPage=(filled,note)=> (note?'<div class="ref-note">'+note+'</div>':'')
     +'<p class="closing">'+closing+'</p>'
     +'<div class="date">'+dateStr+'</div>'
@@ -6520,17 +6536,17 @@ function buildAgreementBody(){
     .dec-info .k{width:120px;}
     .closing{text-indent:1em;margin:20px 0 8px;line-height:1.9;}
     .date{text-align:right;margin:14px 0 18px;}
-    .sig-table{width:100%;border-collapse:collapse;margin-bottom:16px;page-break-inside:avoid;break-inside:avoid;}
-    .sig-table tr{page-break-inside:avoid;break-inside:avoid;}
-    .sig-table>tbody>tr>td{vertical-align:middle;page-break-inside:avoid;}
-    .seal-cell{width:72px;border:none;text-align:center;padding:8px 2px;}
+    .sig-area-tbl{width:100%;border-collapse:collapse;}
+    .sig-area-tbl td{border:0;vertical-align:middle;}
+    .sig-row{page-break-inside:avoid;break-inside:avoid;}
+    .sig-row>td{padding-bottom:16px;}
+    .seal-cell{width:72px;text-align:center;padding:8px 2px;}
     .seal-cap{font-size:9pt;color:#c4c4c4;margin-bottom:3px;}
     .seal-mark{font-size:22pt;color:#d0d0d0;line-height:1;}
     .sig-cell{padding:2px 18px;}
-    .sig-inner{width:100%;border-collapse:collapse;}
-    .sig-inner td{padding:11px 0;font-size:11pt;}
-    .sig-inner .sl{width:74px;white-space:nowrap;}
-    .sig-inner .sv{border-bottom:1px solid #000;padding:0 8px;}
+    .sig-line-row{display:flex;align-items:flex-end;padding:11px 0;font-size:11pt;}
+    .sig-line-row .sl{width:74px;white-space:nowrap;flex:none;}
+    .sig-line-row .sv{flex:1;border-bottom:1px solid #000;padding:0 8px;min-height:1.4em;}
     .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
     .pgbreak{page-break-before:always;break-before:page;}
     /* 表紙（タイトルのみ） */
