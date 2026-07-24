@@ -855,6 +855,13 @@ function extractTransactions(
     } else {
       const dateText = getCellByColumn(row, mapping.dateColumn)
       date = parseDate(dateText)
+      if (!date && dateText) {
+        // 見出しが中央寄せ・データが左寄せの通帳PDF（常陽銀行の入出金明細等）では、
+        // X範囲の併合で日付セルに摘要が混ざる（「2026/03/06 ご融資」）ことがある
+        // → 先頭のトークンだけで日付を再試行する（摘要は extraDesc 側で拾われる）
+        const firstToken = dateText.trim().split(/[\s　]+/)[0]
+        if (firstToken && firstToken !== dateText.trim()) date = parseDate(firstToken)
+      }
       if (!date && lastDate && row.cells.some((c, i) => i !== mapping.dateColumn && c && c.trim())) {
         // 日付が空でも他の列にデータがある → 直前の日付を引き継ぐ
         if (row.cells.some((c) => /合計|小計|総計/.test(c || ''))) continue

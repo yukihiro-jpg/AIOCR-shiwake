@@ -30,6 +30,16 @@ interface PdfPageResult {
   hasText: boolean
 }
 
+// Chromium系で印刷したWeb通帳PDF（常陽銀行の入出金明細等）は、漢字の一部が
+// 康熙部首・CJK部首補助のコードポイント（⽇⾦⾼⾏⽀⼿…）で埋め込まれることがある。
+// 見た目は同じでも「取引⽇」≠「取引日」となり、列見出しのキーワード一致が全滅して
+// テキストPDFなのにOCRフォールバックへ落ちてしまう。部首ブロックの文字だけを
+// NFKC で対応する通常漢字へ正規化する（全角英数字等、他の文字には一切触れない）。
+function normalizeKangxiRadicals(s: string): string {
+  if (!/[⺀-⿟]/.test(s)) return s
+  return s.replace(/[⺀-⻳⼀-⿕]/g, (ch) => ch.normalize('NFKC'))
+}
+
 export async function parsePdfText(
   file: File,
 ): Promise<{ pages: PdfPageResult[]; isTextPdf: boolean }> {
@@ -45,9 +55,9 @@ export async function parsePdfText(
     const viewport = page.getViewport({ scale: 1 })
     const textContent = await page.getTextContent()
 
-    const textItems: TextItem[] = (textContent.items as TextItem[]).filter(
-      (item) => item.str.trim(),
-    )
+    const textItems: TextItem[] = (textContent.items as TextItem[])
+      .filter((item) => item.str.trim())
+      .map((item) => ({ ...item, str: normalizeKangxiRadicals(item.str) }))
     totalTextItems += textItems.length
 
     // テキストアイテムをY座標でグループ化（同じ行のアイテムをまとめる）
