@@ -3168,6 +3168,31 @@ async function gasFetchText(targetUrl, tries){
   }
   throw lastErr||new Error('取得に失敗しました');
 }
+// CSV/HTMLの見出し語など、ファンド名ではない文字列を除く
+const FUND_HEADWORDS=/^(年月日|基準日|日付|基準価額|基準価額\(円\)|純資産総額|純資産総額\(百万円\)|分配金|分配金\(円\)|決算期|ファンドコード|協会コード|isin|isinコード|ファンド名|ファンド名称|運用会社|委託会社)$/i;
+function looksLikeFundName(s){
+  const t=cleanFetchedName(s); if(!t) return '';
+  if(FUND_HEADWORDS.test(t)) return '';
+  if(/^[0-9,.\-\/\s]+$/.test(t)) return '';        // 日付・数値だけの行は名称ではない
+  if(!/[ぁ-んァ-ヶ一-龥Ａ-Ｚａ-ｚA-Za-z]/.test(t)) return '';
+  return t;
+}
+// 基準価額CSVからファンド名を拾う（先頭数行にファンド名が入っている形式に対応）
+function fundNameFromCsv(lines){
+  for(let i=0;i<Math.min(lines.length,4);i++){
+    const cells=(lines[i]||'').split(',');
+    // 「ファンド名,○○ファンド」形式
+    for(let j=0;j<cells.length-1;j++){
+      if(/^(ファンド名|ファンド名称|銘柄名)$/.test((cells[j]||'').replace(/["\s]/g,''))){
+        const nm=looksLikeFundName((cells[j+1]||'').replace(/"/g,'')); if(nm) return nm;
+      }
+    }
+    // 単独セルにファンド名だけが入っている形式（日付行・見出し行は除外される）
+    const only=cells.filter(c=>(c||'').replace(/["\s]/g,'')!=='');
+    if(only.length===1){ const nm=looksLikeFundName(only[0].replace(/"/g,'')); if(nm) return nm; }
+  }
+  return '';
+}
 async function fetchFundNav(isin, assoc, deathDayEnd){
   const api='https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc);
   const txt=await gasFetchText(api, 3);
@@ -3181,17 +3206,28 @@ async function fetchFundNav(isin, assoc, deathDayEnd){
     if(t<=deathDayEnd && (!best||t>best.t)){ best={t,nav}; }
   }
   if(!best) throw new Error('相続開始日以前の基準価額が見つかりません');
-  return best.nav;
+  // 同じCSVにファンド名が入っていれば、ページのスクレイピングに頼らず確実に取得できる
+  return { nav: best.nav, name: fundNameFromCsv(lines) };
 }
 // 取得した文字列から銘柄名/ファンド名らしい部分だけを抽出（エラーページ・汎用タイトルは除外）
 function cleanFetchedName(s){
   if(!s) return '';
   let t=String(s).replace(/<[^>]+>/g,'')
     .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g,' ');
-  t=t.split('【')[0].split('［')[0].split('｜')[0].split('|')[0].split('：')[0].split(':')[0].split(' - ')[0].replace(/\s+/g,' ').trim();
+  t=t.replace(/\s+/g,' ').trim();
+  // 先頭の【コード】は銘柄コードなので取り除く。
+  // （「【5401】日本製鉄(株)…」を【で切ると空文字になり、名称が取れずサイト名が採用されていた）
+  t=t.replace(/^[【\[［(（]\s*[0-9A-Za-z.\-]{3,12}\s*[】\]］)）]\s*/,'');
+  // 区切り以降（サイト名・付随情報）は落とす
+  t=t.split('【')[0].split('［')[0].split('｜')[0].split('|')[0].split('：')[0].split(':')[0].split(' - ')[0].split(' ｜ ')[0];
+  // 「〜の株価・株式情報」等の説明句を除去
+  for(let i=0;i<3;i++) t=t.replace(/(の株価・株式情報|の株価情報|の株価|株式情報|株価|の基準価額・チャート|の基準価額|基準価額|のファンド情報|ファンド情報)$/,'');
+  t=t.replace(/[・･、､,／\/\-－—_\s]+$/,'');  // 説明句を除いた後に残る区切り記号を落とす
+  t=t.replace(/\s+/g,' ').trim();
   // エラー・通知・汎用ページのタイトルは名称として採用しない
   const BAD=/(現在表示できません|ご覧になろうとしている|ページが見つかり|見つかりませんでした|お探しのページ|ただいま|メンテナンス|アクセスでき|エラー|not\s*found|forbidden|error|403|404|500)/i;
-  const GENERIC=/^(yahoo!?ファイナンス?|yahoo|投資信託総合検索ライブラリー|投資信託総合検索|投資信託協会|基本情報|検索結果|ログイン)$/i;
+  // サイト名そのもの（Yahoo!ファイナンス / Yahoo finance / 投資信託協会 …）は銘柄名ではない
+  const GENERIC=/^(yahoo[!！]?\s*(ファイナンス|ﾌｧｲﾅﾝｽ|finance)?|ヤフー(ファイナンス)?|投資信託総合検索ライブラリー|投信総合検索ライブラリー|投資信託総合検索|投資信託協会|投信協会|基本情報|ファンド情報|検索結果|ログイン|株価・株式情報)$/i;
   if(BAD.test(t)||GENERIC.test(t)) return '';
   if(t.length<3||t.length>80) return '';
   return t;
@@ -3215,19 +3251,31 @@ async function fetchJpName(x){
 // 投資信託のファンド名を投資信託協会（基準価額と同じソース）の基本情報ページから取得（GAS経由）
 async function fetchFundName(isin, assoc){
   if(!settings.gasUrl) return '';
-  const page='https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/basicInformation?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc);
-  try{
-    const html=await gasFetchText(page, 2);
-    // 「ファンド名」ラベル近傍、見出し、og:title、title の順で候補を探す
-    const cands=[];
-    let m=html.match(/ファンド名[\s\S]{0,80}?>([^<>]{4,60})</);
-    if(m) cands.push(m[1]);
-    m=html.match(/<meta[^>]+(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']/i); if(m) cands.push(m[1]);
-    let hs=html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)||html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i); if(hs) cands.push(hs[1]);
-    m=html.match(/<title>([\s\S]*?)<\/title>/i); if(m) cands.push(m[1]);
-    for(const c of cands){ const nm=cleanFetchedName(c); if(nm) return nm; }
-    return '';
-  }catch(e){ return ''; }
+  const pages=[
+    'https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/basicInformation?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc),
+    'https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/setNewDisclosureInput?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc),
+  ];
+  for(const page of pages){
+    try{
+      const html=await gasFetchText(page, 2);
+      // 「ファンド名」ラベル近傍・見出し・og:title・title の順で候補を探す
+      const cands=[];
+      let m;
+      // ラベル→値（テーブル/定義リストの両方の並びに対応）
+      const labelPats=[
+        /(?:ファンド名称|ファンド名|銘柄名)[^<]*<\/[^>]+>\s*<[^>]+>([^<>]{4,80})</,
+        /(?:ファンド名称|ファンド名|銘柄名)[\s\S]{0,120}?>([^<>]{4,80})</,
+      ];
+      for(const p of labelPats){ m=html.match(p); if(m) cands.push(m[1]); }
+      m=html.match(/<meta[^>]+(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']/i); if(m) cands.push(m[1]);
+      m=html.match(/<meta[^>]+(?:name)=["']description["'][^>]*content=["']([^"']+)["']/i); if(m) cands.push(m[1]);
+      const hs=html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i); if(hs) cands.push(hs[1]);
+      const h2=html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i); if(h2) cands.push(h2[1]);
+      m=html.match(/<title>([\s\S]*?)<\/title>/i); if(m) cands.push(m[1]);
+      for(const c of cands){ const nm=looksLikeFundName(c); if(nm) return nm; }
+    }catch(e){ /* 次のページを試す */ }
+  }
+  return '';
 }
 // 日次終値の配列 [{ts,close}] から評価4時点（相続開始日終値・当月/前月/前々月の平均）を計算
 function compute4Points(rows, death){
@@ -3293,9 +3341,11 @@ async function autoFetchStock(id){
   if(isFund(a)){
     if(!(a.assoc||'').trim()){ toast('協会コードを入力してください（投資信託協会の検索で確認できます）', true); return; }
     toast('基準価額を取得中…');
-    try{ const nav=await fetchFundNav(code, a.assoc.trim(), deathDayEnd0); a.p1=String(Math.round(nav));
-      // ファンド名：投資信託協会（基準価額と同じソース）から取得。取得不可なら既存値を維持し手入力を促す
-      let jp=''; try{ jp=await fetchFundName(code, a.assoc.trim()); }catch(e){}
+    try{ const res=await fetchFundNav(code, a.assoc.trim(), deathDayEnd0); const nav=res.nav; a.p1=String(Math.round(nav));
+      // ファンド名：まず基準価額CSVに含まれていればそれを採用（確実）、無ければ基本情報ページから取得。
+      // 取得不可なら既存値を維持し手入力を促す
+      let jp=res.name||'';
+      if(!jp){ try{ jp=await fetchFundName(code, a.assoc.trim()); }catch(e){} }
       if(jp) a.name=jp;
       renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
       toast('基準価額を取得：¥'+Math.round(nav).toLocaleString('ja-JP')+'（1万口）'+(jp?'／'+jp:'（ファンド名は自動取得できませんでした。手入力してください）')); }
@@ -3325,8 +3375,14 @@ async function autoFetchStock(id){
   if(!pts || pts.deathClose==null){ toast('株価の自動取得に失敗しました。銘柄コードと設定（Apps Script URL）をご確認ください（4時点・配当は手入力も可能です）', true); return; }
   a.code=code;
   // 名称：bundleの日本語名 → Yahoo日本版title → 英語名／既存値
-  let nm=jpName; if(!nm){ try{ nm=await fetchJpName(symbol); }catch(e){} if(!nm){ const bare=code.replace(/\.[A-Za-z]+$/,''); if(bare!==symbol){ try{ nm=await fetchJpName(bare); }catch(e){} } } }
-  if(nm) a.name=nm; else if(usName) a.name=usName;
+  // 【重要】GAS(bundle)が返す名前も必ず cleanFetchedName を通す。
+  // 検証していなかったため、GAS側のスクレイピングが拾ったサイト名（Yahoo!ファイナンス等）が
+  // そのまま銘柄名として登録されてしまっていた。
+  let nm=cleanFetchedName(jpName);
+  if(!nm){ try{ nm=await fetchJpName(symbol); }catch(e){} }
+  if(!nm){ const bare=code.replace(/\.[A-Za-z]+$/,''); if(bare!==symbol){ try{ nm=await fetchJpName(bare); }catch(e){} } }
+  if(!nm) nm=cleanFetchedName(usName);
+  if(nm) a.name=nm;
   // 4時点：①終値は四捨五入、②③④の月平均は円未満切捨（財基通169・上場株式の評価明細書／Python版と同じ）
   a.p1= pts.deathClose!=null? String(Math.round(pts.deathClose)):'';
   a.p2= pts.p2!=null? String(Math.floor(pts.p2)):'';
