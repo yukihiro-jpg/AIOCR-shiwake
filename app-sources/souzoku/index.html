@@ -383,6 +383,12 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .dtbl .evalsel input[type=radio]{width:auto;}
 .dtbl tfoot td{background:var(--surface-2);font-weight:700;}
 .dtbl .chk-cell{text-align:center;}
+/* 生前贈与加算の自動判定バッジ */
+.gjudge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;}
+.gjudge.add{background:#ffe9e6;color:#c0392b;}
+.gjudge.add2{background:#fff3d9;color:#9a6b12;}
+.gjudge.gray{background:#eef0f4;color:#6b7686;}
+.gjudge-note{font-size:10px;color:#8a93a0;margin-top:2px;line-height:1.4;}
 .dtbl .chk-cell input{width:auto;}
 .detail-foot{margin-top:12px;display:flex;gap:10px;align-items:center;}
 .detail-note{margin-top:12px;font-size:12px;color:var(--ink-2);background:var(--surface-2);border-radius:10px;padding:10px 14px;line-height:1.7;}
@@ -2718,13 +2724,36 @@ function mvParseDate(s){ s=String(s==null?'':s).trim(); if(!s) return ''; const 
   if(m){ const e=m[1]; const base=/[Rr令]/.test(e)?2018:(/[Hh平]/.test(e)?1988:1925); return (base+(+m[2]))+'-'+pad(+m[3])+'-'+pad(+(m[4]||1)); }
   return ''; }
 // 生前贈与加算の判定（被相続人の死亡日基準）。anno は内容欄に差し込む注記文言
-function mvGiftStatus(iso, deathDate){ if(!deathDate) return {added:false,cls:'gray',anno:'生前贈与加算判定は死亡日入力後'}; if(!iso) return {added:true,cls:'gray',anno:'生前贈与加算対象（贈与日未設定）'};
-  const gd=new Date(iso); const yrs=(deathDate-gd)/(365.25*864e5);
-  if(yrs<-1e-9) return {added:false,cls:'gray',anno:'相続開始後の日付'};
-  if(yrs<=3+1e-9) return {added:true,cls:'add',anno:'3年以内生前贈与加算対象'};
-  if(yrs<=7+1e-9 && gd>=new Date('2024-01-01')) return {added:true,pool:true,cls:'add2',anno:'延長(3〜7年)生前贈与加算対象'};
-  if(yrs>7+1e-9) return {added:false,cls:'gray',anno:'生前贈与加算対象外(7年超)'};
-  return {added:false,cls:'gray',anno:'生前贈与加算対象外'}; }
+// 暦年課税贈与の「生前贈与加算」自動判定（贈与年月日と相続開始日から機械的に決まる）。
+//  ・相続開始前3年以内の贈与 … 全額を加算
+//  ・3年超7年以内の贈与      … 令和6年改正の延長対象。ただし加算されるのは 2024-01-01 以後の贈与に限る。
+//                              延長分は受贈者1人あたり合計100万円を控除した残額を加算
+//  ・7年超／2024-01-01前の3年超の贈与 … 加算対象外
+// 期間は暦（応当日）で判定する。365.25日換算だと、うるう年をまたぐ「ちょうど3年前」の
+// 贈与が境界からわずかに外れて加算漏れになるため、日付そのもので比較する。
+function giftAddJudge(iso, deathDate){
+  if(!deathDate) return {added:false,cls:'gray',anno:'生前贈与加算判定は死亡日入力後'};
+  if(!iso) return {added:true,cls:'gray',anno:'生前贈与加算対象（贈与日未設定）'};
+  const gd=new Date(iso); if(isNaN(gd)) return {added:true,cls:'gray',anno:'生前贈与加算対象（贈与日未設定）'};
+  if(gd>deathDate) return {added:false,cls:'gray',anno:'相続開始後の日付'};
+  const back=(y)=>{ const d=new Date(deathDate.getTime()); d.setFullYear(d.getFullYear()-y); return d; };
+  if(gd>=back(3)) return {added:true,cls:'add',anno:'3年以内生前贈与加算対象'};
+  if(gd>=back(7) && gd>=new Date('2024-01-01')) return {added:true,pool:true,cls:'add2',anno:'延長(3〜7年)生前贈与加算対象'};
+  if(gd<back(7)) return {added:false,cls:'gray',anno:'生前贈与加算対象外(7年超)'};
+  return {added:false,cls:'gray',anno:'生前贈与加算対象外(令和6年改正前の3年超)'};
+}
+// 旧名（金融資産異動一覧表から使用）
+function mvGiftStatus(iso, deathDate){ return giftAddJudge(iso, deathDate); }
+// 生前贈与財産の表に「加算判定」を表示するセル（ユーザーが対象かどうかを判断しなくてよいようにする）
+function giftJudgeCell(a){
+  const dd=(currentCase&&currentCase.deceased&&currentCase.deceased.deathDate)? new Date(currentCase.deceased.deathDate):null;
+  if(a.regime==='seisan') return '<td><span class="gjudge add">加算（相続時精算課税）</span><div class="gjudge-note">年110万円の基礎控除後を加算</div></td>';
+  const j=giftAddJudge(a.giftDate, dd);
+  const label=j.added?(j.pool?'加算（延長3〜7年）':'加算（3年以内）'):'加算対象外';
+  const cls=j.added?(j.pool?'add2':'add'):'gray';
+  const note=j.pool?'受贈者ごと合計100万円を控除':(j.anno||'');
+  return '<td><span class="gjudge '+cls+'">'+label+'</span><div class="gjudge-note">'+esc(note)+'</div></td>';
+}
 // 内容欄から自動注記（〇〇へ生前贈与/…加算…）を取り除き、ユーザーが入力した本文だけを返す
 function mvGiftContentBase(content){ return String(content||'').replace(/^[^\/]*へ生前贈与\/[^\/]*(?:\/|$)/,''); }
 // 相続財産計上額 ＝ Σ（生前贈与のうち加算対象となるもの＋その他計上）。入金のみ・加算対象外の生前贈与は反映しない
@@ -2996,7 +3025,7 @@ function giftTableHtml(items){
   const heirs=currentCase.heirs;
   const heirOpt=(cur)=>'<option value="">—</option>'+heirs.map(h=>'<option value="'+h.id+'"'+(h.id===cur?' selected':'')+'>'+esc(h.name||'(無名)')+'</option>').join('');
   let rows='';
-  if(!items.length) rows='<tr><td colspan="14" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
+  if(!items.length) rows='<tr><td colspan="15" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
     if(a._fromMovement){ // 金融資産異動一覧表から自動反映。区分・受贈者・日付・価額は同表と連動（読み取り専用）、種類・納付贈与税・確認事項・注記は編集可
       const hn=(function(id){ const h=currentCase.heirs.find(x=>x.id===id); return h?(h.name||'(無名)'):'—'; })(a.giftRecipient);
@@ -3004,6 +3033,7 @@ function giftTableHtml(items){
         +'<td>'+(a.regime==='seisan'?'相続時精算課税':'暦年課税')+'</td>'
         +'<td>'+esc(hn)+'</td>'
         +'<td title="贈与年月日は金融資産異動一覧表の日付と連動します">'+esc(a._mvDate||a.giftDate||'—')+'</td>'
+        +giftJudgeCell(a)
         +txtCell(a,'gKind','')
         +'<td>'+esc(a.gDetail||'')+'</td>'
         +'<td class="num">'+(num(a.unitPrice)?num(a.unitPrice).toLocaleString('ja-JP'):'')+'</td>'
@@ -3020,7 +3050,8 @@ function giftTableHtml(items){
     rows+='<tr>'
       +'<td><select onchange="updAsset(\''+a.id+'\',\'regime\',this.value);renderAssetDetail();renderSummary();"><option value="koyo"'+(a.regime!=='seisan'?' selected':'')+'>暦年課税</option><option value="seisan"'+(a.regime==='seisan'?' selected':'')+'>相続時精算課税</option></select></td>'
       +'<td><select onchange="updAsset(\''+a.id+'\',\'giftRecipient\',this.value)">'+heirOpt(a.giftRecipient)+'</select></td>'
-      +'<td><input type="date" value="'+esc(a.giftDate||'')+'" oninput="updAsset(\''+a.id+'\',\'giftDate\',this.value)"></td>'
+      +'<td><input type="date" value="'+esc(a.giftDate||'')+'" oninput="updAsset(\''+a.id+'\',\'giftDate\',this.value);renderAssetDetail();renderSummary();"></td>'
+      +giftJudgeCell(a)
       +txtCell(a,'gKind','')
       +txtCell(a,'gDetail','')
       +moneyCell(a,'unitPrice','')
@@ -3039,10 +3070,10 @@ function giftTableHtml(items){
   const seisan={}; items.filter(a=>a.regime==='seisan').forEach(a=>{ const k=(a.giftRecipient||'_')+'|'+(a.giftDate?new Date(a.giftDate).getFullYear():'na'); seisan[k]=seisan[k]||{sum:0,basic:false}; seisan[k].sum+=assetVal(a); if(a.autoBasic!==false) seisan[k].basic=true; });
   let seisanAfter=0; Object.keys(seisan).forEach(k=>{ seisanAfter+=Math.max(0,seisan[k].sum-(seisan[k].basic?1100000:0)); });
   return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:1500px;"><thead><tr>'
-    +'<th>区分</th><th>受贈者</th><th>贈与年月日</th><th>種類</th><th>細目</th><th>単価</th><th>数量</th><th>計算</th><th>贈与価額(円)</th><th>納付した贈与税</th><th>基礎控除<br>自動計算</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+    +'<th>区分</th><th>受贈者</th><th>贈与年月日</th><th style="min-width:150px;">加算判定<br><span style="font-weight:400;font-size:10px;">（日付から自動）</span></th><th>種類</th><th>細目</th><th>単価</th><th>数量</th><th>計算</th><th>贈与価額(円)</th><th>納付した贈与税</th><th>基礎控除<br>自動計算</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="8" style="text-align:right;">計</td><td class="num" id="foot-gift">'+yen(valSum)+'</td><td class="num">'+yen(taxSum)+'</td><td colspan="4"></td></tr>'
-    +'<tr><td colspan="8" style="text-align:right;">基礎控除後の相続時精算課税計</td><td class="num">'+yen(seisanAfter)+'</td><td colspan="4"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="9" style="text-align:right;">計</td><td class="num" id="foot-gift">'+yen(valSum)+'</td><td class="num">'+yen(taxSum)+'</td><td colspan="4"></td></tr>'
+    +'<tr><td colspan="9" style="text-align:right;">基礎控除後の相続時精算課税計</td><td class="num">'+yen(seisanAfter)+'</td><td colspan="4"></td></tr></tfoot></table></div>';
 }
 function securitiesTableHtml(items){
   const subs=ASSET_BY_KEY['securities'].subs;
@@ -3481,12 +3512,9 @@ function calcTax(){
       const y=a.giftDate?new Date(a.giftDate).getFullYear():'na'; const k=a.giftRecipient+'|'+y;
       seisanGroup[k]=seisanGroup[k]||{hid:a.giftRecipient,sum:0,basic:false}; seisanGroup[k].sum+=val; if(a.autoBasic!==false) seisanGroup[k].basic=true;
     } else {
-      let added=false,pool=false;
-      if(deathDate && a.giftDate){ const gd=new Date(a.giftDate); const yrs=(deathDate-gd)/(365.25*864e5);
-        if(yrs<=3+1e-9 && yrs>=-1e-9){ added=true; }
-        else if(yrs<=7+1e-9 && gd>=new Date('2024-01-01')){ added=true; pool=true; }
-      } else { added=true; }
-      if(added){ if(pool) koyo47[a.giftRecipient]+=val; else koyo3[a.giftRecipient]+=val; p.giftTaxKei+=num(a.giftTax); }
+      // 贈与年月日から自動判定（表示用の判定と同一関数を使い、画面の表示と税額計算を必ず一致させる）
+      const j=giftAddJudge(a.giftDate, deathDate);
+      if(j.added){ if(j.pool) koyo47[a.giftRecipient]+=val; else koyo3[a.giftRecipient]+=val; p.giftTaxKei+=num(a.giftTax); }
     }
   });
   heirs.forEach(h=>{ const p=ph[h.id]; const ded47=Math.min(koyo47[h.id],1000000); p.ded47=ded47; p.giftKeiAdd=koyo3[h.id]+Math.max(0,koyo47[h.id]-ded47); });
