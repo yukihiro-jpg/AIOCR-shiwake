@@ -6324,7 +6324,9 @@ function buildAgreementBody(){
     const groups=new Map();
     yokin.forEach(a=>{ const k=sigOf(a); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(a); });
     const tbl=(items)=>'<table class="agr-tbl"><thead><tr><th>金融機関</th><th style="width:86px;">支　店</th><th style="width:76px;">種　別</th><th style="width:110px;">口座番号</th><th style="width:96px;">名　義</th><th style="width:110px;">相続開始日残高</th></tr></thead><tbody>'
-      +items.map(a=>'<tr><td>'+esc(a.name||'')+'</td><td class="c">'+esc(a.branch||'―')+'</td><td class="c">'+esc(a.subcategory||'')+'</td><td class="c">'+esc(a.accountNo||'')+'</td><td class="c">'+esc(a.nominee||'')+'</td><td class="r">'+yenN(assetVal(a))+'</td></tr>').join('')+'</tbody></table>';
+      // 相続開始日残高は「既経過利息を含めない」通帳残高そのもの（assetVal は残高＋既経過利息のため使わない）。
+      // 利息は本条の「相続開始後に生じた利息…を分割の対象とする」で読み込むため、表には載せない。
+      +items.map(a=>'<tr><td>'+esc(a.name||'')+'</td><td class="c">'+esc(a.branch||'―')+'</td><td class="c">'+esc(a.subcategory||'')+'</td><td class="c">'+esc(a.accountNo||'')+'</td><td class="c">'+esc(a.nominee||'')+'</td><td class="r">'+yenN(num(a.value))+'</td></tr>').join('')+'</tbody></table>';
     let inner=''; let gi=0; let pn=1; let fracNotes=[];
     groups.forEach(items=>{ gi++;
       const tk=takersOf(items[0]);
