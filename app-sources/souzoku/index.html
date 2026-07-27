@@ -3949,12 +3949,16 @@ function renderAllocations(){
   const grandEval=divAssets.reduce((s,a)=>s+assetVal(a)*signOf(a.category),0);
   body+='<tr class="total-row"><td class="l">合計（純財産）</td><td>'+yen(grandEval)+'</td>'
     +heirs.map(h=>'<td id="gt-'+h.id+'">'+fmtAlloc(divAssets.reduce((s,a)=>s+amtOf(a,h.id)*signOf(a.category),0))+'</td>').join('')+'</tr>';
-  // 生前贈与（相続税の課税価格に加算）：受贈者が固定のため分割対象外だが、参考として表示し、税額計算に反映される加算額の小計を示す
-  const gifts=currentCase.assets.filter(a=>a.category==='gift');
+  // 生前贈与（相続税の課税価格に加算）：受贈者が固定のため分割対象外だが、参考として表示し、税額計算に反映される加算額の小計を示す。
+  // 表示するのは加算対象の贈与のみ（贈与年月日から自動判定）。加算対象外（7年超等）は
+  // 税額に影響しないため、この画面には出さない（財産一覧の生前贈与財産では全件を確認できる）。
+  const deathDateForGift=(currentCase.deceased&&currentCase.deceased.deathDate)? new Date(currentCase.deceased.deathDate):null;
+  const gifts=currentCase.assets.filter(a=>a.category==='gift'
+    && (a.regime==='seisan' || giftAddJudge(a.giftDate, deathDateForGift).added));
   if(gifts.length){
     const gt=ASSET_TYPES.find(t=>t.key==='gift')||{color:'#a2845e'};
     let r=null; try{ r=calcTax(); }catch(e){}
-    body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:'+gt.color+'"></i>生前贈与（相続税の課税価格に加算）</td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
+    body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:'+gt.color+'"></i>生前贈与（相続税の課税価格に加算）<span class="muted" style="font-weight:400;font-size:11px;margin-left:8px;">加算対象のもののみ表示</span></td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
     gifts.forEach(a=>{
       const label=esc(assetDesc(a)||'生前贈与');
       let row='<tr><td class="l" style="padding-left:26px;">'+label+'</td><td class="evalcol">'+yen(assetVal(a))+'</td>';
