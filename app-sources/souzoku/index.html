@@ -2493,6 +2493,7 @@ function newAsset(cat){
   return {id:uid(),category:cat,subcategory:'',name:'',location:'',riyou:'',quantity:'',evalMethod:'rosen',unitPrice:'',koteiValue:'',baisu:'',ownNum:'1',ownDen:'1',adjust:'1.00',autoCalc:true,value:'',evalWay:'',companyType:'',branch:'',nominee:'',accountNo:'',memo:'',kobo:{type:'none',area:''},
     chiban:'',tokiChimoku:'',kazeiChimoku:'',genkyo:'',tokiChiseki:'',kazeiChiseki:'',landUse:'自用地',shakuchiRatio:'',sokuho:'',toshiKeikaku:'',youtoChiiki:'',fukuin:'',shakkaRatio:'',chintaiRatio:'',landDebt:'',
     kaokuNo:'',kozo:'',kaiso:'',tokiYuka:'',kazeiYuka:'',buildingUse:'自用',insType:'',
+    fxCurrency:'',fxAmount:'',fxRate:'', // 外貨建て生命保険：通貨・外貨建保険金額・死亡日のTTB（円換算に使用）
     code:'',p1:'',p2:'',p3:'',p4:'',divBase:'',divEffective:'',divPayStart:'',divPerShare:'',divRate:'',
     assoc:'',ritio:'',redeemFee:'',creditorAddr:'',debtStart:'',debtDue:'',payerAddr:'',payDate:'',claimAmount:'',excludeAmount:'',checkNote:'',checkResult:'',interest:'',
     giftTax:0,is4to7:false,regime:'koyo',giftRecipient:'',giftDate:'',gKind:'',gDetail:'',autoBasic:true,allocations:[]};
@@ -2540,8 +2541,17 @@ function landUseFactor(a){
   if(u==='貸家建付地') return Math.max(0,1-sh*ka*ch);                  // 貸家建付地＝自用地×(1−借地権×借家権×賃貸)
   return 1;                                                           // 自用地
 }
+// 外貨建て生命保険：外貨建ての保険金額 × 死亡日のTTB＝円換算額。
+// 両方が入力されているときだけ自動計算の対象とし、未入力なら従来どおり手入力の金額を使う。
+function insuranceFxJpy(a){
+  if(!a || a.category!=='insurance') return null;
+  const amt=num(a.fxAmount), rate=num(a.fxRate);
+  if(amt>0 && rate>0) return Math.round(amt*rate);
+  return null;
+}
 function computeAssetValue(a){
   if(a.category==='cash') return num(a.value)+num(a.interest); // 預貯金残高＋既経過利息
+  const fx=insuranceFxJpy(a); if(fx!=null) return fx;          // 外貨建て生命保険：外貨額×TTB
   if(a.autoCalc===false || MANUAL_VAL.includes(a.category)) return num(a.value);
   const own=(num(a.ownNum)||1)/((num(a.ownDen)||1)||1);
   const adj=(a.adjust===''||a.adjust==null)?1:num(a.adjust);
@@ -2589,7 +2599,22 @@ function updAsset(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); 
 function updAssetBool(id,field,checked){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; a[field]=checked; if(field==='autoCalc'){ renderAssetDetail(); } refreshAssetRow(a); }
 function updKobo(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; if(!a.kobo) a.kobo={type:'none',area:''}; a.kobo[field]=val; const k=computeKobo(); const el=$('kobored-'+id); if(el) el.textContent='減額 '+yen(k.byAsset[id]||0); renderSummary(); cacheCurrentCase(); }
 function refreshAssetRow(a){
-  const vc=$('val-'+a.id); if(vc && vc.readOnly){ const v=computeAssetValue(a); vc.value=v?v.toLocaleString('ja-JP'):'0'; }
+  const vc=$('val-'+a.id);
+  if(vc){
+    const fx=insuranceFxJpy(a);
+    if(fx!=null){
+      // 外貨建て生命保険：外貨額×TTBの円換算額を金額(円)へセットし、手入力は無効化する
+      if(!vc.readOnly){ vc.readOnly=true; vc.classList.add('computed'); }
+      vc.value=fx.toLocaleString('ja-JP');
+      a.value=String(fx);
+    } else if(vc.readOnly && MANUAL_VAL.includes(a.category)){
+      // 外貨欄が空になった → 手入力に戻す
+      vc.readOnly=false; vc.classList.remove('computed');
+      vc.value=num(a.value)?num(a.value).toLocaleString('ja-JP'):'';
+    } else if(vc.readOnly){
+      const v=computeAssetValue(a); vc.value=v?v.toLocaleString('ja-JP'):'0';
+    }
+  }
   if(a.category==='securities'){
     const sv=$('secval-'+a.id); if(sv){ const s=secBase(a); sv.value=s?s.toLocaleString('ja-JP'):'0'; }
     const di=divInfo(a); const dk=$('divkind-'+a.id); if(dk) dk.textContent=di.kind;
@@ -2814,7 +2839,8 @@ function opsCell(id){ return '<td class="rowops"><button onclick="dupAsset(\''+i
 function fracCell(a){ return '<td><div class="frac"><input value="'+esc(a.ownNum||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownNum\',this.value)"><span>/</span><input value="'+esc(a.ownDen||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownDen\',this.value)"></div></td>'; }
 function calcCell(a){ return '<td class="chk-cell"><input type="checkbox" '+(a.autoCalc!==false?'checked':'')+' onchange="updAssetBool(\''+a.id+'\',\'autoCalc\',this.checked)"></td>'; }
 function valueCell(a){
-  const editable=MANUAL_VAL.includes(a.category)||a.autoCalc===false;
+  // 外貨建て生命保険（外貨額×TTBが入力済み）は自動計算＝手入力不可にする
+  const editable=(insuranceFxJpy(a)==null) && (MANUAL_VAL.includes(a.category)||a.autoCalc===false);
   if(editable) return '<td><input type="text" class="num" id="val-'+a.id+'" value="'+(num(a.value)?num(a.value).toLocaleString('ja-JP'):'')+'" placeholder="0" oninput="updAsset(\''+a.id+'\',\'value\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>';
   const v=computeAssetValue(a); return '<td><input type="text" readonly class="num computed" id="val-'+a.id+'" value="'+(v?v.toLocaleString('ja-JP'):'0')+'"></td>';
 }
@@ -2921,7 +2947,7 @@ const ASSET_COLS={
   securities:[['subcategory','種類','sel'],['evalWay','評価方法','text'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','銘柄','text'],['unitPrice','単価','money'],['quantity','数量','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   unlisted:[['subcategory','種類','sel'],['evalWay','評価方法','optsel','optUnlistedEval'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','会社名（銘柄）','text'],['unitPrice','単価','money'],['quantity','株数','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   cash:[['nominee','名義','nameSel'],['subcategory','種類','optsel','optCashType'],['name','金融機関','text'],['branch','支店','text'],['accountNo','口座番号','text'],['_value','金額(円)','value'],['interest','既経過利息','money'],['memo','注記','text']],
-  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
+  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_value','金額(円)','value'],['memo','注記','text']],
   retirement:[['subcategory','種類','sel'],['name','支給者','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
   other:[['subcategory','細目','sel'],['name','内容','text'],['location','所在・明細','text'],['quantity','数量','num'],['unitPrice','単価','money'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   debt:[['subcategory','種類','sel'],['location','細目','text'],['name','債権者の氏名','text'],['creditorAddr','債権者住所','text'],['debtStart','債務発生年月日','date'],['debtDue','弁済期限','date'],['_value','金額(円)','value'],['memo','注記','text']],
@@ -3291,7 +3317,7 @@ function detailNote(cat){
     securities:'【上場株式・ETF・REIT】評価額 ＝ ①相続開始日終値、②当月・③前月・④前々月の終値の月平均額 のうち最も低い価額×株数。「自動算出」で銘柄コードから株価4時点・配当・銘柄名をYahoo!ファイナンス（GAS経由）で取得します（月平均は円未満切捨。Yahoo!が不調なときはStooqから株価を自動補完）。設定のApps Scriptを高機能版にすると、実際の配当支払日も取得して未収配当金・配当期待権をより正確に判定します。配当は相続開始日(死亡日)と各日付の関係で次のとおり判定し、配当総額−源泉税(20.315%)を評価額合計に加算します：①死亡日が配当基準日以前＝なし(株価に織込み済み)、②基準日の翌日〜効力発生日(株主総会決議日)＝配当期待権、③効力発生日の翌日〜支払開始日＝未収配当金、④支払開始日より後＝なし(受領済みのため現金・預貯金に計上)。自動算出の日付は推定値です（基準日≒権利落ち日の翌日、効力発生日≒基準日の約3か月後、支払開始日≒効力発生日の約2週間後）。実際の基準日・株主総会決議日・支払開始日が分かる場合は手入力で修正してください。\n【投資信託（非上場）】種類で「投資信託」を選ぶと、評価額 ＝ 基準価額(1万口)×口数÷1万 − 信託財産留保額(基準価額×留保率) − 解約手数料。「自動算出」はISINコード＋協会コードから投資信託協会の基準価額を取得します。留保率・解約手数料は目論見書を参照し入力してください。',
     unlisted:'非上場株式は類似業種比準・純資産価額方式等で1株単価を算定し、単価×株数で価額を計算します。',
     cash:'相続開始日時点の残高を入力します。名義は被相続人や相続人から選択できます（名義預金は実質の所有者をご確認のうえ判断）。種類（普通預金/定期預金/現金 等）は自由入力です。',
-    insurance:'区分で分けて入力します。「死亡保険金（非課税枠の対象）」＝被相続人を被保険者とし相続人が受け取る保険金で、非課税限度（500万円×法定相続人数）の対象。「定期金に関する権利」＝年金保険の受給権や保険料負担者＝被相続人で被保険者が他人の保険契約に関する権利等で、非課税の対象外（全額が課税価格）。金額は解約返戻金相当額等を入力します。',
+    insurance:'区分で分けて入力します。「死亡保険金（非課税枠の対象）」＝被相続人を被保険者とし相続人が受け取る保険金で、非課税限度（500万円×法定相続人数）の対象。「定期金に関する権利」＝年金保険の受給権や保険料負担者＝被相続人で被保険者が他人の保険契約に関する権利等で、非課税の対象外（全額が課税価格）。金額は解約返戻金相当額等を入力します。外貨建ての保険は、通貨・外貨建保険金額・TTB（死亡日の対顧客直物電信買相場）を入力すると、金額(円)＝外貨建保険金額×TTB が自動計算されます（自動計算中は金額(円)は手入力できません。円建てのときは外貨欄を空欄にしてください）。',
     retirement:'死亡退職金（みなし相続財産）。非課税限度（500万円×法定相続人数）は試算で自動控除します。',
     other:'自動車・会員権・貴金属・貸付金・未収金・暗号資産等。単価×数量で計算するか、価額を直接入力します。',
     debt:'種類・細目・債権者の氏名／住所・債務発生年月日・弁済期限・金額を登録します。金額が課税価格から控除されます。',
