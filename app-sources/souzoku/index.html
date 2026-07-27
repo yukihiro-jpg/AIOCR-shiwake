@@ -7695,8 +7695,24 @@ function pbDeleteAnalysis(id){ if(!confirm('この分析結果を削除します
 // ============================================================
 //  Init
 // ============================================================
-// 金額・単価・面積（class="num"）の入力を入力時に #,### 整形
-document.addEventListener('input',function(e){ const t=e.target; if(t&&t.tagName==='INPUT'&&t.classList&&t.classList.contains('num')) fmtNumLive(t); });
+// 金額・単価・面積（class="num"）の入力を入力時に #,### 整形。
+// 【重要】IME（かな入力等）の変換中は整形しない。変換確定前に value を書き換えると、
+// IMEの未確定バッファと入力欄の内容がずれ、「1234567」が「123455677」のように
+// 桁が重複して入力される。変換中は素通しし、確定（compositionend）時に整形する。
+function isNumInput(t){ return !!(t && t.tagName==='INPUT' && t.classList && t.classList.contains('num')); }
+document.addEventListener('compositionstart',function(e){ if(isNumInput(e.target)) e.target.dataset.imeComposing='1'; });
+document.addEventListener('compositionend',function(e){
+  const t=e.target; if(!isNumInput(t)) return;
+  delete t.dataset.imeComposing;
+  fmtNumLive(t);
+  // 確定後の値をモデルへ反映（ブラウザにより compositionend 後の input 発火が異なるため明示的に通知）
+  t.dispatchEvent(new Event('input',{bubbles:true}));
+});
+document.addEventListener('input',function(e){
+  const t=e.target; if(!isNumInput(t)) return;
+  if(e.isComposing || t.dataset.imeComposing==='1') return; // 変換中は整形しない
+  fmtNumLive(t);
+});
 window.addEventListener('load',()=>{
   restoreSidebar();
   loadSettings();
