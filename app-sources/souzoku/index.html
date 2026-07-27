@@ -383,12 +383,9 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .dtbl .evalsel input[type=radio]{width:auto;}
 .dtbl tfoot td{background:var(--surface-2);font-weight:700;}
 .dtbl .chk-cell{text-align:center;}
-/* 有価証券：税法上の1株単価＋株数/口数（評価額の元になる2項目）を青枠でくくって強調 */
-.dtbl .secgrp{background:#f2f8ff;}
-.dtbl .secgrp-h{background:#e3effd;}
-.dtbl th.secgrp,.dtbl td.secgrp{border-top:2px solid #0071e3;border-bottom:2px solid #0071e3;}
-.dtbl th.secgrp-l,.dtbl td.secgrp-l{border-left:2px solid #0071e3;}
-.dtbl th.secgrp-r,.dtbl td.secgrp-r{border-right:2px solid #0071e3;}
+/* 有価証券：税法上の1株単価＋株数/口数（評価額の元になる2項目）は
+   評価額欄と同じ薄い青の入力背景で見分けられるようにする */
+.dtbl td.secgrp input{background:#eef5fd;border-color:#cfe2f8;}
 /* 生前贈与加算の自動判定バッジ */
 .gjudge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;}
 .gjudge.add{background:#ffe9e6;color:#c0392b;}
@@ -3102,8 +3099,8 @@ function securitiesTableHtml(items){
       +'<td style="min-width:260px;"><input type="text" style="width:100%;min-width:250px;" value="'+esc(a.name||'')+'" placeholder="'+(fund?'ファンド名':'銘柄名')+'" oninput="updAsset(\''+a.id+'\',\'name\',this.value)"></td>'
       +m('p1',fund?'基準価額':'終値')+m('p2','月平均',fund)+m('p3','月平均',fund)+m('p4','月平均',fund)
       // 税法上の1株単価＝①〜④のうち最も低い価額（自動算出）。株数/口数とあわせて青枠でくくる
-      +'<td class="secgrp secgrp-l"><input type="text" readonly class="num computed" id="secunit-'+a.id+'" value="'+(fund?'':(unit?unit.toLocaleString('ja-JP'):'0'))+'"'+(fund?' disabled style="opacity:.35" placeholder="—"':' title="①〜④のうち最も低い価額（相続税評価に用いる1株単価）"')+'></td>'
-      +'<td class="secgrp secgrp-r"><input type="text" class="num" value="'+(num(a.quantity)?num(a.quantity).toLocaleString('ja-JP'):'')+'" placeholder="株/口" oninput="updAsset(\''+a.id+'\',\'quantity\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>'
+      +'<td class="secgrp"><input type="text" readonly class="num computed" id="secunit-'+a.id+'" value="'+(fund?'':(unit?unit.toLocaleString('ja-JP'):'0'))+'"'+(fund?' disabled style="opacity:.35" placeholder="—"':' title="①〜④のうち最も低い価額（相続税評価に用いる1株単価）"')+'></td>'
+      +'<td class="secgrp"><input type="text" class="num" value="'+(num(a.quantity)?num(a.quantity).toLocaleString('ja-JP'):'')+'" placeholder="株/口" oninput="updAsset(\''+a.id+'\',\'quantity\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>'
       +m('ritio',fund?'%':'—',!fund)
       +m('redeemFee',fund?'円':'—',!fund)
       +'<td><input type="text" readonly class="num computed" id="secval-'+a.id+'" value="'+(base?base.toLocaleString('ja-JP'):'0')+'"></td>'
@@ -3124,8 +3121,8 @@ function securitiesTableHtml(items){
   return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:2800px;"><thead><tr>'
     +'<th>自動</th><th>種類</th><th>銘柄コード/ISIN</th><th>協会コード<br>(投信)</th><th style="min-width:260px;">銘柄/ファンド名</th>'
     +'<th>①相続開始日終値<br>／基準価額(1万口)</th><th>②当月平均</th><th>③前月平均</th><th>④前々月平均</th>'
-    +'<th class="secgrp secgrp-l secgrp-h">税法上の<br>1株単価<br><span style="font-weight:400;font-size:10px;">（①〜④の最低額）</span></th>'
-    +'<th class="secgrp secgrp-r secgrp-h">株数/口数</th>'
+    +'<th>税法上の<br>1株単価<br><span style="font-weight:400;font-size:10px;">（①〜④の最低額）</span></th>'
+    +'<th>株数/口数</th>'
     +'<th>信託財産<br>留保率(%)</th><th>解約手数料</th><th>評価額<br>(株式/投信)</th>'
     +'<th>配当基準日</th><th>効力発生日<br>(株主総会決議日)</th><th>支払開始日<br>(実際の入金日)</th><th>1株配当</th><th>配当区分</th><th>配当評価額<br>(源泉控除後)</th>'
     +'<th>計算</th><th>評価額合計(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
@@ -3413,7 +3410,7 @@ function detailNote(cat){
   const notes={
     land:'相続税評価額 ＝（路線価方式：㎡単価×課税地積／倍率方式：固定資産税評価額×倍率）×持分×利用区分の評価減。「課税地目／課税地積」は「←登記」ボタンで登記の値を引用できます。自用借地区分により評価減を自動適用します：貸宅地＝×(1−借地権割合)、借地権＝×借地権割合、貸家建付地＝×(1−借地権割合×借家権割合×賃貸割合)。借家権割合は既定30%、賃貸割合は既定100%。側方・二方／都市計画／用途地域／正面幅員は評価明細用の記録欄です（路線価の側方加算等は加味前の単価をご入力ください）。小規模宅地等の特例は区分と適用面積で減額を自動計算します。「債務」欄は記録用で評価額からは控除しません（債務は「債務」区分で計上してください）。',
     building:'相続税評価額 ＝ 固定資産税評価額 × 持分（貸家は ×(1−借家権割合30%×賃貸割合)）。種類・構造・階層・登記/課税床面積は記録欄です。',
-    securities:'【上場株式・ETF・REIT】評価額 ＝ ①相続開始日終値、②当月・③前月・④前々月の終値の月平均額 のうち最も低い価額×株数。青枠の「税法上の1株単価」は①〜④のうち最も低い価額を自動表示したもので、この単価×株数が評価額になります（手入力はできません。①〜④を直せば自動で変わります）。「自動算出」で銘柄コードから株価4時点・配当・銘柄名をYahoo!ファイナンス（GAS経由）で取得します（月平均は円未満切捨。Yahoo!が不調なときはStooqから株価を自動補完）。設定のApps Scriptを高機能版にすると、実際の配当支払日も取得して未収配当金・配当期待権をより正確に判定します。配当は相続開始日(死亡日)と各日付の関係で次のとおり判定し、配当総額−源泉税(20.315%)を評価額合計に加算します：①死亡日が配当基準日以前＝なし(株価に織込み済み)、②基準日の翌日〜効力発生日(株主総会決議日)＝配当期待権、③効力発生日の翌日〜支払開始日＝未収配当金、④支払開始日より後＝なし(受領済みのため現金・預貯金に計上)。自動算出の日付は推定値です（基準日≒権利落ち日の翌日、効力発生日≒基準日の約3か月後、支払開始日≒効力発生日の約2週間後）。実際の基準日・株主総会決議日・支払開始日が分かる場合は手入力で修正してください。\n【投資信託（非上場）】種類で「投資信託」を選ぶと、評価額 ＝ 基準価額(1万口)×口数÷1万 − 信託財産留保額(基準価額×留保率) − 解約手数料。「自動算出」はISINコード＋協会コードから投資信託協会の基準価額を取得します。留保率・解約手数料は目論見書を参照し入力してください。',
+    securities:'【上場株式・ETF・REIT】評価額 ＝ ①相続開始日終値、②当月・③前月・④前々月の終値の月平均額 のうち最も低い価額×株数。「税法上の1株単価」は①〜④のうち最も低い価額を自動表示したもので、この単価×株数が評価額になります（手入力はできません。①〜④を直せば自動で変わります）。「自動算出」で銘柄コードから株価4時点・配当・銘柄名をYahoo!ファイナンス（GAS経由）で取得します（月平均は円未満切捨。Yahoo!が不調なときはStooqから株価を自動補完）。設定のApps Scriptを高機能版にすると、実際の配当支払日も取得して未収配当金・配当期待権をより正確に判定します。配当は相続開始日(死亡日)と各日付の関係で次のとおり判定し、配当総額−源泉税(20.315%)を評価額合計に加算します：①死亡日が配当基準日以前＝なし(株価に織込み済み)、②基準日の翌日〜効力発生日(株主総会決議日)＝配当期待権、③効力発生日の翌日〜支払開始日＝未収配当金、④支払開始日より後＝なし(受領済みのため現金・預貯金に計上)。自動算出の日付は推定値です（基準日≒権利落ち日の翌日、効力発生日≒基準日の約3か月後、支払開始日≒効力発生日の約2週間後）。実際の基準日・株主総会決議日・支払開始日が分かる場合は手入力で修正してください。\n【投資信託（非上場）】種類で「投資信託」を選ぶと、評価額 ＝ 基準価額(1万口)×口数÷1万 − 信託財産留保額(基準価額×留保率) − 解約手数料。「自動算出」はISINコード＋協会コードから投資信託協会の基準価額を取得します。留保率・解約手数料は目論見書を参照し入力してください。',
     unlisted:'非上場株式は類似業種比準・純資産価額方式等で1株単価を算定し、単価×株数で価額を計算します。',
     cash:'相続開始日時点の残高を入力します。名義は被相続人や相続人から選択できます（名義預金は実質の所有者をご確認のうえ判断）。種類（普通預金/定期預金/現金 等）は自由入力です。',
     insurance:'区分で分けて入力します。「死亡保険金（非課税枠の対象）」＝被相続人を被保険者とし相続人が受け取る保険金で、非課税限度（500万円×法定相続人数）の対象。「定期金に関する権利」＝年金保険の受給権や保険料負担者＝被相続人で被保険者が他人の保険契約に関する権利等で、非課税の対象外（全額が課税価格）。金額は解約返戻金相当額等を入力します。外貨建ての保険は、通貨・外貨建保険金額・TTB（死亡日の対顧客直物電信買相場）を入力すると、金額(円)＝外貨建保険金額×TTB が自動計算されます（自動計算中は金額(円)は手入力できません。円建てのときは外貨欄を空欄にしてください）。',
