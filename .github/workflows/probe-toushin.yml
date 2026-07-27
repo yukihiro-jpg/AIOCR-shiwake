@@ -1,0 +1,65 @@
+name: probe-toushin (一時診断)
+
+# 投資信託協会（投信総合検索ライブラリー）の実レスポンス構造を確認するための一時ワークフロー。
+# ファンド名の取得ロジックを実データに合わせるために使う。確認後は削除する。
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-toushin.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: CSV（基準価額）のレスポンスを確認
+        run: |
+          set +e
+          for pair in "JP90C00033G2 3231108C" "JP90C00021T2 02313043"; do
+            set -- $pair
+            ISIN=$1; ASSOC=$2
+            URL="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd=${ISIN}&associFundCd=${ASSOC}"
+            echo "==================== CSV ${ISIN} / ${ASSOC} ===================="
+            curl -sS -D /tmp/h.txt -o /tmp/body.bin -A "Mozilla/5.0" "$URL"
+            echo "--- ヘッダ ---"; cat /tmp/h.txt
+            echo "--- サイズ ---"; wc -c < /tmp/body.bin
+            echo "--- 文字コード判定 ---"; file -bi /tmp/body.bin || true
+            echo "--- 先頭400バイト(16進+ASCII) ---"; head -c 400 /tmp/body.bin | xxd | head -20
+            echo "--- UTF-8として先頭6行 ---"; head -c 2000 /tmp/body.bin | head -6
+            echo "--- Shift_JISからUTF-8へ変換して先頭6行 ---"
+            iconv -f CP932 -t UTF-8 /tmp/body.bin 2>/dev/null | head -6 || echo "(CP932変換に失敗)"
+            echo
+          done
+
+      - name: 基本情報ページのレスポンスを確認
+        run: |
+          set +e
+          ISIN=JP90C00033G2; ASSOC=3231108C
+          for PATHNAME in basicInformation setNewDisclosureInput; do
+            URL="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/${PATHNAME}?isinCd=${ISIN}&associFundCd=${ASSOC}"
+            echo "==================== PAGE ${PATHNAME} ===================="
+            curl -sS -D /tmp/ph.txt -o /tmp/page.bin -A "Mozilla/5.0" "$URL"
+            echo "--- ヘッダ ---"; cat /tmp/ph.txt
+            echo "--- サイズ ---"; wc -c < /tmp/page.bin
+            echo "--- title / og:title / h1 / h2 ---"
+            iconv -f CP932 -t UTF-8 /tmp/page.bin 2>/dev/null > /tmp/page.utf8 || cp /tmp/page.bin /tmp/page.utf8
+            grep -o -i "<title>[^<]*</title>" /tmp/page.utf8 | head -3
+            grep -o -i "og:title[^>]*" /tmp/page.utf8 | head -3
+            grep -o -i "<h1[^>]*>[^<]*</h1>" /tmp/page.utf8 | head -3
+            grep -o -i "<h2[^>]*>[^<]*</h2>" /tmp/page.utf8 | head -3
+            echo "--- 「ファンド名」周辺 ---"
+            grep -o "ファンド名[^<]*\(<[^>]*>\)\{0,4\}[^<]*" /tmp/page.utf8 | head -5
+            echo "--- 「フィデリティ」を含む箇所 ---"
+            grep -o ".\{0,60\}フィデリティ.\{0,80\}" /tmp/page.utf8 | head -5
+            echo
+          done
+
+      - name: 検索API/一覧から名称が取れるか確認
+        run: |
+          set +e
+          echo "==================== 検索ページ ===================="
+          URL="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST020000?isinCd=JP90C00033G2"
+          curl -sS -o /tmp/s.bin -A "Mozilla/5.0" "$URL"
+          iconv -f CP932 -t UTF-8 /tmp/s.bin 2>/dev/null > /tmp/s.utf8 || cp /tmp/s.bin /tmp/s.utf8
+          wc -c < /tmp/s.utf8
+          grep -o ".\{0,60\}フィデリティ.\{0,80\}" /tmp/s.utf8 | head -5
