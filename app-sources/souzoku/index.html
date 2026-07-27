@@ -3174,27 +3174,13 @@ function looksLikeFundName(s){
   if(!/[ぁ-んァ-ヶ一-龥Ａ-Ｚａ-ｚA-Za-z]/.test(t)) return '';
   return t;
 }
-// 基準価額CSVからファンド名を拾う（先頭数行にファンド名が入っている形式に対応）
-function fundNameFromCsv(lines){
-  for(let i=0;i<Math.min(lines.length,4);i++){
-    const cells=(lines[i]||'').split(',');
-    // 「ファンド名,○○ファンド」形式
-    for(let j=0;j<cells.length-1;j++){
-      if(/^(ファンド名|ファンド名称|銘柄名)$/.test((cells[j]||'').replace(/["\s]/g,''))){
-        const nm=looksLikeFundName((cells[j+1]||'').replace(/"/g,'')); if(nm) return nm;
-      }
-    }
-    // 単独セルにファンド名だけが入っている形式（日付行・見出し行は除外される）
-    const only=cells.filter(c=>(c||'').replace(/["\s]/g,'')!=='');
-    if(only.length===1){ const nm=looksLikeFundName(only[0].replace(/"/g,'')); if(nm) return nm; }
-  }
-  return '';
-}
+// ※ 基準価額CSVの中身は「年月日,基準価額(円),純資産総額（百万円）,分配金,決算期」＋日付行のみで
+//    ファンド名は含まれない（実データで確認済み）。ファンド名は fetchFundName で詳細ページから取得する。
 async function fetchFundNav(isin, assoc, deathDayEnd){
   const api='https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc);
   const txt=await gasFetchText(api, 3);
   const lines=txt.trim().split(/\r?\n/);
-  if(lines.length<2) throw new Error('基準価額データが取得できません（ISIN・協会コードをご確認ください）');
+  if(lines.length<2) throw new Error('この ISIN・協会コードの組み合わせでは基準価額が取得できません（投資信託協会に該当データがありません。コード違い、または償還済みの可能性があります）');
   let best=null;
   for(let i=1;i<lines.length;i++){ const c=lines[i].split(','); if(c.length<2) continue;
     const ds=(c[0]||'').replace(/[^0-9]/g,''); if(ds.length<8) continue;
@@ -3203,8 +3189,7 @@ async function fetchFundNav(isin, assoc, deathDayEnd){
     if(t<=deathDayEnd && (!best||t>best.t)){ best={t,nav}; }
   }
   if(!best) throw new Error('相続開始日以前の基準価額が見つかりません');
-  // 同じCSVにファンド名が入っていれば、ページのスクレイピングに頼らず確実に取得できる
-  return { nav: best.nav, name: fundNameFromCsv(lines) };
+  return best.nav;
 }
 // 取得した文字列から銘柄名/ファンド名らしい部分だけを抽出（エラーページ・汎用タイトルは除外）
 function cleanFetchedName(s){
@@ -3246,32 +3231,27 @@ async function fetchJpName(x){
   }catch(e){ return ''; }
 }
 // 投資信託のファンド名を投資信託協会（基準価額と同じソース）の基本情報ページから取得（GAS経由）
+// 全角英数字を半角に直す（ファンド名の「ＲＥＩＴ」→「REIT」等。かっこ等の記号は残す）
+function toHalfAlnum(s){
+  return String(s==null?'':s).replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
+// 投資信託のファンド名を投資信託協会（投信総合検索ライブラリー）のファンド詳細ページから取得（GAS経由）。
+// URLはサブパス無しの FDST030000 が正しい（旧 /basicInformation は 404「システムエラー」になる）。
+// 正式名称は <h3 class="… fds-text-word-break">（例：ラサール・グローバルＲＥＩＴファンド（毎月分配型））、
+// <title> には略称（…Ｆ（毎月分配型））が入るため、h3 を優先し title を予備にする。
 async function fetchFundName(isin, assoc){
   if(!settings.gasUrl) return '';
-  const pages=[
-    'https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/basicInformation?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc),
-    'https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/setNewDisclosureInput?isinCd='+encodeURIComponent(isin)+'&associFundCd='+encodeURIComponent(assoc),
-  ];
-  for(const page of pages){
-    try{
-      const html=await gasFetchText(page, 2);
-      // 「ファンド名」ラベル近傍・見出し・og:title・title の順で候補を探す
-      const cands=[];
-      let m;
-      // ラベル→値（テーブル/定義リストの両方の並びに対応）
-      const labelPats=[
-        /(?:ファンド名称|ファンド名|銘柄名)[^<]*<\/[^>]+>\s*<[^>]+>([^<>]{4,80})</,
-        /(?:ファンド名称|ファンド名|銘柄名)[\s\S]{0,120}?>([^<>]{4,80})</,
-      ];
-      for(const p of labelPats){ m=html.match(p); if(m) cands.push(m[1]); }
-      m=html.match(/<meta[^>]+(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']/i); if(m) cands.push(m[1]);
-      m=html.match(/<meta[^>]+(?:name)=["']description["'][^>]*content=["']([^"']+)["']/i); if(m) cands.push(m[1]);
-      const hs=html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i); if(hs) cands.push(hs[1]);
-      const h2=html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i); if(h2) cands.push(h2[1]);
-      m=html.match(/<title>([\s\S]*?)<\/title>/i); if(m) cands.push(m[1]);
-      for(const c of cands){ const nm=looksLikeFundName(c); if(nm) return nm; }
-    }catch(e){ /* 次のページを試す */ }
-  }
+  const page='https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd='+encodeURIComponent(isin)
+    +(assoc?'&associFundCd='+encodeURIComponent(assoc):'');
+  try{
+    const html=await gasFetchText(page, 2);
+    const cands=[];
+    // ① 正式名称（改行・タブを挟むため複数行対応で拾う）
+    let m=html.match(/<h3[^>]*fds-text-word-break[^>]*>([\s\S]{2,200}?)<\/h3>/i); if(m) cands.push(m[1]);
+    // ② 予備：ページタイトル（略称）
+    m=html.match(/<title>([\s\S]*?)<\/title>/i); if(m) cands.push(m[1]);
+    for(const c of cands){ const nm=looksLikeFundName(c); if(nm) return toHalfAlnum(nm); }
+  }catch(e){ /* 取得できなければ手入力してもらう */ }
   return '';
 }
 // 日次終値の配列 [{ts,close}] から評価4時点（相続開始日終値・当月/前月/前々月の平均）を計算
@@ -3338,11 +3318,9 @@ async function autoFetchStock(id){
   if(isFund(a)){
     if(!(a.assoc||'').trim()){ toast('協会コードを入力してください（投資信託協会の検索で確認できます）', true); return; }
     toast('基準価額を取得中…');
-    try{ const res=await fetchFundNav(code, a.assoc.trim(), deathDayEnd0); const nav=res.nav; a.p1=String(Math.round(nav));
-      // ファンド名：まず基準価額CSVに含まれていればそれを採用（確実）、無ければ基本情報ページから取得。
-      // 取得不可なら既存値を維持し手入力を促す
-      let jp=res.name||'';
-      if(!jp){ try{ jp=await fetchFundName(code, a.assoc.trim()); }catch(e){} }
+    try{ const nav=await fetchFundNav(code, a.assoc.trim(), deathDayEnd0); a.p1=String(Math.round(nav));
+      // ファンド名：投資信託協会のファンド詳細ページから取得。取得不可なら既存値を維持し手入力を促す
+      let jp=''; try{ jp=await fetchFundName(code, a.assoc.trim()); }catch(e){}
       if(jp) a.name=jp;
       renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
       toast('基準価額を取得：¥'+Math.round(nav).toLocaleString('ja-JP')+'（1万口）'+(jp?'／'+jp:'（ファンド名は自動取得できませんでした。手入力してください）')); }
