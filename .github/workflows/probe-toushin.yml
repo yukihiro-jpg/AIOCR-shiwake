@@ -10,41 +10,14 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: 正解URLのHTML構造（ファンド名の入れ物）を確認
+      - name: 正式名称が入っているHTMLの前後行を出力
         run: |
           set +e
-          U="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00021T2&associFundCd=02313043"
-          curl -sS -o /tmp/p.bin -A "Mozilla/5.0" "$U"
-          # 文字コード判定
-          echo "--- charset ---"; grep -o -i "charset=[a-zA-Z0-9_-]*" /tmp/p.bin | head -3
-          cp /tmp/p.bin /tmp/p.u8
-          echo "--- title ---"; grep -o -i "<title>[^<]*</title>" /tmp/p.u8 | head -2
-          echo "--- 正式名称の前後300バイト ---"
-          grep -o ".\{0,300\}ラサール・グローバルＲＥＩＴファンド.\{0,120\}" /tmp/p.u8 | head -2
-          echo "--- h1/h2/h3 ---"
-          grep -o -i "<h[123][^>]*>[^<]*</h[123]>" /tmp/p.u8 | head -8
-          echo "--- ファンド名ラベル周辺 ---"
-          grep -o "ファンド名.\{0,200\}" /tmp/p.u8 | head -4
-
-      - name: 取得できないISINをページ側でも確認
-        run: |
-          set +e
-          for U in \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00033G2&associFundCd=3231108C" \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00033G2" ; do
-            CODE=$(curl -sS -o /tmp/q.bin -w '%{http_code}' -A "Mozilla/5.0" "$U")
-            echo "[$CODE] size=$(wc -c < /tmp/q.bin)  $U"
-            grep -o -i "<title>[^<]*</title>" /tmp/q.bin | head -1
-            grep -o ".\{0,40\}フィデリティ.\{0,80\}" /tmp/q.bin | head -3
-          done
-
-      - name: 他のISINでもURLが有効か確認（ユーザーの登録分）
-        run: |
-          set +e
-          for pair in "JP90C000F7G7 03319177" "JP90C0001F25 0331105A" "JP90C000C6C1 02312158" "JP90C0001RH8 29311066"; do
-            set -- $pair
-            U="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=$1&associFundCd=$2"
-            CODE=$(curl -sS -o /tmp/r.bin -w '%{http_code}' -A "Mozilla/5.0" "$U")
-            T=$(grep -o -i "<title>[^<]*</title>" /tmp/r.bin | head -1)
-            echo "[$CODE] $1/$2  $T"
-          done
+          curl -sS -o /tmp/p.html -A "Mozilla/5.0" \
+            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00021T2&associFundCd=02313043"
+          echo "===== 正式名称の行番号 ====="
+          grep -n "ラサール・グローバルＲＥＩＴファンド" /tmp/p.html | head -3
+          echo "===== 前後8行 ====="
+          grep -n -B 8 -A 4 "ラサール・グローバルＲＥＩＴファンド" /tmp/p.html | head -40
+          echo "===== 略称(title)の行の前後 ====="
+          grep -n -B 3 -A 3 "<title>" /tmp/p.html | head -12
