@@ -1,7 +1,5 @@
 name: probe-toushin (一時診断)
 
-# 投資信託協会（投信総合検索ライブラリー）でファンド名が取得できるURLを特定するための一時ワークフロー。
-# 確認後は削除する。
 on:
   push:
     paths:
@@ -12,59 +10,41 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: ファンド名が載っているURLを総当たりで探す（既知の正常データで検証）
+      - name: 正解URLのHTML構造（ファンド名の入れ物）を確認
         run: |
           set +e
-          ISIN=JP90C00021T2; ASSOC=02313043; KEY=ラサール
-          CANDS="
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/detail?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/fundDetail?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/setDisclosureInput?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/standardPrice?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/view/FDST030000?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/fund-information?isinCd=${ISIN}&associFundCd=${ASSOC}
-          https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/fund-basic-information?isinCd=${ISIN}&associFundCd=${ASSOC}
-          "
-          for U in $CANDS; do
-            [ -z "$U" ] && continue
-            CODE=$(curl -sS -o /tmp/p.bin -w '%{http_code}' -A "Mozilla/5.0" "$U")
-            SIZE=$(wc -c < /tmp/p.bin)
-            iconv -f CP932 -t UTF-8 /tmp/p.bin 2>/dev/null > /tmp/p.u8 || cp /tmp/p.bin /tmp/p.u8
-            HIT=$(grep -c "$KEY" /tmp/p.u8)
-            T=$(grep -o -i "<title>[^<]*</title>" /tmp/p.u8 | head -1)
-            echo "[$CODE] size=$SIZE hit=$HIT  $T"
-            echo "    URL=$U"
-            if [ "$HIT" -gt 0 ]; then
-              echo "    ★ヒット箇所:"; grep -o ".\{0,50\}${KEY}.\{0,90\}" /tmp/p.u8 | head -3
-            fi
-          done
+          U="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00021T2&associFundCd=02313043"
+          curl -sS -o /tmp/p.bin -A "Mozilla/5.0" "$U"
+          # 文字コード判定
+          echo "--- charset ---"; grep -o -i "charset=[a-zA-Z0-9_-]*" /tmp/p.bin | head -3
+          cp /tmp/p.bin /tmp/p.u8
+          echo "--- title ---"; grep -o -i "<title>[^<]*</title>" /tmp/p.u8 | head -2
+          echo "--- 正式名称の前後300バイト ---"
+          grep -o ".\{0,300\}ラサール・グローバルＲＥＩＴファンド.\{0,120\}" /tmp/p.u8 | head -2
+          echo "--- h1/h2/h3 ---"
+          grep -o -i "<h[123][^>]*>[^<]*</h[123]>" /tmp/p.u8 | head -8
+          echo "--- ファンド名ラベル周辺 ---"
+          grep -o "ファンド名.\{0,200\}" /tmp/p.u8 | head -4
 
-      - name: 一覧・検索系のエンドポイントを確認
+      - name: 取得できないISINをページ側でも確認
         run: |
           set +e
-          ISIN=JP90C00021T2; KEY=ラサール
           for U in \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST020000/fundSearch?isinCd=${ISIN}" \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST020000/search?isinCd=${ISIN}" \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST020000/csv-file-download" \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST010000" ; do
+            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00033G2&associFundCd=3231108C" \
+            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=JP90C00033G2" ; do
             CODE=$(curl -sS -o /tmp/q.bin -w '%{http_code}' -A "Mozilla/5.0" "$U")
-            SIZE=$(wc -c < /tmp/q.bin)
-            iconv -f CP932 -t UTF-8 /tmp/q.bin 2>/dev/null > /tmp/q.u8 || cp /tmp/q.bin /tmp/q.u8
-            echo "[$CODE] size=$SIZE hit=$(grep -c "$KEY" /tmp/q.u8)  $U"
+            echo "[$CODE] size=$(wc -c < /tmp/q.bin)  $U"
+            grep -o -i "<title>[^<]*</title>" /tmp/q.bin | head -1
+            grep -o ".\{0,40\}フィデリティ.\{0,80\}" /tmp/q.bin | head -3
           done
 
-      - name: 問題のISIN/協会コードの組み合わせを検証
+      - name: 他のISINでもURLが有効か確認（ユーザーの登録分）
         run: |
           set +e
-          echo "--- ユーザー報告の JP90C00033G2 / 3231108C ---"
-          curl -sS -o /tmp/a.bin -w 'CSV http=%{http_code}\n' -A "Mozilla/5.0" \
-            "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd=JP90C00033G2&associFundCd=3231108C"
-          head -c 200 /tmp/a.bin; echo
-          echo "--- 協会コードの末尾英字を大文字/小文字で試す ---"
-          for A in 3231108C 3231108c 03231108 32311080; do
-            CODE=$(curl -sS -o /tmp/b.bin -w '%{http_code}' -A "Mozilla/5.0" \
-              "https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000/csv-file-download?isinCd=JP90C00033G2&associFundCd=${A}")
-            echo "assoc=${A} http=${CODE} size=$(wc -c < /tmp/b.bin) head=$(head -c 60 /tmp/b.bin | iconv -f CP932 -t UTF-8 2>/dev/null | tr -d '\n')"
+          for pair in "JP90C000F7G7 03319177" "JP90C0001F25 0331105A" "JP90C000C6C1 02312158" "JP90C0001RH8 29311066"; do
+            set -- $pair
+            U="https://toushin-lib.fwg.ne.jp/FdsWeb/FDST030000?isinCd=$1&associFundCd=$2"
+            CODE=$(curl -sS -o /tmp/r.bin -w '%{http_code}' -A "Mozilla/5.0" "$U")
+            T=$(grep -o -i "<title>[^<]*</title>" /tmp/r.bin | head -1)
+            echo "[$CODE] $1/$2  $T"
           done
