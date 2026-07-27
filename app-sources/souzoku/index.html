@@ -974,6 +974,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <button class="btn" onclick="downloadChecklistExcel()">必要資料 Excel</button>
           <button class="btn" onclick="downloadAgreement()">遺産分割協議書 PDF</button>
           <button class="btn" onclick="downloadAgreementWord()">遺産分割協議書 Word</button>
+          <button class="btn" onclick="downloadPostAgreementFlowPDF()">押印後の流れ ご案内資料 PDF</button>
           <button class="btn" onclick="downloadContract()">委任契約書</button>
         </div>
       </div>
@@ -6551,6 +6552,30 @@ function buildAgreementBody(){
     .sig-line-row .sv{flex:1;border-bottom:1px solid #000;padding:0 8px;min-height:1.4em;}
     .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
     .pgbreak{page-break-before:always;break-before:page;}
+    /* 契印（製本テープにまたがる押印）の見本図 */
+    .bk-wrap{display:flex;gap:14mm;align-items:flex-start;margin-top:8mm;}
+    .bk-book{position:relative;width:74mm;flex:none;}
+    .bk-tape{position:absolute;left:0;top:0;bottom:0;width:15mm;background:#e9ebef;border:1px solid #9aa2ad;border-right:1px dashed #6f7783;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-tape span{font-size:8pt;color:#5a626d;letter-spacing:1px;line-height:1.25;text-align:center;}
+    /* 表紙のタイトルは右寄せ（左側は氏名ラベルの領域なので重ならないようにする） */
+    .bk-cover{position:absolute;left:15mm;top:0;right:0;bottom:0;border:1px solid #9aa2ad;border-left:none;background:#fff;
+      display:flex;align-items:center;justify-content:flex-end;padding-right:7mm;}
+    .bk-title{font-size:11pt;letter-spacing:3px;color:#1F3A5F;font-weight:700;writing-mode:vertical-rl;}
+    /* 印影: テープと表紙の境目(左15mm)をまたぐように中心を置く */
+    .bk-seal{position:absolute;left:15mm;transform:translateX(-50%);width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.55);}
+    .bk-seal span{font-size:7pt;color:#c0392b;font-weight:700;letter-spacing:1px;}
+    .bk-name{position:absolute;left:24mm;font-size:8.5pt;color:#555;white-space:nowrap;}
+    .bk-legend{flex:1;padding-top:2mm;}
+    .bk-lg-row{display:flex;gap:9px;margin-bottom:9px;}
+    .bk-lg-mark{flex:none;width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;color:#c0392b;font-size:7pt;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-lg-num{flex:none;width:13mm;height:13mm;border-radius:50%;background:#eef1f5;color:#1F3A5F;font-size:9pt;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-legend b{font-size:10.5pt;color:#243042;}
+    .bk-legend p{font-size:9pt;color:#555;line-height:1.7;margin-top:2px;}
+    .bk-lg-note{font-size:8.5pt;color:#777;line-height:1.7;margin-top:10px;border-top:1px dashed #ccc;padding-top:7px;}
     /* 表紙（タイトルのみ） */
     .agr-cover{min-height:245mm;display:flex;flex-direction:column;page-break-after:always;position:relative;padding-top:8mm;}
     .agr-cover .cv-rule{border-top:3px double #1F3A5F;border-bottom:3px double #1F3A5F;padding:26px 0;margin:90mm 8mm 0;text-align:center;}
@@ -6572,6 +6597,37 @@ function buildAgreementBody(){
   const cover='<div class="agr-cover">'
     +'<div class="cv-rule"><div class="cv-title">遺 産 分 割 協 議 書</div></div>'
     +'</div>';
+  // ===== 契印（製本テープと本紙にまたがる押印）の見本ページ =====
+  // 本協議書はホチキス留めのうえ製本テープで綴じるため、相続人全員に
+  // 「テープと表紙にまたがる」実印の押印をお願いする。その位置を図で示す。
+  const sealSample=(()=>{
+    const n=heirs.length;
+    // 人数に応じて表紙の高さと押印位置を自動調整（印影が重ならないよう間隔15mm固定・全体を上下中央に配置）
+    const STEP=15, SEAL=13;
+    const bookH=Math.max(100, 26+n*STEP);
+    const startY=Math.max(8, (bookH-((n-1)*STEP+SEAL))/2);
+    const seals=heirs.map((h,i)=>{
+      const y=startY+i*STEP;
+      return '<div class="bk-seal" style="top:'+y+'mm;"><span>実印</span></div>'
+        +'<div class="bk-name" style="top:'+(y+2.5)+'mm;">'+esc(h.name)+'</div>';
+    }).join('');
+    return '<div class="ref-note">【製本後の押印（契印）の見本】本協議書は、当事務所でホチキス留めのうえ製本テープで綴じてお渡しします。'
+      +'製本テープと用紙の<b>境目にまたがるように</b>、相続人全員がそれぞれ<b>実印</b>を押してください（署名欄に押した印鑑と同じもの）。'
+      +'この押印により、本協議書のページの差し替えがないことを証明します。</div>'
+      +'<div class="bk-wrap">'
+      +'<div class="bk-book" style="height:'+bookH+'mm;">'
+      +'<div class="bk-tape"><span>製<br>本<br>テ<br>ー<br>プ</span></div>'
+      +'<div class="bk-cover"><div class="bk-title">遺 産 分 割 協 議 書</div></div>'
+      +seals
+      +'</div>'
+      +'<div class="bk-legend">'
+      +'<div class="bk-lg-row"><span class="bk-lg-mark">実印</span><div><b>押す位置</b><p>製本テープの上と表紙の上に、印影が半分ずつかかるように押します。テープの中だけ・紙の中だけにならないようご注意ください。</p></div></div>'
+      +'<div class="bk-lg-row"><span class="bk-lg-num">'+heirs.length+'</span><div><b>押す人数</b><p>相続人の皆さま全員が、上下に並べて1か所ずつ押してください（重ならないように少しずつずらします）。</p></div></div>'
+      +'<div class="bk-lg-row"><span class="bk-lg-num">印</span><div><b>使う印鑑</b><p>署名欄に押したものと<b>同じ実印</b>を使用してください。朱肉を使い、はっきりと押してください。</p></div></div>'
+      +'<div class="bk-lg-note">※ 押し損じても、二重線などで消さずにそのまま残し、少しずらしてもう一度押してください。</div>'
+      +'</div></div>';
+  })();
+
   const inner=cover
     +'<h1>遺 産 分 割 協 議 書</h1>'
     +'<p class="intro">被相続人 '+esc(d.name)+' の死亡により開始した相続について、共同相続人全員は、その相続財産の分割につき次のとおり協議し、これを確定した。</p>'
@@ -6581,7 +6637,9 @@ function buildAgreementBody(){
     +'<div class="pgbreak"></div>'
     +lastPage(false,'')
     +'<div class="pgbreak"></div>'
-    +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。');
+    +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。')
+    +'<div class="pgbreak"></div>'
+    +sealSample;
   // 全ページの上下余白を thead/tfoot スペーサーで確保するため、本文をフレーム表で包む
   const body='<table class="print-frame"><thead><tr><td class="pf-sp"></td></tr></thead>'
     +'<tbody><tr><td>'+inner+'</td></tr></tbody>'
@@ -6794,6 +6852,180 @@ function downloadSoudanGuide(){
     +'<div class="cc-r">TEL｜'+ofcTel+'<br>MAIL｜'+ofcMail+'<br>受付｜平日 9:00 – 18:00</div></div>'
     +'</section>';
   openPrintWindow('相続の流れご案内_'+(d.name||'案件'), body, styles);
+}
+
+// ============================================================
+//  Document: 押印後の流れ ご案内資料（協議書の押印 → 申告・納付 → 完了）
+// ============================================================
+function downloadPostAgreementFlowPDF(){
+  if(!currentCase){ toast('案件がありません', true); return; }
+  syncUIToCase(); applyOfficeSettings();
+  const d=currentCase.deceased||{};
+  const rep=(currentCase.heirs||[]).find(h=>h.isRepresentative);
+  const addr=(rep&&rep.name&&rep.name.trim())?esc(rep.name.trim())+' 様':'相続人の皆さま';
+  const ofcName=esc(OFFICE.name||'日下部税理士事務所');
+  const ofcTel=esc(OFFICE.tel||'');
+  const ofcMail=esc(OFFICE.mail||'');
+  // 申告期限（死亡日＋10か月）
+  let limit='';
+  if(d.deathDate){ const f=new Date(d.deathDate); f.setMonth(f.getMonth()+10); if(!isNaN(f)) limit=toWarekiDate(f.toISOString().slice(0,10)); }
+  const foot='<div class="pgfoot"><span>押印後の流れ ご案内</span><span>'+ofcName+'</span></div>';
+  const styles=`
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Noto Sans JP',"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;color:#2a2f37;font-size:11.5px;line-height:1.75;background:#eef1f5;}
+    @page{size:A4;margin:0;}
+    .gp{width:210mm;min-height:297mm;padding:18mm 16mm;page-break-after:always;position:relative;overflow:hidden;background:#fff;margin:0 auto;}
+    .gp:last-child{page-break-after:auto;}
+    .gold-rule{width:54px;height:3px;background:#c7a24b;}
+    .cover{background:#14273f;color:#fff;display:flex;flex-direction:column;}
+    .cov-top{display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:2px;color:#aeb7c4;}
+    .cov-main{flex:1;display:flex;flex-direction:column;justify-content:center;}
+    .cov-addr{align-self:flex-start;font-size:22px;font-weight:500;letter-spacing:3px;color:#fff;border-bottom:1px solid rgba(199,162,75,.55);padding:0 6px 10px;margin-bottom:30px;}
+    .cover .eyebrow{letter-spacing:6px;font-size:11.5px;color:#c7a24b;margin:14px 0;}
+    .cov-title{font-size:38px;font-weight:800;line-height:1.35;letter-spacing:3px;margin-bottom:22px;}
+    .cov-intro{max-width:140mm;color:#d3d8e0;font-size:12.5px;line-height:2.05;}
+    .cov-foot{display:flex;justify-content:space-between;align-items:flex-end;font-size:10.5px;color:#aeb7c4;}
+    .cov-foot b{color:#fff;font-weight:500;}
+    .sec-h{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #1F3A5F;padding-bottom:9px;margin-bottom:4px;}
+    .sec-h .n{color:#c7a24b;font-size:24px;font-weight:800;}
+    .sec-h h2{font-size:22px;font-weight:800;color:#1F3A5F;letter-spacing:1px;}
+    .lead{color:#4b5563;font-size:12px;margin:12px 0 18px;line-height:1.95;}
+    .step{display:flex;gap:16px;border:1px solid #e5e7ec;border-left:4px solid #c7a24b;border-radius:8px;padding:13px 18px;margin-bottom:11px;page-break-inside:avoid;}
+    .step-n{font-size:26px;font-weight:800;color:#1F3A5F;line-height:1;min-width:36px;text-align:center;}
+    .step-n small{display:block;font-size:8.5px;letter-spacing:2px;color:#9aa3ad;font-weight:600;margin-top:4px;}
+    .st-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .st-h b{font-size:14.5px;color:#243042;}
+    .st-tag{background:#f3eddc;color:#9a7320;font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;}
+    .st-tag.you{background:#e3edf8;color:#1F3A5F;}
+    .step-b p{color:#5b6675;font-size:11.5px;margin-top:5px;line-height:1.85;}
+    .navybox{background:#14273f;color:#fff;border-radius:10px;padding:16px 20px;margin:4px 0 16px;}
+    .navybox .cap{color:#c7a24b;font-size:10.5px;letter-spacing:2px;margin-bottom:6px;}
+    .navybox .eq{font-size:19px;font-weight:800;letter-spacing:1px;}
+    .navybox .ex{color:#cdd3dc;font-size:11px;margin-top:9px;line-height:1.85;}
+    .navybox .ex b{color:#fff;}
+    .payrow{display:flex;gap:10px;margin:12px 0 4px;}
+    .paycard{flex:1;border:1px solid #e5e7ec;border-radius:8px;padding:12px 10px;text-align:center;}
+    .paycard.ok{border-color:#2f8f5b;background:#f2fbf6;}
+    .paycard.ng{border-color:#c0392b;background:#fdf3f2;}
+    .paycard .ic{font-size:22px;line-height:1;margin-bottom:6px;}
+    .paycard b{display:block;font-size:12.5px;color:#243042;}
+    .paycard span{display:block;font-size:10.5px;color:#5b6675;margin-top:4px;line-height:1.6;}
+    .paycard.ok b{color:#237049;} .paycard.ng b{color:#a5281b;}
+    .warn{border:1.5px solid #c0392b;background:#fdf3f2;border-radius:8px;padding:12px 16px;margin-top:12px;}
+    .warn b{color:#a5281b;font-size:13px;}
+    .warn p{color:#7c4038;font-size:11.5px;margin-top:4px;line-height:1.85;}
+    .doclist{border:1px solid #e5e7ec;border-radius:8px;overflow:hidden;margin-top:10px;}
+    .doclist .dl-row{display:flex;gap:12px;padding:11px 16px;border-top:1px solid #eef0f4;}
+    .doclist .dl-row:first-child{border-top:none;}
+    .doclist .dl-n{width:20px;height:20px;border-radius:50%;background:#f3eddc;color:#9a7320;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+    .doclist b{font-size:12.5px;color:#243042;}
+    .doclist p{color:#5b6675;font-size:11px;margin-top:3px;line-height:1.75;}
+    .tipbox{border:1px solid #c7a24b;background:#fdfaf2;border-radius:8px;padding:13px 17px;margin-top:14px;}
+    .tipbox b{color:#8a6a1f;font-size:12.5px;}
+    .tipbox p{color:#5b6675;font-size:11.5px;margin-top:5px;line-height:1.85;}
+    .dark{background:#14273f;color:#fff;display:flex;flex-direction:column;}
+    .dark h2{font-size:25px;font-weight:800;letter-spacing:2px;margin:14px 0 20px;}
+    .three .row{display:flex;gap:18px;padding:14px 0;border-top:1px solid rgba(255,255,255,.13);}
+    .three .row:first-child{border-top:none;}
+    .three .num{font-size:25px;font-weight:800;color:#c7a24b;line-height:1;min-width:26px;}
+    .three .tt b{font-size:15px;color:#fff;} .three .tt p{color:#c3cad4;font-size:11.5px;margin-top:6px;line-height:1.95;}
+    .contact{margin-top:auto;border:1px solid rgba(199,162,75,.5);border-radius:10px;padding:18px 22px;display:flex;justify-content:space-between;align-items:flex-end;}
+    .contact .cc-cap{color:#c7a24b;font-size:10.5px;letter-spacing:2px;margin-bottom:10px;}
+    .contact .cc-office{font-size:22px;font-weight:700;color:#fff;letter-spacing:2px;}
+    .contact .cc-r{font-size:11px;color:#d3d8e0;text-align:right;line-height:2;}
+    .pgfoot{position:absolute;left:16mm;right:16mm;bottom:11mm;display:flex;justify-content:space-between;font-size:9.5px;color:#9aa3ad;border-top:1px solid #eceef2;padding-top:6px;}
+  `;
+  const body=
+    // 表紙
+    '<section class="gp cover">'
+    +'<div class="cov-top"><span>'+ofcName+'</span><span>相続税申告サポート資料</span></div>'
+    +'<div class="cov-main">'
+    +'<div class="cov-addr">'+addr+'</div>'
+    +'<div class="gold-rule"></div>'
+    +'<div class="eyebrow">遺産分割協議書へのご押印が済んだ皆さまへ</div>'
+    +'<div class="cov-title">ご押印のあとの<br>流れについて</div>'
+    +'<div class="cov-intro">遺産分割協議書へのご署名・ご押印、誠にありがとうございました。ここからは、申告書の提出・相続税の納付・書類のお引き渡しへと進みます。あわせて、銀行のお手続きや相続登記に進んでいただける時期と必要書類もご案内いたします。</div>'
+    +'</div>'
+    +'<div class="cov-foot"><div><b>'+ofcName+'</b>'+(ofcTel?'<br>ご連絡先｜'+ofcTel:'')+'</div><div>'+(limit?'申告・納付期限｜'+limit:'申告・納付期限｜相続開始から10か月')+'</div></div>'
+    +'</section>'
+    // 01 これからの流れ
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">01</span><h2>これからの流れ</h2></div>'
+    +'<div class="lead">ご押印いただいた協議書のご提出から、申告書のお引き渡しまでの流れです。<b class="you">皆さまにお願いすること</b>と、<b>当事務所で行うこと</b>を分けて記載しています。</div>'
+    +'<div class="step"><div class="step-n">1<small>STEP</small></div><div class="step-b">'
+    +'<div class="st-h"><b>協議書に自署・ご押印のうえ、当事務所へご提出</b><span class="st-tag you">皆さまにお願いすること</span></div>'
+    +'<p>遺産分割協議書に、相続人の皆さまがご自身で住所・氏名を自書し、実印を押してください。製本テープと本紙にまたがる押印（契印）もお願いいたします。押印済みの原本を当事務所へお持ちください。</p>'
+    +'</div></div>'
+    +'<div class="step"><div class="step-n">2<small>STEP</small></div><div class="step-b">'
+    +'<div class="st-h"><b>当事務所で協議書のコピーを取り、原本はお返しします</b><span class="st-tag">当事務所で行うこと</span></div>'
+    +'<p>申告書に添付するための写しを当事務所で取らせていただきます。原本は、銀行のお手続きや相続登記でお使いいただけるようお返しいたします。</p>'
+    +'</div></div>'
+    +'<div class="step"><div class="step-n">3<small>STEP</small></div><div class="step-b">'
+    +'<div class="st-h"><b>相続税の申告書を作成し、税務署へ提出</b><span class="st-tag">当事務所で行うこと</span></div>'
+    +'<p>お預かりした資料と協議書の内容にもとづき、申告書を作成のうえ提出いたします。'+(limit?'提出期限は <b>'+limit+'</b> です。':'')+'</p>'
+    +'</div></div>'
+    +'<div class="step"><div class="step-n">4<small>STEP</small></div><div class="step-b">'
+    +'<div class="st-h"><b>納付書をお渡ししますので、期限までにご納付ください</b><span class="st-tag you">皆さまにお願いすること</span></div>'
+    +'<p>後日、相続人ごとの納付書をお渡しいたします。銀行・郵便局・税務署のいずれかの窓口でご納付ください。<b>コンビニエンスストアではお支払いいただけません。</b>詳しくは次のページをご覧ください。</p>'
+    +'</div></div>'
+    +'<div class="step"><div class="step-n">5<small>STEP</small></div><div class="step-b">'
+    +'<div class="st-h"><b>申告書を製本してお渡し・ご請求</b><span class="st-tag">当事務所で行うこと</span></div>'
+    +'<p>申告書の提出後、控え一式を製本してお渡しいたします。あわせて報酬のご請求書をお渡しいたします。製本した控えは、今後の手続きや将来の相続の際に必要となりますので、大切に保管してください。</p>'
+    +'</div></div>'
+    +foot+'</section>'
+    // 02 納付について
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">02</span><h2>相続税のご納付について</h2></div>'
+    +'<div class="lead">相続税は、<b>相続人お一人おひとりが、ご自身の税額を納付</b>します。当事務所からお渡しする納付書を窓口へお持ちください。</div>'
+    +'<div class="navybox"><div class="cap">NOUFU / 納付の期限</div>'
+    +'<div class="eq">'+(limit?limit+' まで':'相続の開始を知った日の翌日から10か月以内')+'</div>'
+    +'<div class="ex">申告書の提出期限と<b>同じ日</b>が納付の期限です。期限を過ぎますと延滞税がかかりますので、納付書をお受け取りになりましたらお早めにお手続きください。</div></div>'
+    +'<div class="subh" style="font-size:13px;font-weight:700;color:#1F3A5F;margin:16px 0 4px;">納付できる場所</div>'
+    +'<div class="payrow">'
+    +'<div class="paycard ok"><div class="ic">🏦</div><b>銀行</b><span>信用金庫・信用組合<br>農協なども可</span></div>'
+    +'<div class="paycard ok"><div class="ic">📮</div><b>郵便局</b><span>ゆうちょ銀行<br>窓口でお手続き</span></div>'
+    +'<div class="paycard ok"><div class="ic">🏛</div><b>税務署</b><span>管轄の税務署<br>窓口でお手続き</span></div>'
+    +'<div class="paycard ng"><div class="ic">🚫</div><b>コンビニ</b><span>ご利用いただけません</span></div>'
+    +'</div>'
+    +'<div class="warn"><b>コンビニエンスストアでは納付できません</b>'
+    +'<p>相続税の納付書は、コンビニエンスストアでのお支払いに対応していません。必ず銀行・郵便局・税務署のいずれかの窓口へお持ちください。窓口の受付時間は平日の日中のみとなりますので、お時間に余裕をもってお出かけください。</p></div>'
+    +'<div class="tipbox"><b>ご納付の際のお願い</b>'
+    +'<p>・納付書は相続人ごとにお渡しします。ご自身のお名前の納付書をお使いください。<br>'
+    +'・窓口では、納付書と納付額（現金）をお出しください。<br>'
+    +'・納付後に受け取る<b>領収証書は、必ず保管</b>してください。<br>'
+    +'・金額や記載内容にご不明な点がありましたら、窓口へ行かれる前に当事務所へご連絡ください。</p></div>'
+    +foot+'</section>'
+    // 03 押印後に進められる手続き
+    +'<section class="gp">'
+    +'<div class="sec-h"><span class="n">03</span><h2>ご押印が済んだら進められる手続き</h2></div>'
+    +'<div class="lead">遺産分割協議書へのご押印が済みましたら、<b>申告書の提出をお待ちいただく必要はありません。</b>銀行の相続手続き（預貯金の解約・名義変更）や、不動産の相続登記へお進みいただけます。</div>'
+    +'<div class="subh" style="font-size:13px;font-weight:700;color:#1F3A5F;margin:16px 0 4px;">手続きに必要となる主な書類</div>'
+    +'<div class="doclist">'
+    +'<div class="dl-row"><div class="dl-n">1</div><div><b>遺産分割協議書（ご押印済みの原本）</b>'
+    +'<p>当事務所でコピーを取らせていただいたうえで、お返しした原本をお使いください。金融機関によっては原本を確認後に返却されますので、その後の手続きにも続けてお使いいただけます。</p></div></div>'
+    +'<div class="dl-row"><div class="dl-n">2</div><div><b>相続人全員の印鑑登録証明書（お取りになってから3か月以内のもの）</b>'
+    +'<p>金融機関では、取得から3か月以内のものを求められることが一般的です。手続きの直前にお取りいただくと安心です。協議書に押した実印の証明となりますので、相続人全員分が必要です。</p></div></div>'
+    +'<div class="dl-row"><div class="dl-n">3</div><div><b>戸籍関係の資料</b>'
+    +'<p>被相続人の出生から死亡までの戸籍謄本、相続人の皆さまの戸籍謄本などです。相続人が誰であるかを証明するために必要となります。</p></div></div>'
+    +'</div>'
+    +'<div class="tipbox"><b>戸籍関係の資料は「法定相続情報一覧図の写し」で代用できます</b>'
+    +'<p>法務局で交付される「法定相続情報一覧図の写し」があれば、<b>戸籍謄本の束をそろえる代わりに、この1枚で足ります。</b>銀行・法務局・税務署のいずれの手続きでも使え、必要な通数を無料で交付してもらえますので、複数の金融機関でお手続きされる場合は特に便利です。取得をご希望の場合は、当事務所へお申し付けください。</p></div>'
+    +'<div class="tipbox" style="border-color:#dfe3ea;background:#f7f9fc;"><b style="color:#1F3A5F;">お手続きの順番について</b>'
+    +'<p>銀行のお手続きや相続登記は、相続税の申告・納付とは別の手続きです。どちらを先に行っても差し支えありませんが、<b>納付の資金を預貯金の解約でご用意される場合は、期限に間に合うよう早めに銀行のお手続きを進めてください。</b></p></div>'
+    +foot+'</section>'
+    // まとめ
+    +'<section class="gp dark">'
+    +'<div class="gold-rule"></div>'
+    +'<h2>この先の3つのポイント</h2>'
+    +'<div class="three">'
+    +'<div class="row"><div class="num">1</div><div class="tt"><b>ご押印済みの協議書を当事務所へ</b><p>コピーを取らせていただき、原本はお返しします。原本は銀行手続き・相続登記でお使いいただけます。</p></div></div>'
+    +'<div class="row"><div class="num">2</div><div class="tt"><b>納付は銀行・郵便局・税務署の窓口で</b><p>コンビニエンスストアでは納付できません。納付書をお渡ししましたら、期限までに窓口でお手続きください。領収証書は大切に保管してください。</p></div></div>'
+    +'<div class="row"><div class="num">3</div><div class="tt"><b>銀行・登記の手続きは今から進められます</b><p>協議書の原本・3か月以内の印鑑登録証明書・戸籍関係資料（法定相続情報一覧図の写しで代用可）をご用意ください。</p></div></div>'
+    +'</div>'
+    +'<div class="contact"><div><div class="cc-cap">ご不明な点は、どうぞご連絡ください</div><div class="cc-office">'+ofcName+'</div></div>'
+    +'<div class="cc-r">'+(ofcTel?'TEL｜'+ofcTel+'<br>':'')+(ofcMail?'MAIL｜'+ofcMail+'<br>':'')+'受付｜平日 9:00 – 18:00</div></div>'
+    +'</section>';
+  openPrintWindow('押印後の流れご案内_'+(d.name||'案件'), body, styles);
 }
 
 // ============================================================
