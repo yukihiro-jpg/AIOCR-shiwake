@@ -173,7 +173,7 @@ export default function KeieiContent() {
   const renderView = (v: View) => {
     if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
     if (!fy) return null
-    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} monthIdx={monthIdx} reloadKey={ledgerReload} />
+    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} priorFy={prior} monthIdx={monthIdx} reloadKey={ledgerReload} />
     switch (v) {
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />

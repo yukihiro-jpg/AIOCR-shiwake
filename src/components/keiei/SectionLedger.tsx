@@ -28,18 +28,70 @@ function Section({ title, note, children }: { title: string; note?: string; chil
 
 const fmtDateShort = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`
 
+/** 取引明細テーブル（当期・前期で同じ形で使う） */
+function TxTable({ caption, txs, isRevenue, total, accent }: {
+  caption?: string
+  txs: { date: string; counterName: string; memo: string; debit: number; credit: number }[]
+  isRevenue: boolean
+  total: number | null
+  accent: 'blue' | 'amber'
+}) {
+  const bar = accent === 'blue' ? 'bg-[#1a73e8]' : 'bg-[#e6b800]'
+  return (
+    <div>
+      {caption && (
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className={`inline-block w-2 h-2 rounded-full ${bar}`} />
+          <span className="text-xs font-bold text-gray-700">{caption}</span>
+          {total != null && <span className="text-xs text-gray-500 tabular-nums ml-auto">合計 {fmtYen(total)}</span>}
+        </div>
+      )}
+      <div className="overflow-x-auto max-h-96 overflow-y-auto border border-gray-100 rounded-lg">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-gray-50">
+            <tr className="text-gray-500">
+              <th className="text-left px-2 py-1.5 font-medium w-14">日付</th>
+              <th className="text-left px-2 py-1.5 font-medium">相手科目</th>
+              <th className="text-left px-2 py-1.5 font-medium">摘要</th>
+              <th className="text-right px-2 py-1.5 font-medium w-24">{isRevenue ? '売上(貸方)' : '金額(借方)'}</th>
+              <th className="text-right px-2 py-1.5 font-medium w-24">{isRevenue ? '(借方)' : '(貸方)'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {txs.length === 0 ? (
+              <tr><td colSpan={5} className="text-center text-gray-400 py-6">この月の取引はありません</td></tr>
+            ) : txs.map((t, i) => (
+              <tr key={i} className="border-t border-gray-50">
+                <td className="px-2 py-1 whitespace-nowrap text-gray-600">{fmtDateShort(t.date)}</td>
+                <td className="px-2 py-1 whitespace-nowrap text-gray-500">{t.counterName}</td>
+                <td className="px-2 py-1 text-gray-800">{t.memo || <span className="text-gray-300">—</span>}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{(isRevenue ? t.credit : t.debit) ? fmtYen(isRevenue ? t.credit : t.debit) : ''}</td>
+                <td className="px-2 py-1 text-right tabular-nums text-gray-400">{(isRevenue ? t.debit : t.credit) ? fmtYen(isRevenue ? t.debit : t.credit) : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function SectionLedger({
   clientId,
   fy,
+  priorFy = null,
   monthIdx,
   reloadKey = 0,
 }: {
   clientId: string
   fy: FiscalYearData
+  priorFy?: FiscalYearData | null // 前期（前年同期）。元帳が取り込まれていれば比較表示に使う
   monthIdx: number
   reloadKey?: number // ヘッダーからの取込後に再読込させるためのカウンタ
 }) {
   const [ledger, setLedger] = useState<LedgerData | null>(null)
+  const [priorLedger, setPriorLedger] = useState<LedgerData | null>(null)
+  const [compare, setCompare] = useState(true) // 前期と並べて比較する
   const [loaded, setLoaded] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
@@ -58,6 +110,17 @@ export default function SectionLedger({
       .finally(() => { if (alive) setLoaded(true) })
     return () => { alive = false }
   }, [clientId, fy.id, reloadKey])
+
+  // 前期の元帳（取り込まれていれば比較に使う。未取込なら比較部分は出さない）
+  useEffect(() => {
+    let alive = true
+    setPriorLedger(null)
+    if (!priorFy) return
+    loadLedger(clientId, priorFy.id)
+      .then((d) => { if (alive) setPriorLedger(d) })
+      .catch(() => { /* IndexedDB不可の環境では未取込扱い */ })
+    return () => { alive = false }
+  }, [clientId, priorFy, reloadKey])
 
   const handleFile = useCallback(async (files: FileList) => {
     const list = Array.from(files)
@@ -118,6 +181,51 @@ export default function SectionLedger({
   const ddTrial = ddTrialRow ? ddTrialRow.monthly[ddMonthIdx] || 0 : null
   const ddMonthly = useMemo(() => (ddAccount ? ledgerMonthlyAmounts(ddAccount, fy, ddIsRevenue) : []), [ddAccount, fy, ddIsRevenue])
 
+  // ---- 前期比較（前期の元帳が取り込まれているときのみ） ----
+  const hasCompare = !!(priorFy && priorLedger && compare)
+  // 同じ科目の前期データ
+  const ddPriorAccount = useMemo(
+    () => (priorLedger && ddAccount ? priorLedger.accounts.find((a) => a.code === ddAccount.code) || null : null),
+    [priorLedger, ddAccount],
+  )
+  // 前期同月（期首からの経過月で対応させる。決算月がずれていても同じ並び順で比較できる）
+  const ddPriorMonth = priorFy ? priorFy.fiscalMonths[ddMonthIdx] : null
+  const ddPriorTxs = useMemo(() => {
+    if (!ddPriorAccount || ddPriorMonth == null) return []
+    return ddPriorAccount.txs.filter((t) => t.month === ddPriorMonth).sort((a, b) => a.date.localeCompare(b.date))
+  }, [ddPriorAccount, ddPriorMonth])
+  const ddPriorTotal = ddPriorTxs.reduce((s, t) => s + (ddIsRevenue ? t.credit - t.debit : t.debit - t.credit), 0)
+  const ddPriorMonthly = useMemo(
+    () => (ddPriorAccount && priorFy ? ledgerMonthlyAmounts(ddPriorAccount, priorFy, ddIsRevenue) : []),
+    [ddPriorAccount, priorFy, ddIsRevenue],
+  )
+  const ddDiff = ddTotal - ddPriorTotal
+  const ddRatio = ddPriorTotal ? (ddDiff / Math.abs(ddPriorTotal)) * 100 : null
+
+  // 科目別 当期／前期の年間比較（増減の大きい順）。どの科目が動いたかを一覧で掴む
+  const acctCompare = useMemo(() => {
+    if (!priorLedger || !priorFy) return []
+    const sum = (a: { txs: { debit: number; credit: number }[] } | undefined, rev: boolean) =>
+      a ? a.txs.reduce((s, t) => s + (rev ? t.credit - t.debit : t.debit - t.credit), 0) : 0
+    const codes = new Set<string>()
+    ledger?.accounts.forEach((a) => { if (isPlAccount(a.code)) codes.add(a.code) })
+    priorLedger.accounts.forEach((a) => { if (isPlAccount(a.code)) codes.add(a.code) })
+    const rows = Array.from(codes).map((code) => {
+      const cur = ledger?.accounts.find((a) => a.code === code)
+      const pre = priorLedger.accounts.find((a) => a.code === code)
+      const rev = isRevenueAccount(code)
+      const c = sum(cur, rev), p = sum(pre, rev)
+      return {
+        code,
+        name: cur?.name || pre?.name || '',
+        cur: c, pre: p, diff: c - p,
+        ratio: p ? ((c - p) / Math.abs(p)) * 100 : null,
+        curCount: cur?.txs.length || 0, preCount: pre?.txs.length || 0,
+      }
+    })
+    return rows.filter((r) => r.cur !== 0 || r.pre !== 0).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+  }, [ledger, priorLedger, priorFy])
+
   if (!loaded) return <div className="text-sm text-gray-400 py-8 text-center">読み込み中…</div>
 
   return (
@@ -140,7 +248,22 @@ export default function SectionLedger({
         </div>
         <div className="text-[11px] text-gray-400 leading-relaxed">
           会計大将の総勘定元帳CSV（<b>取引ごと税抜タイプ推奨</b>）。データ量が大きいため<b>この端末にのみ保存</b>され、他のPCと同期しません（各PCで取込してください）。
+          {priorFy && <>期ごとに保存されるので、<b>対象期を{priorFy.label}に切り替えてその期の元帳CSVを取り込む</b>と、前期と並べて比較できます。</>}
         </div>
+        {/* 前期比較のオン/オフ（前期の元帳が取り込まれているときだけ表示） */}
+        {ledger && priorFy && (
+          priorLedger ? (
+            <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+              <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="accent-[#1a73e8]" />
+              <b>前期（{priorFy.label}）と並べて比較する</b>
+              <span className="text-gray-400">取込済み: {priorLedger.txCount.toLocaleString()}件</span>
+            </label>
+          ) : (
+            <div className="mt-2 text-[11px] text-gray-400">
+              前期（{priorFy.label}）の元帳は未取込です。上の「対象期」を{priorFy.label}に切り替えて取り込むと、ここで前期と比較できるようになります。
+            </div>
+          )
+        )}
         {ledger && taxMode === 'inclusive' && (
           <div className="mt-2 px-3 py-2 bg-amber-50 text-amber-800 text-xs rounded-lg">
             ⚠ この元帳は<b>税込タイプ</b>（月末一括税抜）とみられます。明細の金額は税込のため、試算表（税抜）と消費税分の差が出ます。可能であれば「取引ごと税抜」タイプでの出力をおすすめします。
@@ -173,6 +296,15 @@ export default function SectionLedger({
                       ? <span className="text-green-600 ml-1">✓ 試算表と一致</span>
                       : <span className="text-amber-600 ml-1">（試算表 {fmtYen(ddTrial)}・差 {fmtShort(ddTotal - ddTrial)}{taxMode === 'inclusive' ? '＝消費税分とみられます' : ''}）</span>
                   )}
+                  {hasCompare && (
+                    <span className="ml-2 text-gray-500">
+                      ／ 前期同月 <b className="tabular-nums">{fmtYen(ddPriorTotal)}</b>
+                      <b className={`ml-1 tabular-nums ${ddDiff > 0 ? 'text-red-600' : ddDiff < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                        {ddDiff > 0 ? '+' : ''}{fmtShort(ddDiff)}
+                      </b>
+                      {ddRatio != null && <span className="text-gray-400 ml-0.5">（{ddRatio > 0 ? '+' : ''}{ddRatio.toFixed(1)}%）</span>}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
@@ -181,45 +313,86 @@ export default function SectionLedger({
               <div className="flex items-end gap-1 h-12 mb-3">
                 {fy.fiscalMonths.map((m, i) => {
                   const v = ddMonthly[i] || 0
-                  const max = Math.max(...ddMonthly.map(Math.abs), 1)
+                  const pv = hasCompare ? (ddPriorMonthly[i] || 0) : 0
+                  // 前期と並べるときは両方が同じ尺度になるよう最大値を共有する
+                  const max = Math.max(...ddMonthly.map(Math.abs), ...(hasCompare ? ddPriorMonthly.map(Math.abs) : []), 1)
+                  const title = hasCompare
+                    ? `${m}月 当期 ${fmtYen(v)} ／ 前期 ${fmtYen(pv)}`
+                    : `${m}月 ${fmtYen(v)}`
                   return (
-                    <button key={i} onClick={() => setDdMonthIdx(i)} title={`${m}月 ${fmtYen(v)}`}
+                    <button key={i} onClick={() => setDdMonthIdx(i)} title={title}
                       className="flex-1 flex flex-col items-center gap-0.5" disabled={i > fy.lastFilledIndex}>
-                      <div className={`w-full rounded-t ${i === ddMonthIdx ? 'bg-[#1a73e8]' : i > fy.lastFilledIndex ? 'bg-gray-100' : 'bg-[#c3cdd9] hover:bg-[#7d93b2]'}`}
-                        style={{ height: `${Math.max(2, (Math.abs(v) / max) * 36)}px` }} />
+                      <div className="w-full flex items-end justify-center gap-px">
+                        <div className={`flex-1 rounded-t ${i === ddMonthIdx ? 'bg-[#1a73e8]' : i > fy.lastFilledIndex ? 'bg-gray-100' : 'bg-[#c3cdd9] hover:bg-[#7d93b2]'}`}
+                          style={{ height: `${Math.max(2, (Math.abs(v) / max) * 36)}px` }} />
+                        {hasCompare && (
+                          <div className="flex-1 rounded-t bg-[#e6b800]/60" title="前期"
+                            style={{ height: `${Math.max(2, (Math.abs(pv) / max) * 36)}px` }} />
+                        )}
+                      </div>
                       <span className={`text-[9px] ${i === ddMonthIdx ? 'text-[#1a73e8] font-bold' : 'text-gray-400'}`}>{m}</span>
                     </button>
                   )
                 })}
               </div>
             )}
-            <div className="overflow-x-auto max-h-96 overflow-y-auto border border-gray-100 rounded-lg">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-gray-50">
-                  <tr className="text-gray-500">
-                    <th className="text-left px-2 py-1.5 font-medium w-14">日付</th>
-                    <th className="text-left px-2 py-1.5 font-medium">相手科目</th>
-                    <th className="text-left px-2 py-1.5 font-medium">摘要</th>
-                    <th className="text-right px-2 py-1.5 font-medium w-24">{ddIsRevenue ? '売上(貸方)' : '金額(借方)'}</th>
-                    <th className="text-right px-2 py-1.5 font-medium w-24">{ddIsRevenue ? '(借方)' : '(貸方)'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ddTxs.length === 0 ? (
-                    <tr><td colSpan={5} className="text-center text-gray-400 py-6">この月の取引はありません</td></tr>
-                  ) : ddTxs.map((t, i) => (
-                    <tr key={i} className="border-t border-gray-50">
-                      <td className="px-2 py-1 whitespace-nowrap text-gray-600">{fmtDateShort(t.date)}</td>
-                      <td className="px-2 py-1 whitespace-nowrap text-gray-500">{t.counterName}</td>
-                      <td className="px-2 py-1 text-gray-800">{t.memo || <span className="text-gray-300">—</span>}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{(ddIsRevenue ? t.credit : t.debit) ? fmtYen(ddIsRevenue ? t.credit : t.debit) : ''}</td>
-                      <td className="px-2 py-1 text-right tabular-nums text-gray-400">{(ddIsRevenue ? t.debit : t.credit) ? fmtYen(ddIsRevenue ? t.debit : t.credit) : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* 明細: 比較ONなら当期と前期同月を左右に並べる */}
+            <div className={hasCompare ? 'grid grid-cols-1 lg:grid-cols-2 gap-3' : ''}>
+              <TxTable
+                caption={hasCompare ? `当期 ${fy.label}・${ddMonth}月` : ''}
+                txs={ddTxs} isRevenue={ddIsRevenue} total={hasCompare ? ddTotal : null} accent="blue"
+              />
+              {hasCompare && priorFy && (
+                <TxTable
+                  caption={`前期 ${priorFy.label}・${ddPriorMonth}月`}
+                  txs={ddPriorTxs} isRevenue={ddIsRevenue} total={ddPriorTotal} accent="amber"
+                />
+              )}
             </div>
           </Section>
+
+          {/* A-2: 科目別 当期／前期の年間比較（増減の大きい順） */}
+          {hasCompare && priorFy && acctCompare.length > 0 && (
+            <Section title="科目別 前期比較（年間）" note="どの科目がどれだけ増減したかを大きい順に。科目名をクリックすると上の明細に切り替わります">
+              <div className="overflow-x-auto max-h-[420px] overflow-y-auto border border-gray-100 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="text-gray-500">
+                      <th className="text-left px-2 py-1.5 font-medium">科目</th>
+                      <th className="text-right px-2 py-1.5 font-medium w-28">当期 {fy.label}</th>
+                      <th className="text-right px-2 py-1.5 font-medium w-28">前期 {priorFy.label}</th>
+                      <th className="text-right px-2 py-1.5 font-medium w-24">増減</th>
+                      <th className="text-right px-2 py-1.5 font-medium w-20">増減率</th>
+                      <th className="text-right px-2 py-1.5 font-medium w-24">件数(当/前)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acctCompare.map((r) => (
+                      <tr key={r.code} className={`border-t border-gray-50 ${r.code === accCode ? 'bg-blue-50/60' : ''}`}>
+                        <td className="px-2 py-1">
+                          <button onClick={() => setAccCode(r.code)} className="text-left hover:underline text-gray-800">
+                            <span className="text-gray-400 mr-1">{r.code}</span>{r.name}
+                          </button>
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums">{fmtYen(r.cur)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums text-gray-500">{fmtYen(r.pre)}</td>
+                        <td className={`px-2 py-1 text-right tabular-nums font-semibold ${r.diff > 0 ? 'text-red-600' : r.diff < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                          {r.diff > 0 ? '+' : ''}{fmtShort(r.diff)}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums text-gray-500">
+                          {r.ratio == null ? <span className="text-gray-300">—</span> : `${r.ratio > 0 ? '+' : ''}${r.ratio.toFixed(1)}%`}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums text-gray-400">{r.curCount}/{r.preCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="text-[11px] text-gray-400 mt-2">
+                ※ 年間の累計で比較しています（当期は取込済みの月まで）。前期は同じ並び順の月で対応させています。
+              </div>
+            </Section>
+          )}
 
           {/* B: 特記取引 */}
           <Section title={`今月の特記取引（${fy.fiscalMonths[monthIdx]}月）`} note="大口・重複疑い・ふだん動かない科目を自動抽出（月次チェックの補助）">
