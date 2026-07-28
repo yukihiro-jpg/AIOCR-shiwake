@@ -34,18 +34,25 @@ jobs:
         working-directory: functions
         run: npm install
 
+      # 秘密情報は必ず env 経由で受け取る。式をシェルに直接展開すると、
+      # JSON（引用符・改行を含む）が構文を壊して "too many arguments" になる。
       - name: 設定を確認
+        env:
+          PID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          if [ -z "${{ secrets.FIREBASE_PROJECT_ID }}" ]; then
+          if [ -z "$PID" ]; then
             echo "::error::GitHub Secrets の FIREBASE_PROJECT_ID が未設定です。docs/upload-notify-setup.md の手順3をご確認ください。"; exit 1
           fi
-          if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" ]; then
+          if [ -z "$SA" ]; then
             echo "::error::GitHub Secrets の FIREBASE_SERVICE_ACCOUNT が未設定です。docs/upload-notify-setup.md の手順3をご確認ください。"; exit 1
           fi
 
       - name: サービスアカウントキーを書き出す
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
 
       - name: メール情報を Firebase の秘密情報へ反映

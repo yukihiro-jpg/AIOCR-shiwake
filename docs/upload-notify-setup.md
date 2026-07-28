@@ -77,6 +77,20 @@ GitHubから自動で配置できるようにするための鍵です。
 > このJSONファイルは鍵そのものです。**メールで送ったり、リポジトリに置いたりしないでください。**
 > 手順4で登録したあとは、パソコンから削除して構いません。
 
+### 3-2　この鍵に配置の権限を与える（これをしないと失敗します）
+
+発行したばかりの鍵は、初期状態では Cloud Functions を配置する権限を持っていません。
+`Permission denied to get service [secretmanager.googleapis.com]` のようなエラーはこれが原因です。
+
+1. [Google Cloud のIAM画面](https://console.cloud.google.com/iam-admin/iam) を開き、
+   画面上部のプロジェクト選択で対象プロジェクトを選ぶ
+2. 一覧から `firebase-adminsdk-xxxxx@（プロジェクトID）.iam.gserviceaccount.com` を探し、
+   右端の**鉛筆アイコン**をクリック
+3. **「別のロールを追加」** で次の3つを足して**保存**する
+   - 編集者（Editor）
+   - Secret Manager 管理者（Secret Manager Admin）
+   - サービス アカウント ユーザー（Service Account User）
+
 ---
 
 ## 手順4　GitHubに5つの情報を登録する
