@@ -1,0 +1,72 @@
+name: deploy-functions（アップロード通知メール）
+
+# 書類スキャン受信のアップロード通知メール（Cloud Functions）を配置する。
+# functions/ を変更して push すると自動で配置される。手動実行も可。
+#
+# 事前に必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
+#   FIREBASE_SERVICE_ACCOUNT … Firebaseで発行したサービスアカウントキー（JSONの中身をそのまま貼る）
+#   FIREBASE_PROJECT_ID      … FirebaseのプロジェクトID（例: komon-manager-xxxxx）
+#   GMAIL_USER               … 送信元のGmailアドレス
+#   GMAIL_PASS               … Gmailのアプリパスワード（16桁）
+#   NOTIFY_TO                … 通知先メールアドレス
+# メール情報は配置時に Firebase 側の秘密情報の保管場所（Secret Manager）へ反映される。
+# 手順は docs/upload-notify-setup.md を参照。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 依存関係をインストール
+        working-directory: functions
+        run: npm install
+
+      - name: 設定を確認
+        run: |
+          if [ -z "${{ secrets.FIREBASE_PROJECT_ID }}" ]; then
+            echo "::error::GitHub Secrets の FIREBASE_PROJECT_ID が未設定です。docs/upload-notify-setup.md の手順3をご確認ください。"; exit 1
+          fi
+          if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" ]; then
+            echo "::error::GitHub Secrets の FIREBASE_SERVICE_ACCOUNT が未設定です。docs/upload-notify-setup.md の手順3をご確認ください。"; exit 1
+          fi
+
+      - name: サービスアカウントキーを書き出す
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: メール情報を Firebase の秘密情報へ反映
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          PID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          set -e
+          for KEY in GMAIL_USER GMAIL_PASS NOTIFY_TO; do
+            VALUE="${!KEY}"
+            if [ -z "$VALUE" ]; then
+              echo "::error::GitHub Secrets の $KEY が未設定です。docs/upload-notify-setup.md の手順4をご確認ください。"; exit 1
+            fi
+            printf '%s' "$VALUE" | npx firebase-tools@13 functions:secrets:set "$KEY" --project "$PID" --data-file - --force
+          done
+
+      - name: Cloud Functions を配置
+        run: npx firebase-tools@13 deploy --only functions --project "${{ secrets.FIREBASE_PROJECT_ID }}" --non-interactive --force
+
+      - name: 後始末
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

@@ -89,6 +89,29 @@ function publicPath(token: string, ...seg: string[]): string {
   return `scan-public/${token}${seg.length ? '/' + seg.join('/') : ''}`
 }
 
+/** 事務所へのアップロード通知（メール）用の記録を1件だけ書く。
+ *  「送信のたびに1通」にするため、ファイル1件ごとではなく送信1回につき1件書く。
+ *  この記録をきっかけに Cloud Functions がメールを送り、記録自体は関数側で削除される。
+ *  通知はあくまで補助のため、失敗してもアップロード本体は成功扱いにする（握りつぶす）。 */
+async function writeUploadNotice(
+  token: string,
+  kind: 'files' | 'batch' | 'cash',
+  count: number,
+  extra?: { member?: string; folder?: string },
+): Promise<void> {
+  try {
+    if (!token || !count) return
+    const { db, ref, set } = await dbfns()
+    await set(ref(db, publicPath(token, 'notify', genId())), {
+      kind,
+      count,
+      at: new Date().toISOString(),
+      ...(extra?.member ? { member: extra.member } : {}),
+      ...(extra?.folder ? { folder: extra.folder } : {}),
+    })
+  } catch { /* 通知に失敗してもアップロードは成功として扱う */ }
+}
+
 // ===== 顧問先情報（komon）で「書類スキャン受信＝利用」にした会社だけを読む =====
 export async function loadScanClients(): Promise<ScanClient[]> {
   const { db, ref, get } = await dbfns()
@@ -305,6 +328,7 @@ export async function submitScanBatchPublic(
     status: 'new',
   }
   await set(ref(db, publicPath(token, 'batches', batchId)), batch)
+  await writeUploadNotice(token, 'batch', images.length, { member: meta.member })
 }
 
 /** 顧問先側：現金引出・預入の登録 */
@@ -336,6 +360,7 @@ export async function submitCashEntryPublic(
     status: 'new',
   }
   await set(ref(db, publicPath(token, 'cash', id)), rec)
+  await writeUploadNotice(token, 'cash', 1, { member: entry.member })
 }
 
 // ===== ファイル便（PDF・Excel等のファイル受け渡し） =====
@@ -506,6 +531,8 @@ export async function submitFilesPublic(
     await set(ref(db, publicPath(token, 'files', id)), rec)
     onProgress?.(i + 1, files.length, f.name)
   }
+  // 送信1回につき1通。ファイル1件ごとではなくまとめて通知する
+  await writeUploadNotice(token, 'files', files.length, { member, folder: folderName })
 }
 
 // ===== 事務所 → 顧問先 のファイル送信（inbox） =====
