@@ -19,6 +19,11 @@ on:
       - 'functions/**'
       - '.github/workflows/deploy-functions.yml'
   workflow_dispatch:
+    inputs:
+      recreate:
+        description: '既存の関数を削除してから作り直す（配置に失敗して壊れた状態のときだけ使う）'
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -70,6 +75,13 @@ jobs:
             fi
             printf '%s' "$VALUE" | npx firebase-tools@13 functions:secrets:set "$KEY" --project "$PID" --data-file - --force
           done
+
+      # 配置が途中で失敗すると、種類の違う関数が残って
+      # 「Changing from an HTTPS function to a background triggered function is not allowed」
+      # になることがある。そのときだけ手動実行のチェックを入れて作り直す。
+      - name: 既存の関数を削除（recreate 指定時のみ）
+        if: ${{ inputs.recreate }}
+        run: npx firebase-tools@13 functions:delete notifyScanUpload --region us-central1 --project "${{ secrets.FIREBASE_PROJECT_ID }}" --force || true
 
       - name: Cloud Functions を配置
         run: npx firebase-tools@13 deploy --only functions --project "${{ secrets.FIREBASE_PROJECT_ID }}" --non-interactive --force
