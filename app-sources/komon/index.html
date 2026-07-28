@@ -576,6 +576,25 @@
   <div class="modal-foot"><button class="text" onclick="closeModal('customModal')">キャンセル</button><button class="primary" onclick="saveCustomTable()">保存</button></div>
 </div></div>
 
+<!-- 資料回収 顧問先ごとの資料項目モーダル -->
+<div class="modal-bg" id="docClientModal"><div class="modal wide">
+  <div class="modal-head"><h3 id="dc_title">顧問先ごとの資料項目</h3><button class="icon x" onclick="closeModal('docClientModal')">✕</button></div>
+  <div class="modal-body">
+    <input type="hidden" id="dc_tid"><input type="hidden" id="dc_cid">
+    <div class="hint" style="margin-bottom:12px">この顧問先だけの資料項目です。ここで保存すると、この顧問先のPDF・回収状況はこのリストで作成されます（他の顧問先には影響しません）。</div>
+    <div class="row-flex" style="justify-content:space-between;margin-bottom:8px">
+      <b style="font-size:13px">資料項目</b>
+      <span><button class="sm" onclick="dcLoadCommon()" title="共通リストの内容を読み込みます（現在の内容は置き換わります）">共通リストを読込</button> <button class="sm" onclick="addDocClientRow()">＋ 追加</button></span>
+    </div>
+    <table><thead><tr><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
+  </div>
+  <div class="modal-foot">
+    <button class="text" onclick="resetDocClientCols()" title="この顧問先を共通リストに戻します">共通リストに戻す</button>
+    <span style="flex:1"></span>
+    <button class="text" onclick="closeModal('docClientModal')">キャンセル</button><button class="primary" onclick="saveDocClientCols()">保存</button>
+  </div>
+</div></div>
+
 <!-- 資料回収 案内文モーダル -->
 <div class="modal-bg" id="docTplModal"><div class="modal">
   <div class="modal-head"><h3>案内文・宛名の設定</h3><button class="icon x" onclick="closeModal('docTplModal')">✕</button></div>
@@ -2038,8 +2057,18 @@ function selSummary(sel){ if(!sel||sel.type==='all')return '全顧問先（契�
   return ''; }
 function cRow(t,cid){ if(!t.rows)t.rows={}; if(!t.rows[cid])t.rows[cid]={cells:{},note:''}; return t.rows[cid]; }
 /* 一覧／詳細の描画 */
-function tableProgress(kind,t){ const cs=resolveSel(t.sel); const cols=t.cols||[]; const total=cs.length*cols.length; let done=0;
-  cs.forEach(c=>{ const r=t.rows&&t.rows[c.id]; cols.forEach(col=>{ if(kind==='docs'){ if(r&&r.status&&r.status[col.name])done++; } else { if(r&&r.cells&&r.cells[col.name])done++; } }); });
+/* 資料回収：顧問先ごとの資料項目。個別リストが設定されていればそれを、無ければ共通リストを使う。
+   （1つのタイトルの中で、顧問先ごとに別々の回収リストを作れるようにするための土台） */
+function docCols(t,cid){ const r=t&&t.rows&&t.rows[cid]; return (r&&Array.isArray(r.cols)&&r.cols.length)?r.cols:((t&&t.cols)||[]); }
+function hasOwnDocCols(t,cid){ const r=t&&t.rows&&t.rows[cid]; return !!(r&&Array.isArray(r.cols)&&r.cols.length); }
+function tableProgress(kind,t){ const cs=resolveSel(t.sel); let total=0,done=0;
+  if(kind==='docs'){
+    cs.forEach(c=>{ const cols=docCols(t,c.id); const r=t.rows&&t.rows[c.id]; total+=cols.length;
+      cols.forEach(col=>{ if(r&&r.status&&r.status[col.name])done++; }); });
+  } else {
+    const cols=t.cols||[]; total=cs.length*cols.length;
+    cs.forEach(c=>{ const r=t.rows&&t.rows[c.id]; cols.forEach(col=>{ if(r&&r.cells&&r.cells[col.name])done++; }); });
+  }
   return {total,done,pct:total?Math.round(done/total*100):0}; }
 function renderCustom(kind){ if(customCurrent[kind]&&cTable(kind,customCurrent[kind])){ if(kind==='docs')renderDocsDetail(); else renderCustomDetail(kind); } else { customCurrent[kind]=null; renderCustomList(kind); } }
 function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(kind); const isDocs=kind==='docs';
@@ -2056,7 +2085,10 @@ function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(
     shown.map(t=>{ const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress(kind,t);
       const pdfBtn=isDocs?`<button class="text sm" onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
       const rollBtn=(isDocs&&!t.closed)?`<button class="text sm" onclick="rolloverDocs('${t.id}')" title="このリストを踏襲した翌年度の新規リストを作成し、このリストは終了分へ移動します">🔄 翌年度更新</button>`:'';
-      return `<tr><td><a class="link" onclick="openCustomTable('${kind}','${t.id}')">${esc(t.title)}</a>${t.closed?' <span class="chip gray">終了分</span>':''}</td><td class="muted">${esc(selSummary(t.sel))}</td><td>${cs.length}社</td><td>${cols.length}</td>
+      // 資料回収は顧問先ごとに項目が異なりうるため、個別リストの社数も併記する
+      const indivN=isDocs?cs.filter(c=>hasOwnDocCols(t,c.id)).length:0;
+      const colCell=isDocs?`${cols.length}${indivN?` <span class="chip blue">個別${indivN}社</span>`:''}`:`${cols.length}`;
+      return `<tr><td><a class="link" onclick="openCustomTable('${kind}','${t.id}')">${esc(t.title)}</a>${t.closed?' <span class="chip gray">終了分</span>':''}</td><td class="muted">${esc(selSummary(t.sel))}</td><td>${cs.length}社</td><td>${colCell}</td>
         <td><div class="pbar"><span style="width:${pr.pct}%"></span></div> ${pr.pct}%</td>
         <td class="actions">${pdfBtn}${rollBtn}<button class="text sm" onclick="openCustomTable('${kind}','${t.id}')">開く</button><button class="text sm" onclick="openCustomCreate('${kind}','${t.id}')">編集</button><button class="text sm danger" onclick="deleteCustomTable('${kind}','${t.id}')">削除</button></td></tr>`; }).join('')+`</tbody></table></div>`;
   document.getElementById(def.view).innerHTML=html;
@@ -2069,7 +2101,11 @@ function rolloverDocs(id){ const t=cTable('docs',id); if(!t)return;
   if(!confirm(`「${t.title}」を踏襲して\n「${newTitle}」を新規作成します。\n（回収状況はリセット、期限は1年後にずらします）\nこのリストは「終了分」へ移動します。よろしいですか？`))return;
   const shiftYear=d=>d?String(d).replace(/^(\d{4})/, (m,y)=>String(+y+1)):d;
   const cols=(t.cols||[]).map(c=>Object.assign({},c,{due:shiftYear(c.due)}));
-  const nt={id:uid(),title:newTitle,sel:JSON.parse(JSON.stringify(t.sel||{type:'all'})),cols,rows:{}};
+  // 顧問先ごとの個別リストも引き継ぐ（回収状況はリセット、期限は1年後へ）
+  const rows={};
+  Object.keys(t.rows||{}).forEach(cid=>{ const r=t.rows[cid];
+    if(r&&Array.isArray(r.cols)&&r.cols.length) rows[cid]={cells:{},note:'',cols:r.cols.map(c=>Object.assign({},c,{due:shiftYear(c.due)}))}; });
+  const nt={id:uid(),title:newTitle,sel:JSON.parse(JSON.stringify(t.sel||{type:'all'})),cols,rows};
   t.closed=true; cStore('docs').push(nt); customCurrent.docs=null; docsListFilter='active';
   persist(); renderCustom('docs'); toast('翌年度分を作成しました（元リストは終了分へ移動）','ok');
 }
@@ -2148,23 +2184,64 @@ function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs
     <div class="toolbar"><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; document.getElementById('docsView').innerHTML=html; return; }
-  // 資料項目の一覧（メモ含む・所内参照用）
-  html+=`<div class="card pad" style="margin-bottom:14px"><b style="font-size:13px">資料項目</b><table style="margin-top:8px"><thead><tr><th>資料名</th><th>詳細</th><th>期限</th><th>所内メモ</th></tr></thead><tbody>`+
-    cols.map(it=>`<tr><td>${esc(it.name)}</td><td>${esc(it.detail||'')}</td><td>${it.due?esc(fmtMD(it.due)):''}</td><td class="muted">${esc(it.memo||'')}</td></tr>`).join('')+`</tbody></table></div>`;
-  let head=`<tr><th class="name">顧問先</th>`+cols.map(it=>`<th class="step" title="${esc((it.detail||'')+(it.due?' / 期限'+fmtMD(it.due):''))}">${esc(it.name)}</th>`).join('')+`<th>回収率</th></tr>`;
-  let body=cs.map(c=>{ let done=0; const cells=cols.map(it=>{ const ok=docStatus(t,c.id,it.name); if(ok)done++;
-      return `<td><span class="cell ${ok?'done':'todo'}" style="cursor:pointer;min-width:64px" onclick="toggleDocStatus('${t.id}','${c.id}','${encodeURIComponent(it.name)}')">${ok?'回収済':'未回収'}</span></td>`; }).join('');
-    const pct=cols.length?Math.round(done/cols.length*100):0;
-    return `<tr><td class="name">${clientLink(c)}</td>${cells}<td style="white-space:nowrap"><div class="pbar"><span style="width:${pct}%"></span></div> ${pct}%</td></tr>`; }).join('');
-  html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
-    <div class="hint" style="margin-top:12px">※ セルをクリックで「回収済／未回収」を切替（進捗バーに反映）。所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します（一部の顧問先だけ作成したい場合は「個別PDF」）。</div>`;
+  const indiv=cs.filter(c=>hasOwnDocCols(t,c.id)).length;
+  // 共通の資料項目（個別リストを設定していない顧問先に適用される既定）
+  html+=`<div class="card pad" style="margin-bottom:14px"><b style="font-size:13px">共通の資料項目</b>
+    <span class="muted" style="font-size:12px;margin-left:8px">個別リストを設定していない顧問先に適用されます（「⚙ リスト編集」で変更）</span>
+    <table style="margin-top:8px"><thead><tr><th>資料名</th><th>詳細</th><th>期限</th><th>所内メモ</th></tr></thead><tbody>`+
+    (cols.length?cols.map(it=>`<tr><td>${esc(it.name)}</td><td>${esc(it.detail||'')}</td><td>${it.due?esc(fmtMD(it.due)):''}</td><td class="muted">${esc(it.memo||'')}</td></tr>`).join('')
+      :`<tr><td colspan="4" class="muted">共通の資料項目は未設定です（顧問先ごとに個別リストを作成してください）</td></tr>`)+`</tbody></table></div>`;
+  // 顧問先ごとの回収状況。資料項目は顧問先ごとに異なりうるため、1社1行＋項目チップで表示する
+  let body=cs.map(c=>{ const ccols=docCols(t,c.id); let done=0;
+    const chips=ccols.map(it=>{ const ok=docStatus(t,c.id,it.name); if(ok)done++;
+      const tip=esc((it.detail||'')+(it.due?' / 期限'+fmtMD(it.due):''));
+      return `<span class="cell ${ok?'done':'todo'}" style="cursor:pointer;display:inline-block;margin:2px 4px 2px 0;padding:3px 9px" title="${tip}"
+        onclick="toggleDocStatus('${t.id}','${c.id}','${encodeURIComponent(it.name)}')">${esc(it.name)}<b style="margin-left:6px;font-size:11px">${ok?'済':'未'}</b></span>`; }).join('');
+    const pct=ccols.length?Math.round(done/ccols.length*100):0;
+    const own=hasOwnDocCols(t,c.id);
+    return `<tr><td class="name" style="white-space:nowrap;vertical-align:top">${clientLink(c)}${own?' <span class="chip blue" style="margin-left:4px">個別</span>':''}</td>
+      <td style="vertical-align:top">${chips||'<span class="muted">資料項目がありません</span>'}</td>
+      <td style="white-space:nowrap;vertical-align:top">${done}/${ccols.length}<div class="pbar" style="width:110px"><span style="width:${pct}%"></span></div> ${pct}%</td>
+      <td style="white-space:nowrap;vertical-align:top"><button class="text sm" onclick="openDocClientCols('${t.id}','${c.id}')" title="この顧問先だけの資料項目を作成・編集">📋 個別リスト</button></td></tr>`; }).join('');
+  html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>
+      <tr><th class="name">顧問先</th><th>資料項目（クリックで回収済／未回収）</th><th>回収率</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="hint" style="margin-top:12px">※ 資料項目のチップをクリックで「回収済／未回収」を切替（進捗バーに反映）。
+    <b>「📋 個別リスト」でその顧問先だけの資料項目を作成できます</b>（作成すると「個別」と表示され、その顧問先のPDF・回収状況は個別リストで作られます）。
+    ${indiv?`現在 ${indiv}社が個別リストです。`:''}所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します（一部の顧問先だけ作成したい場合は「個別PDF」）。</div>`;
   document.getElementById('docsView').innerHTML=html;
+  // 一括登録は共通リストの項目に対して行う（個別リストの顧問先は自分の項目名が一致するものだけ反映）
   setBulk('docs',{colWord:'資料項目',valueType:'docstatus',cols:cols.map(col=>({name:col.name})),cids:cs.map(c=>c.id),get:cid=>{ const r=cRow(t,cid); if(!r.status)r.status={}; return r.status; },render:()=>renderDocsDetail()});
   enhanceGrid(document.querySelector('#docsView table.grid'),'docs_'+t.id);
 }
-function exportCustomDocs(t){ const cs=resolveSel(t.sel); const cols=t.cols||[];
-  const head=['コード','顧問先名',...cols.map(c=>c.name),'回収率']; const aoa=[head];
-  cs.forEach(c=>{ let done=0; const row=cols.map(it=>{ const ok=docStatus(t,c.id,it.name); if(ok)done++; return ok?'回収済':'未回収'; }); aoa.push([c.code||'',c.name,...row,(cols.length?Math.round(done/cols.length*100):0)+'%']); });
+/* 顧問先ごとの資料項目の編集 */
+function openDocClientCols(tid,cid){ const t=cTable('docs',tid); const c=data.clients.find(x=>x.id===cid); if(!t||!c)return;
+  setVal('dc_tid',tid); setVal('dc_cid',cid);
+  document.getElementById('dc_title').textContent=`${c.name||'顧問先'} の資料項目`;
+  document.getElementById('dc_cols').innerHTML='';
+  docCols(t,cid).forEach(it=>addDocClientRow(it));
+  openModal('docClientModal'); }
+function addDocClientRow(c={}){ const tb=document.getElementById('dc_cols'); const tr=document.createElement('tr');
+  tr.innerHTML=`<td><input class="dc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="dc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="dc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="dc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
+  tb.appendChild(tr); }
+function dcLoadCommon(){ const t=cTable('docs',val('dc_tid')); if(!t)return;
+  document.getElementById('dc_cols').innerHTML=''; (t.cols||[]).forEach(it=>addDocClientRow(it)); toast('共通リストを読み込みました','ok'); }
+function saveDocClientCols(){ const tid=val('dc_tid'), cid=val('dc_cid'); const t=cTable('docs',tid); if(!t)return;
+  const cols=[...document.querySelectorAll('#dc_cols tr')].map(tr=>({
+    name:tr.querySelector('.dc_name').value.trim(), detail:tr.querySelector('.dc_detail').value.trim(),
+    due:tr.querySelector('.dc_due').value, memo:tr.querySelector('.dc_memo').value.trim() })).filter(c=>c.name);
+  if(!cols.length){ toast('資料項目を1つ以上設定してください（共通リストに戻す場合は左下のボタン）','err'); return; }
+  const r=cRow(t,cid); r.cols=cols; persist(); closeModal('docClientModal'); renderDocsDetail(); toast('この顧問先の資料項目を保存しました','ok'); }
+function resetDocClientCols(){ const tid=val('dc_tid'), cid=val('dc_cid'); const t=cTable('docs',tid); if(!t)return;
+  if(!confirm('この顧問先を共通リストに戻しますか？（個別に設定した資料項目は削除されます）'))return;
+  const r=cRow(t,cid); delete r.cols; persist(); closeModal('docClientModal'); renderDocsDetail(); toast('共通リストに戻しました','ok'); }
+function exportCustomDocs(t){ const cs=resolveSel(t.sel);
+  // 顧問先ごとに資料項目が異なりうるため、全顧問先の項目名の和集合を列にする（無い項目は「対象外」）
+  const names=[]; cs.forEach(c=>docCols(t,c.id).forEach(it=>{ if(!names.includes(it.name))names.push(it.name); }));
+  const head=['コード','顧問先名','リスト',...names,'回収率']; const aoa=[head];
+  cs.forEach(c=>{ const ccols=docCols(t,c.id); const own=hasOwnDocCols(t,c.id); let done=0;
+    const row=names.map(n=>{ if(!ccols.some(it=>it.name===n))return '対象外';
+      const ok=docStatus(t,c.id,n); if(ok)done++; return ok?'回収済':'未回収'; });
+    aoa.push([c.code||'',c.name,own?'個別':'共通',...row,(ccols.length?Math.round(done/ccols.length*100):0)+'%']); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'資料回収'); XLSX.writeFile(wb,`${(t.title||'資料回収').replace(/[\\/:*?"<>|]/g,'_')}_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
 /* 案内文・宛名テンプレート */
 function openDocTemplate(){ const tpl=data.docTemplate||{}; const af=tpl.addr||{zip:true,addr:true,name:true,rep:true};
@@ -2181,7 +2258,8 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   const showRep=af.rep&&c.rep;
   if(af.name&&c.name)addr+=`<div style="font-size:21px;font-weight:700;margin-top:8px">${esc(c.name)}${showRep?'':'　御中'}</div>`;
   if(showRep)addr+=`<div style="font-size:16px;margin-top:3px">${esc(c.rep)}　様</div>`;
-  const items=(t.cols||[]).map(it=>`<tr><td style="border:1px solid #888;padding:7px 10px">${esc(it.name)}</td><td style="border:1px solid #888;padding:7px 10px">${esc(it.detail||'')}</td><td style="border:1px solid #888;padding:7px 10px;text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
+  // 資料項目はその顧問先のリスト（個別リストがあればそれ、無ければ共通リスト）を使う
+  const items=docCols(t,c.id).map(it=>`<tr><td style="border:1px solid #888;padding:7px 10px">${esc(it.name)}</td><td style="border:1px solid #888;padding:7px 10px">${esc(it.detail||'')}</td><td style="border:1px solid #888;padding:7px 10px;text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
   wrap.innerHTML=`<div style="height:38mm"></div>
     <div style="padding-left:8mm;min-height:30mm">${addr}</div>
     <div style="text-align:right;font-size:13px;margin:6px 0 14px">${esc(todayJP())}</div>
@@ -2577,7 +2655,14 @@ window.addEventListener('DOMContentLoaded',()=>{
   initMonthSelects(); loadLocal(); restoreSettingsUI(); refreshAll();
   if(data.settings.fbConfig&&data.settings.fbRoom){ setTimeout(()=>{ try{ Realtime.connect(); }catch(e){} },800); }
   else if(data.settings.clientId&&data.settings.folderUrl){ DriveSync.setStatus('','ローカル保存（未接続）'); setTimeout(()=>{ try{ DriveSync.connect(); }catch(e){} },1200); }
-  document.querySelectorAll('.modal-bg').forEach(bg=>bg.addEventListener('click',e=>{ if(e.target===bg)bg.classList.remove('open'); }));
+  // モーダル背景クリックで閉じる。ただし「入力欄で押し始めて背景で離した」場合は閉じない。
+  // （click は押した位置と離した位置の共通の親で発火するため、入力欄内でドラッグして
+  //   欄の外で手を離すと背景がクリックされた扱いになり、入力途中でモーダルが消えていた）
+  document.querySelectorAll('.modal-bg').forEach(bg=>{
+    let downOnBg=false;
+    bg.addEventListener('mousedown',e=>{ downOnBg=(e.target===bg); });
+    bg.addEventListener('click',e=>{ if(e.target===bg&&downOnBg)bg.classList.remove('open'); downOnBg=false; });
+  });
   // 金額入力欄の #,### 整形
   document.addEventListener('input',e=>{ const t=e.target; if(t&&t.classList&&t.classList.contains('amt')){ const raw=String(t.value).replace(/[^\d-]/g,''); if(raw===''||raw==='-'){ t.value=raw; return; } const neg=raw[0]==='-'; const n=parseInt(raw.replace(/-/g,''),10); t.value=(neg?'-':'')+(isNaN(n)?'':n.toLocaleString('ja-JP')); } });
   // セル編集ポップ／フィルタメニューを外側クリックで閉じる
