@@ -16,7 +16,7 @@ import {
   loadSubmissions,
   listEmployeeFiles,
   getFileBlobs,
-  sweepOldSubmissions,
+  sweepAllNenmatsu,
   buildUploadUrl,
   loadDefaultDeadline,
   saveDefaultDeadline,
@@ -121,6 +121,9 @@ export default function NenmatsuContent() {
     try {
       // 顧問先削除の purge キューを処理（削除済み顧問先の公開名簿・提出画像を確実に消す）
       try { await processNenmatsuPurgeQueue() } catch { /* 次回に再試行 */ }
+      // 保存期限（1年6か月）超過の提出と、再提出で参照が外れた旧画像の清掃。
+      // 表示中の年度・利用/未利用に関係なく全年度・全登録会社を対象にする（端末ごとに6時間に1回）
+      try { await sweepAllNenmatsu() } catch { /* 次回に再試行 */ }
       const clients = await loadNenmatsuClients()
       // 利用クライアントごとに会社（トークン）を自動用意
       await Promise.all(clients.map((c) => registerCompany(yearId, c)))
@@ -148,8 +151,6 @@ export default function NenmatsuContent() {
       for (const c of clients) {
         const company = comps[c.id]
         if (!company) continue
-        // 保存期間（アップロードから1年6か月）を過ぎた提出データを自動削除
-        try { await sweepOldSubmissions(yearId, c.id) } catch { /* 次回に再試行 */ }
         const subs = await loadSubmissions(yearId, c.id)
         next.push({ client: c, company, submitted: Object.keys(subs).length })
       }

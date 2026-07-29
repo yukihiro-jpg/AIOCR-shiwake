@@ -372,14 +372,54 @@ async function storageFns() {
   return { st: s.getStorage(app), ...s }
 }
 
-/** 従業員側：撮影済み画像（docKey -> Blob[]）をアップロードし、提出記録を書く（token 配下のみ） */
+/** 再提出時のマージ計算（純関数・テスト用にexport）。
+ *  今回撮影した書類（docKey）は全ページ置き換え、撮影しなかった書類は前回の画像を残す。
+ *  「出し忘れた書類だけ追加で提出する」がいちばん多い再提出パターンのため、
+ *  丸ごと上書きにすると前回の画像が記録から外れて一括DLに含まれなくなってしまう。 */
+export function mergeSubmissionPaths(
+  prevPaths: string[],
+  prevDocs: Record<string, number>,
+  newPaths: string[],
+  newCounts: Record<string, number>,
+): { paths: string[]; docs: Record<string, number>; toDelete: string[] } {
+  const submitted = new Set(Object.keys(newCounts))
+  // パス末尾は `{docKey}_{連番}.jpg`。docKey自体に "_" を含むもの（prev_withholding等）があるため
+  // 末尾の `_数字.拡張子` だけを剥がして docKey を得る
+  const docKeyOf = (p: string): string => {
+    const m = (p.split('/').pop() || '').match(/^(.+)_\d+\.[A-Za-z0-9]+$/)
+    return m ? m[1] : ''
+  }
+  const newSet = new Set(newPaths)
+  const kept: string[] = []
+  const toDelete: string[] = []
+  for (const p of prevPaths) {
+    if (newSet.has(p)) continue // 同名で上書きアップロード済み（今回分として数える）
+    if (submitted.has(docKeyOf(p))) toDelete.push(p) // 撮り直した書類の余ったページ
+    else kept.push(p) // 今回撮影していない書類は前回分を残す
+  }
+  const docsOut: Record<string, number> = {}
+  for (const [k, v] of Object.entries(prevDocs || {})) if (!submitted.has(k)) docsOut[k] = v
+  Object.assign(docsOut, newCounts)
+  return { paths: [...kept, ...newPaths], docs: docsOut, toDelete }
+}
+
+/** 従業員側：撮影済み画像（docKey -> Blob[]）をアップロードし、提出記録を書く（token 配下のみ）。
+ *  再提出は書類単位のマージ（mergeSubmissionPaths）。申告内容は今回の入力で更新する。 */
 export async function submitDocsPublic(
   token: string,
   emp: NenmatsuEmployee,
   docs: Record<string, Blob[]>,
   declaration?: import('./declaration').Declaration,
 ): Promise<void> {
-  const { st, ref: sref, uploadBytes } = await storageFns()
+  // 前回の提出内容（マージの元）。読み取り失敗のまま進めると、前回の画像を
+  // 記録から外した提出を書いてしまう（後述の孤児回収で消えてしまう）ため、ここで止める
+  let prev: SubmissionRecord | null = null
+  try {
+    prev = await getSubmissionPublic(token, emp.id)
+  } catch {
+    throw new Error('前回の提出内容を確認できませんでした。通信環境をご確認のうえ、もう一度お試しください。')
+  }
+  const { st, ref: sref, uploadBytes, deleteObject } = await storageFns()
   const paths: string[] = []
   const counts: Record<string, number> = {}
   for (const docKey of Object.keys(docs)) {
@@ -392,17 +432,24 @@ export async function submitDocsPublic(
       paths.push(path)
     }
   }
+  const merged = mergeSubmissionPaths(prev?.paths || [], prev?.docs || {}, paths, counts)
   const { db, ref, set } = await dbfns()
   const rec: SubmissionRecord = {
     empId: emp.id,
     name: `${emp.lastName} ${emp.firstName}`.trim(),
     kana: `${emp.kanaLast} ${emp.kanaFirst}`.trim(),
     submittedAt: new Date().toISOString(),
-    docs: counts,
-    paths,
+    docs: merged.docs,
+    paths: merged.paths,
   }
   if (declaration) rec.declaration = declaration
+  else if (prev?.declaration) rec.declaration = prev.declaration
   await set(ref(db, publicPath(token, 'submissions', emp.id)), rec)
+  // 記録の保存が済んでから、置き換えで不要になった旧ページを削除する
+  // （失敗しても記録とは矛盾しない＝参照されない余りが残るだけ。孤児回収が後で拾う）
+  for (const p of merged.toDelete) {
+    try { await deleteObject(sref(st, p)) } catch { /* ignore */ }
+  }
 }
 
 /** 従業員側：既に提出済みか確認（二重提出チェック用） */
@@ -512,14 +559,30 @@ export async function getFileBlobs(
   return out
 }
 
-/** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用）
- *  新形式（nenmatsu-public/{token}/{empId}）と旧形式（nenmatsu/{rk}/...）の両方を確認する */
+/** 事務所側：ある従業員のアップロードファイルのダウンロードURL一覧（アプリ内閲覧・DL用）。
+ *  提出記録の paths を基準にする（ZIP・Drive保存と同じ）。フォルダ列挙を使うと、
+ *  再提出で参照が外れた旧画像が現在の提出に混ざって表示されてしまう。
+ *  記録に paths が無い旧データに限り、従来どおりフォルダ列挙で代替する。 */
 export async function listEmployeeFiles(
   yearId: string,
   clientId: string,
   empId: string,
 ): Promise<{ name: string; url: string }[]> {
   const { st, ref: sref, listAll, getDownloadURL } = await storageFns()
+  const out: { name: string; url: string }[] = []
+  try {
+    const subs = await loadSubmissions(yearId, clientId)
+    const rec = subs[empId]
+    if (rec && (rec.paths || []).length) {
+      for (const p of rec.paths) {
+        try {
+          out.push({ name: p.split('/').pop() || p, url: await getDownloadURL(sref(st, p)) })
+        } catch { /* 実体が無いパスは飛ばす */ }
+      }
+      out.sort((a, b) => a.name.localeCompare(b.name))
+      if (out.length) return out
+    }
+  } catch { /* 記録が読めないときはフォルダ列挙で代替 */ }
   const dirs: string[] = []
   try {
     const { db, ref, get } = await dbfns()
@@ -531,7 +594,6 @@ export async function listEmployeeFiles(
     const rk = await roomKey()
     dirs.push(`nenmatsu/${rk}/${yearId}/${clientId}/${empId}`)
   } catch { /* ignore */ }
-  const out: { name: string; url: string }[] = []
   const seen = new Set<string>()
   for (const d of dirs) {
     try {
@@ -545,5 +607,65 @@ export async function listEmployeeFiles(
   }
   out.sort((a, b) => a.name.localeCompare(b.name))
   return out
+}
+
+// ===== 定期清掃（保存期限・孤児画像。全年度・全登録会社が対象） =====
+
+/** どの提出記録からも参照されていない画像（上書き提出で残った旧画像など）を削除する。
+ *  アップロード直後で記録が未書き込みのファイルを誤って消さないよう、
+ *  作成から7日を超えたものだけを対象にする。 */
+const ORPHAN_MIN_AGE_MS = 7 * 24 * 3600 * 1000
+export async function cleanupOrphanImages(yearId: string, clientId: string): Promise<number> {
+  const { db, ref, get } = await dbfns()
+  const comp = (await get(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)))).val() as NenmatsuCompany | null
+  if (!comp || !comp.token) return 0
+  const subs = await loadSubmissions(yearId, clientId)
+  const referenced = new Set<string>()
+  for (const r of Object.values(subs)) for (const p of r.paths || []) referenced.add(p)
+  // 対象フォルダ＝提出記録のある従業員＋名簿上の従業員
+  const empIds = new Set<string>(Object.keys(subs))
+  try { (await loadEmployees(yearId, clientId)).forEach((e) => empIds.add(e.id)) } catch { /* ignore */ }
+  const { st, ref: sref, listAll, deleteObject, getMetadata } = await storageFns()
+  let removed = 0
+  for (const empId of Array.from(empIds)) {
+    let res
+    try { res = await listAll(sref(st, `nenmatsu-public/${comp.token}/${empId}`)) } catch { continue }
+    for (const item of res.items) {
+      if (referenced.has(item.fullPath)) continue
+      try {
+        const meta = await getMetadata(item)
+        const t = Date.parse(meta.timeCreated || '')
+        if (!t || Date.now() - t < ORPHAN_MIN_AGE_MS) continue
+        await deleteObject(item)
+        removed++
+      } catch { /* 次回に再試行 */ }
+    }
+  }
+  return removed
+}
+
+/** 全年度・全登録会社の保存期限超過データと孤児画像を削除する。
+ *  【重要】表示中の年度や komon の利用/未利用に関係なく実行する。
+ *  以前は表示中年度×利用中の会社しか対象にしておらず、「未利用」に切り替えた会社や
+ *  過去年度の提出画像が、保存期限（1年6か月）を過ぎても残り続けていた。
+ *  読み取り回数を抑えるため、端末ごとに6時間に1回だけ実行する。 */
+export async function sweepAllNenmatsu(): Promise<void> {
+  if (typeof window === 'undefined') return
+  const KEY = 'nenmatsu-sweep-at'
+  try {
+    const last = Number(localStorage.getItem(KEY) || 0)
+    if (last && Date.now() - last < 6 * 3600 * 1000) return
+    // 先に印を付ける（途中で失敗しても6時間後・別端末で再試行される）
+    localStorage.setItem(KEY, String(Date.now()))
+  } catch { /* localStorage不可でも清掃自体は行う */ }
+  const { FY_BY_ID } = await import('./fiscal-year')
+  for (const fy of Object.keys(FY_BY_ID)) {
+    let comps: Record<string, NenmatsuCompany> = {}
+    try { comps = await loadCompanies(fy) } catch { continue }
+    for (const cid of Object.keys(comps)) {
+      try { await sweepOldSubmissions(fy, cid) } catch { /* 次回に再試行 */ }
+      try { await cleanupOrphanImages(fy, cid) } catch { /* 次回に再試行 */ }
+    }
+  }
 }
 

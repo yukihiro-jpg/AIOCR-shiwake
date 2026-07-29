@@ -229,10 +229,18 @@ export default function NenmatsuUpload() {
     try {
       const existing = await getSubmissionPublic(params.t, emp.id)
       if (existing) {
-        if (!confirm(`${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n上書きして提出しますか？`)) return
+        if (!confirm(
+          `${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n\n` +
+            '再提出すると：\n' +
+            '・今回撮影した書類は追加されます\n' +
+            '・同じ書類を撮り直した場合は、新しい写真に置き換わります\n' +
+            '・撮影しなかった書類は、前回提出した写真がそのまま残ります\n' +
+            '・扶養親族等の申告内容は、今回の入力内容に更新されます\n\n' +
+            'このまま提出しますか？',
+        )) return
       }
     } catch {
-      /* チェック失敗時は続行 */
+      /* チェック失敗時は続行（提出処理側でも前回分を確認する） */
     }
 
     setSubmitting(true)
