@@ -688,6 +688,107 @@ export function buildDenkiChecks(input: DenkiCheckInput): CheckResult[] {
           mk(G_RK, '第六号様式(76) 法人税の所得金額', '別表四(52)', b4Row(52), '第六号様式 (76)', rokugo2.hojinzeiShotoku),
         )
       }
+      // 「法人税及び法人住民税」のうち事業区分に直課される部分は、その区分の
+      // 事業税＋特別法人事業税の年税額。法人税・地方法人税・住民税は会社全体の税なので共通に入る。
+      const r34 = rowOf('法人税及び法人住民税')
+      if (r34) {
+        const sum = (...v: (number | null)[]) => v.reduce<number>((s, x) => s + (x ?? 0), 0)
+        const hasAny = (...v: (number | null)[]) => v.some((x) => x != null)
+        const NOTE_34 =
+          '会社全体にかかる法人税・地方法人税・道府県民税・市町村民税は共通欄へ、' +
+          '事業区分ごとに計算される事業税と特別法人事業税は各区分の欄へ入る。' +
+          '決算書で事業税を租税公課に計上している場合や、事業税の確定分を未払計上していない場合は一致しない。'
+        // 電気供給業（第2号・第3号事業）
+        const denkiTax = sum(
+          rokugo2.shunyu2.tax,
+          rokugo2.shotoku3.tax,
+          rokugo2.fukakachiTax43,
+          rokugo2.shihonTax45,
+          rokugo2.shunyu3.tax,
+          rokugo2.tokubetsu2.tax,
+          rokugo2.tokubetsu3.tax,
+        )
+        if (
+          hasAny(rokugo2.shotoku3.tax, rokugo2.shunyu3.tax, rokugo2.tokubetsu3.tax, rokugo2.shunyu2.tax)
+        ) {
+          const c = mk(
+            G_RK,
+            '様式2号「法人税及び法人住民税」電気供給業に区分された額',
+            '様式2号（電気供給業・区分）',
+            z(r34.denkiFix),
+            '(39)＋(41)＋(43)＋(45)＋(47)＋(66)＋(67)',
+            denkiTax,
+            {
+              note:
+                `電気供給業の事業税と特別法人事業税の年税額（中間納付分＋確定分）。${NOTE_34}`,
+              // 事業税を法人税等に含めていない決算だと0になる。誤りとは限らないので参考に落とす
+              infoOnly: z(r34.denkiFix) === 0 && denkiTax !== 0,
+            },
+          )
+          out.push(c)
+        }
+        // 所得課税事業（第1号事業）
+        const shotokuTax = sum(
+          (rokugo2.shotoku1Tax33 ?? 0) > 0 ? rokugo2.shotoku1Tax33 : rokugo2.shotoku1Tax32,
+          rokugo2.fukakachiTax35,
+          rokugo2.shihonTax37,
+          rokugo2.tokubetsu1.tax,
+        )
+        if (hasAny(rokugo2.shotoku1Tax32, rokugo2.shotoku1Tax33, rokugo2.tokubetsu1.tax)) {
+          out.push(
+            mk(
+              G_RK,
+              '様式2号「法人税及び法人住民税」所得課税事業に区分された額',
+              '様式2号（所得課税事業・区分）',
+              z(r34.shotokuFix),
+              '(32)又は(33)＋(35)＋(37)＋(65)',
+              shotokuTax,
+              {
+                note: `所得課税事業の事業税と特別法人事業税の年税額。${NOTE_34}`,
+                infoOnly: z(r34.shotokuFix) === 0 && shotokuTax !== 0,
+              },
+            ),
+          )
+        }
+        // 共通に残るのは会社全体の税。区分に直課した分を差し引いた残り
+        out.push(
+          mk(
+            G_RK,
+            '様式2号「法人税及び法人住民税」の区分と総額',
+            '総額',
+            num(r34.total),
+            '共通＋所得課税事業（区分）＋電気供給業（区分）',
+            z(r34.kyotsu) + z(r34.shotokuFix) + z(r34.denkiFix),
+            { note: '共通欄には法人税・地方法人税・道府県民税・市町村民税が入る' },
+          ),
+        )
+      }
+
+      // 納税充当金に含めた事業税等（この申告により納付すべき額）との突合。
+      // 第2号事業がある場合、内訳(55)〜(58)に第1号と第2号が混在するため対象外にする
+      const r37 = rowOf('損金計上納税充当金')
+      const has2go = (rokugo2.shunyu2.total ?? 0) !== 0
+      if (r37 && !has2go && (rokugo2.nofu59 != null || rokugo2.nofu62 != null || rokugo2.nofu73 != null)) {
+        const nofuDenki =
+          (rokugo2.nofu59 ?? 0) + (rokugo2.nofu60 ?? 0) + (rokugo2.nofu61 ?? 0) + (rokugo2.nofu62 ?? 0) + (rokugo2.nofu73 ?? 0)
+        out.push(
+          mk(
+            G_RK,
+            '様式2号「損金計上納税充当金」電気供給業に区分された額',
+            '様式2号（電気供給業・区分）',
+            z(r37.denkiFix),
+            '(59)＋(60)＋(61)＋(62)＋(73)',
+            nofuDenki,
+            {
+              note:
+                'この申告により納付すべき事業税額のうち第3号事業分と、納付すべき特別法人事業税額。' +
+                '納税充当金に事業税の確定分を含めていない場合は一致しない。',
+              infoOnly: z(r37.denkiFix) === 0 && nofuDenki !== 0,
+            },
+          ),
+        )
+      }
+
       if (rokugo2.gyoshu && !/電気|発電|太陽光/.test(rokugo2.gyoshu)) {
         out.push(
           mkNote(

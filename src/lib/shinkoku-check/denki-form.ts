@@ -112,6 +112,10 @@ const X_NO_R: [number, number] = [250, 265] // 行番号（合計欄）
 const X_BASE: [number, number] = [150, 241] // 課税標準
 const X_RATE: [number, number] = [242, 275] // 税率
 const X_TAX: [number, number] = [300, 366] // 税額
+// 「この申告により納付すべき事業税額」の内訳欄（左右2列組み）
+const X_NO_UCHI_L: [number, number] = [100, 113]
+const X_NO_UCHI_R: [number, number] = [250, 262]
+const X_UCHI_L: [number, number] = [170, 210]
 
 /** 事業税の1区分ぶんの読み取り結果 */
 export interface RokugoSegment {
@@ -162,6 +166,18 @@ export interface Rokugo2 {
   tokubetsuTotal: number | null
   /** (76) 法人税の所得金額（別表4の(52)） */
   hojinzeiShotoku: number | null
+  /** (54)この申告により納付すべき事業税額の内訳。
+   *  (55)〜(58)＝第1号又は第2号事業、(59)〜(62)＝第3号事業 */
+  nofu55: number | null
+  nofu56: number | null
+  nofu57: number | null
+  nofu58: number | null
+  nofu59: number | null
+  nofu60: number | null
+  nofu61: number | null
+  nofu62: number | null
+  /** (73) この申告により納付すべき特別法人事業税額 */
+  nofu73: number | null
 }
 
 function textAfter(p: Page, re: RegExp, xMin: number): string {
@@ -232,6 +248,17 @@ export function extractRokugo2(pages: ClassifiedPage[]): Rokugo2 | null {
     tokubetsu3: { total: null, base: byRowNo(p, 67, X_NO, X_BASE), rate: byRowNo(p, 67, X_NO, X_RATE, 'rate'), tax: byRowNo(p, 67, X_NO, X_TAX) },
     tokubetsuTotal: byRowNo(p, 68, X_NO_R, X_TAX),
     hojinzeiShotoku: byRowNo(p, 76, [438, 455], [460, 560]),
+    // 「この申告により納付すべき事業税額」の内訳欄は左右2列組み。
+    // 奇数番号が左（行番号 x≈107・金額 x≈170〜210）、偶数番号が右（x≈256・金額 x≈320〜366）
+    nofu55: byRowNo(p, 55, X_NO_UCHI_L, X_UCHI_L),
+    nofu56: byRowNo(p, 56, X_NO_UCHI_R, X_TAX),
+    nofu57: byRowNo(p, 57, X_NO_UCHI_L, X_UCHI_L),
+    nofu58: byRowNo(p, 58, X_NO_UCHI_R, X_TAX),
+    nofu59: byRowNo(p, 59, X_NO_UCHI_L, X_UCHI_L),
+    nofu60: byRowNo(p, 60, X_NO_UCHI_R, X_TAX),
+    nofu61: byRowNo(p, 61, X_NO_UCHI_L, X_UCHI_L),
+    nofu62: byRowNo(p, 62, X_NO_UCHI_R, X_TAX),
+    nofu73: byRowNo(p, 73, X_NO_UCHI_L, X_UCHI_L),
   }
 }
 
