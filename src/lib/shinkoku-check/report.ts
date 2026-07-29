@@ -5,8 +5,8 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function fmt(v: number | null): string {
-  if (v == null) return '（検出不可）'
+function fmt(v: number | null, textOnly?: boolean): string {
+  if (v == null) return textOnly ? '－' : '（検出不可）'
   return v.toLocaleString('ja-JP')
 }
 
@@ -55,8 +55,8 @@ export function buildShinkokuReportHtml(
                   : `<span class="warnv">${esc(fmt(c.diff))}</span>`
             return `<tr>
           <td class="tl"><div class="nm">${esc(c.name)}</div>${c.note ? `<div class="note">${esc(c.note)}</div>` : ''}</td>
-          <td class="tr"><div class="lbl">${esc(c.leftLabel)}</div><div class="val${c.leftValue == null ? ' dim' : ''}">${esc(fmt(c.leftValue))}</div></td>
-          <td class="tr"><div class="lbl">${esc(c.rightLabel)}</div><div class="val${c.rightValue == null ? ' dim' : ''}">${esc(fmt(c.rightValue))}</div></td>
+          <td class="tr"><div class="lbl">${esc(c.leftLabel)}</div><div class="val${c.leftValue == null ? ' dim' : ''}">${esc(fmt(c.leftValue, c.textOnly))}</div></td>
+          <td class="tr"><div class="lbl">${esc(c.rightLabel)}</div><div class="val${c.rightValue == null ? ' dim' : ''}">${esc(fmt(c.rightValue, c.textOnly))}</div></td>
           <td class="tr val">${diff}</td>
           <td class="tc"><span class="badge ${st.cls}">${st.label}</span></td>
         </tr>`

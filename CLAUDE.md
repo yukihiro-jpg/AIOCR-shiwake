@@ -22,7 +22,7 @@
 | 年調データ受信（事務所側） | `/nenmatsu` | React | `src/components/nenmatsu/` `src/lib/nenmatsu/` |
 | 年調アップロード（従業員向け公開ページ） | `/nenmatsu-upload` | React | `src/components/nenmatsu/NenmatsuUpload.tsx` |
 | 月次レポート | `/keiei` | React | `src/components/keiei/` `src/lib/keiei/` |
-| 税務チェック（①申告書PDFの書類間金額突合 ②総勘定元帳CSVの会計監査・API不使用） | `/shinkoku-check` | React | `src/components/shinkoku-check/` `src/lib/shinkoku-check/`（監査ロジックは `src/lib/keiei/audit.ts` を共用） |
+| 税務チェック（①申告書PDFの書類間金額突合＋電気供給業の区分計算書Excel検証 ②総勘定元帳CSVの会計監査・API不使用） | `/shinkoku-check` | React | `src/components/shinkoku-check/` `src/lib/shinkoku-check/`（監査ロジックは `src/lib/keiei/audit.ts` を共用） |
 | 路線価マップ（住所→地図＋国税庁路線価図PDF・年分切替・都市計画区分） | `/rosenka-map` | React | `src/components/rosenka-map/` `src/lib/rosenka-map/`。索引データは `tools/rosenka/build-rosenka-index.mjs` が生成し `public/rosenka-data/` に置く（`.github/workflows/rosenka-data.yml` が毎年7/2に自動更新） |
 
 ## ビルド・デプロイ手順（重要）
@@ -115,6 +115,22 @@
 - レシートExcel/CSV列マッピング経由は常にインボイス登録事業者扱い、対象外は税CD/税率/税区分空欄
 - パターン学習: キーワード＋金額範囲＋科目コード。複合仕訳（諸口997）対応
 - 金額入力は「編集中は生文字列、blurで整形」方式（1文字ごとのtoLocaleString整形はカーソル飛び・桁重複の原因になるため禁止）
+
+### 税務チェック（申告書チェック）
+- 電気供給業（太陽光の売電など）を兼業している場合、チェックボックスをONにすると茨城県の
+  「電気供給業とその他の事業を併せて行う法人の計算書」Excelを追加でアップロードできる
+  （`denki-excel.ts` 読取 → `denki-form.ts` が県税申告書PDFを読取 → `denki-checks.ts` が突合）
+- Excelは県の版差に備えて**固定セル番地ではなくラベルをアンカーに**行を特定する
+- 税額の検算は**申告書に印字された税率**を使う（超過課税・税率改正でハードコードが陳腐化するため）。
+  法定の標準税率とのズレは「参考」表示に留める
+- 端数処理は課税標準1,000円未満切捨・税額100円未満切捨（**四捨五入ではない**）。
+  特別法人事業税の課税標準は基準法人収入割額そのもので、1,000円未満切捨を重ねてはいけない
+- あん分率は ROUNDDOWN 8桁、共通経費のあん分は所得課税事業分＝ROUNDDOWN(共通×率,0)・
+  電気供給業分＝共通−所得課税事業分（残差法）。集計行は明細の集計なので、あん分の端数検査から除外する
+- 所得割の課税標準は事業区分ごとに計算し**区分をまたいで通算しない**（欠損区分と黒字区分を相殺しない）。
+  区分後の所得の合計＝法人税の所得金額 で検証している
+- 数式だけで計算結果が保存されていないxlsxはSheetJSがセル自体を返さない。主要な自動計算欄が
+  3か所以上読めないときは照合を中止し「Excelで開いて上書き保存」を促す
 
 ### 相続管理
 - 生前贈与加算は calcTax で反映済み（暦年3年/延長7年100万控除・精算課税110万控除）

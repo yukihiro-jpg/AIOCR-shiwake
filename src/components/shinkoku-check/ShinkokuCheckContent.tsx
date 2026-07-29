@@ -16,8 +16,8 @@ const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   na: { label: '－ 対象なし', cls: 'bg-gray-100 text-gray-500' },
 }
 
-function fmt(v: number | null): string {
-  if (v == null) return '（検出不可）'
+function fmt(v: number | null, textOnly?: boolean): string {
+  if (v == null) return textOnly ? '－' : '（検出不可）'
   return v.toLocaleString('ja-JP')
 }
 
@@ -31,7 +31,11 @@ export default function ShinkokuCheckContent() {
   const [error, setError] = useState('')
   const [showPages, setShowPages] = useState(false)
   const [popupBlocked, setPopupBlocked] = useState(false)
+  // 電気供給業（太陽光など）を兼業している場合の区分計算書（Excel）
+  const [denkiOn, setDenkiOn] = useState(false)
+  const [denkiFile, setDenkiFile] = useState<File | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const denkiRef = useRef<HTMLInputElement>(null)
 
   const addFiles = useCallback((list: FileList | File[]) => {
     const pdfs = Array.from(list).filter((f) => /\.pdf$/i.test(f.name))
@@ -49,6 +53,22 @@ export default function ShinkokuCheckContent() {
     setResult(null)
     setNoText([])
     try {
+      // 区分計算書は先に読む（様式が違えばPDFの解析前に知らせる）
+      let denki = null
+      if (denkiOn && denkiFile) {
+        setProgress('区分計算書（Excel）を読み込み中…')
+        const { parseDenkiWorkbook, DenkiExcelError } = await import('@/lib/shinkoku-check/denki-excel')
+        try {
+          denki = parseDenkiWorkbook(await denkiFile.arrayBuffer(), denkiFile.name)
+        } catch (e: any) {
+          setError(
+            e instanceof DenkiExcelError
+              ? `区分計算書のExcelを読み取れませんでした: ${e.message}`
+              : '区分計算書のExcelを読み取れませんでした: ' + (e?.message || String(e)),
+          )
+          return
+        }
+      }
       setProgress('PDFを読み込み中…')
       const { extractPdfPages } = await import('@/lib/shinkoku-check/pdf')
       const { analyze } = await import('@/lib/shinkoku-check/analyze')
@@ -57,7 +77,7 @@ export default function ShinkokuCheckContent() {
       )
       setNoText(noTextPages)
       setProgress('金額を照合中…')
-      const res = analyze(pages)
+      const res = analyze(pages, denki)
       setResult(res)
       // 結果は新規ウインドウのレポートとして表示（ブロックされたらボタンから再表示）
       const { openShinkokuReport } = await import('@/lib/shinkoku-check/report')
@@ -69,7 +89,7 @@ export default function ShinkokuCheckContent() {
       setBusy(false)
       setProgress('')
     }
-  }, [files, busy])
+  }, [files, busy, denkiOn, denkiFile])
 
   const groups: { name: string; items: CheckResult[] }[] = []
   if (result) {
@@ -107,6 +127,7 @@ export default function ShinkokuCheckContent() {
             <div className="text-sm font-bold text-gray-800">📄 申告書チェック</div>
             <div className="text-xs text-gray-500 mt-1">
               申告書一式のPDFをアップロードし、決算書⇔別表⇔内訳書等の書類間の金額整合を自動チェック
+              （電気供給業を兼業している場合は区分計算書のExcelも検証）
             </div>
           </button>
           <button
@@ -173,10 +194,95 @@ export default function ShinkokuCheckContent() {
           )}
         </section>
 
+        {/* 電気供給業（太陽光など）を兼業している場合の追加チェック */}
+        <section className="bg-white rounded-xl border border-gray-200 p-4">
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 w-4 h-4 accent-blue-600"
+              checked={denkiOn}
+              onChange={(e) => {
+                setDenkiOn(e.target.checked)
+                setResult(null)
+                setError('')
+              }}
+            />
+            <span>
+              <span className="text-sm font-bold text-gray-800">
+                ☀ 電気供給業（太陽光発電など）を兼業している
+              </span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                県税事務所へ添付する「電気供給業とその他の事業を併せて行う法人の計算書」（様式1号・2号・付表1〜3）のExcelを
+                追加でアップロードすると、あん分計算・共通経費の配賦・第六号様式との連動・収入割と所得割の税額計算まで検証します。
+              </span>
+            </span>
+          </label>
+
+          {denkiOn && (
+            <div className="mt-3 pl-7">
+              <div
+                className="rounded-lg border-2 border-dashed border-gray-300 p-4 text-center cursor-pointer hover:border-blue-400 transition-colors"
+                onClick={() => denkiRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const f = Array.from(e.dataTransfer.files).find((x) => /\.(xlsx|xlsm|xls|ods)$/i.test(x.name))
+                  if (f) {
+                    setDenkiFile(f)
+                    setResult(null)
+                    setError('')
+                  }
+                }}
+              >
+                <input
+                  ref={denkiRef}
+                  type="file"
+                  accept=".xlsx,.xlsm,.xls,.ods"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) {
+                      setDenkiFile(f)
+                      setResult(null)
+                      setError('')
+                    }
+                    e.target.value = ''
+                  }}
+                />
+                <p className="text-sm text-gray-700 font-medium">
+                  📊 区分計算書のExcelをここにドロップ（クリックで選択）
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  県のサイトからダウンロードした様式に金額を入力したものを、そのままアップロードしてください
+                </p>
+                {denkiFile && (
+                  <div className="mt-2 text-xs text-gray-700 flex items-center justify-center gap-2">
+                    <span>📎 {denkiFile.name}（{(denkiFile.size / 1024).toFixed(0)}KB）</span>
+                    <button
+                      className="text-red-500 hover:text-red-700"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDenkiFile(null)
+                        setResult(null)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+                県税申告書（第六号様式・別表五・別表六）も上のPDFに含めておくと、区分計算書の課税標準がそのまま申告書へ
+                転記されているか、収入割・所得割の税額が正しく計算されているかまで確認できます。
+              </p>
+            </div>
+          )}
+        </section>
+
         <div className="flex items-center gap-3">
           <button
             className="px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={!files.length || busy}
+            disabled={!files.length || busy || (denkiOn && !denkiFile)}
             onClick={run}
           >
             {busy ? progress || '処理中…' : 'チェック実行'}
@@ -254,13 +360,13 @@ export default function ShinkokuCheckContent() {
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <div className="text-[11px] text-gray-500">{c.leftLabel}</div>
                           <div className={'font-mono ' + (c.leftValue == null ? 'text-gray-400' : 'text-gray-800')}>
-                            {fmt(c.leftValue)}
+                            {fmt(c.leftValue, c.textOnly)}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
                           <div className="text-[11px] text-gray-500">{c.rightLabel}</div>
                           <div className={'font-mono ' + (c.rightValue == null ? 'text-gray-400' : 'text-gray-800')}>
-                            {fmt(c.rightValue)}
+                            {fmt(c.rightValue, c.textOnly)}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap font-mono">

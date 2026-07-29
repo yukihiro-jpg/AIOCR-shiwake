@@ -7,8 +7,17 @@ import type {
   ClassifiedPage,
   CheckResult,
   AnalyzeResult,
-  CheckStatus,
 } from './types'
+import { mk } from './check'
+import type { DenkiWorkbook } from './denki-excel'
+import { buildDenkiChecks } from './denki-checks'
+import {
+  extractBeppyo4Row,
+  extractRokugo2,
+  extractRokugoB5,
+  extractRokugoB6,
+  extractRokugoB9,
+} from './denki-form'
 
 // ---------- 基本ヘルパー ----------
 
@@ -100,7 +109,14 @@ export function classifyPages(pages: Page[]): ClassifiedPage[] {
     if (uw) {
       kind = 'uchiwake'
       subType = uw[0]
-    } else if (/所得の金額の計算に関する明細書/.test(txt)) kind = 'beppyo4'
+    }
+    // 県税（第六号様式）は法人税別表より先に判定する。表題が縦書きで分断されるため、
+    // 様式名ではなくその様式にしか出てこない見出し語で判別する。
+    else if (/合計事業税額/.test(txt) && /県税事務所長|都税事務所長|支庁長/.test(txt)) kind = 'rokugo2'
+    else if (/非課税所得の区分計算/.test(txt)) kind = 'rokugo-b5'
+    else if (/収入金額に関する計算書/.test(txt)) kind = 'rokugo-b6'
+    else if (/欠損金額等及び災害損失欠損金額の/.test(txt)) kind = 'rokugo-b9'
+    else if (/所得の金額の計算に関する明細書/.test(txt)) kind = 'beppyo4'
     else if (/利益積立金額及び資本金等の額/.test(txt)) kind = 'beppyo51'
     else if (/租税公課の納付状況等に関する/.test(txt)) kind = 'beppyo52'
     else if (/所得税額の控除に関する明細書/.test(txt)) kind = 'beppyo61'
@@ -1293,42 +1309,10 @@ function extractBeppyoPeriod(pages: ClassifiedPage[]): string | null {
 
 // ---------- チェックの組み立て ----------
 
-function mk(
-  group: string,
-  name: string,
-  leftLabel: string,
-  leftValue: number | null,
-  rightLabel: string,
-  rightValue: number | null,
-  opts: { note?: string; tol?: number; infoOnly?: boolean } = {},
-): CheckResult {
-  let status: CheckStatus
-  let diff: number | null = null
-  if (leftValue == null && rightValue == null) status = 'na'
-  else if (leftValue == null || rightValue == null) {
-    status = 'warn'
-  } else {
-    diff = leftValue - rightValue
-    const tol = opts.tol ?? 0
-    if (Math.abs(diff) <= tol) status = 'ok'
-    else status = opts.infoOnly ? 'info' : 'warn'
-  }
-  return {
-    group,
-    name,
-    leftLabel,
-    leftValue,
-    rightLabel,
-    rightValue,
-    diff,
-    status,
-    note: opts.note,
-  }
-}
-
 const trunc1000 = (v: number) => (v >= 0 ? Math.floor(v / 1000) : -Math.floor(-v / 1000))
 
-export function analyze(rawPages: Page[]): AnalyzeResult {
+/** 電気供給業の区分計算書（Excel）を添付したときのみ、その突合も併せて行う */
+export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): AnalyzeResult {
   const pages = classifyPages(rawPages)
   const pool = buildFsPool(pages)
   const checks: CheckResult[] = []
@@ -1347,6 +1331,10 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
     gaikyo: '法人事業概況説明書',
     'shohizei-fuhyo': '消費税 付表（税率別計算表）',
     uchiwake: '内訳書',
+    rokugo2: '県税 第六号様式（その2）',
+    'rokugo-b5': '県税 第六号様式別表五（所得金額）',
+    'rokugo-b6': '県税 第六号様式別表六（収入金額）',
+    'rokugo-b9': '県税 第六号様式別表九（欠損金額）',
     other: '（チェック対象外）',
   }
   const pageSummary = pages.map((p) => ({
@@ -2104,8 +2092,27 @@ export function analyze(rawPages: Page[]): AnalyzeResult {
               : 'warn'
             : 'na',
         note: fsP && bpP ? undefined : '会計期間または事業年度を検出できませんでした。',
+        textOnly: true,
       })
     }
+  }
+
+  // ===== ⑥ 電気供給業の区分計算書（Excelを添付したときのみ） =====
+  if (denki) {
+    checks.push(
+      ...buildDenkiChecks({
+        denki,
+        rokugo2: extractRokugo2(pages),
+        rokugoB5: extractRokugoB5(pages),
+        rokugoB6: extractRokugoB6(pages),
+        rokugoB9: extractRokugoB9(pages),
+        fs: (...labels: string[]) => fsGet(pool, ...labels),
+        fsLabels: Array.from(pool.entries.keys()),
+        b4Row: (no: number) => extractBeppyo4Row(pages, no),
+        hasFs: pages.some((p) => p.kind === 'pl'),
+        hasB4: !!b4,
+      }),
+    )
   }
 
   return { checks, pageSummary }

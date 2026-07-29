@@ -33,6 +33,10 @@ export type PageKind =
   | 'beppyo15'
   | 'shohizei-fuhyo' // 消費税 付表1-3（税率別消費税額計算表）
   | 'shohizei-1' // 消費税申告書 第一表
+  | 'rokugo2' // 県税 第六号様式（その2）事業税・道府県民税の申告書
+  | 'rokugo-b5' // 県税 第六号様式別表五（所得金額に関する計算書・事業区分ごと）
+  | 'rokugo-b6' // 県税 第六号様式別表六（収入金額に関する計算書）
+  | 'rokugo-b9' // 県税 第六号様式別表九（欠損金額等の控除明細書）
   | 'other'
 
 export interface ClassifiedPage extends Page {
@@ -52,6 +56,8 @@ export interface CheckResult {
   diff: number | null
   status: CheckStatus
   note?: string
+  // 金額の左右比較ではなく注記だけを伝える行（金額欄に「検出不可」ではなく「－」を出す）
+  textOnly?: boolean
 }
 
 export interface AnalyzeResult {
