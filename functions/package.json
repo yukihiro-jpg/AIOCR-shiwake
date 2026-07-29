@@ -2,7 +2,7 @@
   "name": "aiocr-shiwake-functions",
   "description": "書類スキャン受信のアップロード通知メール（Cloud Functions）",
   "private": true,
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "dependencies": {
     "firebase-admin": "^12.6.0",

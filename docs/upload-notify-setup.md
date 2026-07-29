@@ -86,10 +86,35 @@ GitHubから自動で配置できるようにするための鍵です。
    画面上部のプロジェクト選択で対象プロジェクトを選ぶ
 2. 一覧から `firebase-adminsdk-xxxxx@（プロジェクトID）.iam.gserviceaccount.com` を探し、
    右端の**鉛筆アイコン**をクリック
-3. **「別のロールを追加」** で次の3つを足して**保存**する
+3. **「別のロールを追加」** で次の4つを足して**保存**する
    - 編集者（Editor）
    - Secret Manager 管理者（Secret Manager Admin）
    - サービス アカウント ユーザー（Service Account User）
+   - プロジェクト IAM 管理者（Project IAM Admin）
+     … 初回配置時に、Firebase が内部アカウントへ権限を配るために必要。
+     配置が成功したあとは外してもよい。
+
+### 3-3　関数を動かすアカウントに権限を与える（初回のみ）
+
+配置される関数は `（プロジェクト番号）-compute@developer.gserviceaccount.com`
+（Default compute service account）として動く。2024年以降に作られたプロジェクトでは
+このアカウントに権限が付いていないため、次を足しておく。
+
+同じIAM画面で **「＋ アクセスを許可」**（既に一覧にあるなら鉛筆アイコン）から、
+プリンシパルに上記アドレスを入れ、次のロールを付けて保存する。
+
+| ロール | これが無いと起きること |
+|---|---|
+| Cloud Build サービス アカウント | 配置時に `missing permission on the build service account` でビルドが失敗する |
+| Firebase Realtime Database 管理者 | 関数がDBに接続できず `credentials ... are invalid` を延々と出して60秒でタイムアウトする |
+| Firebase Admin SDK 管理者サービス エージェント | 同上 |
+
+### 3-4　Cloud Billing API を有効にする（初回のみ）
+
+配置ツールがプランを確認するために使う。無効だと
+`Cloud Billing API has not been used in project ...` で止まる。
+[APIライブラリ](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com)
+を開いて **「有効にする」** を押すだけ。料金はかからない。
 
 ---
 
@@ -119,6 +144,15 @@ GitHubから自動で配置できるようにするための鍵です。
 4. 2〜4分待つ。**緑のチェックが付けば完了**です
 
 赤い×になった場合は、その行をクリックすると日本語のエラー文が出ます。内容をお知らせください。
+
+初回だけは、権限が行き渡るまでの時間差で
+`Since this is your first time using 2nd gen functions ... Retry the deployment in a few minutes`
+と出て失敗することがある。**数分待ってもう一度実行すれば通る**（設定の誤りではない）。
+
+配置が途中で失敗したあと
+`Changing from an HTTPS function to a background triggered function is not allowed`
+が出るようになったら、中途半端な関数が残っている。手動実行の
+**「既存の関数を削除してから作り直す」にチェックを入れて実行**すれば直る。
 
 ---
 
