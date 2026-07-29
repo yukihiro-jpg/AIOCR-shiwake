@@ -3,7 +3,7 @@
 // DocuWorks風のフォルダツリー共有フォルダ（顧問先ページ・事務所ページ共通で使うブラウザUI）。
 // ルート（toOffice/toClient）は仮想（DBに実体を持たない）。folders はルート配下のサブフォルダのみ。
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ScanFolder } from '@/lib/scan/store'
 
 // ドラッグ中のファイル移動情報を保持（一覧⇔サイドバーツリーの橋渡し用モジュール変数）
@@ -161,6 +161,11 @@ export default function FolderBrowser({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [done, setDone] = useState('')
+  // 一覧の高さ。固定値だと画面下に大きな余白が残るので、実際の表示位置から
+  // ウインドウ下端までを毎回測って割り当てる（ウインドウのリサイズ・フォルダ移動で再計算）。
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const [bodyH, setBodyH] = useState(360)
+
   // プレビュー
   const [preview, setPreview] = useState<{ url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -200,6 +205,22 @@ export default function FolderBrowser({
       return fid === currentId
     })
     .sort((a, b) => b.at.localeCompare(a.at))
+
+  // 一覧本文をウインドウ下端まで伸ばす。フォルダを移動するとパンくずの行数が変わることが
+  // あるため、現在フォルダが変わったときにも測り直す。
+  useEffect(() => {
+    const fit = () => {
+      const el = bodyRef.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      // 下端に少し余白を残す（親の padding ぶんで横スクロールバーが出ないように）。
+      // 画面が狭いとき・一覧が下の方に来るときでも、従来の高さ(360px)より狭くはしない
+      setBodyH(Math.max(360, Math.round(window.innerHeight - top - 24)))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [currentId, subFolders.length, curFiles.length])
 
   // 「このフォルダごと」＝現在フォルダ＋その配下すべてのファイル
   function filesUnderCurrent(): BrowserFile[] {
@@ -562,8 +583,8 @@ export default function FolderBrowser({
           <span className="hidden sm:block w-80 shrink-0 text-right pr-1">操作</span>
         </div>
 
-        {/* 本文（8ファイル分の高さを確保・超過分はスクロール） */}
-        <div className="overflow-y-auto" style={{ height: 360 }}>
+        {/* 本文（画面下端まで広げ、あふれた分だけスクロール） */}
+        <div ref={bodyRef} className="overflow-y-auto" style={{ height: bodyH }}>
           {subFolders.length === 0 && curFiles.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <p className="text-sm text-gray-400 text-center px-4">
