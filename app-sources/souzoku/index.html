@@ -2671,6 +2671,7 @@ function renderAssetDetail(){
     +table
     +'<div class="detail-foot"><button class="btn primary sm" onclick="addAsset(\''+currentAssetCat+'\')">＋ 行を追加</button>'
     +(currentAssetCat==='other'?'<button class="btn sm" onclick="openCarEval()" title="車検証の読み取りまたは手入力から相続税評価額を算出して登録します">🚗 自動車の評価</button>':'')
+    +(currentAssetCat==='securities'?'<button class="btn sm" onclick="autoFetchAllSecurities()" title="銘柄コード／ISINが入力されている行をまとめて自動取得します" style="background:#0071e3;color:#fff;border-color:#0071e3;">⚡ 一括自動算出</button>':'')
     +'<span class="muted" style="font-size:12px;">「複製」で同じ行をコピーできます。No.列をドラッグすると並び替えできます。</span></div>'
     +detailNote(currentAssetCat);
   enhanceAssetDnd();
@@ -3080,10 +3081,12 @@ function giftTableHtml(items){
     +'<tfoot><tr><td colspan="9" style="text-align:right;">計</td><td class="num" id="foot-gift">'+yen(valSum)+'</td><td class="num">'+yen(taxSum)+'</td><td colspan="4"></td></tr>'
     +'<tr><td colspan="9" style="text-align:right;">基礎控除後の相続時精算課税計</td><td class="num">'+yen(seisanAfter)+'</td><td colspan="4"></td></tr></tfoot></table></div>';
 }
+// 口座種類（準確定申告・譲渡所得の判断や残高証明の取り寄せ先の整理に使う）
+const SEC_ACCT_TYPES=['特定口座（源泉徴収あり）','特定口座（源泉徴収なし）','一般口座','NISA口座','その他'];
 function securitiesTableHtml(items){
   const subs=ASSET_BY_KEY['securities'].subs;
   let rows='';
-  if(!items.length) rows='<tr><td colspan="23" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
+  if(!items.length) rows='<tr><td colspan="27" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
     const fund=isFund(a); const unit=secUnit(a); const base=secBase(a); const di=divInfo(a); const editable=a.autoCalc===false;
     const valCell= editable
@@ -3097,6 +3100,8 @@ function securitiesTableHtml(items){
       +'<td><input type="text" value="'+esc(a.code||'')+'" placeholder="'+(fund?'ISIN 例:JP90C...':'例：7203')+'" oninput="updAsset(\''+a.id+'\',\'code\',this.value)"></td>'
       +'<td><input type="text" value="'+esc(a.assoc||'')+'" placeholder="'+(fund?'協会コード':'—')+'"'+(fund?'':' disabled style="opacity:.35"')+' oninput="updAsset(\''+a.id+'\',\'assoc\',this.value)"></td>'
       +'<td style="min-width:260px;"><input type="text" style="width:100%;min-width:250px;" value="'+esc(a.name||'')+'" placeholder="'+(fund?'ファンド名':'銘柄名')+'" oninput="updAsset(\''+a.id+'\',\'name\',this.value)"></td>'
+      +'<td><input type="text" value="'+esc(a.broker||'')+'" placeholder="例：〇〇証券 〇〇支店" oninput="updAsset(\''+a.id+'\',\'broker\',this.value)"></td>'
+      +'<td><select onchange="updAsset(\''+a.id+'\',\'acctType\',this.value)"><option value="">—</option>'+SEC_ACCT_TYPES.map(t=>'<option value="'+esc(t)+'"'+(t===a.acctType?' selected':'')+'>'+esc(t)+'</option>').join('')+'</select></td>'
       +m('p1',fund?'基準価額':'終値')+m('p2','月平均',fund)+m('p3','月平均',fund)+m('p4','月平均',fund)
       // 税法上の1株単価＝①〜④のうち最も低い価額（自動算出）。株数/口数とあわせて青枠でくくる
       +'<td class="secgrp"><input type="text" readonly class="num computed" id="secunit-'+a.id+'" value="'+(fund?'':(unit?unit.toLocaleString('ja-JP'):'0'))+'"'+(fund?' disabled style="opacity:.35" placeholder="—"':' title="①〜④のうち最も低い価額（相続税評価に用いる1株単価）"')+'></td>'
@@ -3118,8 +3123,9 @@ function securitiesTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:2800px;"><thead><tr>'
-    +'<th>自動</th><th>種類</th><th>銘柄コード/ISIN</th><th>協会コード<br>(投信)</th><th style="min-width:260px;">銘柄/ファンド名</th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:3150px;"><thead><tr>'
+    +'<th>自動</th><th style="min-width:150px;">種類</th><th>銘柄コード/ISIN</th><th>協会コード<br>(投信)</th><th style="min-width:260px;">銘柄/ファンド名</th>'
+    +'<th style="min-width:170px;">証券会社</th><th style="min-width:170px;">口座種類</th>'
     +'<th>①相続開始日終値<br>／基準価額(1万口)</th><th>②当月平均</th><th>③前月平均</th><th>④前々月平均</th>'
     +'<th>税法上の<br>1株単価<br><span style="font-weight:400;font-size:10px;">（①〜④の最低額）</span></th>'
     +'<th>株数/口数</th>'
@@ -3127,7 +3133,7 @@ function securitiesTableHtml(items){
     +'<th>配当基準日</th><th>効力発生日<br>(株主総会決議日)</th><th>支払開始日<br>(実際の入金日)</th><th>1株配当</th><th>配当区分</th><th>配当評価額<br>(源泉控除後)</th>'
     +'<th>計算</th><th>評価額合計(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="21" style="text-align:right;">計</td><td class="num" id="foot-securities">'+yen(sub)+'</td><td colspan="3"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="23" style="text-align:right;">計</td><td class="num" id="foot-securities">'+yen(sub)+'</td><td colspan="3"></td></tr></tfoot></table></div>';
 }
 // 株価データ取得（Google Apps Script ウェブアプリ経由でYahoo!ファイナンスを取得）
 // query1/query2 の両ホストを順に再試行し、{ts:[unix], close:[number], name, dividends:[{date,amount}]} に正規化
@@ -3306,32 +3312,64 @@ async function fetchStockBundle(symbol){
   return {rows, dividends, usName, jpName:j.jpName||'', realPay, realEx};
 }
 // 自動取得：株式＝株価4時点＋配当／投資信託＝基準価額
+// 有価証券の自動取得。_secQuiet が立っている間（一括実行中）は個別トーストを抑止する
+let _secQuiet=false;
+function secToast(m, err){ if(!_secQuiet) toast(m, err); }
+// 一括自動算出：銘柄コード／ISINが入っている有価証券の行を上から順に取得する。
+// 外部サービスへ一度に大量のリクエストを出さないよう、1件ずつ間隔をあけて実行する。
+let _secBulkBusy=false;
+async function autoFetchAllSecurities(){
+  if(_secBulkBusy) return;
+  syncUIToCase();
+  if(!currentCase.deceased.deathDate){ toast('基本情報で相続開始日を入力してください', true); return; }
+  const items=currentCase.assets.filter(a=>a.category==='securities' && (a.code||'').trim());
+  if(!items.length){ toast('銘柄コード／ISINが入力された行がありません', true); return; }
+  const noAssoc=items.filter(a=>isFund(a) && !(a.assoc||'').trim());
+  if(noAssoc.length){ toast('協会コードが未入力の投資信託が'+noAssoc.length+'件あります。先に入力してください', true); return; }
+  _secBulkBusy=true; _secQuiet=true;
+  const ng=[]; let ok=0;
+  try{
+    for(let i=0;i<items.length;i++){
+      const a=items[i];
+      _secQuiet=false; toast('一括自動算出中… '+(i+1)+'/'+items.length+'　'+(a.name||a.code)); _secQuiet=true;
+      let r=false;
+      try{ r=await autoFetchStock(a.id); }catch(e){ console.error(e); }
+      if(r) ok++; else ng.push(a.name||a.code);
+      if(i<items.length-1) await new Promise(res=>setTimeout(res,300));
+    }
+  } finally { _secBulkBusy=false; _secQuiet=false; }
+  renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
+  toast(ng.length
+    ? '一括自動算出：'+ok+'件を取得、'+ng.length+'件は取得できませんでした（'+ng.slice(0,3).join('、')+(ng.length>3?' ほか':'')+'）。個別の「自動算出」で再試行するか手入力してください'
+    : '一括自動算出：'+ok+'件すべて取得しました', ng.length>0);
+}
 async function autoFetchStock(id){
+  // 一括実行中は個別のトーストを出さない（secToast）。成否を返す
   const a=currentCase.assets.find(x=>x.id===id); if(!a) return;
   const code=(a.code||'').trim();
-  if(!code){ toast(isFund(a)?'ISINコードを入力してください':'銘柄コードを入力してください', true); return; }
+  if(!code){ secToast(isFund(a)?'ISINコードを入力してください':'銘柄コードを入力してください', true); return false; }
   syncUIToCase();
   const dd=currentCase.deceased.deathDate;
-  if(!dd){ toast('基本情報で相続開始日を入力してください', true); return; }
+  if(!dd){ secToast('基本情報で相続開始日を入力してください', true); return false; }
   const death=new Date(dd);
   const deathDayEnd0=new Date(death.getFullYear(),death.getMonth(),death.getDate(),23,59,59).getTime()/1000;
   if(isFund(a)){
-    if(!(a.assoc||'').trim()){ toast('協会コードを入力してください（投資信託協会の検索で確認できます）', true); return; }
-    toast('基準価額を取得中…');
+    if(!(a.assoc||'').trim()){ secToast('協会コードを入力してください（投資信託協会の検索で確認できます）', true); return false; }
+    secToast('基準価額を取得中…');
     try{ const nav=await fetchFundNav(code, a.assoc.trim(), deathDayEnd0); a.p1=String(Math.round(nav));
       // ファンド名：投資信託協会のファンド詳細ページから取得。取得不可なら既存値を維持し手入力を促す
       let jp=''; try{ jp=await fetchFundName(code, a.assoc.trim()); }catch(e){}
       if(jp) a.name=jp;
       renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
-      toast('基準価額を取得：¥'+Math.round(nav).toLocaleString('ja-JP')+'（1万口）'+(jp?'／'+jp:'（ファンド名は自動取得できませんでした。手入力してください）')); }
-    catch(e){ console.error(e); toast('基準価額の自動取得に失敗：'+e.message+'（手入力も可能です）', true); }
-    return;
+      secToast('基準価額を取得：¥'+Math.round(nav).toLocaleString('ja-JP')+'（1万口）'+(jp?'／'+jp:'（ファンド名は自動取得できませんでした。手入力してください）')); }
+    catch(e){ console.error(e); secToast('基準価額の自動取得に失敗：'+e.message+'（手入力も可能です）', true); return false; }
+    return true;
   }
   const symbol=/\.[A-Za-z]+$/.test(code)? code : code+'.T';
   const end=new Date(death.getFullYear(), death.getMonth()+1, 1);
   const histStart=new Date(death.getFullYear()-1, death.getMonth()-1, 1);
   const p1sec=Math.floor(histStart.getTime()/1000), p2sec=Math.floor(end.getTime()/1000);
-  toast('株価を取得中…');
+  secToast('株価を取得中…');
   let rows=null, dividends=[], usName='', jpName='', priceSrc='', realPay=null, realEx=null;
   // ① Python(yfinance)相当のGAS高機能版（実支払日・配当・日本語名を一括取得）を優先
   try{ const b=await fetchStockBundle(symbol); if(b&&b.rows&&b.rows.length){ rows=b.rows; dividends=b.dividends||[]; usName=b.usName||''; jpName=b.jpName||''; realPay=b.realPay; realEx=b.realEx; priceSrc='Yahoo(yfinance相当)'; } }
@@ -3347,7 +3385,7 @@ async function autoFetchStock(id){
     try{ const srows=await fetchStooqDaily(code, p1sec, p2sec); if(srows&&srows.length){ const sp=compute4Points(srows, death); if(sp.deathClose!=null){ pts=sp; priceSrc=priceSrc?priceSrc+'→Stooq':'Stooq'; } } }
     catch(e){ console.warn('Stooq失敗：', e); }
   }
-  if(!pts || pts.deathClose==null){ toast('株価の自動取得に失敗しました。銘柄コードと設定（Apps Script URL）をご確認ください（4時点・配当は手入力も可能です）', true); return; }
+  if(!pts || pts.deathClose==null){ secToast('株価の自動取得に失敗しました。銘柄コードと設定（Apps Script URL）をご確認ください（4時点・配当は手入力も可能です）', true); return false; }
   a.code=code;
   // 名称：bundleの日本語名 → Yahoo日本版title → 英語名／既存値
   // 【重要】GAS(bundle)が返す名前も必ず cleanFetchedName を通す。
@@ -3382,7 +3420,8 @@ async function autoFetchStock(id){
   } else if(dividends.length){ a.divBase=''; a.divEffective=''; a.divPayStart=''; a.divPerShare=''; divMsg='／該当する未収配当金・配当期待権なし'; }
   else { divMsg='／配当データは取得できませんでした（必要に応じ手入力）'; }
   renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase();
-  toast('取得しました：'+(a.name||symbol)+'（'+priceSrc+'／採用単価 ¥'+secUnit(a).toLocaleString('ja-JP')+'）'+divMsg);
+  secToast('取得しました：'+(a.name||symbol)+'（'+priceSrc+'／採用単価 ¥'+secUnit(a).toLocaleString('ja-JP')+'）'+divMsg);
+  return true;
 }
 function detailNote(cat){
   const notes={
