@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nxrpa"
+version = "0.1.0"
+description = "MJS ACELINK NX-PRO 電子申告の自動化（申告 → 受信通知 → PDF保存 → 印刷）"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+windows = ["pywinauto>=0.6.8", "pywin32>=306", "Pillow>=10.0", "comtypes>=1.2"]
+dev = ["pytest>=8.0", "pyinstaller>=6.0"]
+
+[project.scripts]
+nxrpa = "nxrpa.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

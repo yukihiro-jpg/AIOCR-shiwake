@@ -1,0 +1,218 @@
+# ===================================================================
+# 電子申告 自動処理ツール 設定ファイル（ひな形）
+#
+# このファイルを config/settings.yaml にコピーして、事務所の環境に合わせて直す。
+# 画面の操作手順そのものは config/profiles/*.yaml に書く（このファイルには書かない）。
+# ===================================================================
+
+# -------------------------------------------------------------------
+# 実行のしかた
+# -------------------------------------------------------------------
+run:
+  # rehearsal … 練習。実機を操作するが「送信」ボタンの直前で必ず止まる（既定）
+  # live      … 本番。実際に送信する。顧問先名の打ち込み確認を求める
+  # simulate  … 検証。画面を一切触らず、設定と手順の整合だけ確かめる
+  mode: rehearsal
+
+  confirm_before_submit: true   # 本番送信の直前に確認する（false にしない方がよい）
+  confirm_each_client: true     # 顧問先ごとに、保存先と対象書類を見せて確認する
+  stop_on_error: true           # 1件失敗したら以降を中止する
+
+  step_timeout_sec: 30          # 画面部品を探す既定の待ち時間
+  window_timeout_sec: 90        # ウィンドウが出るのを待つ既定の時間
+  retry: 2                      # 失敗したステップの再試行回数（暗証番号・送信は対象外）
+  retry_wait_sec: 1.5
+  step_pause_sec: 0.2           # 1ステップごとの間。目で追える速さにする
+
+  screenshot_on_error: true     # 失敗時に画面を保存する（原因調査がぐっと楽になる）
+  screenshot_every_step: false  # 手順を作り込むときだけ true にする（大量に出る）
+  keep_screenshots_days: 90     # 画面には顧問先の申告情報が写るので放置しない
+
+# -------------------------------------------------------------------
+# 保存先とファイル名
+#   ファイル名は「顧問先名＋資料名」。
+#   使える差し込み: {client.code} {client.name} {client.kana} {client.fiscal_year}
+#                   {client.period_from} {client.period_to} {client.local_gov}
+#                   {doc.key} {doc.label} {doc.category}
+#                   {run.date} {run.datetime} {run.year} {run.month} {run.day}
+# -------------------------------------------------------------------
+paths:
+  # 保存先のルート。共有ドライブでもよい（例: 'X:\顧問先'）
+  output_root: 'output'
+
+  # ルートの下のフォルダ構成。空文字にすればルート直下に並べる
+  folder_template: '{client.code}_{client.name}\{client.fiscal_year}'
+
+  # ファイル名（拡張子は自動で .pdf が付く）
+  file_template: '{client.name}_{doc.label}'
+
+  log_dir: 'logs'
+  screenshot_dir: 'logs\screenshots'
+
+  # 同名ファイルがあったとき: rename(連番) / overwrite / skip / error
+  on_existing: rename
+  create_folders: true
+
+# -------------------------------------------------------------------
+# 印刷
+# -------------------------------------------------------------------
+printing:
+  enabled: true
+
+  # app … NX-PRO の印刷画面から直接プリンタへ出す（体裁がアプリ設定どおりになる）
+  # pdf … 保存した PDF を印刷する（保存物と紙が確実に一致する）
+  source: app
+
+  printer: ''      # 空なら既定プリンタ。`nxrpa printers` で正確な名前を確認できる
+  copies: 1
+
+  # source: pdf のとき、Windows の関連付けで印刷できない環境向けの外部コマンド。
+  # SumatraPDF を使う例（無償・サイレント印刷が確実）:
+  # pdf_print_command: '"C:\Tools\SumatraPDF.exe" -print-to "{printer}" -silent "{path}"'
+  pdf_print_command: ''
+
+# -------------------------------------------------------------------
+# 操作するアプリ
+#   国税と地方税で別ソフトを使う運用なら、ここに2つ以上並べて
+#   submissions の app で使い分ける。
+# -------------------------------------------------------------------
+apps:
+  nxpro:
+    profile: acelink-nx-pro.yaml
+    # 空にすると「起動済み前提」。自動起動させたいときは実行ファイルのパスを入れる
+    exe: ''
+    start_timeout_sec: 180
+
+  # 地方税を PCdesk で送る運用にするときの例（profiles/pcdesk.yaml を作る）
+  # pcdesk:
+  #   profile: pcdesk.yaml
+  #   exe: 'C:\Program Files (x86)\PCdesk\PCdesk.exe'
+
+default_app: nxpro
+
+# -------------------------------------------------------------------
+# 送信の単位
+#   ここで「何を、どの順で、どの条件のとき送るか」だけを決める。
+#   実際の画面操作は profiles/*.yaml の flow 側にある。
+# -------------------------------------------------------------------
+submissions:
+  - key: national
+    label: 国税（法人税・事業概況書・税務代理権限証書）
+    flow: submit_national
+    app: nxpro
+    order: 10
+
+  - key: consumption
+    label: 消費税
+    flow: submit_consumption
+    app: nxpro
+    requires_consumption_tax: true   # 免税事業者では飛ばす
+    order: 20
+
+  - key: local
+    label: 地方税（都道府県・市町村）
+    flow: submit_local
+    app: nxpro
+    order: 30
+
+# -------------------------------------------------------------------
+# 出力する書類（＝ファイル名の「資料名」）
+#   label はそのままファイル名に入る。重複するとファイルが衝突するので
+#   区別できる名前にする（起動時に検査して弾く）。
+#
+#   export_flow / print_flow を書かなければ flows の既定
+#   （export_document / print_document）が使われる。
+#   書類ごとに画面が違う場合だけ、専用フローの名前を書く。
+# -------------------------------------------------------------------
+documents:
+  - key: kessansho
+    label: 決算書
+    category: accounting
+    order: 10
+
+  - key: uchiwakesho
+    label: 勘定科目内訳明細書
+    category: accounting
+    order: 20
+
+  - key: gaikyo
+    label: 法人事業概況説明書
+    category: national
+    order: 30
+
+  - key: houjinzei
+    label: 法人税申告書
+    category: national
+    order: 40
+
+  - key: chihouzei_ken
+    label: 都道府県民税事業税申告書
+    category: local
+    order: 50
+
+  - key: chihouzei_shi
+    label: 市町村民税申告書
+    category: local
+    order: 60
+
+  - key: shouhizei
+    label: 消費税申告書
+    category: national
+    requires_consumption_tax: true   # 免税事業者では出力しない
+    order: 70
+
+  - key: zeimudairi
+    label: 税務代理権限証書
+    category: national
+    order: 80
+
+  # --- 受信通知 ---
+  # 送信後にしか出ないので、必ず submissions より後の order にする。
+  - key: juushin_kokuzei
+    label: 受信通知（国税）
+    category: national
+    export_flow: export_receipt_national
+    # 送信して初めて存在する書類。送っていないときは自動で省略される
+    # （練習モードでは必ず省略になる）
+    depends_on_submission: national
+    order: 90
+
+  - key: juushin_shouhizei
+    label: 受信通知（消費税）
+    category: national
+    export_flow: export_receipt_consumption
+    requires_consumption_tax: true
+    depends_on_submission: consumption
+    order: 95
+
+  - key: juushin_chihouzei
+    label: 受信通知（地方税）
+    category: local
+    export_flow: export_receipt_local
+    depends_on_submission: local
+    order: 100
+
+# -------------------------------------------------------------------
+# 論理フロー名の読み替え（プロファイル側の名前を変えたいとき）
+# -------------------------------------------------------------------
+flows:
+  startup: startup
+  select_client: select_client
+  fetch_receipts: fetch_receipts
+  export_document: export_document
+  print_document: print_document
+  finish_client: finish_client
+  shutdown: shutdown
+
+# -------------------------------------------------------------------
+# その他
+# -------------------------------------------------------------------
+clients_file: 'config/clients.csv'
+
+pin_label: '税理士カードの暗証番号'
+
+# 起動時に入力を求める暗証番号の名前。
+# プロファイルの type_secret から この名前で参照する。
+# カードを2枚使う運用（税理士カード＋利用者証明用）なら2つ並べる。
+secrets_required:
+  - pin_tax_accountant

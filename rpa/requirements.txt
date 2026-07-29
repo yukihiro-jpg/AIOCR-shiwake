@@ -1,0 +1,18 @@
+# 電子申告 自動処理ツールの依存パッケージ
+#
+# 導入:
+#   py -3.11 -m venv .venv
+#   .venv\Scripts\activate
+#   pip install -r requirements.txt
+
+PyYAML>=6.0            # 設定ファイル・画面手順定義の読み込み
+
+# --- ここから Windows でのみ必要（実機を操作するため） ---
+pywinauto>=0.6.8 ; sys_platform == "win32"   # 画面操作（UIA）
+pywin32>=306     ; sys_platform == "win32"   # 印刷・プリンタ一覧
+Pillow>=10.0     ; sys_platform == "win32"   # 失敗時のスクリーンショット
+comtypes>=1.2    ; sys_platform == "win32"   # pywinauto の UIA バックエンドが使う
+
+# --- 開発時のみ ---
+# pytest>=8.0
+# pyinstaller>=6.0

@@ -1,0 +1,17 @@
+# 事務所固有の設定と業務データは共有しない
+config/settings.yaml
+config/clients.csv
+config/profiles/*.yaml
+!config/profiles/*.sample.yaml
+
+logs/
+output/
+inspect-result.txt
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/

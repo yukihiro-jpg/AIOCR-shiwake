@@ -1,0 +1,677 @@
+# ===================================================================
+# MJS ACELINK NX-PRO 電子申告 — 画面操作の手順定義（ひな形）
+#
+# ★★★ 重要 ★★★
+# このファイルに書いてある auto_id・ボタン名・ウィンドウ名は「よくある形」の
+# 仮置きであって、実機で確認したものではない。NX-PRO はバージョン・導入
+# オプション・事務所ごとの設定で画面が変わる。
+#
+# そのまま実行しても、まず「画面部品が見つかりません」で止まる。それが正常。
+# 次の手順で、実機を見ながら1つずつ埋めていくこと。
+#
+#   1. NX-PRO で目的の画面を出す
+#   2. nxrpa inspect --windows          … ウィンドウ名を確認 → windows: に書く
+#   3. nxrpa inspect --title "電子申告"  … 中の部品を確認 → target: に書く
+#   4. nxrpa check                      … 書式・参照の間違いを潰す
+#   5. nxrpa run -c <コード>            … 練習モードで通す（送信の直前で止まる）
+#   6. 通ってから初めて --mode live
+#
+# 埋め方のコツ:
+#   - auto_id があるなら auto_id を最優先で使う（画面の文言が変わっても壊れない）
+#   - 無ければ name（表示名）。それも無ければ class_name + index
+#   - 座標指定（at: [x, y]）は最後の手段。ウィンドウサイズが変わると誤爆する
+#   - 画面が切り替わったことを assert_exists で必ず確かめてから次へ進む。
+#     「押したつもりで押せていない」まま先へ進むのが、RPA で一番危ない壊れ方
+# ===================================================================
+
+name: ACELINK NX-PRO 電子申告
+version: 1
+
+# -------------------------------------------------------------------
+# ウィンドウ（画面）の名前
+#   nxrpa inspect --windows の出力をそのまま貼れる
+# -------------------------------------------------------------------
+windows:
+  main:
+    title_re: '.*ACELINK.*|.*NX-PRO.*'
+    description: NX-PRO のメイン画面
+    timeout_sec: 180
+
+  client_select:
+    title_re: '.*顧問先.*(選択|検索).*'
+    description: 顧問先選択画面
+
+  denshi:
+    title_re: '.*電子申告.*'
+    description: 電子申告システムの画面
+
+  message_box:
+    title_re: '.*メッセージボックス.*'
+    description: e-Tax / eLTAX の受信通知一覧
+
+  # カード（IC カードリーダ）の暗証番号入力。JPKI 側が出す別プロセスのことがある
+  pin_dialog:
+    title_re: '.*(暗証番号|PIN).*'
+    description: 電子証明書の暗証番号入力
+
+  print_dialog:
+    title_re: '.*印刷.*'
+    description: 印刷設定画面
+
+  # Windows 標準の「名前を付けて保存」
+  save_dialog:
+    title_re: '(名前を付けて保存|保存先の指定|Save As|.*PDF.*保存.*)'
+    description: 保存ダイアログ
+
+  # 業務アプリがよく出す確認・完了・エラーのダイアログ
+  dialog:
+    title_re: '.*(確認|情報|エラー|警告|完了).*'
+    control_type: Window
+
+# -------------------------------------------------------------------
+# 手順の中で使い回す文字列。{vars.xxx} で参照できる
+# -------------------------------------------------------------------
+vars:
+  submit_button: '送信'
+  ok_button: 'OK'
+  close_button: '閉じる'
+
+# ===================================================================
+flows:
+
+  # -----------------------------------------------------------------
+  # 起動。実行1回につき1度だけ呼ばれる
+  # -----------------------------------------------------------------
+  startup:
+    description: NX-PRO を開いて、電子申告システムまで入る
+    steps:
+      - name: NX-PRO を起動（起動済みなら接続のみ）
+        action: start_app
+        app: nxpro
+
+      - name: メイン画面を待つ
+        action: wait_window
+        window: main
+        timeout: 180
+
+      - action: maximize_window
+        window: main
+
+      - action: log
+        message: 'NX-PRO に接続しました'
+
+      # 【要確認】ログインが必要な構成なら、ここに利用者IDとパスワードの入力を足す。
+      # パスワードは settings.yaml の secrets_required に名前を足したうえで
+      # type_secret で入れること（平文でここに書かない）。
+
+  # -----------------------------------------------------------------
+  # 顧問先を開く。変数 client.* が使える
+  # -----------------------------------------------------------------
+  select_client:
+    description: 顧問先コードで顧問先を開く
+    params: [client.code]
+    steps:
+      - action: focus_window
+        window: main
+
+      # 【要確認】顧問先選択の入口。メニューかツールバーのボタン
+      - name: 顧問先選択を開く
+        action: click
+        window: main
+        target:
+          name: '顧問先選択'
+          control_type: Button
+          description: 顧問先選択ボタン
+
+      - action: wait_window
+        window: client_select
+
+      # 【要確認】コード入力欄
+      - name: 顧問先コードを入力
+        action: set_text
+        window: client_select
+        target:
+          control_type: Edit
+          index: 0
+          description: 顧問先コード入力欄
+        text: '{client.code}'
+
+      - action: press_keys
+        keys: '{ENTER}'
+
+      - action: wait_idle
+        timeout: 60
+
+      # 【要確認】一覧から該当行を選ぶ。コードで引けない画面なら value を
+      # '{client.name}' に変える
+      - name: 一覧から顧問先を選ぶ
+        action: select_grid_row
+        window: client_select
+        target:
+          control_type: Table
+          index: 0
+          description: 顧問先一覧
+        value: '{client.code}'
+        double_click: true
+
+      - action: wait_idle
+        timeout: 60
+
+      # ★ ここが最重要の安全確認 ★
+      # 「選んだつもりで別の顧問先が開いている」まま送信するのが最悪の事故。
+      # 開いた画面に会社名が出ているはずなので、必ず突き合わせる。
+      # 【要確認】会社名が表示される場所を inspect で特定して target を直す
+      - name: 開いた顧問先が正しいことを確かめる
+        action: assert_text
+        window: main
+        target:
+          auto_id: 'lblClientName'
+          description: 画面上部の顧問先名表示
+        contains: '{client.name}'
+
+      - action: log
+        message: '顧問先を開きました: {client.code} {client.name}'
+
+  # -----------------------------------------------------------------
+  # 国税の送信
+  # -----------------------------------------------------------------
+  submit_national:
+    description: 法人税・事業概況書・税務代理権限証書を送信する
+    steps:
+      - action: run_flow
+        flow: open_denshi
+
+      # 【要確認】送信対象の選択。一覧から「法人税」の行を選ぶ想定
+      - name: 送信する申告データを選ぶ
+        action: select_grid_row
+        window: denshi
+        target:
+          control_type: Table
+          index: 0
+          description: 申告データ一覧
+        value: '法人税'
+
+      - name: 選択した申告データが対象の年度か確かめる
+        action: assert_text
+        window: denshi
+        target:
+          auto_id: 'lblTargetPeriod'
+          description: 対象年度の表示
+        contains: '{client.fiscal_year}'
+        optional: true      # 年度表示が無い画面もあるので、無ければ飛ばす
+
+      - action: run_flow
+        flow: sign_with_card
+
+      # --- ここから先は取り消せない -------------------------------
+      - name: 送信
+        action: irreversible
+        description: '国税（法人税ほか）を e-Tax へ送信'
+        steps:
+          - action: click
+            window: denshi
+            target:
+              name: '{vars.submit_button}'
+              control_type: Button
+
+          - name: 送信の完了を待つ
+            action: wait_idle
+            timeout: 300
+
+          # 【要確認】送信完了の目印。ここが確認できないと
+          # 「送ったのかどうか分からない」状態になる
+          - action: assert_exists
+            window: denshi
+            target:
+              name_re: '.*(送信.*完了|受付完了|即時通知).*'
+            timeout: 300
+
+          - name: 受付番号を控える
+            action: capture_text
+            window: denshi
+            target:
+              auto_id: 'lblReceiptNo'
+              description: 受付番号の表示
+            var: receipt.national
+            timeout: 60
+
+      - action: log
+        message: '国税を送信しました（受付番号: {receipt.national}）'
+
+  # -----------------------------------------------------------------
+  # 消費税の送信（課税事業者のみ）
+  # -----------------------------------------------------------------
+  submit_consumption:
+    description: 消費税申告書を送信する
+    steps:
+      - action: run_flow
+        flow: open_denshi
+
+      - action: select_grid_row
+        window: denshi
+        target:
+          control_type: Table
+          index: 0
+        value: '消費税'
+
+      - action: run_flow
+        flow: sign_with_card
+
+      - action: irreversible
+        description: '消費税を e-Tax へ送信'
+        steps:
+          - action: click
+            window: denshi
+            target:
+              name: '{vars.submit_button}'
+              control_type: Button
+
+          - action: wait_idle
+            timeout: 300
+
+          - action: assert_exists
+            window: denshi
+            target:
+              name_re: '.*(送信.*完了|受付完了|即時通知).*'
+            timeout: 300
+
+          - action: capture_text
+            window: denshi
+            target:
+              auto_id: 'lblReceiptNo'
+            var: receipt.consumption
+            timeout: 60
+
+  # -----------------------------------------------------------------
+  # 地方税の送信
+  #   PCdesk で送る運用にするなら、この flow を profiles/pcdesk.yaml 側の
+  #   手順に差し替え、settings.yaml の submissions[local].app を pcdesk にする。
+  # -----------------------------------------------------------------
+  submit_local:
+    description: 都道府県民税・事業税・市町村民税を eLTAX へ送信する
+    steps:
+      - action: run_flow
+        flow: open_denshi
+
+      - action: select_grid_row
+        window: denshi
+        target:
+          control_type: Table
+          index: 0
+        value: '地方税'
+
+      - action: run_flow
+        flow: sign_with_card
+
+      - action: irreversible
+        description: '地方税を eLTAX へ送信'
+        steps:
+          - action: click
+            window: denshi
+            target:
+              name: '{vars.submit_button}'
+              control_type: Button
+
+          - action: wait_idle
+            timeout: 300
+
+          - action: assert_exists
+            window: denshi
+            target:
+              name_re: '.*(送信.*完了|受付完了).*'
+            timeout: 300
+
+          - action: capture_text
+            window: denshi
+            target:
+              auto_id: 'lblReceiptNo'
+            var: receipt.local
+            timeout: 60
+
+  # -----------------------------------------------------------------
+  # 共通部品: 電子申告システムを開く
+  # -----------------------------------------------------------------
+  open_denshi:
+    description: 電子申告システムの画面を前に出す
+    steps:
+      - action: focus_window
+        window: main
+
+      # 【要確認】電子申告システムへの入口（メニュー経路）
+      - action: menu_select
+        window: main
+        path: ['業務', '電子申告']
+        optional: true
+
+      - action: wait_window
+        window: denshi
+        timeout: 180
+
+      - action: focus_window
+        window: denshi
+
+  # -----------------------------------------------------------------
+  # 共通部品: カードで署名する（暗証番号の入力）
+  #
+  # ★ 暗証番号の入力は自動で再試行しない。誤入力を繰り返すとカードがロックされ、
+  #   窓口での再設定が必要になるため。失敗したらその場で止める。
+  # -----------------------------------------------------------------
+  sign_with_card:
+    description: 税理士カードで電子署名する
+    steps:
+      # 【要確認】署名ボタン
+      - name: 電子署名
+        action: click
+        window: denshi
+        target:
+          name_re: '.*(電子署名|署名).*'
+          control_type: Button
+
+      - name: 暗証番号の入力画面を待つ
+        action: wait_window
+        window: pin_dialog
+        timeout: 120
+
+      - name: 暗証番号を入力
+        action: type_secret
+        window: pin_dialog
+        target:
+          control_type: Edit
+          index: 0
+          description: 暗証番号入力欄
+        secret: pin_tax_accountant
+        clear: true
+
+      - action: click
+        window: pin_dialog
+        target:
+          name: '{vars.ok_button}'
+          control_type: Button
+
+      - name: 署名の完了を待つ
+        action: wait_window_gone
+        window: pin_dialog
+        timeout: 180
+
+      # 暗証番号が違うとエラーダイアログが出る。ここで必ず止める。
+      # （自動で入れ直すと残り回数を使い切ってカードがロックされる）
+      - name: 暗証番号エラーが出ていないか確かめる
+        action: assert_not_exists
+        target:
+          name_re: '.*(暗証番号.*(誤|違)|認証.*失敗|パスワードが正しくありません).*'
+        timeout: 5
+
+      - action: wait_idle
+        timeout: 120
+
+  # -----------------------------------------------------------------
+  # 受信通知の取り込み
+  # -----------------------------------------------------------------
+  fetch_receipts:
+    description: メッセージボックスを更新して受信通知を取り込む
+    steps:
+      - action: focus_window
+        window: denshi
+
+      # 【要確認】メッセージボックスへの入口
+      - action: click
+        window: denshi
+        target:
+          name_re: '.*メッセージボックス.*'
+        optional: true
+
+      - action: wait_window
+        window: message_box
+        timeout: 180
+        optional: true
+
+      - name: 最新の状態に更新
+        action: click
+        window: message_box
+        target:
+          name_re: '.*(更新|受信).*'
+          control_type: Button
+        optional: true
+
+      # 受信通知は送信直後にはまだ届いていないことがある。
+      # 少し待ってからもう一度更新する。
+      - action: sleep
+        seconds: 20
+
+      - action: click
+        window: message_box
+        target:
+          name_re: '.*(更新|受信).*'
+          control_type: Button
+        optional: true
+
+      - action: wait_idle
+        timeout: 180
+
+  # -----------------------------------------------------------------
+  # 1書類を PDF 出力する
+  #   変数: {doc.label} {doc.report_name} {output.path} {output.filename}
+  # -----------------------------------------------------------------
+  export_document:
+    description: 帳票を1つ PDF にして保存する
+    steps:
+      - action: focus_window
+        window: main
+
+      # 【要確認】帳票印刷・帳票出力への入口
+      - action: menu_select
+        window: main
+        path: ['帳票', '印刷・PDF出力']
+        optional: true
+
+      - action: wait_idle
+        timeout: 60
+
+      # 【要確認】帳票一覧から目的の帳票を選ぶ。
+      # 一覧がツリーなら select_tree_item、表なら select_grid_row に変える。
+      - name: 帳票を選ぶ
+        action: select_grid_row
+        window: main
+        target:
+          control_type: Table
+          index: 0
+          description: 帳票一覧
+        value: '{doc.report_name}'
+
+      - name: PDF出力
+        action: click
+        window: main
+        target:
+          name_re: '.*PDF.*'
+          control_type: Button
+
+      - name: 保存先を指定して保存
+        action: save_dialog
+        window: save_dialog
+        path: '{output.path}'
+        # 保存ダイアログのファイル名欄とボタン。OS の版で名前が変わるので
+        # うまくいかないときは inspect で確認して直す
+        filename_field:
+          control_type: Edit
+          index: 0
+        save_button:
+          name_re: '保存.*'
+          control_type: Button
+        overwrite: true
+        timeout: 120
+
+      - action: wait_idle
+        timeout: 180
+
+      - name: 出力できたことを確かめる
+        action: expect_file
+        path: '{output.path}'
+        timeout: 180
+        min_bytes: 1024
+
+  # -----------------------------------------------------------------
+  # 受信通知の PDF 出力（国税）
+  #   受信通知はメッセージボックス側にあるので、帳票とは経路が違う
+  # -----------------------------------------------------------------
+  export_receipt_national:
+    description: 国税の受信通知を PDF にして保存する
+    steps:
+      - action: focus_window
+        window: message_box
+
+      # 【要確認】受信通知の一覧から、今回送った分を選ぶ。
+      # 受付番号で引けるなら取り違えが起きないので確実。
+      - name: 今回の受信通知を選ぶ
+        action: select_grid_row
+        window: message_box
+        target:
+          control_type: Table
+          index: 0
+          description: メッセージ一覧
+        value: '{receipt.national}'
+        double_click: true
+
+      - action: wait_idle
+        timeout: 120
+
+      - name: 表示された受信通知が対象の顧問先か確かめる
+        action: assert_text
+        window: message_box
+        target:
+          auto_id: 'lblReceiptClient'
+          description: 受信通知に表示される氏名・名称
+        contains: '{client.name}'
+        optional: true
+
+      - name: PDF出力
+        action: click
+        window: message_box
+        target:
+          name_re: '.*(PDF|印刷).*'
+          control_type: Button
+
+      - action: save_dialog
+        window: save_dialog
+        path: '{output.path}'
+        timeout: 120
+
+      - action: expect_file
+        path: '{output.path}'
+        timeout: 180
+
+  export_receipt_consumption:
+    description: 消費税の受信通知を PDF にして保存する
+    steps:
+      - action: run_flow
+        flow: export_receipt_by_number
+        with:
+          receipt.current: '{receipt.consumption}'
+
+  export_receipt_local:
+    description: 地方税の受信通知を PDF にして保存する
+    steps:
+      - action: run_flow
+        flow: export_receipt_by_number
+        with:
+          receipt.current: '{receipt.local}'
+
+  export_receipt_by_number:
+    description: 受付番号で受信通知を選んで PDF にする（共通部品）
+    params: [receipt.current]
+    steps:
+      - action: focus_window
+        window: message_box
+
+      - action: select_grid_row
+        window: message_box
+        target:
+          control_type: Table
+          index: 0
+        value: '{receipt.current}'
+        double_click: true
+
+      - action: wait_idle
+        timeout: 120
+
+      - action: click
+        window: message_box
+        target:
+          name_re: '.*(PDF|印刷).*'
+          control_type: Button
+
+      - action: save_dialog
+        window: save_dialog
+        path: '{output.path}'
+        timeout: 120
+
+      - action: expect_file
+        path: '{output.path}'
+        timeout: 180
+
+  # -----------------------------------------------------------------
+  # 1書類を印刷する（settings.yaml の printing.source が app のとき）
+  #   変数: {print.printer} {print.copies}
+  # -----------------------------------------------------------------
+  print_document:
+    description: 直前に出力した帳票を印刷する
+    steps:
+      - action: focus_window
+        window: main
+
+      - name: 印刷
+        action: click
+        window: main
+        target:
+          name: '印刷'
+          control_type: Button
+
+      - action: wait_window
+        window: print_dialog
+        timeout: 60
+
+      # 【要確認】プリンタ名の選択欄。既定プリンタでよければこのステップは消す
+      - name: プリンタを選ぶ
+        action: select_combo
+        window: print_dialog
+        target:
+          control_type: ComboBox
+          index: 0
+          description: プリンタ選択
+        item: '{print.printer}'
+        optional: true      # 設定でプリンタ名が空のときは飛ばしたいので省略可にする
+
+      - action: click
+        window: print_dialog
+        target:
+          name_re: '(印刷|OK).*'
+          control_type: Button
+
+      - action: wait_idle
+        timeout: 300
+
+  # -----------------------------------------------------------------
+  # 顧問先1件の後片付け
+  # -----------------------------------------------------------------
+  finish_client:
+    description: 開いた画面を閉じて、次の顧問先に備える
+    steps:
+      # 確認ダイアログが残っていると次の顧問先の操作を巻き込むので、
+      # 見えているものは閉じておく
+      - action: click
+        target:
+          name: '{vars.close_button}'
+          control_type: Button
+        optional: true
+
+      - action: focus_window
+        window: main
+        optional: true
+
+  # -----------------------------------------------------------------
+  # 実行の最後に1回
+  # -----------------------------------------------------------------
+  shutdown:
+    description: 後片付け（NX-PRO は開いたままにする）
+    steps:
+      - action: log
+        message: 'すべての処理を終えました。NX-PRO は開いたままにしています。'
