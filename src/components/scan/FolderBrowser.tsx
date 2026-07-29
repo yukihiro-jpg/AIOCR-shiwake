@@ -44,6 +44,8 @@ export interface FolderBrowserProps {
   recipients?: { id: string; name: string }[] // 指定すると「＋ファイル追加」に宛先選択を表示（税理士→顧問先用）
   onDownload: (file: BrowserFile) => Promise<void>
   onDeleteFile?: (file: BrowserFile) => Promise<void>
+  // 削除の確認ダイアログに足す一言（相手が既に受け取っている等の注意喚起）
+  deleteNote?: (file: BrowserFile) => string | null
   onMoveFile?: (file: BrowserFile, targetFolderId: string | null) => Promise<void> // 指定するとフォルダ間移動（ボタン＋D&D）を有効化
   renderFileBadges?: (file: BrowserFile) => React.ReactNode
   onChanged: () => void
@@ -127,6 +129,7 @@ export default function FolderBrowser({
   recipients,
   onDownload,
   onDeleteFile,
+  deleteNote,
   onMoveFile,
   renderFileBadges,
   onChanged,
@@ -384,7 +387,8 @@ export default function FolderBrowser({
 
   async function removeFile(file: BrowserFile) {
     if (!onDeleteFile) return
-    if (!confirm(`「${file.name}」を削除しますか？元に戻せません。`)) return
+    const extra = deleteNote?.(file)
+    if (!confirm(`「${file.name}」を削除しますか？元に戻せません。${extra ? `\n\n${extra}` : ''}`)) return
     setBusy(true)
     try {
       await onDeleteFile(file)

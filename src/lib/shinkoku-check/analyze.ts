@@ -13,6 +13,7 @@ import type { DenkiWorkbook } from './denki-excel'
 import { buildDenkiChecks } from './denki-checks'
 import {
   extractBeppyo4Row,
+  extractBeppyo52Pay,
   extractRokugo2,
   extractRokugoB5,
   extractRokugoB6,
@@ -2109,6 +2110,7 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
         fs: (...labels: string[]) => fsGet(pool, ...labels),
         fsLabels: Array.from(pool.entries.keys()),
         b4Row: (no: number) => extractBeppyo4Row(pages, no),
+        beppyo52: extractBeppyo52Pay(pages),
         hasFs: pages.some((p) => p.kind === 'pl'),
         hasB4: !!b4,
       }),

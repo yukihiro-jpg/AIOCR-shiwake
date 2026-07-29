@@ -15,6 +15,7 @@ import {
   createScanFolder,
   renameScanFolder,
   deleteScanFolder,
+  deleteScanFile,
   moveScanFile,
   moveInboxFile,
   SCAN_FILE_MAX_BYTES,
@@ -530,6 +531,15 @@ export default function ScanUpload() {
                     }}
                     onMoveFile={async (f, targetFolderId) => {
                       await moveScanFile(uploadToken, (f.raw as ScanFile).id, targetFolderId)
+                    }}
+                    onDeleteFile={async (f) => {
+                      await deleteScanFile(uploadToken, f.raw as ScanFile)
+                    }}
+                    deleteNote={(f) => {
+                      const raw = f.raw as ScanFile
+                      return raw.downloadedAt || raw.driveSavedAt
+                        ? '※ このファイルは税理士事務所がすでに受け取っています。共有フォルダからは消えますが、事務所側の控えは残ります。'
+                        : null
                     }}
                     onGetBlob={async (f) => getScanFileBlob(f.raw as ScanFile)}
                     onDownload={async (f) => {

@@ -18,7 +18,7 @@ import {
   roundDownDigits,
   roundHalfUpDigits,
 } from './denki-excel'
-import type { Rokugo2, RokugoB5, RokugoB6, RokugoB9 } from './denki-form'
+import type { Beppyo52Pay, Rokugo2, RokugoB5, RokugoB6, RokugoB9 } from './denki-form'
 
 // ---------- グループ名（レポートの見出し。' ⇔ ' で左右の書類名になる） ----------
 
@@ -68,6 +68,8 @@ export interface DenkiCheckInput {
   fsLabels: string[]
   /** 別表四の指定行（①総額） */
   b4Row: (no: number) => number | null
+  /** 別表五(二)の納付状況（事業税の損金算入額の検算に使う） */
+  beppyo52: Beppyo52Pay
   /** 決算書のページがあるか */
   hasFs: boolean
   /** 法人税別表四のページがあるか */
@@ -613,6 +615,45 @@ export function buildDenkiChecks(input: DenkiCheckInput): CheckResult[] {
         mk(G_B4, '法人税額から控除される所得税額', '別表四(29)', b4Row(29), '様式2号 控除所得税額（総額）', num(r所得税.total)),
       )
     }
+    // 事業税は納付した事業年度の損金になる。区分計算書の3行（法人税及び法人住民税・
+    // 損金計上納税充当金・事業税減算）から導かれる正味の損金算入額が、
+    // 別表五(二)の実際の納付額と一致するかを見る。区分の付け間違いはここに必ず現れる。
+    const b52 = input.beppyo52
+    const r34n = rowOf('法人税及び法人住民税')
+    const r37n = rowOf('損金計上納税充当金')
+    const r47n = rowOf('事業税減算')
+    if (r34n && r37n && r47n && (b52.jigyozeiJutokin != null || b52.jigyozeiSonkin != null)) {
+      const netOf = (c: ColKey) => z(r34n[c]) - z(r37n[c]) + z(r47n[c])
+      // 事業税は事業区分ごとに直課するので、正味の損金算入額は「区分されている」欄から出る。
+      // 共通欄に入るのは法人税・住民税で、これは全額が納税充当金なので正味は0（中間納付を
+      // 損金経理していればその額）になる。事業税を共通に入れてしまう誤りはここで出る。
+      const netFix = netOf('shotokuFix') + netOf('denkiFix')
+      const netApp = netOf('shotokuApp') + netOf('denkiApp')
+      const actual = (b52.jigyozeiJutokin ?? 0) + (b52.jigyozeiSonkin ?? 0)
+      const expectedApp = b52.hojinzeiSonkin ?? 0
+      const bad = netApp !== expectedApp ? [`共通のあん分列の正味 ${netApp.toLocaleString()}`] : []
+      out.push(
+        withCols(
+          mk(
+            G_B4,
+            '事業税・特別法人事業税の正味の損金算入額',
+            '様式2号 区分欄（法人税及び法人住民税－損金計上納税充当金＋事業税減算）',
+            netFix,
+            '別表五(二) (19)の③充当金取崩＋⑤損金経理',
+            actual,
+            {
+              note:
+                `所得課税事業 ${netOf('shotokuFix').toLocaleString()} ／ 電気供給業 ${netOf('denkiFix').toLocaleString()} ／ ` +
+                `共通をあん分した分 ${netApp.toLocaleString()}（法人税・住民税の損金経理納付 ${expectedApp.toLocaleString()} と一致するはず）。` +
+                '事業税は納付した期の損金になるため、区分に直課した分の正味は実際の納付額と一致する。' +
+                '決算書で事業税を租税公課に計上している場合や、源泉所得税等を法人税等に含めている場合は一致しない。',
+            },
+          ),
+          bad,
+        ),
+      )
+    }
+
     const gokei34 = b4Row(34)
     out.push(
       mk(G_B4, '所得金額（合計）', '別表四(34) 合計', gokei34, '様式2号 仮計（総額）', num(karikei?.total ?? undefined), {

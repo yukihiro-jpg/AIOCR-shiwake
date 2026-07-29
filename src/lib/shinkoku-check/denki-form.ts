@@ -380,6 +380,64 @@ export function extractBeppyo4Row(pages: ClassifiedPage[], rowNo: number): numbe
   return null
 }
 
+// ---------- 法人税 別表五(二)（事業税の損金算入額の検算に使う） ----------
+
+export interface Beppyo52Pay {
+  /** 事業税及び特別法人事業税 計(19) ③充当金取崩しによる納付 */
+  jigyozeiJutokin: number | null
+  /** 事業税及び特別法人事業税 計(19) ⑤損金経理による納付 */
+  jigyozeiSonkin: number | null
+  /** 法人税・道府県民税・市町村民税の計(5)(10)(15) ⑤損金経理による納付の合計。
+   *  中間納付を損金経理していると法人税等の費用に混ざるため、検算で除く必要がある */
+  hojinzeiSonkin: number | null
+}
+
+/** 別表五(二)は①〜⑥の列見出しが上部にあるので、そのX座標から列の帯を決める */
+function beppyo52Columns(p: Page): number[] | null {
+  for (const l of p.lines) {
+    if (l.y > 130) break
+    const marks = l.toks.filter((t) => /^[①②③④⑤⑥]$/.test(t.s.trim()))
+    if (marks.length < 5) continue
+    const x: number[] = []
+    for (const m of marks) x[['①', '②', '③', '④', '⑤', '⑥'].indexOf(m.s.trim())] = m.x
+    return x
+  }
+  return null
+}
+
+export function extractBeppyo52Pay(pages: ClassifiedPage[]): Beppyo52Pay {
+  const empty: Beppyo52Pay = { jigyozeiJutokin: null, jigyozeiSonkin: null, hojinzeiSonkin: null }
+  const p = pages.find((x) => x.kind === 'beppyo52')
+  if (!p) return empty
+  const col = beppyo52Columns(p)
+  if (!col || col[2] == null || col[4] == null) return empty
+  const width = (col[1] ?? col[0] + 66) - (col[0] ?? 126)
+  const band = (i: number): [number, number] => [col[i], (col[i + 1] ?? col[i] + width) - 1]
+  // 行番号は①列の左（例: ①が x≈192 のとき行番号は x≈150）
+  const noBand: [number, number] = [col[0] - 55, col[0] - 18]
+
+  /** 計行（5=法人税 10=道府県民税 15=市町村民税 19=事業税）の指定列を読む */
+  const cell = (rowNo: number, colIdx: number): number | null => {
+    for (const l of p.lines) {
+      const t = l.toks.find((x) => x.s.trim() === String(rowNo) && x.x >= noBand[0] && x.x <= noBand[1])
+      if (!t) continue
+      const [lo, hi] = band(colIdx)
+      const v = boxedNumber(p, l.y, lo, hi, 6)
+      if (v != null) return v
+      return 0 // 行はあるが空欄＝0
+    }
+    return null
+  }
+  const sum = (vals: (number | null)[]) =>
+    vals.every((v) => v == null) ? null : vals.reduce<number>((s, v) => s + (v ?? 0), 0)
+
+  return {
+    jigyozeiJutokin: cell(19, 2),
+    jigyozeiSonkin: cell(19, 4),
+    hojinzeiSonkin: sum([cell(5, 4), cell(10, 4), cell(15, 4)]),
+  }
+}
+
 // ---------- 第六号様式別表九（欠損金額等の控除明細書） ----------
 
 export interface RokugoB9 {
