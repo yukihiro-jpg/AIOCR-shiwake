@@ -3214,8 +3214,10 @@ function cleanFetchedName(s){
   t=t.replace(/\s+/g,' ').trim();
   // エラー・通知・汎用ページのタイトルは名称として採用しない
   const BAD=/(現在表示できません|ご覧になろうとしている|ページが見つかり|見つかりませんでした|お探しのページ|ただいま|メンテナンス|アクセスでき|エラー|not\s*found|forbidden|error|403|404|500)/i;
-  // サイト名そのもの（Yahoo!ファイナンス / Yahoo finance / 投資信託協会 …）は銘柄名ではない
-  const GENERIC=/^(yahoo[!！]?\s*(ファイナンス|ﾌｧｲﾅﾝｽ|finance)?|ヤフー(ファイナンス)?|投資信託総合検索ライブラリー|投信総合検索ライブラリー|投資信託総合検索|投資信託協会|投信協会|基本情報|ファンド情報|検索結果|ログイン|株価・株式情報)$/i;
+  // サイト名そのもの（Yahoo! JAPAN / Yahoo!ファイナンス / 投資信託協会 …）は銘柄名ではない。
+  // エラーページ・同意ページの<title>が「Yahoo! JAPAN」だけのことがあり、以前はここを
+  // すり抜けて銘柄名に登録されていた（Yahoo+JAPAN/ジャパン/ID等の組合せも全て弾く）
+  const GENERIC=/^(yahoo[!！]?([\s　]*(japan|ジャパン|ファイナンス|ﾌｧｲﾅﾝｽ|finance|id|トップ|ニュース))*|ヤフー([\s　]*(ジャパン|ファイナンス))?|投資信託総合検索ライブラリー|投信総合検索ライブラリー|投資信託総合検索|投資信託協会|投信協会|基本情報|ファンド情報|検索結果|ログイン|株価・株式情報|stooq(\.com)?)$/i;
   if(BAD.test(t)||GENERIC.test(t)) return '';
   if(t.length<3||t.length>80) return '';
   return t;
@@ -3228,6 +3230,9 @@ async function fetchJpName(x){
   try{
     const r=await fetch(url); if(!r.ok) return '';
     const html=await r.text();
+    // 銘柄コードがページ内に無ければ本来の銘柄ページではない（エラー・同意ページ等）ので採用しない
+    const bare=String(x).replace(/\.[A-Za-z]+$/,'');
+    if(bare && html.indexOf(bare)<0) return '';
     let m=html.match(/<meta[^>]+(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']/i)
         || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']og:title["']/i);
     let nm=m?cleanFetchedName(m[1]):'';
