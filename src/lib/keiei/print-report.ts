@@ -3,31 +3,32 @@
 // 開いて印刷する（画面コンポーネントの流用はせず、lib の計算関数から直接生成する）。
 // 表紙には選択した資料タイトルを「１．〇〇」の番号付きで自動記載する（未選択の資料は番号が繰り上がる）。
 import type { FiscalYearData } from './types'
-import { CODES, getRow, plKpisSingle, plKpisYtd, sortedYears, yoy } from './calc'
+import { CODES, getRow, plKpisSingle, plKpisYtd, singleMonth, sortedYears, yoy, ytd } from './calc'
 import { fmtShort, fmtPctSigned } from './format'
 import {
   cvp, safety, fcfAnalysis, workingCapital, profitBridge, landingScenarios,
-  detailsOf, rowYtd, debtAccounts, aggregateRows, type AggRow, type KeieiSettings,
+  detailsOf, rowYtd, debtAccounts, aggregateRows, aggRowValue, type AggRow, type KeieiSettings,
 } from './analysis'
 import { detectIssues, debtService, type IssuesResult } from './issues'
 import { budgetVsActual, monthlyBudgetSeries } from './budget'
 import { computeCashFlow } from './cashflow'
 
-export type PrintView = 'overview' | 'budget' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'trend3pl'
+export type PrintView = 'overview' | 'budget' | 'report' | 'trialfull' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'trend3pl'
 
 /** 印刷対象タブの定義（画面のタブ表示・印刷選択と共有する単一のソース） */
 export const PRINT_VIEWS: [PrintView, string][] = [
   ['overview', '概要'],
   ['budget', '予算・予実'],
   ['report', '試算表・3期比較・推移'],
+  ['trialfull', '試算表（全科目）＋損益計算書3期比較（2ページ）'],
   ['detail', '原価・経費明細'],
   ['cvpfcf', '損益分岐点・キャッシュフロー'],
   ['issues', '経営課題'],
   ['cash', '資金繰り・安全性'],
   ['trend3pl', '損益計算書（3期推移・A3縦）'],
 ]
-/** 印刷のみ（画面タブには出さない）ビュー。A3縦で出力する */
-export const PRINT_ONLY_VIEWS: PrintView[] = ['trend3pl']
+/** 印刷のみ（画面タブには出さない）ビュー */
+export const PRINT_ONLY_VIEWS: PrintView[] = ['trialfull', 'trend3pl']
 const A3_PORTRAIT_VIEWS: PrintView[] = ['trend3pl']
 
 export interface PrintReportInput {
@@ -242,7 +243,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
   const monthLabels = fy.fiscalMonths.map((m) => `${m}月`)
 
-  const pageHead = (no: number, title: string) => `
+  // no は '4-1' のような枝番も受ける（1つの資料を複数ページに分けるとき）
+  const pageHead = (no: number | string, title: string) => `
   <div class="p-head">
     <span class="p-no">${no}</span>
     <span class="p-title">${esc(title)}</span>
@@ -545,6 +547,153 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       </div>
       <div class="blk mt"><div class="blk-t">月次推移（売上高と営業利益）</div>${chart}</div>
     `)
+  }
+
+  // ---------- 3b) 試算表（全科目）＋損益計算書3期比較 ＝ 2ページ ----------
+  // 1ページ目：左に損益計算書・右に貸借対照表（取込んだ科目をすべて出す。省略しない）
+  // 2ページ目：損益計算書の3期比較（全科目・期首〜同月数累計）
+  // 科目数は会社ごとに大きく異なるため、行数から文字サイズの段階を選び、
+  // それでも1枚に収まらない場合はページを可変高（.flowsheet）にして次の紙に流す（科目は省略しない）。
+  function pageTrialFull(no: number): string {
+    const FIT1 = 44, FIT2 = 52, FIT3 = 62   // 各文字サイズ段階でA4横1枚に収まる目安行数
+    const tierOf = (n: number) => (n <= FIT1 ? 'z1' : n <= FIT2 ? 'z2' : 'z3')
+    const rows = aggregateRows(fy)
+    const plRows = rows.filter((r) => r.statement === 'PL')
+    const bsRows = rows.filter((r) => r.statement === 'BS')
+    // 比率の分母。コード（会計大将の標準コード）で取れないCSVでも比率が空欄にならないよう、
+    // 取れないときは小計行の名称から拾い直す
+    const salesYtd = ytd(fy, CODES.sales, monthIdx) || (() => {
+      const r = plRows.find((x) => x.isSubtotal && /純売上高/.test(x.name)) || plRows.find((x) => x.isSubtotal && /売上高/.test(x.name))
+      return r ? aggRowValue(r, monthIdx, 'cum') : 0
+    })()
+    const assetBal = singleMonth(fy, CODES.assetTotal, monthIdx) || (() => {
+      const r = bsRows.find((x) => x.isSubtotal && /資産(合計|の部)/.test(x.name) && !/流動|固定|負債|純資産/.test(x.name))
+      return r ? (r.monthly[monthIdx] ?? 0) : 0
+    })()
+    // 行の種類：〔利益〕＝金帯、合計行＝濃紺帯、その他の小計＝薄紺帯、明細＝通常（階層でインデント）
+    const TOT_RE = /(資産合計|負債合計|純資産合計|負債純資産合計|負債及び純資産合計|負債・純資産合計)/
+    const rowCls = (r: AggRow) => (r.bracket === 'profit' ? 'prf' : r.isSubtotal ? (TOT_RE.test(r.name) ? 'tot' : 'grp') : '')
+    const nameCell = (r: AggRow) =>
+      `<td class="nm"${r.isSubtotal ? '' : ` style="padding-left:${(1.5 + r.level * 1.6).toFixed(1)}mm"`}>${esc(r.name)}</td>`
+    const money = (v: number) => `<td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td>`
+    const sgnCell = (v: number) => `<td class="tr${v < 0 ? ' neg' : ''}">${v === 0 ? '0' : esc(sgnYen(v))}</td>`
+    const pctCell = (v: number, base: number) => `<td class="tr">${base ? esc(p1((v / base) * 100)) : '—'}</td>`
+    // 値が全く立っていない見出し行（【売上高】等）は数字欄を空にして見出しであることを分かりやすくする
+    const blank = (n: number) => '<td class="tr"></td>'.repeat(n)
+
+    const plBody = plRows.map((r) => {
+      const single = aggRowValue(r, monthIdx, 'single')
+      const cum = aggRowValue(r, monthIdx, 'cum')
+      const cls = rowCls(r)
+      const cells = (r.isSubtotal && single === 0 && cum === 0)
+        ? blank(3)
+        : money(single) + money(cum) + pctCell(cum, salesYtd)
+      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
+    }).join('')
+    const bsBody = bsRows.map((r) => {
+      const cur = r.monthly[monthIdx] ?? 0
+      const prev = monthIdx > 0 ? (r.monthly[monthIdx - 1] ?? 0) : 0
+      const cls = rowCls(r)
+      const cells = (r.isSubtotal && cur === 0 && prev === 0)
+        ? blank(4)
+        : money(prev) + money(cur) + sgnCell(cur - prev) + pctCell(cur, assetBal)
+      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
+    }).join('')
+
+    const n1 = Math.max(plRows.length, bsRows.length)
+    const flow1 = n1 > FIT3
+    const tier1 = tierOf(n1)
+    const plTable = `<table class="tb ${tier1}">
+      <colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col style="width:12%"></colgroup>
+      <thead><tr><th class="thl">科目</th><th>当月（単月）</th><th>累計</th><th>対売上比</th></tr></thead>
+      <tbody>${plBody}</tbody></table>`
+    const bsTable = `<table class="tb ${tier1}">
+      <colgroup><col style="width:30%"><col style="width:19.5%"><col style="width:19.5%"><col style="width:19.5%"><col style="width:12%"></colgroup>
+      <thead><tr><th class="thl">科目</th><th>前月末</th><th>当月末</th><th>増減</th><th>構成比</th></tr></thead>
+      <tbody>${bsBody}</tbody></table>`
+    const p1Body = `
+      <div class="row2">
+        <div class="blk"><div class="blk-t">損益計算書<span class="sm">${monthLabel}単月 ／ 期首〜${monthLabel}累計 ／ 対売上比（累計）</span></div>${plTable}</div>
+        <div class="blk"><div class="blk-t">貸借対照表<span class="sm">前月末残高 ／ ${monthLabel}末残高 ／ 増減 ／ 構成比（対資産合計）</span></div>${bsTable}</div>
+      </div>`
+    const page1 = flow1
+      ? `<section class="flowsheet">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}</section>`
+      : `<section class="page">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}${pageFoot}</section>`
+
+    // ===== 2ページ目：損益計算書の3期比較（全科目・期首〜同月数累計）=====
+    const sortedY = sortedYears(years)
+    const ci2 = sortedY.findIndex((y) => y.id === fy.id)
+    const comp = sortedY.slice(Math.max(0, ci2 - 2), ci2 + 1)
+    const cur3 = comp[comp.length - 1]
+    const prev1 = comp.length >= 2 ? comp[comp.length - 2] : null
+    const prev2 = comp.length >= 3 ? comp[comp.length - 3] : null
+    // 期ごとの科目マップ。いずれかの期にしかない科目も落とさないよう当期の並びに織り込む
+    const mapsOf = (y: FiscalYearData | null) => {
+      const m = new Map<string, AggRow>()
+      if (y) for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) m.set(r.name, r)
+      return m
+    }
+    const mCur = mapsOf(cur3), mP1 = mapsOf(prev1), mP2 = mapsOf(prev2)
+    const order: AggRow[] = []
+    const at = new Map<string, number>()
+    const reindex = () => { at.clear(); order.forEach((r, i) => at.set(r.name, i)) }
+    for (const r of aggregateRows(cur3).filter((x) => x.statement === 'PL')) order.push(r)
+    reindex()
+    const weaveIn = (y: FiscalYearData | null) => {
+      if (!y) return
+      let last = -1
+      for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) {
+        if (at.has(r.name)) last = at.get(r.name)!
+        else { order.splice(last + 1, 0, r); reindex(); last++ }
+      }
+    }
+    weaveIn(prev1); weaveIn(prev2)
+    // 各期は「期首〜当月と同じ月数」の累計で比較する（期中比較のため年計は使わない）
+    const cumAt = (y: FiscalYearData | null, m: Map<string, AggRow>, name: string): number | null => {
+      if (!y) return null
+      const row = m.get(name)
+      if (!row) return null
+      return aggRowValue(row, Math.min(monthIdx, y.lastFilledIndex), 'cum')
+    }
+    const cmpBody = order.map((r) => {
+      const vC = cumAt(cur3, mCur, r.name) ?? 0
+      const v1 = cumAt(prev1, mP1, r.name)
+      const v2 = cumAt(prev2, mP2, r.name)
+      const cls = rowCls(r)
+      const d1 = v1 == null ? null : vC - v1
+      const d2 = v2 == null ? null : vC - v2
+      const r1 = v1 != null && v1 !== 0 ? ((vC - v1) / Math.abs(v1)) * 100 : null
+      const r2 = v2 != null && v2 !== 0 ? ((vC - v2) / Math.abs(v2)) * 100 : null
+      const dash = '<td class="tr">—</td>'
+      const cells = (r.isSubtotal && vC === 0 && !v1 && !v2)
+        ? blank(7)
+        : (v2 == null ? dash : money(v2))
+          + (v1 == null ? dash : money(v1))
+          + money(vC)
+          + (d2 == null ? dash : sgnCell(d2))
+          + (d1 == null ? dash : sgnCell(d1))
+          + (r2 == null ? dash : `<td class="tr${r2 < 0 ? ' neg' : ''}">${esc(fmtPctSigned(r2))}</td>`)
+          + (r1 == null ? dash : `<td class="tr${r1 < 0 ? ' neg' : ''}">${esc(fmtPctSigned(r1))}</td>`)
+      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
+    }).join('')
+    const n2 = order.length
+    const flow2 = n2 > FIT3
+    const tier2 = tierOf(n2)
+    const cmpTable = `<table class="tb ${tier2}">
+      <colgroup><col style="width:20%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.25%"><col style="width:11.25%"></colgroup>
+      <thead><tr><th class="thl">科目</th>
+        <th>${esc(prev2 ? prev2.label : '前々期')}</th>
+        <th>${esc(prev1 ? prev1.label : '前期')}</th>
+        <th>${esc(cur3.label)}（当期）</th>
+        <th>前々期比増減</th><th>前期比増減</th><th>前々期比増減率</th><th>前期比増減率</th></tr></thead>
+      <tbody>${cmpBody}</tbody></table>`
+    const p2Note = `<div class="note mt1">各期とも「期首〜${monthLabel}」と同じ月数の累計で比較しています（期中の月次比較のため年計は使いません）。いずれかの期にのみある科目も省略せず表示します。${prev1 ? '' : '※ 前期以前のデータが取り込まれていないため、当期のみの表示です。'}</div>`
+    const p2Body = `<div class="blk">${cmpTable}${p2Note}</div>`
+    const page2 = flow2
+      ? `<section class="flowsheet">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}</section>`
+      : `<section class="page">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}${pageFoot}</section>`
+
+    return page1 + '\n' + page2
   }
 
   // ---------- 4) 明細・経費 ----------
@@ -859,6 +1008,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     overview: pageOverview,
     budget: pageBudget,
     report: pageReport,
+    trialfull: pageTrialFull,
     detail: pageDetail,
     cvpfcf: pageCvpFcf,
     issues: pageIssues,
@@ -878,6 +1028,24 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .page { width: 297mm; height: 209mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm 10mm; position: relative; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
   /* 損益計算書（3期推移）は科目が多いため A3縦・複数ページに流し込む（クリップしない） */
   .a3sheet { width: 297mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+
+  /* 試算表（全科目）・3期比較：科目数が多いページは可変高にして次の紙へ流す（科目を省略しない） */
+  .flowsheet { width: 297mm; min-height: 209mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm 10mm; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+
+  /* 全科目テーブル（.z1〜.z3 は行数に応じた文字サイズの段階） */
+  table.tb { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  .tb th, .tb td { border: 1px solid #d3dae3; }
+  .tb thead th { background: ${NAVY}; color: #fff; font-weight: 700; text-align: center; white-space: nowrap; }
+  .tb thead th.thl { text-align: left; }
+  .tb tbody tr:nth-child(even) td { background: #f6f8fb; }
+  .tb td.nm { text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tb .tr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tb tr.grp td { background: #e7edf5 !important; font-weight: 700; color: ${NAVY}; }
+  .tb tr.prf td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.2px solid ${GOLD}; border-bottom: 1.2px solid ${GOLD}; }
+  .tb tr.tot td { background: #dfe9f7 !important; font-weight: 800; border-top: 1.4px solid ${NAVY}; }
+  .tb.z1 th, .tb.z1 td { font-size: 7.8px; line-height: 1.32; padding: 0.55mm 1.5mm; }
+  .tb.z2 th, .tb.z2 td { font-size: 7.1px; line-height: 1.26; padding: 0.42mm 1.3mm; }
+  .tb.z3 th, .tb.z3 td { font-size: 6.4px; line-height: 1.2; padding: 0.3mm 1.1mm; }
 
   /* 3期推移テーブル（罫線＝黒に近い灰色、段階利益・純売上高は太罫、マイナス赤字） */
   .t3tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin-top: 1mm; }
@@ -904,6 +1072,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .mt { margin-top: 3mm; } .mt1 { margin-top: 1.5mm; }
   .blk { border: 1px solid #e2e8f0; border-radius: 6px; padding: 2.4mm 3mm; background: #fff; }
   .blk-t { font-size: 11.5px; font-weight: 800; color: ${NAVY}; margin-bottom: 1.6mm; border-left: 3px solid ${GOLD}; padding-left: 2mm; }
+  .blk-t .sm { margin-left: 2mm; }
   .note { font-size: 9.5px; color: #7b8698; line-height: 1.6; }
   .txt { font-size: 10.5px; line-height: 1.8; color: #374151; }
   .sm { font-size: 9px; color: #7b8698; font-weight: 400; }
@@ -982,6 +1151,11 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     .a3sheet { page: a3; page-break-before: always; box-shadow: none; padding: 0; margin: 0; }
     .t3tbl thead { display: table-header-group; }
     .t3tbl tbody.acct { break-inside: avoid; page-break-inside: avoid; }
+    /* 全科目ページ：1枚に収まらないときはA4横のまま次の紙へ流す（見出し行は各ページで繰返し） */
+    .flowsheet { box-shadow: none; margin: 0; page-break-before: always; page-break-after: always; }
+    .flowsheet:last-of-type { page-break-after: auto; }
+    .tb thead { display: table-header-group; }
+    .tb tr { break-inside: avoid; page-break-inside: avoid; }
   }
 </style></head><body>
   <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>横向き（A4ランドスケープ）でそのまま印刷されます。1資料＝1枚です。</span></div>
