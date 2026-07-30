@@ -531,7 +531,12 @@
   <div class="modal-body">
     <input type="hidden" id="tx_year"><input type="hidden" id="tx_clientId">
     <div class="notice" id="tx_fyInfo"></div>
-    <h4 style="margin:0 0 10px;font-weight:500">当期の確定税額（年税額。これを基礎に翌期の予定申告額を計算します）</h4>
+    <div class="row-flex" style="gap:10px;align-items:center;margin:0 0 10px;flex-wrap:wrap">
+      <h4 style="margin:0;font-weight:500">当期の確定税額（年税額。これを基礎に翌期の予定申告額を計算します）</h4>
+      <button class="sm" onclick="document.getElementById('tx_nofuFile').click()">📄 納付税額確認書から自動入力</button>
+      <input type="file" id="tx_nofuFile" accept=".pdf,.xlsx,.xls" style="display:none" onchange="importNofu(event)">
+      <span class="hint">JDL等の納付税額確認書（PDF / Excel）を読み取り、下の各欄へ自動入力します（API不使用・端末内で処理）。</span>
+    </div>
     <div class="form-grid">
       <div class="field"><label>前期事業年度の月数</label><input id="tx_months" type="number" value="12"></div>
       <div class="field"></div>
@@ -1410,6 +1415,173 @@ function exportFilingMonth(){ const M=filingMonth; const cs=clientsByFiscal(M); 
     aoa.push([c.code||'',c.name,c.staff||'',f.note||'',...steps.map(s=>(f.cells&&f.cells[s.name])?fmtMD(f.cells[s.name]):''),num(tx.corp),num(tx.localCorp),num(tx.consumption),r.subject?'対象':'対象外',r.natTotal,r.kenminMid,r.jigyoMid,r.shiMid,r.consTot]); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,`${M}月決算`);
   XLSX.writeFile(wb,`${filingYear}年${M}月決算_申告進捗_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
+
+/* ===== 納付税額確認書（JDL等）の読み取り → 税額モーダルへ自動入力 =====
+   PDF は pdf.js（CDN・遅延読込）、Excel は読込済みの SheetJS で端末内解析（API不使用）。
+   どちらも同じ「行の並び」構造に変換してから nofuParsePages（純関数）で解釈する。
+   行 = { tAll:全文字, tLabel:数値以外の文字, labels:[{s,r}], cells:[{v,r}] }（r=列位置） */
+function nofuNorm(t){ return String(t||'').replace(/[\s　]+/g,''); }
+function nofuParsePages(pages){
+  const out={months:null,corp:null,localCorp:null,cons:null,localCons:null,midCorp:null,midCons:null,pref:[],city:[],sum:{}};
+  const NAME_RE=/^(\d{1,5})([一-龠々ヶぁ-んァ-ン].*)$/;
+  pages.forEach(pg=>{
+    const all=pg.lines.map(l=>l.tAll).join('');
+    const kind=/地方税納付税額明細書（都道府県）|地方税納付税額明細書\(都道府県\)/.test(all)?'pref'
+      :(/地方税納付税額明細書（市町村）|地方税納付税額明細書\(市町村\)/.test(all)?'city'
+      :(/納付税額確認書|納付税額書/.test(all)?'summary':null));
+    if(!kind) return;
+    // 列位置（年間税額・予定/中間納付額）をヘッダ行から特定
+    let colA=null,colM=null;
+    pg.lines.forEach(l=>{ if(colA!=null) return;
+      const hasA=l.labels.find(x=>nofuNorm(x.s).indexOf('年間税額')>=0);
+      const hasM=l.labels.find(x=>nofuNorm(x.s).indexOf('予定・中間納付額')>=0||nofuNorm(x.s).indexOf('中間納付額')>=0);
+      if(hasA&&hasM){ colA=hasA.r; colM=hasM.r; } });
+    const at=(l,col)=>{ if(col==null||!l.cells.length) return null;
+      let best=null; l.cells.forEach(c=>{ const d=Math.abs(c.r-col); if(best==null||d<best.d)best={d,v:c.v}; });
+      return (best&&best.d<=pg.tol)?best.v:null; };
+    const first=l=>l.cells.length?l.cells[0].v:null;
+    if(kind==='summary'){
+      let pending=null;
+      pg.lines.forEach(l=>{
+        const t=l.tLabel, ta=l.tAll;
+        if(out.months==null){ const m=ta.match(/\(自\)令和(\d+)年(\d+)月\d+日\(至\)令和(\d+)年(\d+)月\d+日/);
+          if(m){ const mo=(Number(m[3])*12+Number(m[4]))-(Number(m[1])*12+Number(m[2]))+1; if(mo>=1&&mo<=12) out.months=mo; } }
+        if(t==='法人税') out.corp=first(l);
+        else if(t==='地方法人税') out.localCorp=first(l);
+        else if(t==='消費税') out.cons=first(l);
+        else if(t==='地方消費税') out.localCons=first(l);
+        else if(t==='小計'){ out.midCorp=at(l,colM); }
+        else if(t==='消費税計'){ out.midCons=at(l,colM); }
+        // 明細ページが無い場合に備えた集約値（都道府県民税/市町村民税の直前の割額ペアを対応付ける）
+        else if(t==='法人税割額') pending={kt:first(l)||0};
+        else if(t==='均等割額'){ if(pending)pending.kk=first(l)||0; }
+        else if(/^都道府県民税/.test(t)){ if(pending){out.sum.prefPair=pending; pending=null;} }
+        else if(/^市町村民税/.test(t)){ if(pending){out.sum.cityPair=pending; pending=null;} }
+        else if(t==='事業税') out.sum.jigyo=first(l);
+        else if(t==='収入割') out.sum.shunyu=first(l);
+        else if(t==='特別法人事業税') out.sum.tokubetsu=first(l);
+      });
+    } else {
+      let cur=null;
+      pg.lines.forEach(l=>{
+        const t=l.tLabel, ta=l.tAll;
+        if(t==='合計'){ cur=null; return; }
+        const m=ta.replace(/[要否]$/,'').match(NAME_RE);
+        // 「4人」（分割基準の従業者数）を名称行と誤認しない。名称は「人」1文字にはならない
+        // （人吉市など「人」で始まる自治体名は複数文字なので通る）
+        if(m && m[2]!=='人'){ cur={name:m[2].trim()}; (kind==='pref'?out.pref:out.city).push(cur); return; }
+        if(!cur) return;
+        if(kind==='pref'){
+          if(t==='法人税割額') cur.kenminTax=first(l)||0;
+          else if(t==='均等割額') cur.kenminKinto=first(l)||0;
+          else if(t==='事業税') cur.jigyo=first(l)||0;
+          else if(t==='収入割') cur.shunyu=first(l)||0;
+          else if(t==='特別法人事業税') cur.tokubetsu=first(l)||0;
+        } else {
+          if(t==='法人税割額') cur.shiTax=first(l)||0;
+          else if(t==='均等割額') cur.shiKinto=first(l)||0;
+        }
+      });
+    }
+  });
+  // 明細ページが無ければ、確認書1枚目の集約値から1行つくる
+  if(!out.pref.length && (out.sum.prefPair||out.sum.jigyo!=null||out.sum.tokubetsu!=null)){
+    out.pref.push({name:'',kenminTax:(out.sum.prefPair||{}).kt||0,kenminKinto:(out.sum.prefPair||{}).kk||0,
+      jigyo:out.sum.jigyo||0,shunyu:out.sum.shunyu||0,tokubetsu:out.sum.tokubetsu||0});
+  }
+  if(!out.city.length && out.sum.cityPair){
+    out.city.push({name:'',shiTax:out.sum.cityPair.kt||0,shiKinto:out.sum.cityPair.kk||0});
+  }
+  delete out.sum;
+  return out;
+}
+/* Excel（SheetJS）→ 行構造。r=列番号（tol=0.5） */
+function nofuPagesFromWorkbook(wb){
+  return wb.SheetNames.map(name=>{
+    const ws=wb.Sheets[name]; const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+    const lines=rows.map(r=>{
+      const labels=[],cells=[]; let tAll='',tLabel='';
+      (r||[]).forEach((v,ci)=>{ if(v==null||v==='')return;
+        if(typeof v==='number'){ cells.push({v:v,r:ci}); tAll+=String(v); }
+        else { const sN=nofuNorm(v); tAll+=sN; tLabel+=sN; labels.push({s:v,r:ci}); } });
+      return {tAll,tLabel,labels,cells};
+    }).filter(l=>l.tAll);
+    return {tol:0.5,lines};
+  });
+}
+/* pdf.js のトークン → 行構造。r=トークン右端座標（tol=列間隔の目安45pt） */
+function nofuPageFromToks(toks){
+  toks.sort((a,b)=>a.y-b.y||a.x-b.x);
+  const rowsArr=[];
+  toks.forEach(t=>{ const last=rowsArr[rowsArr.length-1];
+    if(last&&Math.abs(last.y-t.y)<=2.5) last.toks.push(t); else rowsArr.push({y:t.y,toks:[t]}); });
+  const lines=rowsArr.map(rw=>{ rw.toks.sort((a,b)=>a.x-b.x);
+    const labels=[],cells=[]; let tAll='',tLabel='';
+    rw.toks.forEach(t=>{ const sN=nofuNorm(t.s); if(!sN)return; tAll+=sN;
+      if(/^-?[0-9][0-9,]*$/.test(sN)){ const v=Number(sN.replace(/,/g,'')); if(!isNaN(v)) cells.push({v:v,r:t.x+(t.w||0)}); }
+      else { tLabel+=sN; labels.push({s:sN,r:t.x+(t.w||0)}); } });
+    return {tAll,tLabel,labels,cells};
+  }).filter(l=>l.tAll);
+  return {tol:45,lines};
+}
+let _pdfjsLoading=null;
+function loadPdfjs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(_pdfjsLoading) return _pdfjsLoading;
+  _pdfjsLoading=new Promise((res,rej)=>{
+    const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(window.pdfjsLib); }catch(e){ rej(e); } };
+    sc.onerror=()=>{ _pdfjsLoading=null; rej(new Error('PDF読み取りライブラリの読み込みに失敗しました（通信環境をご確認ください）')); };
+    document.head.appendChild(sc);
+  });
+  return _pdfjsLoading;
+}
+async function parseNofuPdf(file){
+  const lib=await loadPdfjs();
+  const buf=await file.arrayBuffer();
+  const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  const pages=[];
+  for(let i=1;i<=doc.numPages;i++){
+    const page=await doc.getPage(i); const vp=page.getViewport({scale:1});
+    const tc=await page.getTextContent();
+    const toks=tc.items.filter(it=>it.str&&it.str.trim()).map(it=>({s:it.str,x:it.transform[4],y:vp.height-it.transform[5],w:it.width||0}));
+    pages.push(nofuPageFromToks(toks));
+  }
+  return nofuParsePages(pages);
+}
+async function parseNofuXlsx(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  return nofuParsePages(nofuPagesFromWorkbook(wb));
+}
+function applyNofu(r){
+  if(r.months) setVal('tx_months',r.months);
+  const setA=(id,v)=>{ const el=document.getElementById(id); if(!el)return; el.value=(v!=null&&v!==0)?Number(v).toLocaleString('ja-JP'):(v===0?'0':''); };
+  setA('tx_corp',r.corp); setA('tx_localCorp',r.localCorp);
+  setA('tx_cons',r.cons); setA('tx_localCons',r.localCons);
+  setA('tx_midCorp',r.midCorp); setA('tx_midCons',r.midCons);
+  document.getElementById('tx_pref').innerHTML=''; document.getElementById('tx_city').innerHTML='';
+  (r.pref.length?r.pref:[{}]).forEach(p=>addPrefRow(p));
+  (r.city.length?r.city:[{}]).forEach(p=>addCityRow(p));
+  calcAndRender();
+  const parts=[];
+  if(r.corp!=null)parts.push('法人税 '+yen(r.corp));
+  r.pref.forEach(p=>parts.push((p.name||'都道府県')+(p.shunyu?'（収入割あり）':'')));
+  r.city.forEach(p=>parts.push(p.name||'市町村'));
+  toast('納付税額確認書から自動入力しました（'+(parts.join('・')||'読み取り結果')+'）。内容を確認して「保存」を押してください','ok');
+}
+async function importNofu(ev){
+  const file=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!file)return;
+  toast('納付税額確認書を読み取っています…');
+  try{
+    const r=/\.(xlsx|xls)$/i.test(file.name)?await parseNofuXlsx(file):await parseNofuPdf(file);
+    if(!r||(r.corp==null&&r.localCorp==null&&!r.pref.length&&!r.city.length)){
+      toast('納付税額確認書として読み取れませんでした。JDL等の納付税額確認書（PDF / Excel）をアップロードしてください','err'); return;
+    }
+    applyNofu(r);
+  }catch(e){ console.error(e); toast('読み取りに失敗しました：'+(e&&e.message||e),'err'); }
+}
 
 /* 税額モーダル */
 function openTax(cid){ const c=clientById(cid); const M=fiscalMonthNum(c.fiscal); const f=getFiling(filingYear,cid); const tx=f.tax||{};
