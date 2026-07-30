@@ -196,7 +196,7 @@
   .add-row-list label{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer;}
   .add-row-list label:hover{background:#f8faff;}
   .multi-rows .mr{display:grid;gap:8px;margin-bottom:8px;align-items:center;}
-  .multi-rows.pref .mr{grid-template-columns:1.2fr 1fr 1fr 1fr 1fr auto;} .multi-rows.city .mr{grid-template-columns:1.4fr 1fr 1fr auto;}
+  .multi-rows.pref .mr{grid-template-columns:1.2fr 1fr 1fr 1fr 1fr 1fr auto;} .multi-rows.city .mr{grid-template-columns:1.4fr 1fr 1fr auto;}
   .multi-rows .mr .h{font-size:11px;color:var(--muted);}
   .year-nav{display:flex;align-items:center;gap:6px;}
   .year-nav b{font-size:17px;min-width:170px;text-align:center;}
@@ -543,13 +543,17 @@
       <div class="field"><label>当期中間納付済（消費税等の合計）<span class="hint" style="font-weight:400">※決算確認書（案内PDF）用</span></label><input id="tx_midCons" class="amt" inputmode="numeric" placeholder="円"></div>
     </div>
     <div class="row-flex" style="justify-content:space-between;margin-top:16px"><b style="font-size:13px">都道府県（県民税法人税割・均等割／事業税／特別法人事業税）</b><button class="sm" onclick="addPrefRow()">＋ 県を追加</button></div>
-    <div class="multi-rows pref"><div class="mr"><span class="h">都道府県名</span><span class="h">県民税(法人税割)</span><span class="h">県民税(均等割)</span><span class="h">事業税</span><span class="h">特別法人事業税</span><span></span></div></div>
+    <div class="multi-rows pref"><div class="mr"><span class="h">都道府県名</span><span class="h">県民税(法人税割)</span><span class="h">県民税(均等割)</span><span class="h">事業税</span><span class="h">うち収入割<br>(電気供給業等)</span><span class="h">特別法人事業税</span><span></span></div></div>
     <div class="multi-rows pref" id="tx_pref"></div>
+    <div class="hint" style="margin-top:2px">※ 太陽光売電などの電気供給業（収入金額課税の事業）を行っている場合は、事業税のうち<b>収入割</b>の金額を「うち収入割」に入力してください。収入割のある法人は、<b>法人税の中間申告がない場合でも事業税・特別法人事業税の予定申告が必要</b>です（金額基準なし・事業年度6か月超で対象）。</div>
     <div class="row-flex" style="justify-content:space-between;margin-top:10px"><b style="font-size:13px">市町村（市民税法人税割・均等割）</b><button class="sm" onclick="addCityRow()">＋ 市を追加</button></div>
     <div class="multi-rows city"><div class="mr"><span class="h">市町村名</span><span class="h">市民税(法人税割)</span><span class="h">市民税(均等割)</span><span></span></div></div>
     <div class="multi-rows city" id="tx_city"></div>
     <div style="margin-top:16px;margin-bottom:10px"><button class="primary" onclick="calcAndRender()">計算する</button><span class="hint">入力後に押すと下に翌期の中間申告額が表示されます。</span></div>
     <h4 style="margin:14px 0 10px;font-weight:500">翌期の中間申告（予定申告方式・前期実績基準）</h4><div id="tx_result"></div>
+    <h4 style="margin:16px 0 6px;font-weight:500">案内PDFに載せるメモ（任意）</h4>
+    <textarea id="tx_memo" rows="3" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px" placeholder="例：源泉所得税の納期の特例により、1〜6月分の源泉税を7月10日までに納付してください。"></textarea>
+    <div class="hint">入力すると、決算確認書（案内PDF）の署名欄の上に「特記事項」として印字されます。</div>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('taxModal')">閉じる</button><button class="primary" onclick="saveTax()">保存</button></div>
 </div></div>
@@ -987,10 +991,18 @@ function calcInterim(tax){
   const corpMid=yotei(corp,months); const corpRequired=corpMid>100000;
   const localCorpMid=corpRequired?yotei(localCorp,months):0;
   const pv=p=>p.kenminTax!=null?p.kenminTax:p.kenmin; // 旧データ互換
-  const pref=(tax.pref||[]).map(p=>{ const kenminTax=num(pv(p)),kenminKinto=num(p.kenminKinto),jigyo=num(p.jigyo),tokubetsu=num(p.tokubetsu);
-    // 事業税・特別法人事業税は地方税 → ×6÷月数
-    const jigyoOnlyMid=corpRequired?yotei(jigyo,months,'chihou'):0, tokubetsuMid=corpRequired?yotei(tokubetsu,months,'chihou'):0;
-    return {name:p.name||'',kenminTax,kenminKinto,jigyo,tokubetsu,
+  const pref=(tax.pref||[]).map(p=>{ const kenminTax=num(pv(p)),kenminKinto=num(p.kenminKinto),jigyo=num(p.jigyo),shunyu=num(p.shunyu),tokubetsu=num(p.tokubetsu);
+    // 収入割（電気・ガス供給業等の収入金額課税事業）がある法人は、法人税の中間申告義務と
+    // 無関係に、事業年度が6か月を超えれば事業税・特別法人事業税の予定申告が必要
+    // （地方税法72条の26。10万円以下で不要となるのは法人税連動の所得割課税法人のみ）。
+    // 県民税（法人税割・均等割）・市民税は従来どおり法人税の中間申告に連動する。
+    const jigyoRequired=corpRequired||shunyu>0;
+    // 予定額は各割ごとに 前期税額×6÷前期月数 →100円未満切捨（収入割と所得割は別々に切り捨てる）
+    const jigyoOnlyMid=jigyoRequired?(shunyu>0
+      ? yotei(Math.max(0,jigyo-shunyu),months,'chihou')+yotei(shunyu,months,'chihou')
+      : yotei(jigyo,months,'chihou')):0;
+    const tokubetsuMid=jigyoRequired?yotei(tokubetsu,months,'chihou'):0;
+    return {name:p.name||'',kenminTax,kenminKinto,jigyo,shunyu,tokubetsu,jigyoRequired,
       // 県民税法人税割は地方税 → ×6÷月数（均等割と同じ順序）
       kenminMid:corpRequired?(yotei(kenminTax,months,'chihou')+yotei(kenminKinto,months,'kinto')):0,
       jigyoOnlyMid, tokubetsuMid, jigyoMid:jigyoOnlyMid+tokubetsuMid}; });
@@ -1007,9 +1019,11 @@ function calcInterim(tax){
   const cLoc=floor100(cNat*22/78), cTot=cNat+cLoc;
   let consOffsets=[]; if(cTimes===1)consOffsets=[8]; else if(cTimes===3)consOffsets=[5,8,11]; else if(cTimes===11)consOffsets=[3,4,5,6,7,8,9,10,11,12,13];
   const natTotal=corpRequired?(corpMid+localCorpMid):0;
-  return { months, corpRequired, corpMid, localCorpMid, kenminMid, jigyoMid, shiMid, pref, city,
+  // 収入金額課税法人（収入割あり）の事業税予定申告が生じるか（法人税の中間とは独立）
+  const jigyoRequired=pref.some(p=>p.jigyoRequired&&p.jigyoMid>0);
+  return { months, corpRequired, jigyoRequired, corpMid, localCorpMid, kenminMid, jigyoMid, shiMid, pref, city,
     consTimes:cTimes, consNat:cNat, consLoc:cLoc, consTot:cTot, consOffsets, natTotal,
-    corpOffset:8, subject:(corpRequired||cTimes>0) };
+    corpOffset:8, subject:(corpRequired||jigyoRequired||cTimes>0) };
 }
 /* 確定法人税等＝法人税＋地方法人税＋県民税＋事業税＋特別法人事業税＋市民税の年税額合計 */
 function confirmedCorpTotal(tax){ if(!tax)return 0; let t=num(tax.corp)+num(tax.localCorp);
@@ -1023,7 +1037,9 @@ function interimEvents(tax, M, Y){
   if(!M) return [];
   const r=calcInterim(tax); const base=Y*12+(M-1); const ev={};
   function get(off){ const idx=base+off; if(!ev[idx])ev[idx]={absIdx:idx,corp:0,localCorp:0,kenmin:0,jigyo:0,shi:0,cons:0,consLabel:''}; return ev[idx]; }
-  if(r.corpRequired){ const e=get(r.corpOffset); e.corp=r.corpMid; e.localCorp=r.localCorpMid; e.kenmin=r.kenminMid; e.jigyo=r.jigyoMid; e.shi=r.shiMid; }
+  if(r.corpRequired||r.jigyoRequired){ const e=get(r.corpOffset);
+    if(r.corpRequired){ e.corp=r.corpMid; e.localCorp=r.localCorpMid; e.kenmin=r.kenminMid; e.shi=r.shiMid; }
+    e.jigyo=r.jigyoMid; } // 収入割のみの場合も事業税・特別法人事業税は予定申告あり
   r.consOffsets.forEach((off,i)=>{ const e=get(off); e.cons=r.consTot; e.consLabel=(i+1)+'/'+r.consTimes; });
   return Object.values(ev).map(e=>{ e.year=Math.floor(e.absIdx/12); e.month=(e.absIdx%12)+1; e.total=e.corp+e.localCorp+e.kenmin+e.jigyo+e.shi+e.cons; return e; });
 }
@@ -1402,20 +1418,22 @@ function openTax(cid){ const c=clientById(cid); const M=fiscalMonthNum(c.fiscal)
   document.getElementById('tx_fyInfo').innerHTML=M?`決算月：<b>${M}月</b>。法人税・地方税・消費税(年1回)の6月中間は <b>${((M-1+8)%12)+1}月</b>が申告納付期限の目安です。`:'この顧問先の決算月が未設定です。顧問先情報で決算月を設定してください。';
   setVal('tx_months',tx.months||12); setAmt('tx_corp',tx.corp); setAmt('tx_localCorp',tx.localCorp); setAmt('tx_cons',tx.consumption);
   setAmt('tx_localCons',tx.localCons); setAmt('tx_midCorp',tx.midCorp); setAmt('tx_midCons',tx.midCons);
+  document.getElementById('tx_memo').value=tx.memo||'';
   document.getElementById('tx_pref').innerHTML=''; document.getElementById('tx_city').innerHTML='';
   (tx.pref&&tx.pref.length?tx.pref:[{}]).forEach(p=>addPrefRow(p)); (tx.city&&tx.city.length?tx.city:[{}]).forEach(p=>addCityRow(p));
   calcAndRender(); openModal('taxModal'); }
 function addPrefRow(p={}){ const box=document.getElementById('tx_pref'); const d=document.createElement('div'); d.className='mr';
   const kt=(p.kenminTax!=null?p.kenminTax:p.kenmin);
-  d.innerHTML=`<input class="pr_name" placeholder="例: ○○県" value="${esc(p.name||'')}"><input class="pr_kt amt" inputmode="numeric" placeholder="円" value="${fmtAmt(kt)}"><input class="pr_kk amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.kenminKinto)}"><input class="pr_jigyo amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.jigyo)}"><input class="pr_tok amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.tokubetsu)}"><button class="icon" onclick="this.closest('.mr').remove()">🗑</button>`; box.appendChild(d); }
+  d.innerHTML=`<input class="pr_name" placeholder="例: ○○県" value="${esc(p.name||'')}"><input class="pr_kt amt" inputmode="numeric" placeholder="円" value="${fmtAmt(kt)}"><input class="pr_kk amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.kenminKinto)}"><input class="pr_jigyo amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.jigyo)}"><input class="pr_shunyu amt" inputmode="numeric" placeholder="収入割がある場合" value="${fmtAmt(p.shunyu)}"><input class="pr_tok amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.tokubetsu)}"><button class="icon" onclick="this.closest('.mr').remove()">🗑</button>`; box.appendChild(d); }
 function addCityRow(p={}){ const box=document.getElementById('tx_city'); const d=document.createElement('div'); d.className='mr';
   const st=(p.shiTax!=null?p.shiTax:p.shi);
   d.innerHTML=`<input class="ci_name" placeholder="例: ○○市" value="${esc(p.name||'')}"><input class="ci_st amt" inputmode="numeric" placeholder="円" value="${fmtAmt(st)}"><input class="ci_sk amt" inputmode="numeric" placeholder="円" value="${fmtAmt(p.shiKinto)}"><button class="icon" onclick="this.closest('.mr').remove()">🗑</button>`; box.appendChild(d); }
 function gatherTax(){ const months=num(val('tx_months'))||12;
-  const pref=[...document.querySelectorAll('#tx_pref .mr')].map(d=>({name:d.querySelector('.pr_name').value.trim(),kenminTax:numC(d.querySelector('.pr_kt').value),kenminKinto:numC(d.querySelector('.pr_kk').value),jigyo:numC(d.querySelector('.pr_jigyo').value),tokubetsu:numC(d.querySelector('.pr_tok').value)})).filter(p=>p.name||p.kenminTax||p.kenminKinto||p.jigyo||p.tokubetsu);
+  const pref=[...document.querySelectorAll('#tx_pref .mr')].map(d=>({name:d.querySelector('.pr_name').value.trim(),kenminTax:numC(d.querySelector('.pr_kt').value),kenminKinto:numC(d.querySelector('.pr_kk').value),jigyo:numC(d.querySelector('.pr_jigyo').value),shunyu:numC(d.querySelector('.pr_shunyu').value),tokubetsu:numC(d.querySelector('.pr_tok').value)})).filter(p=>p.name||p.kenminTax||p.kenminKinto||p.jigyo||p.shunyu||p.tokubetsu);
   const city=[...document.querySelectorAll('#tx_city .mr')].map(d=>({name:d.querySelector('.ci_name').value.trim(),shiTax:numC(d.querySelector('.ci_st').value),shiKinto:numC(d.querySelector('.ci_sk').value)})).filter(p=>p.name||p.shiTax||p.shiKinto);
   return { months, corp:numC(val('tx_corp')), localCorp:numC(val('tx_localCorp')), consumption:numC(val('tx_cons')),
-    localCons:numC(val('tx_localCons')), midCorp:numC(val('tx_midCorp')), midCons:numC(val('tx_midCons')), pref, city }; }
+    localCons:numC(val('tx_localCons')), midCorp:numC(val('tx_midCorp')), midCons:numC(val('tx_midCons')),
+    memo:(document.getElementById('tx_memo')?document.getElementById('tx_memo').value:'').trim(), pref, city }; }
 function calcAndRender(){ const c=clientById(val('tx_clientId')); const M=c?fiscalMonthNum(c.fiscal):0; const r=calcInterim(gatherTax());
   const dueMonth=M?(((M-1+8)%12)+1):null;
   let consLabel='中間申告なし（前期国税48万円以下）'; if(r.consTimes===1)consLabel='年1回'; else if(r.consTimes===3)consLabel='年3回'; else if(r.consTimes===11)consLabel='年11回（毎月）';
@@ -1429,7 +1447,15 @@ function calcAndRender(){ const c=clientById(val('tx_clientId')); const M=c?fisc
       h+=`<tr><td class="lbl">事業税：${esc(p.name||'(県)')}</td><td class="yen">${yen(p.jigyoOnlyMid)}</td><td>${dueMonth?dueMonth+'月':'－'}</td></tr>`;
       h+=`<tr><td class="lbl">特別法人事業税：${esc(p.name||'(県)')}</td><td class="yen">${yen(p.tokubetsuMid)}</td><td>${dueMonth?dueMonth+'月':'－'}</td></tr>`; });
     r.city.forEach(p=>h+=`<tr><td class="lbl">市民税：${esc(p.name||'(市)')}</td><td class="yen">${yen(p.shiMid)}</td><td>${dueMonth?dueMonth+'月':'－'}</td></tr>`);
-  } else { h+=`<tr><td class="lbl">法人税・地方税</td><td class="yen">－</td><td>－</td></tr><tr><td colspan="3" class="lbl muted" style="text-align:left">予定申告額（前期法人税×6/${r.months}）が10万円以下のため中間申告不要</td></tr>`; }
+  } else {
+    h+=`<tr><td class="lbl">法人税・住民税</td><td class="yen">－</td><td>－</td></tr><tr><td colspan="3" class="lbl muted" style="text-align:left">予定申告額（前期法人税×6/${r.months}）が10万円以下のため中間申告不要</td></tr>`;
+    if(r.jigyoRequired){
+      r.pref.filter(p=>p.jigyoRequired).forEach(p=>{
+        h+=`<tr><td class="lbl">事業税：${esc(p.name||'(県)')}${p.shunyu>0?`<span class="hint" style="font-weight:400">（所得割${yen(p.jigyoOnlyMid-yotei(p.shunyu,r.months,'chihou'))}＋収入割${yen(yotei(p.shunyu,r.months,'chihou'))}）</span>`:''}</td><td class="yen">${yen(p.jigyoOnlyMid)}</td><td>${dueMonth?dueMonth+'月':'－'}</td></tr>`;
+        h+=`<tr><td class="lbl">特別法人事業税：${esc(p.name||'(県)')}</td><td class="yen">${yen(p.tokubetsuMid)}</td><td>${dueMonth?dueMonth+'月':'－'}</td></tr>`; });
+      h+=`<tr><td colspan="3" class="lbl" style="text-align:left;background:#fff8e6">※ 収入割（電気供給業等）のある法人は、法人税の中間申告がなくても<b>事業税・特別法人事業税の予定申告が必要</b>です（県民税・市民税の中間はありません）。</td></tr>`;
+    }
+  }
   if(r.consTimes>0){ const times=r.consTimes>1?` ×${r.consTimes}回`:'';
     h+=`<tr><td class="lbl">消費税（国税）${consLabel}</td><td class="yen">${yen(r.consNat)}${times}</td><td>${consMonthStr()}</td></tr>
         <tr><td class="lbl">地方消費税 ${consLabel}</td><td class="yen">${yen(r.consLoc)}${times}</td><td>${consMonthStr()}</td></tr>
@@ -1504,7 +1530,7 @@ function printKessanGuide(cid){
   const styles=[
     '*{margin:0;padding:0;box-sizing:border-box;}',
     'body{font-family:"Yu Mincho","Hiragino Mincho ProN","MS Mincho",serif;color:#000;font-size:10.5pt;line-height:1.55;padding:14mm 15mm;background:#fff;}',
-    '@media print{body{padding:0}@page{size:A4;margin:14mm 15mm}}',
+    '@media print{@page{size:A4;margin:0}body{padding:14mm 15mm}}',
     '.issue{text-align:right;font-size:9pt}',
     'h1{font-size:15pt;text-align:center;letter-spacing:7px;margin:2px 0;font-weight:600}',
     '.rule{border-top:2px solid #000;border-bottom:1px solid #000;height:4px;margin:6px 0 10px}',
@@ -1552,6 +1578,10 @@ function printKessanGuide(cid){
       :'')
     +(kanni
       ?('<h2>'+(isDirect?'４':'３')+'．消費税（簡易課税）のご案内</h2><div class="box">'+nextPeriod+'の事業年度は、消費税の<b style="display:inline">簡易課税制度</b>に該当します。この期間中は、車両・機械・建物等を購入されても消費税の納税額には影響しませんので、設備投資をご検討の際はご留意ください。</div>')
+      :'')
+    // 特記事項（税額モーダルのメモ欄。任意）: 署名欄の直上に印字する
+    +(String(tx.memo||'').trim()
+      ?('<div class="box" style="margin-top:8px"><b>特記事項</b><br>'+esc(String(tx.memo).trim()).replace(/\n/g,'<br>')+'</div>')
       :'')
     +'<div class="sign">'
     +'<div class="t">上記の決算内容および納税等のご案内について説明を受け、内容を確認しました。</div>'
