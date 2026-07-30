@@ -2990,6 +2990,46 @@ const ASSET_COLS={
   gift:[['subcategory','区分','selopt',['暦年課税(加算対象)','相続時精算課税']],['name','内容','text'],['location','贈与日','text'],['_value','価額(円)','value'],['giftTax','課された贈与税額','money'],['is4to7','3年超7年','check'],['memo','注記','text']]
 };
 function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNote||'')+'" placeholder="確認する事項" style="min-width:160px;" oninput="updAsset(\''+a.id+'\',\'checkNote\',this.value)"></td>'; }
+// [arrow-nav] 財産一覧の表：入力欄にフォーカスがある状態で矢印キーを押すと隣のセルへ移動（Excel風）。
+// テキスト欄の左右はカーソルが端にあるときだけセル移動（欄内のカーソル移動を妨げない）。
+// 矢印キー自体で値が変わる欄（日付・プルダウン・ラジオ）は対象外（通常動作のまま）。
+(function(){
+  const FOCUSABLE='input:not([disabled]):not([readonly]):not([type=radio]):not([type=date]):not([type=button]):not([type=file]), textarea:not([disabled]):not([readonly])';
+  const focusables=scope=>Array.from(scope.querySelectorAll(FOCUSABLE)).filter(el=>el.offsetParent!==null);
+  const isTextLike=el=>el && el.tagName==='INPUT' && el.type!=='checkbox';
+  document.addEventListener('keydown',function(e){
+    const k=e.key;
+    if(k!=='ArrowUp'&&k!=='ArrowDown'&&k!=='ArrowLeft'&&k!=='ArrowRight') return;
+    if(e.altKey||e.ctrlKey||e.metaKey) return;
+    const el=e.target;
+    if(!el||el.tagName!=='INPUT') return;                        // select・textarea等は通常動作のまま
+    const type=(el.getAttribute('type')||'text').toLowerCase();
+    if(type==='radio'||type==='date'||type==='button'||type==='file') return;
+    const td=el.closest('td'), tr=el.closest('tr'), table=el.closest('table.dtbl');
+    if(!td||!tr||!table||!tr.closest('tbody')) return;
+    if(type!=='checkbox'&&(k==='ArrowLeft'||k==='ArrowRight')){
+      let s=null,t=null; try{ s=el.selectionStart; t=el.selectionEnd; }catch(_){}
+      if(s!=null){
+        if(k==='ArrowLeft' && !(s===0&&t===0)) return;                                   // 先頭でなければ欄内移動
+        if(k==='ArrowRight' && !(s===el.value.length&&t===el.value.length)) return;      // 末尾でなければ欄内移動
+      }
+    }
+    let target=null;
+    if(k==='ArrowLeft'||k==='ArrowRight'){
+      const list=focusables(tr); const i=list.indexOf(el);
+      if(i>=0) target=list[i+(k==='ArrowRight'?1:-1)]||null;
+    } else {
+      const col=td.cellIndex, dir=(k==='ArrowDown')?1:-1;
+      let row=tr;
+      while((row=dir>0?row.nextElementSibling:row.previousElementSibling)){
+        const cell=row.cells&&row.cells[col]; if(!cell) continue;
+        const list=focusables(cell); if(list.length){ target=list[0]; break; }
+      }
+    }
+    if(target){ e.preventDefault(); target.focus(); if(isTextLike(target)&&target.select){ try{ target.select(); }catch(_){} } }
+  }, true);
+})();
+// [/arrow-nav]
 function genericTableHtml(cat,items){
   const cols=ASSET_COLS[cat]||[]; const t=ASSET_BY_KEY[cat];
   let head=cols.map(c=>'<th>'+esc(c[1])+'</th>').join('')+'<th style="min-width:160px;">確認する事項</th><th></th>';
