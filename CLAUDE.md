@@ -148,6 +148,10 @@
 - 報告書には解説キャプション（.caption）とストーリー解説文（.story、テンプレ＋AI仕上げ）
 - 「税理士にご相談ください」系の文言は入れない（ユーザー自身が税理士）
 - AI通帳分析（passbook）: 通帳明細をAIで分析し要確認取引・推定財産を財産一覧・異動一覧表へ反映
+- 財産診断書Excel（downloadShindanExcelBody）: 3-1〜のカテゴリ別明細シートはアプリの財産一覧と同一ヘッダ
+  （操作列のみ除外）で全項目を出力。自動計算欄はExcel数式（`{formula,result}`）で出力し、
+  アプリの計算関数（computeAssetValue/secUnit/divInfo/landUseFactor/computeKobo等）と式を一致させる。
+  全シートのフォントは書き出し直前に Noto Sans JP へ一括統一。PDF版は要約のまま（変更しない合意）
 
 ### 顧問先情報・進捗管理
 - 相続税申告スポット顧問先: `souzokuSpot` フラグ。死亡日⇄相続管理と双方向連動、申告期限=死亡日+10か月
