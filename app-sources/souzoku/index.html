@@ -5220,6 +5220,215 @@ async function downloadShindanExcelBody(){
     w6.addRow([]);
   });
   if(!anyDetail) w6.addRow(['登録されている財産はありません。']);
+  else { w6.addRow([]); w6.addRow(['※ 各財産の入力内容（全項目）は「3-1〜」の明細シートに出力しています。']); }
+  // ===== 3-1〜 財産明細（カテゴリ別）＝アプリの財産一覧と同一ヘッダ・自動計算欄はExcel数式 =====
+  {
+    const V=x=>{ const n=num(x); return n?n:null; };                 // 数値（空欄・0はnull＝空セル）
+    const Vz=x=>(x===''||x==null)?null:num(x);                       // 0も明示入力として残す数値
+    const T=x=>(x==null?'':String(x));                               // 文字列
+    const F=(formula,result)=>({formula,result});                    // Excel数式セル（開いた時用に計算結果も持たせる）
+    const kb=computeKobo();
+    const KOBO_LABEL={none:'適用なし',residence:'特定居住用(330㎡80%)',business:'特定事業用(400㎡80%)',company:'特定同族会社(400㎡80%)',rental:'貸付事業用(200㎡50%)'};
+    // 小規模宅地等の適用面積・減額率（computeKoboと同じ順序・限度枠で資産別に確定）
+    const koboApplied={};
+    { const caps={residence:330,business:400,rental:200}; const rates={residence:.8,business:.8,company:.8,rental:.5};
+      const groupOf=t=> t==='residence'?'residence':(t==='rental'?'rental':'business'); const used={residence:0,business:0,rental:0};
+      currentCase.assets.filter(a=>a.category==='land'&&a.kobo&&a.kobo.type&&a.kobo.type!=='none').forEach(a=>{
+        const type=a.kobo.type, grp=groupOf(type); const area=Number(a.quantity)||0;
+        let req=(a.kobo.area!==''&&a.kobo.area!=null)?Number(a.kobo.area):area; req=Math.min(req,area||req);
+        const applied=Math.max(0,Math.min(req,caps[grp]-used[grp])); used[grp]+=applied;
+        koboApplied[a.id]={applied,rate:rates[type]};
+      });
+    }
+    let dNo=0;
+    const detailSheet=(name,widths)=>{ dNo++; const ws=wb.addWorksheet('3-'+dNo+'_'+name); widths.forEach((w,i)=>{ ws.getColumn(i+1).width=w; }); ws.views=[{state:'frozen',ySplit:3}]; sectionTitle(ws,'3-'+dNo,'財産明細：'+name); return ws; };
+    const startRow=ws=>ws.rowCount+2;                                // 次に addTable するときのデータ開始行
+    const fracF=a=>{ const nu=num(a.ownNum)||1, de=(num(a.ownDen)||1)||1; return F(nu+'/'+de,nu/de); };
+    const catItems=k=>currentCase.assets.filter(a=>a.category===k);
+    // --- 土地 ---
+    { const items=catItems('land');
+      if(items.length){
+        const ws=detailSheet('土地',[26,12,8,10,10,10,12,12,10,12,14,8,16,22,12,14,12,11,10,12,12,10,11,10,14,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const auto=a.autoCalc!==false; const isRosen=a.evalMethod!=='baisu';
+          const areaK=num(a.kazeiChiseki)||null, areaT=num(a.tokiChiseki)||null;
+          const areaKcell=(areaK==null&&areaT==null&&num(a.quantity))?num(a.quantity):areaK; // 旧データ（面積のみ）は課税地積欄へ
+          const valF='ROUND(IF(I'+r+'="倍率",K'+r+'*L'+r+',J'+r+'*IF(H'+r+'>0,H'+r+',G'+r+'))*C'+r
+            +'*IF(Q'+r+'="貸宅地",MAX(0,1-R'+r+'/100),IF(Q'+r+'="借地権",R'+r+'/100,IF(Q'+r+'="貸家建付地",MAX(0,1-R'+r+'/100*IF(W'+r+'="",30,W'+r+')/100*IF(X'+r+'="",100,X'+r+')/100),1))),0)';
+          const k=a.kobo||{type:'none',area:''}; const ka=koboApplied[a.id]; const red=kb.byAsset[a.id]||0;
+          const redCell=ka? ((num(a.unitPrice)>0)? F('ROUND(J'+r+'*'+ka.applied+'*'+ka.rate+',0)',red):(red||null)) : null;
+          return {cells:[T(a.location),T(a.chiban),fracF(a),T(a.tokiChimoku),T(a.kazeiChimoku),T(a.genkyo),
+            areaT,areaKcell,isRosen?'路線価':'倍率',V(a.unitPrice),V(a.koteiValue),Vz(a.baisu),
+            auto?F(valF,computeAssetValue(a)):num(a.value),
+            KOBO_LABEL[k.type||'none'],Vz(k.area),redCell,
+            T(a.landUse||'自用地'),Vz(a.shakuchiRatio),T(a.sokuho),T(a.toshiKeikaku),T(a.youtoChiiki),T(a.fukuin),Vz(a.shakkaRatio),Vz(a.chintaiRatio),V(a.landDebt),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','','','','','','',F('SUM(M'+r0+':M'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'','',F('SUM(P'+r0+':P'+rl+')',kb.total),'','','','','','','','',F('SUM(Y'+r0+':Y'+rl+')',items.reduce((s,a)=>s+num(a.landDebt),0)),'',''],kind:'tot'});
+        addTable(ws,['所在','地番','持分','登記地目','課税地目','現況','登記地積(㎡)','課税地積(㎡)','評価方式','㎡単価(路線価)','固定資産税評価額','倍率','相続税評価額(円)','小規模区分','小規模面積(㎡)','小規模減額(円)','自用借地区分','借地権割合(%)','側方・二方','都市計画','用途地域','正面幅員','借家権割合(%)','賃貸割合(%)','債務(円)','注記','確認する事項'],rows,[10,11,13,16,25]);
+        ws.getColumn(3).numFmt='??/??';
+        ws.addRow([]); ws.addRow(['※ 相続税評価額＝（路線価方式：㎡単価×地積（課税地積優先）／倍率方式：固定資産税評価額×倍率）×持分×利用区分の調整（借家権割合の既定30%・賃貸割合の既定100%）。小規模減額は限度面積（併用の限度枠）適用後の面積で計算しています。']);
+      }
+    }
+    // --- 建物 ---
+    { const items=catItems('building');
+      if(items.length){
+        const ws=detailSheet('建物',[26,12,8,12,12,8,13,13,16,10,11,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const auto=a.autoCalc!==false;
+          const valF='ROUND(I'+r+'*C'+r+'*IF(J'+r+'="貸家",1-0.3*IF(K'+r+'="",100,K'+r+')/100,1),0)';
+          return {cells:[T(a.chiban),T(a.kaokuNo),fracF(a),T(a.subcategory),T(a.kozo),T(a.kaiso),V(a.tokiYuka),V(a.kazeiYuka),V(a.koteiValue),T(a.buildingUse||'自用'),Vz(a.chintaiRatio),
+            auto?F(valF,computeAssetValue(a)):num(a.value),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','','','','','',F('SUM(L'+r0+':L'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['所在','家屋番号','持分','種類','構造','階層','登記床面積(㎡)','課税床面積(㎡)','固定資産税評価額','自用貸家','賃貸割合(%)','相続税評価額(円)','注記','確認する事項'],rows,[9,12]);
+        ws.getColumn(3).numFmt='??/??';
+        ws.addRow([]); ws.addRow(['※ 相続税評価額＝固定資産税評価額×持分（貸家は ×(1−借家権割合30%×賃貸割合)）。']);
+      }
+    }
+    // --- 有価証券 ---
+    { const items=catItems('securities');
+      if(items.length){
+        const ws=detailSheet('有価証券',[13,14,12,30,16,20,14,12,12,12,13,11,11,11,14,12,12,12,10,12,14,8,15,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const fund=isFund(a); const unit=secUnit(a); const base=secBase(a); const di=divInfo(a); const auto=a.autoCalc!==false;
+          const ps=[a.p1,a.p2,a.p3,a.p4].map(num).filter(x=>x>0);
+          const unitCell=fund?null:(ps.length?F('MIN(G'+r+':J'+r+')',unit):(unit||null));
+          const baseF=fund?('ROUND(G'+r+'*L'+r+'/10000,0)'):('ROUND(K'+r+'*L'+r+',0)');
+          const grossF='ROUND(S'+r+'*L'+r+',0)';
+          const rate=(a.divRate!==''&&a.divRate!=null)?num(a.divRate):20.315;
+          const divCell=(di.kind==='なし')?(di.net||null):F(grossF+'-ROUNDDOWN('+grossF+'*'+rate+'/100,0)',di.net);
+          const totF='MAX(0,O'+r+'-ROUND(O'+r+'*IF(M'+r+'="",0,M'+r+')/100,0)-IF(N'+r+'="",0,N'+r+'))+IF(U'+r+'="",0,U'+r+')';
+          return {cells:[T(a.subcategory),T(a.code),fund?T(a.assoc):'',T(a.name),T(a.broker),T(a.acctType),
+            V(a.p1),fund?null:V(a.p2),fund?null:V(a.p3),fund?null:V(a.p4),unitCell,V(a.quantity),
+            fund?Vz(a.ritio):null,fund?V(a.redeemFee):null,F(baseF,base),
+            T(a.divBase),T(a.divEffective),T(a.divPayStart),fund?null:V(a.divPerShare),di.kind,divCell,
+            auto?'自動':'手入力',auto?F(totF,computeAssetValue(a)):num(a.value),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','','','','','','','','','','','','','','','','',F('SUM(W'+r0+':W'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['種類','銘柄コード/ISIN','協会コード(投信)','銘柄/ファンド名','証券会社','口座種類','①相続開始日終値/基準価額(1万口)','②当月平均','③前月平均','④前々月平均','税法上の1株単価(①〜④の最低額)','株数/口数','信託財産留保率(%)','解約手数料','評価額(株式/投信)','配当基準日','効力発生日(株主総会決議日)','支払開始日(実際の入金日)','1株配当','配当区分','配当評価額(源泉控除後)','計算','評価額合計(円)','注記','確認する事項'],rows,[7,8,9,10,11,14,15,19,21,23]);
+        ws.addRow([]); ws.addRow(['※ 株式＝①〜④の最低単価×株数／投資信託＝基準価額×口数÷1万口−信託財産留保額−解約手数料。配当評価額＝1株配当×株数−源泉徴収税額（配当区分は相続開始日と基準日・効力発生日・支払開始日の関係から判定）。']);
+      }
+    }
+    // --- 非上場株式 ---
+    { const items=catItems('unlisted');
+      if(items.length){
+        const ws=detailSheet('非上場株式',[14,16,12,30,14,12,8,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const auto=a.autoCalc!==false;
+          return {cells:[T(a.subcategory),T(a.evalWay),T(a.companyType),T(a.name),V(a.unitPrice),V(a.quantity),auto?'自動':'手入力',
+            auto?F('ROUND(E'+r+'*F'+r+',0)',computeAssetValue(a)):num(a.value),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','',F('SUM(H'+r0+':H'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['種類','評価方法','会社区分','会社名（銘柄）','単価','株数','計算','価額(円)','注記','確認する事項'],rows,[5,8]);
+      }
+    }
+    // --- 現金・預貯金 ---
+    { const items=catItems('cash');
+      if(items.length){
+        const ws=detailSheet('現金・預貯金',[14,14,20,14,14,16,14,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map(a=>({cells:[T(a.nominee),T(a.subcategory),T(a.name),T(a.branch),T(a.accountNo),Vz(a.value),V(a.interest),T(a.memo),T(a.checkNote)]}));
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','',F('SUM(F'+r0+':F'+rl+')',items.reduce((s,a)=>s+num(a.value),0)),F('SUM(G'+r0+':G'+rl+')',items.reduce((s,a)=>s+num(a.interest),0)),'',''],kind:'tot'});
+        rows.push({cells:['合計（金額＋既経過利息）','','','','',F('SUM(F'+r0+':F'+rl+')+SUM(G'+r0+':G'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'','',''],kind:'tot'});
+        addTable(ws,['名義','種類','金融機関','支店','口座番号','金額(円)','既経過利息','注記','確認する事項'],rows,[6,7]);
+      }
+    }
+    // --- 生命保険金等 ---
+    { const items=catItems('insurance');
+      if(items.length){
+        const ws=detailSheet('生命保険金等',[26,18,16,14,12,10,14,12,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const fx=insuranceFxJpy(a);
+          return {cells:[T(a.subcategory),T(a.name),T(a.insType),T(a.accountNo),T(a.nominee),T(a.fxCurrency),V(a.fxAmount),Vz(a.fxRate),
+            fx!=null?F('ROUND(G'+r+'*H'+r+',0)',fx):(num(a.value)||null),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','','',F('SUM(I'+r0+':I'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['区分','保険会社','保険種類','証券番号','受取人','通貨','外貨建保険金額','TTB(死亡日)','金額(円)','注記','確認する事項'],rows,[7,9]);
+        ws.addRow([]); ws.addRow(['※ 外貨建ては 外貨建保険金額×TTB(死亡日) で円換算。死亡保険金の非課税限度額（500万円×法定相続人の数）は「2_資産構成」で控除しています。']);
+      }
+    }
+    // --- 退職手当金等 ---
+    { const items=catItems('retirement');
+      if(items.length){
+        const ws=detailSheet('退職手当金等',[16,24,14,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map(a=>({cells:[T(a.subcategory),T(a.name),T(a.nominee),num(a.value)||null,T(a.memo),T(a.checkNote)]}));
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','',F('SUM(D'+r0+':D'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['種類','支給者','受取人','金額(円)','注記','確認する事項'],rows,[4]);
+        ws.addRow([]); ws.addRow(['※ 退職手当金の非課税限度額（500万円×法定相続人の数）は「2_資産構成」で控除しています。']);
+      }
+    }
+    // --- その他の財産 ---
+    { const items=catItems('other');
+      if(items.length){
+        const ws=detailSheet('その他の財産',[16,24,24,10,14,8,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const auto=a.autoCalc!==false&&num(a.unitPrice)>0;
+          return {cells:[T(a.subcategory),T(a.name),T(a.location),V(a.quantity),V(a.unitPrice),a.autoCalc!==false?'自動':'手入力',
+            auto?F('ROUND(E'+r+'*D'+r+',0)',computeAssetValue(a)):computeAssetValue(a),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','',F('SUM(G'+r0+':G'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['細目','内容','所在・明細','数量','単価','計算','価額(円)','注記','確認する事項'],rows,[5,7]);
+      }
+    }
+    // --- 債務 ---
+    { const items=catItems('debt');
+      if(items.length){
+        const ws=detailSheet('債務',[16,18,20,26,14,14,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map(a=>({cells:[T(a.subcategory),T(a.location),T(a.name),T(a.creditorAddr),T(a.debtStart),T(a.debtDue),num(a.value)||null,T(a.memo),T(a.checkNote)]}));
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','',F('SUM(G'+r0+':G'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['種類','細目','債権者の氏名','債権者住所','債務発生年月日','弁済期限','金額(円)','注記','確認する事項'],rows,[7]);
+      }
+    }
+    // --- 葬式費用 ---
+    { const items=catItems('funeral');
+      if(items.length){
+        const ws=detailSheet('葬式費用',[18,26,18,14,14,20,16,18,22]);
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i;
+          return {cells:[T(a.name),T(a.payerAddr),T(a.location),T(a.payDate),V(a.claimAmount),V(a.excludeAmount),
+            F('MAX(0,IF(E'+r+'="",0,E'+r+')-IF(F'+r+'="",0,F'+r+'))',computeAssetValue(a)),T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','',F('SUM(E'+r0+':E'+rl+')',items.reduce((s,a)=>s+num(a.claimAmount),0)),F('SUM(F'+r0+':F'+rl+')',items.reduce((s,a)=>s+num(a.excludeAmount),0)),F('SUM(G'+r0+':G'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['支払者の氏名','支払者住所','細目','支払年月日','請求額(円)','葬式費用に含まれない金額(円)','葬式費用の額(円)','注記','確認する事項'],rows,[5,6,7]);
+      }
+    }
+    // --- 生前贈与財産 ---
+    { const items=catItems('gift');
+      if(items.length){
+        const ws=detailSheet('生前贈与財産',[16,14,13,22,14,20,12,8,8,15,14,12,18,22]);
+        const dd=(d&&d.deathDate)?new Date(d.deathDate):null;
+        const judgeLabel=a=>{ if(a.regime==='seisan') return '加算（相続時精算課税）'; const j=giftAddJudge(a.giftDate,dd);
+          return j.added?(j.pool?'加算（延長3〜7年）':'加算（3年以内）'):('加算対象外'+(j.anno?('（'+j.anno+'）'):'')); };
+        const heirName=id=>{ const h=heirs.find(x=>x.id===id); return h?(h.name||'(無名)'):''; };
+        const r0=startRow(ws);
+        const rows=items.map((a,i)=>{ const r=r0+i; const mv=!!a._fromMovement;
+          const auto=!mv&&a.autoCalc!==false&&num(a.unitPrice)>0&&num(a.quantity)>0;
+          return {cells:[a.regime==='seisan'?'相続時精算課税':'暦年課税',heirName(a.giftRecipient),T(mv?(a._mvDate||a.giftDate):a.giftDate),judgeLabel(a),
+            T(a.gKind),T(a.gDetail),V(a.unitPrice),mv?1:V(a.quantity),a.autoCalc!==false?'自動':'手入力',
+            auto?F('ROUND(G'+r+'*H'+r+',0)',computeAssetValue(a)):assetVal(a),V(a.giftTax),a.autoBasic!==false?'自動':'—',T(a.memo),T(a.checkNote)]};
+        });
+        const rl=r0+items.length-1;
+        rows.push({cells:['計','','','','','','','','',F('SUM(J'+r0+':J'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),F('SUM(K'+r0+':K'+rl+')',items.reduce((s,a)=>s+num(a.giftTax),0)),'','',''],kind:'tot'});
+        { const seisan={}; items.filter(a=>a.regime==='seisan').forEach(a=>{ const k=(a.giftRecipient||'_')+'|'+(a.giftDate?new Date(a.giftDate).getFullYear():'na'); seisan[k]=seisan[k]||{sum:0,basic:false}; seisan[k].sum+=assetVal(a); if(a.autoBasic!==false) seisan[k].basic=true; });
+          let seisanAfter=0; Object.keys(seisan).forEach(k=>{ seisanAfter+=Math.max(0,seisan[k].sum-(seisan[k].basic?1100000:0)); });
+          rows.push({cells:['基礎控除後の相続時精算課税計','','','','','','','','',seisanAfter,'','','',''],kind:'tot'}); }
+        addTable(ws,['区分','受贈者','贈与年月日','加算判定（日付から自動）','種類','細目','単価','数量','計算','贈与価額(円)','納付した贈与税','基礎控除自動計算','注記','確認する事項'],rows,[7,10,11]);
+        ws.addRow([]); ws.addRow(['※ 加算判定は相続開始日と贈与日の関係から自動判定（3年以内／延長3〜7年は受贈者ごと合計100万円控除／相続時精算課税は年110万円の基礎控除後を加算）。']);
+      }
+    }
+  }
   // ===== 4. 相続税の概算 =====
   const w3=wb.addWorksheet('4_相続税'); w3.getColumn(1).width=34; for(let i=2;i<=6;i++) w3.getColumn(i).width=16;
   sectionTitle(w3,4,'相続税の概算');
@@ -5314,6 +5523,8 @@ async function downloadShindanExcelBody(){
       w9.addRow([]);
     });
   }
+  // ===== 全シート共通フォント（Noto Sans JP）。既存の太字・色は維持したままフォント名だけ統一する =====
+  wb.eachSheet(ws=>{ ws.eachRow({includeEmpty:true},row=>{ row.eachCell({includeEmpty:true},c=>{ c.font=Object.assign({},c.font||{},{name:'Noto Sans JP'}); }); }); });
   const buf=await wb.xlsx.writeBuffer();
   saveAs(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'財産診断書_'+(d.name||'案件')+'_'+todayISO()+'.xlsx');
 }
