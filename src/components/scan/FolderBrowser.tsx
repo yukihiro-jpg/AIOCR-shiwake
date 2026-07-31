@@ -58,6 +58,22 @@ export interface FolderBrowserProps {
   onAiAsk?: (files: BrowserFile[], question: string, onProgress?: (m: string) => void) => Promise<string>
 }
 
+// フォルダの階層をたどって「ルート / 親 / 子」の表示名を作る。
+// 親が見つからない・循環している壊れたデータでも止まらないよう、たどる回数に上限を設ける。
+export function folderPathLabel(folders: ScanFolder[], rootLabel: string, id: string | null | undefined): string {
+  if (!id) return rootLabel
+  const byId = new Map(folders.map((f) => [f.id, f]))
+  const names: string[] = []
+  const seen = new Set<string>()
+  let cur = byId.get(id)
+  while (cur && !seen.has(cur.id) && names.length < 20) {
+    seen.add(cur.id)
+    names.unshift(cur.name)
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined
+  }
+  return [rootLabel, ...names].join(' / ')
+}
+
 // 自然順（数字は 1,2,…,10 の順、英字は A,B,C、和暦 R7<R8<R9 等）で名前を比較
 export function naturalName(a: string, b: string): number {
   return (a || '').localeCompare(b || '', 'ja', { numeric: true, sensitivity: 'base' })

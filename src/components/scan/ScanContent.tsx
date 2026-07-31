@@ -64,7 +64,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile, FileTypeBadge } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
@@ -456,7 +456,7 @@ export function InboxModal({
   const [showDone, setShowDone] = useState(true) // 処理済みも既定で表示（処理済みにしても解析データ内に残す）
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
   // 共有フォルダ（DocuWorks風ツリー・顧問先版と同一のフォルダを双方向で共有）
-  const [browseRoot, setBrowseRoot] = useState<'select' | 'toClient' | 'toOffice'>('select')
+  const [browseRoot, setBrowseRoot] = useState<'select' | 'recent' | 'toClient' | 'toOffice'>('select')
   const [folderId, setFolderId] = useState<string | null>(null)
 
   // 新規タブ（全画面）で開いたときはタブ名を「共有フォルダ_顧問先名」にする
@@ -641,13 +641,24 @@ export function InboxModal({
 
             {view === 'files' && (
               <div className="mt-3 pt-3 border-t border-gray-200">
+                {/* 双方向の最新アップロードを1本の時系列で見るビュー（フォルダの上に置く） */}
+                <button
+                  onClick={() => { setView('files'); setBrowseRoot('recent') }}
+                  className={`w-full text-left px-2 py-1.5 mb-2 rounded-lg flex items-center gap-2 border text-sm ${browseRoot === 'recent' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  <span className="text-base leading-none">🕒</span>
+                  <span className="flex-1 min-w-0 truncate font-semibold">最新アップロードファイル</span>
+                  {newUploads > 0 && (
+                    <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{newUploads}</span>
+                  )}
+                </button>
                 <div className="text-[11px] font-semibold text-gray-400 px-1.5 mb-1.5">フォルダ</div>
                 <FolderTree
                   roots={[
                     { key: 'toClient', label: labelToClient, folders: toClientFolders },
                     { key: 'toOffice', label: labelToOffice, folders: toOfficeFolders, badge: newUploads },
                   ]}
-                  currentRoot={browseRoot}
+                  currentRoot={browseRoot === 'recent' ? 'select' : browseRoot}
                   currentId={folderId}
                   onSelect={selectFolder}
                 />
@@ -672,6 +683,7 @@ export function InboxModal({
                 browseRoot={browseRoot}
                 folderId={folderId}
                 setFolderId={setFolderId}
+                onNavigate={selectFolder}
                 onChanged={async () => {
                   await load()
                   onChanged()
@@ -1461,6 +1473,202 @@ function TransferDialog({
 /** 共有フォルダパネル（事務所側）。サイドバーツリーで選んだルート（税理士→顧問先／顧問先→税理士）の
  *  フォルダブラウザを表示。DL・ZIP一括DL・Drive保存・処理済み管理・削除・メンバー個別送信つき。
  *  削除は受け渡し箱（Firebase上のコピー）のみで、顧問先の元ファイルには影響しない。 */
+/** 最新アップロードファイル一覧（事務所側）。
+ *  顧問先→税理士／税理士→顧問先の両方向のファイルを1本の時系列にまとめ、
+ *  「誰がアップロードしたか」と「いま入っているフォルダ」を添えて新しい順に並べる。
+ *  フォルダ名をクリックするとそのフォルダを開く。 */
+function RecentUploads({
+  cn,
+  labelToOffice,
+  labelToClient,
+  folders,
+  toOfficeFiles,
+  companyInbox,
+  memberInbox,
+  companyToken,
+  onNavigate,
+  onChanged,
+}: {
+  cn: string
+  labelToOffice: string
+  labelToClient: string
+  folders: ScanFolder[]
+  toOfficeFiles: ScanFile[]
+  companyInbox: ScanInboxFile[]
+  memberInbox: { token: string; name: string; files: ScanInboxFile[] }[]
+  companyToken: string
+  onNavigate: (root: 'toClient' | 'toOffice', id: string | null) => void
+  onChanged: () => Promise<void>
+}) {
+  const [limit, setLimit] = useState(50)
+  const [busy, setBusy] = useState('')
+  const [dir, setDir] = useState<'all' | 'toOffice' | 'toClient'>('all')
+
+  // フォルダの階層をたどって「ルート / 親 / 子」の表示名にする
+  const folderPath = (root: 'toOffice' | 'toClient', id: string | null | undefined) =>
+    folderPathLabel(folders.filter((f) => f.root === root), root === 'toOffice' ? labelToOffice : labelToClient, id)
+
+  interface Row {
+    key: string
+    root: 'toOffice' | 'toClient'
+    name: string
+    size: number
+    at: string
+    uploader: string
+    note: string          // 宛先・コメントなどの補足
+    folderId: string | null
+    isNew: boolean
+    get: () => Promise<Blob>
+    after?: () => Promise<void>
+  }
+  const rows: Row[] = [
+    ...toOfficeFiles.map((f) => ({
+      key: 'o_' + f.id,
+      root: 'toOffice' as const,
+      name: f.name,
+      size: f.size,
+      at: f.submittedAt,
+      uploader: f.member ? `${cn}／${f.member}` : `${cn}（会社URL）`,
+      note: f.comment || '',
+      folderId: f.folderId || null,
+      isNew: !f.downloadedAt && !f.driveSavedAt && f.status !== 'done',
+      get: () => getScanFileBlob(f),
+      after: async () => { try { await markFileDownloaded(companyToken, f.id) } catch { /* ignore */ } },
+    })),
+    ...companyInbox.map((f) => ({
+      key: 'c_' + f.id,
+      root: 'toClient' as const,
+      name: f.name,
+      size: f.size,
+      at: f.sentAt,
+      uploader: '税理士（当事務所）',
+      note: `宛先：全員${f.comment ? '／' + f.comment : ''}`,
+      folderId: f.folderId || null,
+      isNew: false,
+      get: () => getInboxBlob(f),
+    })),
+    ...memberInbox.flatMap((mi) =>
+      mi.files.map((f) => ({
+        key: `m_${mi.token}_${f.id}`,
+        root: 'toClient' as const,
+        name: f.name,
+        size: f.size,
+        at: f.sentAt,
+        uploader: '税理士（当事務所）',
+        note: `宛先：${mi.name}${f.comment ? '／' + f.comment : ''}`,
+        folderId: f.folderId || null,
+        isNew: false,
+        get: () => getInboxBlob(f),
+      })),
+    ),
+  ]
+    .filter((r) => dir === 'all' || r.root === dir)
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''))
+
+  async function dl(r: Row) {
+    setBusy(r.key)
+    try {
+      downloadBlob(await r.get(), r.name)
+      if (r.after) { await r.after(); await onChanged() }
+    } catch (e) {
+      alert('ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy('')
+  }
+
+  const fmtAt = (iso: string) => {
+    const d = new Date(iso)
+    return isNaN(d.getTime()) ? iso : d.toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+  const fmtSize = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <h3 className="text-base font-bold text-gray-800">🕒 最新アップロードファイル</h3>
+        <span className="text-xs text-gray-500">両方向のファイルを新しい順に表示しています（{rows.length}件）</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          {([['all', 'すべて'], ['toOffice', labelToOffice], ['toClient', labelToClient]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setDir(k)}
+              className={`px-2.5 py-1 text-xs rounded-full border ${dir === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500 py-10 text-center">アップロードされたファイルはまだありません。</p>
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500">
+                <th className="text-left px-3 py-2 whitespace-nowrap">アップロード日時</th>
+                <th className="text-left px-3 py-2 whitespace-nowrap">向き</th>
+                <th className="text-left px-3 py-2">ファイル名</th>
+                <th className="text-left px-3 py-2 whitespace-nowrap">アップロードした人</th>
+                <th className="text-left px-3 py-2">格納フォルダ</th>
+                <th className="text-right px-3 py-2 whitespace-nowrap"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, limit).map((r) => (
+                <tr key={r.key} className="border-t border-gray-100 align-top">
+                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{fmtAt(r.at)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-white"
+                      style={{ background: r.root === 'toOffice' ? '#16a34a' : '#2563eb' }}
+                    >
+                      {r.root === 'toOffice' ? '顧問先 → 税理士' : '税理士 → 顧問先'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-gray-800">
+                    <span className="break-all">{r.name}</span>
+                    <span className="text-[11px] text-gray-400 ml-1.5 whitespace-nowrap">{fmtSize(r.size)}</span>
+                    {r.isNew && <span className="ml-1.5 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5">未受取</span>}
+                    {r.note && <div className="text-[11px] text-gray-500 mt-0.5 break-all">{r.note}</div>}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{r.uploader}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => onNavigate(r.root, r.folderId)}
+                      className="text-blue-600 hover:underline text-left break-all"
+                      title="このフォルダを開く"
+                    >
+                      📁 {folderPath(r.root, r.folderId)}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => dl(r)}
+                      disabled={busy === r.key}
+                      className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {busy === r.key ? '取得中…' : 'DL'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length > limit && (
+            <div className="text-center mt-3">
+              <button onClick={() => setLimit((n) => n + 50)} className="px-4 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                さらに表示（残り {rows.length - limit} 件）
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function FilesPanel({
   client,
   company,
@@ -1471,6 +1679,7 @@ function FilesPanel({
   browseRoot,
   folderId,
   setFolderId,
+  onNavigate,
   onChanged,
 }: {
   client: SharedClient
@@ -1479,9 +1688,10 @@ function FilesPanel({
   companyInbox: Record<string, ScanInboxFile>
   folders: ScanFolder[]
   showDone: boolean
-  browseRoot: 'select' | 'toClient' | 'toOffice'
+  browseRoot: 'select' | 'recent' | 'toClient' | 'toOffice'
   folderId: string | null
   setFolderId: (id: string | null) => void
+  onNavigate: (root: 'toClient' | 'toOffice', id: string | null) => void
   onChanged: () => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
@@ -1634,6 +1844,23 @@ function FilesPanel({
         ← 左の「フォルダ」から<br />
         <span className="text-blue-600 font-semibold">{labelToClient}</span>／<span className="text-green-600 font-semibold">{labelToOffice}</span> を選択してください
       </div>
+    )
+  }
+
+  if (browseRoot === 'recent') {
+    return (
+      <RecentUploads
+        cn={cn}
+        labelToOffice={labelToOffice}
+        labelToClient={labelToClient}
+        folders={folders}
+        toOfficeFiles={list}
+        companyInbox={Object.values(companyInbox)}
+        memberInbox={memberInbox}
+        companyToken={company.token}
+        onNavigate={onNavigate}
+        onChanged={onChanged}
+      />
     )
   }
 
