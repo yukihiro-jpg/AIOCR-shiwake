@@ -555,95 +555,116 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   // 科目数は会社ごとに大きく異なるため、行数から文字サイズの段階を選び、
   // それでも1枚に収まらない場合はページを可変高（.flowsheet）にして次の紙に流す（科目は省略しない）。
   function pageTrialFull(no: number): string {
-    // 文字サイズの段階。会計ソフトの三期比較損益計算書と同じくらいの可読性にするため、
-    // 行間・余白を詰めて「同じ行ピッチでもフォントは大きく」する。
-    // 枠と下部フッターがある1ページ目より、表だけの2ページ目のほうが多くの行を大きな字で入れられる。
-    const TIERS = ['z1', 'z2', 'z3', 'z4']
-    const FIT_FRAMED = [44, 51, 59, 65]   // 1ページ目（枠＋フッターあり）
-    const FIT_BARE = [47, 54, 61, 67]     // 2ページ目（表のみ）
-    const tierOf = (n: number, fit: number[]) => TIERS[fit.findIndex((f) => n <= f)] || 'z4'
-    const overflows = (n: number, fit: number[]) => n > fit[fit.length - 1]
-    // 繰越利益剰余金（期首・期末）はPLの比較では不要なので出さない（3期推移ページと同じ扱い）
+    // 文字サイズの段階。会計ソフトの帳票と同じくらいの可読性にするため、行間・余白を詰めて
+    // 「行の高さを増やさずに文字だけ大きく」する。列幅は見出し・数字の文字数から必要な分だけ取り、
+    // 余った幅は各表へ按分する（広すぎる列を作らず、3つの表を1枚に収める）。
+    interface Tier { k: string; px: number; rowMm: number; padMm: number }
+    const TIERS: Tier[] = [
+      { k: 'z1', px: 11, rowMm: 3.38, padMm: 1.3 },
+      { k: 'z2', px: 10, rowMm: 3.10, padMm: 1.2 },
+      { k: 'z3', px: 9, rowMm: 2.81, padMm: 1.0 },
+      { k: 'z4', px: 8, rowMm: 2.53, padMm: 0.9 },
+    ]
+    // 表に使える高さ（mm）。A4横の本文190mmから、ページ見出し・小見出し・注記の分を引いた実測値。
+    const H_BUDGET_P1 = 183              // 1ページ目（表のみ・フッターなし・下余白を詰める）
+    const H_BUDGET_P2 = 183              // 2ページ目（表のみ・注記は下余白に重ねる）
+    const W_BUDGET = 275                 // A4横の本文幅
+    // 文字幅（em単位）。全角は1.0em、半角（数字・記号）は0.58em で見積もる
+    const emW = (s: string) => Array.from(s).reduce((a, ch) => a + (/[\x00-\xff]/.test(ch) ? 0.58 : 1), 0)
+    const mmOf = (s: string, px: number) => emW(s) * px * 0.2646
+
+    // 繰越利益剰余金（期首・期末）はPLでは出さない（3期推移ページと同じ扱い）
     const rows = aggregateRows(fy).filter((r) => !(r.statement === 'PL' && /繰越利益剰余金/.test(r.name)))
     const plRows = rows.filter((r) => r.statement === 'PL')
     const bsRows = rows.filter((r) => r.statement === 'BS')
-    // 比率の分母。コード（会計大将の標準コード）で取れないCSVでも比率が空欄にならないよう、
-    // 取れないときは小計行の名称から拾い直す
+    // 貸借対照表は「資産の部」と「負債・純資産の部」に分ける（資産合計の行までが資産の部）
+    const aEnd = bsRows.findIndex((x) => x.isSubtotal && /資産(合計|の部)/.test(x.name) && !/流動|固定|負債|純資産/.test(x.name))
+    const bsAsset = aEnd >= 0 ? bsRows.slice(0, aEnd + 1) : bsRows.filter((r) => !/負債|純資産|資本|剰余金|利益準備/.test(r.name))
+    const bsLiab = aEnd >= 0 ? bsRows.slice(aEnd + 1) : bsRows.filter((r) => /負債|純資産|資本|剰余金|利益準備/.test(r.name))
+    // 比率の分母。コードで取れないCSVでも空欄にならないよう、取れないときは小計行の名称から拾い直す
     const salesYtd = ytd(fy, CODES.sales, monthIdx) || (() => {
       const r = plRows.find((x) => x.isSubtotal && /純売上高/.test(x.name)) || plRows.find((x) => x.isSubtotal && /売上高/.test(x.name))
       return r ? aggRowValue(r, monthIdx, 'cum') : 0
     })()
-    const assetBal = singleMonth(fy, CODES.assetTotal, monthIdx) || (() => {
-      const r = bsRows.find((x) => x.isSubtotal && /資産(合計|の部)/.test(x.name) && !/流動|固定|負債|純資産/.test(x.name))
-      return r ? (r.monthly[monthIdx] ?? 0) : 0
-    })()
-    // 行の種類：〔利益〕＝金帯、合計行＝濃紺帯、その他の小計＝薄紺帯、明細＝通常（階層でインデント）
+    const assetBal = singleMonth(fy, CODES.assetTotal, monthIdx) || (aEnd >= 0 ? (bsRows[aEnd].monthly[monthIdx] ?? 0) : 0)
+
+    // ---- 表の中身（値）を先に作り、文字数から列幅を決める ----
+    interface Cell { t: string; neg?: boolean }
+    interface Row { cls: string; name: string; indentMm: number; cells: Cell[] }
+    interface Col { head: string[]; cls: string; grow?: number }
+    interface Tbl { title: string; sub: string; cols: Col[]; rows: Row[] }
     const TOT_RE = /(資産合計|負債合計|純資産合計|負債純資産合計|負債及び純資産合計|負債・純資産合計)/
     const rowCls = (r: AggRow) => (r.bracket === 'profit' ? 'prf' : r.isSubtotal ? (TOT_RE.test(r.name) ? 'tot' : 'grp') : '')
-    const nameCell = (r: AggRow) =>
-      `<td class="nm"${r.isSubtotal ? '' : ` style="padding-left:${(1.5 + r.level * 1.6).toFixed(1)}mm"`}>${esc(r.name)}</td>`
-    const money = (v: number) => `<td class="tr${v < 0 ? ' neg' : ''}">${esc(num(v))}</td>`
-    const sgnCell = (v: number) => `<td class="tr${v < 0 ? ' neg' : ''}">${v === 0 ? '0' : esc(sgnYen(v))}</td>`
-    const pctCell = (v: number, base: number) => `<td class="tr">${base ? esc(p1((v / base) * 100)) : '—'}</td>`
-    // 値が全く立っていない見出し行（【売上高】等）は数字欄を空にして見出しであることを分かりやすくする
-    const blank = (n: number) => '<td class="tr"></td>'.repeat(n)
-    // 列幅：科目名は実際の文字数に合わせて必要な分だけ確保し、余った幅は数値列へ回す
-    const PX: Record<string, number> = { z1: 10.5, z2: 9.5, z3: 8.5, z4: 7.6 }
-    const textW = (s: string) => Array.from(s).reduce((a, ch) => a + (/[\x00-\xff]/.test(ch) ? 0.55 : 1), 0)
-    const nameMmOf = (names: string[], tier: string, maxMm: number) => {
-      const em = PX[tier] * 0.2646                                   // 1文字ぶんのmm
-      const w = names.reduce((m, s) => Math.max(m, textW(s)), 4) * em
-      const indent = 1.5 + 1.6                                       // 明細行のインデント＋左右余白
-      return Math.min(maxMm, Math.max(18, w + indent + 3))
-    }
-    // 科目名の幅（mm）と各数値列の重み（1=金額列, 0.6=率の列）から colgroup を作る
-    const colGroup = (nameMm: number, weights: number[], totalMm: number) => {
-      const rest = Math.max(10, totalMm - nameMm)
-      const sum = weights.reduce((a, b) => a + b, 0)
-      const mms = [nameMm, ...weights.map((w) => (rest * w) / sum)]
-      return `<colgroup>${mms.map((mm) => `<col style="width:${((mm / totalMm) * 100).toFixed(2)}%">`).join('')}</colgroup>`
-    }
-    const HALF_MM = 135   // 1ページ目の左右それぞれの表の幅（A4横の本文幅の約半分）
-    const FULL_MM = 275   // 2ページ目（表のみ）の表の幅
+    const mk = (v: number): Cell => ({ t: num(v), neg: v < 0 })
+    const sg = (v: number): Cell => ({ t: v === 0 ? '0' : sgnYen(v), neg: v < 0 })
+    const pc = (v: number, base: number): Cell => ({ t: base ? p1((v / base) * 100) : '—' })
+    const empty = (n: number): Cell[] => Array.from({ length: n }, () => ({ t: '' }))
+    const baseRow = (r: AggRow, cells: Cell[]): Row =>
+      ({ cls: rowCls(r), name: r.name, indentMm: r.isSubtotal ? 0 : r.level * 1.6, cells })
 
-    const plBody = plRows.map((r) => {
-      const single = aggRowValue(r, monthIdx, 'single')
-      const cum = aggRowValue(r, monthIdx, 'cum')
-      const cls = rowCls(r)
-      const cells = (r.isSubtotal && single === 0 && cum === 0)
-        ? blank(3)
-        : money(single) + money(cum) + pctCell(cum, salesYtd)
-      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
-    }).join('')
-    const bsBody = bsRows.map((r) => {
-      const cur = r.monthly[monthIdx] ?? 0
-      const prev = monthIdx > 0 ? (r.monthly[monthIdx - 1] ?? 0) : 0
-      const cls = rowCls(r)
-      const cells = (r.isSubtotal && cur === 0 && prev === 0)
-        ? blank(4)
-        : money(prev) + money(cur) + sgnCell(cur - prev) + pctCell(cur, assetBal)
-      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
-    }).join('')
+    const plTbl: Tbl = {
+      title: '損益計算書', sub: `${monthLabel}単月／期首〜${monthLabel}累計`,
+      cols: [{ head: ['科目'], cls: 'thl', grow: 1 }, { head: ['当月'], cls: '', grow: 1.3 }, { head: ['累計'], cls: '', grow: 1.3 }, { head: ['対売上比'], cls: 'hd-r' }],
+      rows: plRows.map((r) => {
+        const single = aggRowValue(r, monthIdx, 'single'), cum = aggRowValue(r, monthIdx, 'cum')
+        return baseRow(r, r.isSubtotal && single === 0 && cum === 0 ? empty(3) : [mk(single), mk(cum), pc(cum, salesYtd)])
+      }),
+    }
+    const bsCols = (): Col[] => [
+      { head: ['科目'], cls: 'thl', grow: 1 }, { head: ['前月末'], cls: '', grow: 1.2 }, { head: ['当月末'], cls: '', grow: 1.2 },
+      { head: ['増減'], cls: 'hd-d', grow: 1.1 }, { head: ['構成比'], cls: 'hd-r' },
+    ]
+    const bsRowsOf = (list: AggRow[]): Row[] => list.map((r) => {
+      const cur = r.monthly[monthIdx] ?? 0, prev = monthIdx > 0 ? (r.monthly[monthIdx - 1] ?? 0) : 0
+      return baseRow(r, r.isSubtotal && cur === 0 && prev === 0 ? empty(4) : [mk(prev), mk(cur), sg(cur - prev), pc(cur, assetBal)])
+    })
+    const asTbl: Tbl = { title: '貸借対照表（資産の部）', sub: `前月末／${monthLabel}末／増減／構成比`, cols: bsCols(), rows: bsRowsOf(bsAsset) }
+    const lqTbl: Tbl = { title: '貸借対照表（負債・純資産の部）', sub: `前月末／${monthLabel}末／増減／構成比`, cols: bsCols(), rows: bsRowsOf(bsLiab) }
 
-    const n1 = Math.max(plRows.length, bsRows.length)
-    const flow1 = overflows(n1, FIT_FRAMED)
-    const tier1 = tierOf(n1, FIT_FRAMED)
-    const plTable = `<table class="tb ${tier1}">
-      ${colGroup(nameMmOf(plRows.map((r) => r.name), tier1, HALF_MM * 0.42), [1, 1, 0.6], HALF_MM)}
-      <thead><tr><th class="thl">科目</th><th>当月（単月）</th><th>累計</th><th class="hd-r">対売上比</th></tr></thead>
-      <tbody>${plBody}</tbody></table>`
-    const bsTable = `<table class="tb ${tier1}">
-      ${colGroup(nameMmOf(bsRows.map((r) => r.name), tier1, HALF_MM * 0.42), [1, 1, 1, 0.6], HALF_MM)}
-      <thead><tr><th class="thl">科目</th><th>前月末</th><th>当月末</th><th class="hd-d">増減</th><th class="hd-r">構成比</th></tr></thead>
-      <tbody>${bsBody}</tbody></table>`
-    const p1Body = `
-      <div class="row2">
-        <div class="blk tight"><div class="blk-t">損益計算書<span class="sm">${monthLabel}単月 ／ 期首〜${monthLabel}累計 ／ 対売上比（累計）</span></div>${plTable}</div>
-        <div class="blk tight"><div class="blk-t">貸借対照表<span class="sm">前月末残高 ／ ${monthLabel}末残高 ／ 増減 ／ 構成比（対資産合計）</span></div>${bsTable}</div>
-      </div>`
-    const page1 = flow1
-      ? `<section class="flowsheet">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}</section>`
-      : `<section class="page">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}${pageFoot}</section>`
+    // ---- 列幅（mm）：見出しと中身のうち長いほうに合わせる。科目名だけは上限を設ける ----
+    const colMm = (t: Tbl, ci: number, tier: Tier): number => {
+      const pad = tier.padMm * 2 + 0.6
+      if (ci === 0) {
+        const w = t.rows.reduce((m, r) => Math.max(m, mmOf(r.name, tier.px) + r.indentMm), mmOf(t.cols[0].head[0], tier.px))
+        return Math.min(48, Math.max(16, w + pad))
+      }
+      const headMm = Math.max(...t.cols[ci].head.map((h) => mmOf(h, tier.px)))
+      const bodyMm = t.rows.reduce((m, r) => Math.max(m, mmOf(r.cells[ci - 1]?.t || '', tier.px)), 0)
+      return Math.max(headMm, bodyMm) + pad
+    }
+    const tblMm = (t: Tbl, tier: Tier) => t.cols.reduce((s, _c, i) => s + colMm(t, i, tier), 0)
+
+    // ---- 表のHTML（列幅は mm 指定。余り幅は grow の比で各列へ配る） ----
+    const renderTbl = (t: Tbl, tier: Tier, extraMm: number): string => {
+      const base = t.cols.map((_c, i) => colMm(t, i, tier))
+      const growSum = t.cols.reduce((s, c) => s + (c.grow || 0), 0)
+      const widths = base.map((mm, i) => mm + (growSum > 0 ? (extraMm * (t.cols[i].grow || 0)) / growSum : 0))
+      const total = widths.reduce((a, b) => a + b, 0)
+      const cg = `<colgroup>${widths.map((mm) => `<col style="width:${((mm / total) * 100).toFixed(2)}%">`).join('')}</colgroup>`
+      const head = `<thead><tr>${t.cols.map((c) => `<th${c.cls ? ` class="${c.cls}"` : ''}>${c.head.map(esc).join('<br>')}</th>`).join('')}</tr></thead>`
+      const body = t.rows.map((r) => {
+        const tds = r.cells.map((c) => `<td class="tr${c.neg ? ' neg' : ''}">${esc(c.t)}</td>`).join('')
+        return `<tr${r.cls ? ` class="${r.cls}"` : ''}><td class="nm"${r.indentMm ? ` style="padding-left:${(tier.padMm + r.indentMm).toFixed(1)}mm"` : ''}>${esc(r.name)}</td>${tds}</tr>`
+      }).join('')
+      const cap = t.title ? `<div class="tbl-t">${esc(t.title)}<span class="sm">${esc(t.sub)}</span></div>` : ''
+      return `<div class="tbl" style="width:${total.toFixed(1)}mm">${cap}`
+        + `<table class="tb ${tier.k}">${cg}${head}<tbody>${body}</tbody></table></div>`
+    }
+
+    // ---- 1ページ目：損益計算書／貸借対照表（資産の部）／貸借対照表（負債・純資産の部）----
+    const p1Tbls = [plTbl, asTbl, lqTbl]
+    const maxRows = Math.max(...p1Tbls.map((t) => t.rows.length))
+    const GAP = 4
+    const fits1 = (tier: Tier) =>
+      (maxRows + 1) * tier.rowMm <= H_BUDGET_P1
+      && p1Tbls.reduce((s, t) => s + tblMm(t, tier), 0) + GAP * (p1Tbls.length - 1) <= W_BUDGET
+    const tier1 = TIERS.find(fits1) || TIERS[TIERS.length - 1]
+    const natural1 = p1Tbls.reduce((s, t) => s + tblMm(t, tier1), 0) + GAP * (p1Tbls.length - 1)
+    const flow1 = (maxRows + 1) * tier1.rowMm > H_BUDGET_P1
+    // 幅が余るときは各表へ按分して、数字の列にゆとりを持たせる
+    const extraEach = Math.max(0, (W_BUDGET - natural1) / p1Tbls.length)
+    const p1Body = `<div class="cols3">${p1Tbls.map((t) => renderTbl(t, tier1, extraEach)).join('')}</div>`
+    const page1 = `<section class="${flow1 ? 'flowsheet' : 'page'} nofoot">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}</section>`
 
     // ===== 2ページ目：損益計算書の3期比較（全科目・期首〜同月数累計）=====
     const sortedY = sortedYears(years)
@@ -652,8 +673,6 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const cur3 = comp[comp.length - 1]
     const prev1 = comp.length >= 2 ? comp[comp.length - 2] : null
     const prev2 = comp.length >= 3 ? comp[comp.length - 3] : null
-    // 期ごとの科目マップ。いずれかの期にしかない科目も落とさないよう当期の並びに織り込む
-    // （繰越利益剰余金の期首・期末はPLの比較では不要なので1ページ目と同じく除く）
     const plOf = (y: FiscalYearData) => aggregateRows(y).filter((x) => x.statement === 'PL' && !/繰越利益剰余金/.test(x.name))
     const mapsOf = (y: FiscalYearData | null) => {
       const m = new Map<string, AggRow>()
@@ -666,6 +685,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const reindex = () => { at.clear(); order.forEach((r, i) => at.set(r.name, i)) }
     for (const r of plOf(cur3)) order.push(r)
     reindex()
+    // いずれかの期にしかない科目も落とさないよう当期の並びへ織り込む
     const weaveIn = (y: FiscalYearData | null) => {
       if (!y) return
       let last = -1
@@ -682,45 +702,45 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       if (!row) return null
       return aggRowValue(row, Math.min(monthIdx, y.lastFilledIndex), 'cum')
     }
-    const cmpBody = order.map((r) => {
-      const vC = cumAt(cur3, mCur, r.name) ?? 0
-      const v1 = cumAt(prev1, mP1, r.name)
-      const v2 = cumAt(prev2, mP2, r.name)
-      const cls = rowCls(r)
-      const d1 = v1 == null ? null : vC - v1
-      const d2 = v2 == null ? null : vC - v2
-      const r1 = v1 != null && v1 !== 0 ? ((vC - v1) / Math.abs(v1)) * 100 : null
-      const r2 = v2 != null && v2 !== 0 ? ((vC - v2) / Math.abs(v2)) * 100 : null
-      const dash = '<td class="tr">—</td>'
-      const cells = (r.isSubtotal && vC === 0 && !v1 && !v2)
-        ? blank(7)
-        : (v2 == null ? dash : money(v2))
-          + (v1 == null ? dash : money(v1))
-          + money(vC)
-          + (d2 == null ? dash : sgnCell(d2))
-          + (d1 == null ? dash : sgnCell(d1))
-          + (r2 == null ? dash : `<td class="tr${r2 < 0 ? ' neg' : ''}">${esc(fmtPctSigned(r2))}</td>`)
-          + (r1 == null ? dash : `<td class="tr${r1 < 0 ? ' neg' : ''}">${esc(fmtPctSigned(r1))}</td>`)
-      return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
-    }).join('')
-    const n2 = order.length
-    const flow2 = overflows(n2, FIT_BARE)
-    const tier2 = tierOf(n2, FIT_BARE)
-    // 実績（紺）・増減（ティール）・増減率（ブロンズ）で見出しの色を分け、率の列は幅を狭くする
-    const cmpTable = `<table class="tb ${tier2}">
-      ${colGroup(nameMmOf(order.map((r) => r.name), tier2, FULL_MM * 0.24), [1, 1, 1, 0.92, 0.92, 0.58, 0.58], FULL_MM)}
-      <thead><tr><th class="thl">科目</th>
-        <th>${esc(prev2 ? prev2.label : '前々期')}</th>
-        <th>${esc(prev1 ? prev1.label : '前期')}</th>
-        <th>${esc(cur3.label)}（当期）</th>
-        <th class="hd-d">前々期比増減</th><th class="hd-d">前期比増減</th>
-        <th class="hd-r">前々期比増減率</th><th class="hd-r">前期比増減率</th></tr></thead>
-      <tbody>${cmpBody}</tbody></table>`
-    const p2Note = `<div class="note mt1">各期とも「期首〜${monthLabel}」と同じ月数の累計で比較しています（期中の月次比較のため年計は使いません）。いずれかの期にのみある科目も省略せず表示します。${prev1 ? '' : '※ 前期以前のデータが取り込まれていないため、当期のみの表示です。'}</div>`
-    // 会計ソフトの三期比較損益計算書に合わせ、囲み枠とページ下部のフッターを付けずに表だけを載せる
-    // （その分の高さを表に回し、フォントを大きくできる）
-    const p2Body = `<div class="bare">${cmpTable}${p2Note}</div>`
-    const page2 = `<section class="${flow2 ? 'flowsheet' : 'page'}">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}</section>`
+    const dash: Cell = { t: '—' }
+    const cmpTbl: Tbl = {
+      title: '', sub: '',
+      cols: [
+        { head: ['科目'], cls: 'thl', grow: 1 },
+        { head: [prev2 ? prev2.label : '前々期'], cls: '', grow: 1.2 },
+        { head: [prev1 ? prev1.label : '前期'], cls: '', grow: 1.2 },
+        { head: [`${cur3.label}（当期）`], cls: '', grow: 1.2 },
+        { head: ['前々期比', '増減'], cls: 'hd-d', grow: 1.1 },
+        { head: ['前期比', '増減'], cls: 'hd-d', grow: 1.1 },
+        { head: ['前々期比', '増減率'], cls: 'hd-r' },
+        { head: ['前期比', '増減率'], cls: 'hd-r' },
+      ],
+      rows: order.map((r) => {
+        const vC = cumAt(cur3, mCur, r.name) ?? 0
+        const v1 = cumAt(prev1, mP1, r.name)
+        const v2 = cumAt(prev2, mP2, r.name)
+        if (r.isSubtotal && vC === 0 && !v1 && !v2) return baseRow(r, empty(7))
+        const d1 = v1 == null ? null : vC - v1
+        const d2 = v2 == null ? null : vC - v2
+        const rt = (v: number | null) => (v != null && v !== 0 ? ((vC - v) / Math.abs(v)) * 100 : null)
+        const r1 = rt(v1), r2 = rt(v2)
+        return baseRow(r, [
+          v2 == null ? dash : mk(v2), v1 == null ? dash : mk(v1), mk(vC),
+          d2 == null ? dash : sg(d2), d1 == null ? dash : sg(d1),
+          r2 == null ? dash : { t: fmtPctSigned(r2), neg: r2 < 0 },
+          r1 == null ? dash : { t: fmtPctSigned(r1), neg: r1 < 0 },
+        ])
+      }),
+    }
+    const fits2 = (tier: Tier) =>
+      (cmpTbl.rows.length + 1) * tier.rowMm <= H_BUDGET_P2 && tblMm(cmpTbl, tier) <= W_BUDGET
+    const tier2 = TIERS.find(fits2) || TIERS[TIERS.length - 1]
+    const flow2 = (cmpTbl.rows.length + 1) * tier2.rowMm > H_BUDGET_P2
+    const cmpHtml = renderTbl(cmpTbl, tier2, Math.max(0, W_BUDGET - tblMm(cmpTbl, tier2)))
+    // 注記はフッターを置かない下余白に重ねて置き、表の高さを削らない（あふれるページでは通常配置）
+    const p2Note = `<div class="note ${flow2 ? 'mt1' : 'abs'}">各期とも「期首〜${monthLabel}」と同じ月数の累計で比較しています（期中の月次比較のため年計は使いません）。いずれかの期にのみある科目も省略せず表示します。${prev1 ? '' : '※ 前期以前のデータが取り込まれていないため、当期のみの表示です。'}</div>`
+    // 会計ソフトの帳票に合わせ、囲み枠とページ下部のフッターは付けずに表だけを載せる
+    const page2 = `<section class="${flow2 ? 'flowsheet' : 'page'} nofoot">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}<div class="bare">${cmpHtml}${p2Note}</div></section>`
 
     return page1 + '\n' + page2
   }
@@ -1078,14 +1098,23 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .tb tr.prf td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.2px solid ${GOLD}; border-bottom: 1.2px solid ${GOLD}; }
   .tb tr.tot td { background: #dfe9f7 !important; font-weight: 800; border-top: 1.4px solid ${NAVY}; border-bottom: 1px solid ${NAVY}; }
   /* 行間と上下余白を詰めることで、同じ行ピッチでも文字を大きくする（会計ソフトの帳票と同等の可読性） */
-  .tb.z1 th, .tb.z1 td { font-size: 10.5px; line-height: 1.1; padding: 0.28mm 1.6mm; }
-  .tb.z2 th, .tb.z2 td { font-size: 9.5px; line-height: 1.08; padding: 0.22mm 1.4mm; }
-  .tb.z3 th, .tb.z3 td { font-size: 8.5px; line-height: 1.06; padding: 0.17mm 1.2mm; }
-  .tb.z4 th, .tb.z4 td { font-size: 7.6px; line-height: 1.04; padding: 0.13mm 1mm; }
-  /* 3期比較は「表のみ」（囲み枠なし・フッターなし）で高さを表に回す */
+  .tb.z1 th, .tb.z1 td { font-size: 11px; line-height: 1.0; padding: 0.1mm 1.3mm; }
+  .tb.z2 th, .tb.z2 td { font-size: 10px; line-height: 1.0; padding: 0.09mm 1.2mm; }
+  .tb.z3 th, .tb.z3 td { font-size: 9px; line-height: 1.0; padding: 0.08mm 1mm; }
+  .tb.z4 th, .tb.z4 td { font-size: 8px; line-height: 1.0; padding: 0.07mm 0.9mm; }
+  .tb thead th { padding-top: 0.5mm; padding-bottom: 0.5mm; }
+  /* 全科目ページは「表のみ」（囲み枠なし・フッターなし）で、その分の高さを表に回す */
   .bare { margin-top: 1mm; }
-  .blk.tight { padding: 1.5mm 2mm 1.6mm; }
-  .blk.tight .blk-t { margin-bottom: 1mm; }
+  .cols3 { display: flex; gap: 4mm; align-items: flex-start; margin-top: 1mm; }
+  /* 下部フッターを置かないページは下の余白を詰め、その分を表の高さに回す */
+  .page.nofoot { padding-bottom: 5mm; }
+  .nofoot .p-head { margin-bottom: 1.6mm; }
+  .nofoot .note { font-size: 8.5px; margin-top: 1mm; }
+  .nofoot .bare { margin-top: 0.5mm; }
+  .note.abs { position: absolute; left: 11mm; right: 11mm; bottom: 1.6mm; margin: 0; }
+  .nofoot .tb thead th { padding-top: 0.35mm; padding-bottom: 0.35mm; }
+  .tbl-t { font-size: 11px; font-weight: 800; color: ${NAVY}; border-left: 3px solid ${GOLD}; padding-left: 1.8mm; margin-bottom: 1mm; }
+  .tbl-t .sm { margin-left: 1.8mm; font-size: 8.5px; color: #7b8698; font-weight: 400; }
 
   /* 3期推移テーブル（罫線＝黒に近い灰色、段階利益・純売上高は太罫、マイナス赤字） */
   .t3tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin-top: 1mm; }
