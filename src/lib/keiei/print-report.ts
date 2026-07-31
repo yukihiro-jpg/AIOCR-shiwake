@@ -555,9 +555,16 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   // 科目数は会社ごとに大きく異なるため、行数から文字サイズの段階を選び、
   // それでも1枚に収まらない場合はページを可変高（.flowsheet）にして次の紙に流す（科目は省略しない）。
   function pageTrialFull(no: number): string {
-    const FIT1 = 44, FIT2 = 52, FIT3 = 62   // 各文字サイズ段階でA4横1枚に収まる目安行数
-    const tierOf = (n: number) => (n <= FIT1 ? 'z1' : n <= FIT2 ? 'z2' : 'z3')
-    const rows = aggregateRows(fy)
+    // 文字サイズの段階。会計ソフトの三期比較損益計算書と同じくらいの可読性にするため、
+    // 行間・余白を詰めて「同じ行ピッチでもフォントは大きく」する。
+    // 枠と下部フッターがある1ページ目より、表だけの2ページ目のほうが多くの行を大きな字で入れられる。
+    const TIERS = ['z1', 'z2', 'z3', 'z4']
+    const FIT_FRAMED = [44, 51, 59, 65]   // 1ページ目（枠＋フッターあり）
+    const FIT_BARE = [47, 54, 61, 67]     // 2ページ目（表のみ）
+    const tierOf = (n: number, fit: number[]) => TIERS[fit.findIndex((f) => n <= f)] || 'z4'
+    const overflows = (n: number, fit: number[]) => n > fit[fit.length - 1]
+    // 繰越利益剰余金（期首・期末）はPLの比較では不要なので出さない（3期推移ページと同じ扱い）
+    const rows = aggregateRows(fy).filter((r) => !(r.statement === 'PL' && /繰越利益剰余金/.test(r.name)))
     const plRows = rows.filter((r) => r.statement === 'PL')
     const bsRows = rows.filter((r) => r.statement === 'BS')
     // 比率の分母。コード（会計大将の標準コード）で取れないCSVでも比率が空欄にならないよう、
@@ -601,8 +608,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     }).join('')
 
     const n1 = Math.max(plRows.length, bsRows.length)
-    const flow1 = n1 > FIT3
-    const tier1 = tierOf(n1)
+    const flow1 = overflows(n1, FIT_FRAMED)
+    const tier1 = tierOf(n1, FIT_FRAMED)
     const plTable = `<table class="tb ${tier1}">
       <colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col style="width:12%"></colgroup>
       <thead><tr><th class="thl">科目</th><th>当月（単月）</th><th>累計</th><th>対売上比</th></tr></thead>
@@ -613,8 +620,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       <tbody>${bsBody}</tbody></table>`
     const p1Body = `
       <div class="row2">
-        <div class="blk"><div class="blk-t">損益計算書<span class="sm">${monthLabel}単月 ／ 期首〜${monthLabel}累計 ／ 対売上比（累計）</span></div>${plTable}</div>
-        <div class="blk"><div class="blk-t">貸借対照表<span class="sm">前月末残高 ／ ${monthLabel}末残高 ／ 増減 ／ 構成比（対資産合計）</span></div>${bsTable}</div>
+        <div class="blk tight"><div class="blk-t">損益計算書<span class="sm">${monthLabel}単月 ／ 期首〜${monthLabel}累計 ／ 対売上比（累計）</span></div>${plTable}</div>
+        <div class="blk tight"><div class="blk-t">貸借対照表<span class="sm">前月末残高 ／ ${monthLabel}末残高 ／ 増減 ／ 構成比（対資産合計）</span></div>${bsTable}</div>
       </div>`
     const page1 = flow1
       ? `<section class="flowsheet">${pageHead(`${no}-1`, '試算表（全科目）')}${p1Body}</section>`
@@ -628,21 +635,23 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const prev1 = comp.length >= 2 ? comp[comp.length - 2] : null
     const prev2 = comp.length >= 3 ? comp[comp.length - 3] : null
     // 期ごとの科目マップ。いずれかの期にしかない科目も落とさないよう当期の並びに織り込む
+    // （繰越利益剰余金の期首・期末はPLの比較では不要なので1ページ目と同じく除く）
+    const plOf = (y: FiscalYearData) => aggregateRows(y).filter((x) => x.statement === 'PL' && !/繰越利益剰余金/.test(x.name))
     const mapsOf = (y: FiscalYearData | null) => {
       const m = new Map<string, AggRow>()
-      if (y) for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) m.set(r.name, r)
+      if (y) for (const r of plOf(y)) m.set(r.name, r)
       return m
     }
     const mCur = mapsOf(cur3), mP1 = mapsOf(prev1), mP2 = mapsOf(prev2)
     const order: AggRow[] = []
     const at = new Map<string, number>()
     const reindex = () => { at.clear(); order.forEach((r, i) => at.set(r.name, i)) }
-    for (const r of aggregateRows(cur3).filter((x) => x.statement === 'PL')) order.push(r)
+    for (const r of plOf(cur3)) order.push(r)
     reindex()
     const weaveIn = (y: FiscalYearData | null) => {
       if (!y) return
       let last = -1
-      for (const r of aggregateRows(y).filter((x) => x.statement === 'PL')) {
+      for (const r of plOf(y)) {
         if (at.has(r.name)) last = at.get(r.name)!
         else { order.splice(last + 1, 0, r); reindex(); last++ }
       }
@@ -677,8 +686,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       return `<tr${cls ? ` class="${cls}"` : ''}>${nameCell(r)}${cells}</tr>`
     }).join('')
     const n2 = order.length
-    const flow2 = n2 > FIT3
-    const tier2 = tierOf(n2)
+    const flow2 = overflows(n2, FIT_BARE)
+    const tier2 = tierOf(n2, FIT_BARE)
     const cmpTable = `<table class="tb ${tier2}">
       <colgroup><col style="width:20%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.25%"><col style="width:11.25%"></colgroup>
       <thead><tr><th class="thl">科目</th>
@@ -688,10 +697,10 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
         <th>前々期比増減</th><th>前期比増減</th><th>前々期比増減率</th><th>前期比増減率</th></tr></thead>
       <tbody>${cmpBody}</tbody></table>`
     const p2Note = `<div class="note mt1">各期とも「期首〜${monthLabel}」と同じ月数の累計で比較しています（期中の月次比較のため年計は使いません）。いずれかの期にのみある科目も省略せず表示します。${prev1 ? '' : '※ 前期以前のデータが取り込まれていないため、当期のみの表示です。'}</div>`
-    const p2Body = `<div class="blk">${cmpTable}${p2Note}</div>`
-    const page2 = flow2
-      ? `<section class="flowsheet">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}</section>`
-      : `<section class="page">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}${pageFoot}</section>`
+    // 会計ソフトの三期比較損益計算書に合わせ、囲み枠とページ下部のフッターを付けずに表だけを載せる
+    // （その分の高さを表に回し、フォントを大きくできる）
+    const p2Body = `<div class="bare">${cmpTable}${p2Note}</div>`
+    const page2 = `<section class="${flow2 ? 'flowsheet' : 'page'}">${pageHead(`${no}-2`, '損益計算書 3期比較（全科目）')}${p2Body}</section>`
 
     return page1 + '\n' + page2
   }
@@ -1043,9 +1052,15 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .tb tr.grp td { background: #e7edf5 !important; font-weight: 700; color: ${NAVY}; }
   .tb tr.prf td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.2px solid ${GOLD}; border-bottom: 1.2px solid ${GOLD}; }
   .tb tr.tot td { background: #dfe9f7 !important; font-weight: 800; border-top: 1.4px solid ${NAVY}; }
-  .tb.z1 th, .tb.z1 td { font-size: 7.8px; line-height: 1.32; padding: 0.55mm 1.5mm; }
-  .tb.z2 th, .tb.z2 td { font-size: 7.1px; line-height: 1.26; padding: 0.42mm 1.3mm; }
-  .tb.z3 th, .tb.z3 td { font-size: 6.4px; line-height: 1.2; padding: 0.3mm 1.1mm; }
+  /* 行間と上下余白を詰めることで、同じ行ピッチでも文字を大きくする（会計ソフトの帳票と同等の可読性） */
+  .tb.z1 th, .tb.z1 td { font-size: 10.5px; line-height: 1.1; padding: 0.28mm 1.6mm; }
+  .tb.z2 th, .tb.z2 td { font-size: 9.5px; line-height: 1.08; padding: 0.22mm 1.4mm; }
+  .tb.z3 th, .tb.z3 td { font-size: 8.5px; line-height: 1.06; padding: 0.17mm 1.2mm; }
+  .tb.z4 th, .tb.z4 td { font-size: 7.6px; line-height: 1.04; padding: 0.13mm 1mm; }
+  /* 3期比較は「表のみ」（囲み枠なし・フッターなし）で高さを表に回す */
+  .bare { margin-top: 1mm; }
+  .blk.tight { padding: 1.5mm 2mm 1.6mm; }
+  .blk.tight .blk-t { margin-bottom: 1mm; }
 
   /* 3期推移テーブル（罫線＝黒に近い灰色、段階利益・純売上高は太罫、マイナス赤字） */
   .t3tbl { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin-top: 1mm; }
