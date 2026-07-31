@@ -74,6 +74,18 @@ export function folderPathLabel(folders: ScanFolder[], rootLabel: string, id: st
   return [rootLabel, ...names].join(' / ')
 }
 
+// ZIP内のパスを決める。同じフォルダに同名ファイルがあるときは「名前 (2).pdf」のように連番を付けて
+// 上書き（＝ZIP内で1つに潰れる）を防ぐ。used には確定したパスを記録していく。
+export function uniqueZipPath(used: Set<string>, dir: string, name: string): string {
+  let out = name
+  for (let n = 2; used.has(`${dir}/${out}`); n++) {
+    const dot = name.lastIndexOf('.')
+    out = dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`
+  }
+  used.add(`${dir}/${out}`)
+  return out
+}
+
 // 自然順（数字は 1,2,…,10 の順、英字は A,B,C、和暦 R7<R8<R9 等）で名前を比較
 export function naturalName(a: string, b: string): number {
   return (a || '').localeCompare(b || '', 'ja', { numeric: true, sensitivity: 'base' })

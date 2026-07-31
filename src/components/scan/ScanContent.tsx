@@ -64,7 +64,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
@@ -1503,6 +1503,8 @@ function RecentUploads({
   const [limit, setLimit] = useState(50)
   const [busy, setBusy] = useState('')
   const [dir, setDir] = useState<'all' | 'toOffice' | 'toClient'>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [zipMsg, setZipMsg] = useState('')
 
   // フォルダの階層をたどって「ルート / 親 / 子」の表示名にする
   const folderPath = (root: 'toOffice' | 'toClient', id: string | null | undefined) =>
@@ -1576,6 +1578,53 @@ function RecentUploads({
     setBusy('')
   }
 
+  // 選択したファイルをZIPでまとめてダウンロード（格納フォルダの階層をZIP内にも作る）
+  const picked = rows.filter((r) => selected.has(r.key))
+  const allChecked = rows.length > 0 && picked.length === rows.length
+  function toggleAll() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allChecked) rows.forEach((r) => next.delete(r.key))
+      else rows.forEach((r) => next.add(r.key))
+      return next
+    })
+  }
+  function toggleOne(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  async function dlSelectedZip() {
+    if (!picked.length) return
+    setBusy('zip')
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      const used = new Set<string>()
+      for (let i = 0; i < picked.length; i++) {
+        const r = picked[i]
+        setZipMsg(`まとめています... (${i + 1}/${picked.length})`)
+        const blob = await r.get()
+        // ZIP内のパス：格納フォルダの階層をそのまま再現し、同名ファイルは (2) を付けて重ならないようにする
+        const dirPath = folderPath(r.root, r.folderId).split(' / ').map(safe).join('/')
+        zip.folder(dirPath)?.file(uniqueZipPath(used, dirPath, r.name), blob)
+      }
+      setZipMsg('ZIPを作成中...')
+      const out = await zip.generateAsync({ type: 'blob' })
+      downloadBlob(out, `${safe(cn)}_最新アップロード_${new Date().toISOString().slice(0, 10)}.zip`)
+      for (const r of picked) { if (r.after) await r.after() }
+      await onChanged()
+      setZipMsg('')
+    } catch (e) {
+      setZipMsg('')
+      alert('一括ダウンロードに失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy('')
+  }
+
   const fmtAt = (iso: string) => {
     const d = new Date(iso)
     return isNaN(d.getTime()) ? iso : d.toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -1588,6 +1637,13 @@ function RecentUploads({
         <h3 className="text-base font-bold text-gray-800">🕒 最新アップロードファイル</h3>
         <span className="text-xs text-gray-500">両方向のファイルを新しい順に表示しています（{rows.length}件）</span>
         <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={dlSelectedZip}
+            disabled={busy === 'zip' || picked.length === 0}
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 mr-1"
+          >
+            {busy === 'zip' ? 'まとめています…' : `選択したファイルを一括DL（ZIP）${picked.length ? `　${picked.length}件` : ''}`}
+          </button>
           {([['all', 'すべて'], ['toOffice', labelToOffice], ['toClient', labelToClient]] as const).map(([k, label]) => (
             <button
               key={k}
@@ -1600,6 +1656,8 @@ function RecentUploads({
         </div>
       </div>
 
+      {zipMsg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{zipMsg}</div>}
+
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500 py-10 text-center">アップロードされたファイルはまだありません。</p>
       ) : (
@@ -1607,6 +1665,15 @@ function RecentUploads({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
+                <th className="px-2 py-2 w-8 text-center">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allChecked }}
+                    onChange={toggleAll}
+                    title={allChecked ? 'すべての選択を外す' : 'すべて選択'}
+                  />
+                </th>
                 <th className="text-left px-3 py-2 whitespace-nowrap">アップロード日時</th>
                 <th className="text-left px-3 py-2 whitespace-nowrap">向き</th>
                 <th className="text-left px-3 py-2">ファイル名</th>
@@ -1617,7 +1684,10 @@ function RecentUploads({
             </thead>
             <tbody>
               {rows.slice(0, limit).map((r) => (
-                <tr key={r.key} className="border-t border-gray-100 align-top">
+                <tr key={r.key} className={`border-t border-gray-100 align-top ${selected.has(r.key) ? 'bg-blue-50' : ''}`}>
+                  <td className="px-2 py-2 text-center">
+                    <input type="checkbox" checked={selected.has(r.key)} onChange={() => toggleOne(r.key)} />
+                  </td>
                   <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{fmtAt(r.at)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
