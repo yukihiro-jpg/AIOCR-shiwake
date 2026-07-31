@@ -587,6 +587,24 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const pctCell = (v: number, base: number) => `<td class="tr">${base ? esc(p1((v / base) * 100)) : '—'}</td>`
     // 値が全く立っていない見出し行（【売上高】等）は数字欄を空にして見出しであることを分かりやすくする
     const blank = (n: number) => '<td class="tr"></td>'.repeat(n)
+    // 列幅：科目名は実際の文字数に合わせて必要な分だけ確保し、余った幅は数値列へ回す
+    const PX: Record<string, number> = { z1: 10.5, z2: 9.5, z3: 8.5, z4: 7.6 }
+    const textW = (s: string) => Array.from(s).reduce((a, ch) => a + (/[\x00-\xff]/.test(ch) ? 0.55 : 1), 0)
+    const nameMmOf = (names: string[], tier: string, maxMm: number) => {
+      const em = PX[tier] * 0.2646                                   // 1文字ぶんのmm
+      const w = names.reduce((m, s) => Math.max(m, textW(s)), 4) * em
+      const indent = 1.5 + 1.6                                       // 明細行のインデント＋左右余白
+      return Math.min(maxMm, Math.max(18, w + indent + 3))
+    }
+    // 科目名の幅（mm）と各数値列の重み（1=金額列, 0.6=率の列）から colgroup を作る
+    const colGroup = (nameMm: number, weights: number[], totalMm: number) => {
+      const rest = Math.max(10, totalMm - nameMm)
+      const sum = weights.reduce((a, b) => a + b, 0)
+      const mms = [nameMm, ...weights.map((w) => (rest * w) / sum)]
+      return `<colgroup>${mms.map((mm) => `<col style="width:${((mm / totalMm) * 100).toFixed(2)}%">`).join('')}</colgroup>`
+    }
+    const HALF_MM = 135   // 1ページ目の左右それぞれの表の幅（A4横の本文幅の約半分）
+    const FULL_MM = 275   // 2ページ目（表のみ）の表の幅
 
     const plBody = plRows.map((r) => {
       const single = aggRowValue(r, monthIdx, 'single')
@@ -611,12 +629,12 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const flow1 = overflows(n1, FIT_FRAMED)
     const tier1 = tierOf(n1, FIT_FRAMED)
     const plTable = `<table class="tb ${tier1}">
-      <colgroup><col style="width:34%"><col style="width:22%"><col style="width:22%"><col style="width:12%"></colgroup>
-      <thead><tr><th class="thl">科目</th><th>当月（単月）</th><th>累計</th><th>対売上比</th></tr></thead>
+      ${colGroup(nameMmOf(plRows.map((r) => r.name), tier1, HALF_MM * 0.42), [1, 1, 0.6], HALF_MM)}
+      <thead><tr><th class="thl">科目</th><th>当月（単月）</th><th>累計</th><th class="hd-r">対売上比</th></tr></thead>
       <tbody>${plBody}</tbody></table>`
     const bsTable = `<table class="tb ${tier1}">
-      <colgroup><col style="width:30%"><col style="width:19.5%"><col style="width:19.5%"><col style="width:19.5%"><col style="width:12%"></colgroup>
-      <thead><tr><th class="thl">科目</th><th>前月末</th><th>当月末</th><th>増減</th><th>構成比</th></tr></thead>
+      ${colGroup(nameMmOf(bsRows.map((r) => r.name), tier1, HALF_MM * 0.42), [1, 1, 1, 0.6], HALF_MM)}
+      <thead><tr><th class="thl">科目</th><th>前月末</th><th>当月末</th><th class="hd-d">増減</th><th class="hd-r">構成比</th></tr></thead>
       <tbody>${bsBody}</tbody></table>`
     const p1Body = `
       <div class="row2">
@@ -688,13 +706,15 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     const n2 = order.length
     const flow2 = overflows(n2, FIT_BARE)
     const tier2 = tierOf(n2, FIT_BARE)
+    // 実績（紺）・増減（ティール）・増減率（ブロンズ）で見出しの色を分け、率の列は幅を狭くする
     const cmpTable = `<table class="tb ${tier2}">
-      <colgroup><col style="width:20%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.5%"><col style="width:11.25%"><col style="width:11.25%"></colgroup>
+      ${colGroup(nameMmOf(order.map((r) => r.name), tier2, FULL_MM * 0.24), [1, 1, 1, 0.92, 0.92, 0.58, 0.58], FULL_MM)}
       <thead><tr><th class="thl">科目</th>
         <th>${esc(prev2 ? prev2.label : '前々期')}</th>
         <th>${esc(prev1 ? prev1.label : '前期')}</th>
         <th>${esc(cur3.label)}（当期）</th>
-        <th>前々期比増減</th><th>前期比増減</th><th>前々期比増減率</th><th>前期比増減率</th></tr></thead>
+        <th class="hd-d">前々期比増減</th><th class="hd-d">前期比増減</th>
+        <th class="hd-r">前々期比増減率</th><th class="hd-r">前期比増減率</th></tr></thead>
       <tbody>${cmpBody}</tbody></table>`
     const p2Note = `<div class="note mt1">各期とも「期首〜${monthLabel}」と同じ月数の累計で比較しています（期中の月次比較のため年計は使いません）。いずれかの期にのみある科目も省略せず表示します。${prev1 ? '' : '※ 前期以前のデータが取り込まれていないため、当期のみの表示です。'}</div>`
     // 会計ソフトの三期比較損益計算書に合わせ、囲み枠とページ下部のフッターを付けずに表だけを載せる
@@ -1043,15 +1063,20 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
 
   /* 全科目テーブル（.z1〜.z3 は行数に応じた文字サイズの段階） */
   table.tb { border-collapse: collapse; width: 100%; table-layout: fixed; }
-  .tb th, .tb td { border: 1px solid #d3dae3; }
-  .tb thead th { background: ${NAVY}; color: #fff; font-weight: 700; text-align: center; white-space: nowrap; }
+  /* 縦罫は薄い実線、横罫は最細の点線（数字の行が追いやすいよう控えめにする） */
+  .tb th, .tb td { border-left: 1px solid #d3dae3; border-right: 1px solid #d3dae3; border-top: none; border-bottom: 0.5px dotted #b9c6d4; }
+  .tb thead th { background: ${NAVY}; color: #fff; font-weight: 700; text-align: center; white-space: nowrap; border-bottom: 1px solid ${NAVY}; }
   .tb thead th.thl { text-align: left; }
+  /* 見出しの色分け：実績＝紺／増減＝ティール／増減率＝ブロンズ */
+  .tb thead th.hd-d { background: #2f6b62; border-bottom-color: #2f6b62; }
+  .tb thead th.hd-r { background: #8a6a25; border-bottom-color: #8a6a25; }
   .tb tbody tr:nth-child(even) td { background: #f6f8fb; }
   .tb td.nm { text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .tb .tr { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tb tr.grp td { background: #e7edf5 !important; font-weight: 700; color: ${NAVY}; }
+  /* 段階利益・合計行だけは実線で強調（横罫の点線より優先） */
   .tb tr.prf td { background: #f6ecd4 !important; font-weight: 700; border-top: 1.2px solid ${GOLD}; border-bottom: 1.2px solid ${GOLD}; }
-  .tb tr.tot td { background: #dfe9f7 !important; font-weight: 800; border-top: 1.4px solid ${NAVY}; }
+  .tb tr.tot td { background: #dfe9f7 !important; font-weight: 800; border-top: 1.4px solid ${NAVY}; border-bottom: 1px solid ${NAVY}; }
   /* 行間と上下余白を詰めることで、同じ行ピッチでも文字を大きくする（会計ソフトの帳票と同等の可読性） */
   .tb.z1 th, .tb.z1 td { font-size: 10.5px; line-height: 1.1; padding: 0.28mm 1.6mm; }
   .tb.z2 th, .tb.z2 td { font-size: 9.5px; line-height: 1.08; padding: 0.22mm 1.4mm; }
