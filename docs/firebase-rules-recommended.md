@@ -31,13 +31,21 @@
         ".read": "auth != null",
         ".write": "auth != null"
       }
+    },
+    "souzoku-review": {
+      "$token": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
     }
   }
 }
 ```
 
 ポイント:
-- ルート直下は read/write とも拒否（`rooms` / `*-public` 以外のパスを作らせない）
+- ルート直下は read/write とも拒否（`rooms` / `*-public` / `souzoku-review` 以外のパスを作らせない）
+- `souzoku-review/{token}` は相続人向けクチコミ依頼ページ用。**事務所名・クチコミ投稿リンク・案件の特徴フラグ
+  （真偽値）だけ**を置き、氏名・金額・人数などは保存しない（トークンを知る人は誰でも読めるため）
 - すべて匿名認証必須（`auth != null`）。トークン・roomKey を知らない限り列挙は不可能
   （キーが128bit乱数のため。**トップレベルの `.read` を true にしないこと** — 列挙可能になります）
 

@@ -148,6 +148,11 @@
 - 報告書には解説キャプション（.caption）とストーリー解説文（.story、テンプレ＋AI仕上げ）
 - 「税理士にご相談ください」系の文言は入れない（ユーザー自身が税理士）
 - AI通帳分析（passbook）: 通帳明細をAIで分析し要確認取引・推定財産を財産一覧・異動一覧表へ反映
+- クチコミのお願い（souzoku-review）: 事務所はQR/リンクを発行するだけで、文章は相続人側のページが作る。
+  公開ノード `souzoku-review/{token}` には**事務所名・Googleクチコミ投稿リンク・案件の特徴フラグ（真偽値）だけ**を置く
+  （氏名・金額・人数は絶対に置かない）。発行から6か月で失効し、`sweepReviewLinks`（起動時）と
+  案件削除（deleteCase）で実削除する。下書きは `src/lib/souzoku-review/draft.ts` のテンプレート方式
+  （AI・APIキー不要で即時生成。seedを変えると別の言い回し）。名義変更・預貯金の解約は提携先/案内の扱いで書く
 - 財産診断書Excel（downloadShindanExcelBody）: 3-1〜のカテゴリ別明細シートはアプリの財産一覧と同一ヘッダ
   （操作列のみ除外）で全項目を出力。自動計算欄はExcel数式（`{formula,result}`）で出力し、
   アプリの計算関数（computeAssetValue/secUnit/divInfo/landUseFactor/computeKobo等）と式を一致させる。

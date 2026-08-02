@@ -187,9 +187,32 @@ const REGISTRY = {
 }
 
 // ============================================================
+// F. 公開トークン配下のデータは「保存期限（sweep）」と「削除経路」を必ず両方持つこと
+//    （CLAUDE.md 開発チェックリスト5。相続のクチコミ依頼リンク souzoku-review/{token}）
+// ============================================================
+{
+  const souzoku = read(join(ROOT, 'app-sources/souzoku/index.html'))
+  if (souzoku.includes("'souzoku-review/'")) {
+    if (!/function sweepReviewLinks\(/.test(souzoku)) {
+      fail('[F] souzoku-review（公開トークン）に保存期限の掃除 sweepReviewLinks がありません')
+    }
+    if (!/window\.addEventListener\('load'[\s\S]*?sweepReviewLinks\(/.test(souzoku)) {
+      fail('[F] sweepReviewLinks が起動時に呼ばれていません（期限切れの公開データが残ります）')
+    }
+    const del = souzoku.match(/function deleteCase\([\s\S]*?\n\}/)
+    if (!del || !/reviewDbSet\([^)]*null\)/.test(del[0])) {
+      fail('[F] 案件削除（deleteCase）でクチコミ依頼リンクの公開ノードを削除していません')
+    }
+    if (!read(join(ROOT, 'docs/firebase-rules-recommended.md')).includes('souzoku-review')) {
+      fail('[F] docs/firebase-rules-recommended.md に souzoku-review のルールが記載されていません')
+    }
+  }
+}
+
+// ============================================================
 if (errors.length) {
   console.error(`\n✗ 不変条件チェックに失敗（${errors.length}件）:\n`)
   for (const e of errors) console.error('  - ' + e + '\n')
   process.exit(1)
 }
-console.log('✓ check-invariants: OK（purge登録表・タブ整合・localStorage登録・Geminiタイムアウト・HTML構文）')
+console.log('✓ check-invariants: OK（purge登録表・タブ整合・localStorage登録・Geminiタイムアウト・HTML構文・公開トークンの期限/削除）')

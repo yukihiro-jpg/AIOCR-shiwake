@@ -949,6 +949,15 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
         </div>
       </div>
       <div class="card">
+        <h2>クチコミのお願い（QR・リンク）</h2>
+        <div class="card-sub">相続人の方にお渡しするQRコード・リンクを発行します。開くと、いくつかの質問に答えるだけでクチコミの下書きができ、コピーしてGoogleへ貼り付けられます（<b>財産の内容・金額・氏名は公開ページに一切保存しません</b>。この案件の特徴だけを使って自然な文章になります）。リンクは<b>発行から6か月</b>で自動的に失効します。</div>
+        <div class="btn-row">
+          <button class="btn primary" onclick="issueReviewLink()">🔗 クチコミ依頼リンクを発行</button>
+          <button class="btn" onclick="revokeReviewLink()">失効させる</button>
+        </div>
+        <div id="reviewLinkBox" style="margin-top:12px;"></div>
+      </div>
+      <div class="card">
         <h2>相続税節税シミュレーション報告書</h2>
         <div class="card-sub">選択した節税対策と、その節税効果をまとめた報告書です。</div>
         <div class="btn-row">
@@ -1008,6 +1017,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <div class="field"><label>電話</label><input type="text" id="set_officeTel" placeholder="例：029-000-0000" oninput="onOfficeInput()"></div>
           <div class="field"><label>FAX</label><input type="text" id="set_officeFax" placeholder="例：029-000-0000" oninput="onOfficeInput()"></div>
           <div class="field"><label>メールアドレス（ご案内資料の連絡先に印字）</label><input type="text" id="set_officeMail" placeholder="例：info@example.com" oninput="onOfficeInput()"></div>
+          <div class="field" style="grid-column:1/3;"><label>Googleクチコミの投稿リンク（クチコミのお願いで使用）</label><input type="text" id="set_reviewUrl" placeholder="例：https://g.page/r/xxxxxxxxxxxx/review" oninput="onOfficeInput()"><div class="muted" style="font-size:12px;margin-top:4px;">Googleビジネスプロフィールの「クチコミを増やす」で取得できるリンクを貼り付けてください（<span class="muted">https://search.google.com/local/writereview?placeid=… の形式でも可</span>）。</div></div>
         </div>
       </div>
 
@@ -1270,7 +1280,7 @@ const LS_CASE_CACHE = 'souzoku_case_cache_v1';
 const LS_CLOUD = 'souzoku_cloud_v1';
 
 // ---------- App state ----------
-let settings = { folderUrl:'', folderId:'', clientId:DEFAULT_CLIENT_ID, gasUrl:'', accountHint:'', taxName:'', officeName:'', officeAddr:'', officeTel:'', officeFax:'', fbConfig:'', fbRoom:'' };
+let settings = { folderUrl:'', folderId:'', clientId:DEFAULT_CLIENT_ID, gasUrl:'', accountHint:'', taxName:'', officeName:'', officeAddr:'', officeTel:'', officeFax:'', reviewUrl:'', fbConfig:'', fbRoom:'' };
 // 全案件の共有ストア（Firebaseと同期）。cases[caseId]=案件オブジェクト、tomb[caseId]=削除墓標
 let cloud = { cases:{}, tomb:{} };
 let currentCase = null;       // the active case object（cloud.cases[currentId] への参照）
@@ -1464,7 +1474,7 @@ function loadSettings(){
   if($('set_gasUrl')) $('set_gasUrl').value=settings.gasUrl||'';
   if($('set_fbConfig')) $('set_fbConfig').value=settings.fbConfig||'';
   if($('set_fbRoom')) $('set_fbRoom').value=settings.fbRoom||'';
-  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail'].forEach(k=>{ const el=$('set_'+k); if(el) el.value=settings[k]||''; });
+  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail','reviewUrl'].forEach(k=>{ const el=$('set_'+k); if(el) el.value=settings[k]||''; });
   applyOfficeSettings();
   renderOptionEditors();
   updateFolderStatus();
@@ -1482,7 +1492,7 @@ function addOpt(key){ const el=$('addopt-'+key); if(!el) return; const v=(el.val
 function removeOpt(key,idx){ if(!Array.isArray(settings[key])) return; settings[key].splice(idx,1); saveSettings(); renderOptList(key); if(currentCase) renderAssetDetail(); }
 function onGasUrlInput(){ settings.gasUrl=$('set_gasUrl').value.trim(); saveSettings(); }
 function onOfficeInput(){
-  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail'].forEach(k=>{ const el=$('set_'+k); if(el) settings[k]=el.value; });
+  ['taxName','officeName','officeAddr','officeTel','officeFax','officeMail','reviewUrl'].forEach(k=>{ const el=$('set_'+k); if(el) settings[k]=el.value; });
   applyOfficeSettings(); saveSettings();
 }
 function saveSettings(){ localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); }
@@ -2169,6 +2179,8 @@ function openCase(caseId){
 }
 function deleteCase(caseId,nm){
   if(!confirm('この案件を削除しますか？\n'+nm+'\n\n※すべての端末から削除され、元に戻せません。')) return;
+  // クチコミ依頼リンク（公開ノード）も一緒に実削除する（案件だけ消して公開データが残らないように）
+  try{ const rv=cloud.cases[caseId]&&cloud.cases[caseId].review; if(rv&&rv.token) reviewDbSet(rv.token,null).catch(()=>{}); }catch(e){}
   if(!cloud.tomb) cloud.tomb={}; cloud.tomb[caseId]=true; delete cloud.cases[caseId];
   if(currentId===caseId){ currentCase=null; currentId=null; currentFileId=null; updateCaseChip(); refreshNavLock(); }
   saveCloudLocal(); if(typeof Realtime!=='undefined') Realtime.push();
@@ -4708,7 +4720,155 @@ function renderSecAllocTable(){
   if(colT.sp>0 && Math.abs(overSpouse)>=10000){ note='<div class="muted" style="font-size:11.5px;margin-top:8px;">配偶者の取得 '+yen(colT.sp)+' は、最小税額前提の取得目安 '+yen(Math.round(_secCtx.minRatio*_secCtx.E1))+' を'+(overSpouse>0?'上回って':'下回って')+'います（差 '+yen(Math.abs(overSpouse))+'）。取得額が目安を超えると合計税額が増える可能性があります。</div>'; }
   el.innerHTML=head+body; const wrap=el.parentElement; if(wrap){ const old=wrap.querySelector('.sec-alloc-note'); if(old)old.remove(); if(note){ const d=document.createElement('div'); d.className='sec-alloc-note'; d.innerHTML=note; wrap.appendChild(d); } }
 }
-function renderDocs(){ renderStoryControls(); }
+function renderDocs(){ renderStoryControls(); renderReviewLink(); }
+
+// ============================================================
+//  クチコミのお願い（相続人向け公開ページのリンク・QR発行）
+//  ・公開ノード souzoku-review/{token} には「文章づくりに使う特徴フラグ」だけを置く。
+//    氏名・金額・人数などの個人情報は絶対に置かない（URLを知る誰でも読めるため）。
+//  ・発行から6か月で失効。期限切れ・案件削除のときは実体（RTDBノード）も消す。
+// ============================================================
+const REVIEW_DAYS=183;
+function reviewToken(){ const a=new Uint8Array(16); (window.crypto||window.msCrypto).getRandomValues(a); return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+// 公開ページのURL。iframe埋め込み時はホスト（総合アプリ）のURLから組み立てる
+function reviewPageUrl(token){
+  let base='';
+  try{ const u=(window.parent&&window.parent!==window)?window.parent.location.href:window.location.href;
+       base=String(u).split('#')[0].split('?')[0].replace(/souzoku\/?$/,''); }catch(e){ base=''; }
+  if(!/^https?:/.test(base)) base='https://yukihiro-jpg.github.io/AIOCR-shiwake/';
+  if(!/\/$/.test(base)) base+='/';
+  return base+'souzoku-review/?t='+token;
+}
+// 案件から「文章に使ってよい特徴」だけを抜き出す（数値・氏名は含めない）
+function reviewFlags(){
+  const A=(currentCase&&currentCase.assets)||[];
+  const has=cat=>A.some(a=>a.category===cat);
+  const banks=new Set(A.filter(a=>a.category==='cash'&&(a.name||'').trim()).map(a=>String(a.name).trim()));
+  // 申告が必要そうかの判定。取得者（分割案）が未入力でも判定できるよう、財産ベースの概算とも比較する
+  let filing=false;
+  try{
+    const r=calcTax();
+    const basic=(r&&r.basic)||30000000;
+    const sum=(f)=>A.filter(f).reduce((x,a)=>x+assetVal(a),0);
+    const plus=sum(a=>['land','building','securities','unlisted','cash','insurance','retirement','other'].indexOf(a.category)>=0);
+    const minus=sum(a=>a.category==='debt'||a.category==='funeral');
+    const giftAdd=sum(a=>a.category==='gift');
+    const koboRed=(computeKobo()||{}).total||0;
+    const est=plus-koboRed-((r&&r.insExemptTotal)||0)-((r&&r.retExemptTotal)||0)-minus+giftAdd;
+    filing=Math.max((r&&r.totalTaxable)||0, est)>basic;
+  }catch(e){ filing=false; }
+  const heirs=(currentCase&&currentCase.heirs)||[];
+  return {
+    filing:filing,
+    realEstate:has('land')||has('building'),
+    unlisted:has('unlisted'),
+    securities:has('securities'),
+    multiBank:banks.size>=2,
+    kobo:A.some(a=>a.category==='land'&&a.kobo&&a.kobo.type&&a.kobo.type!=='none'),
+    lifeIns:has('insurance'),
+    gift:has('gift'),
+    heirsMulti:heirs.length>=2,
+    spouse:heirs.some(h=>h.relationType==='spouse')
+  };
+}
+async function reviewDbSet(token, value){
+  const core=_szCore(); if(!core) throw new Error('同期が未設定です（総合アプリから開いてください）');
+  const db=await core.getDb(); const F=core.dbfns;
+  await F.set(F.ref(db,'souzoku-review/'+token), value);
+}
+async function issueReviewLink(){
+  if(!currentCase){ toast('先に案件を開いてください', true); return; }
+  const url=(settings.reviewUrl||'').trim();
+  if(!/^https?:\/\//.test(url)){ toast('設定の「Googleクチコミの投稿リンク」を先に登録してください', true); switchView('settings'); return; }
+  try{
+    const token=(currentCase.review&&currentCase.review.token)||reviewToken();
+    const now=Date.now(); const exp=new Date(now+REVIEW_DAYS*86400000).toISOString();
+    await reviewDbSet(token,{ officeName:OFFICE.name, reviewUrl:url, flags:reviewFlags(), createdAt:new Date(now).toISOString(), expiresAt:exp });
+    currentCase.review={ token:token, createdAt:new Date(now).toISOString(), expiresAt:exp };
+    cacheCurrentCase(); renderReviewLink(); toast('クチコミ依頼リンクを発行しました');
+  }catch(e){ console.error(e); toast('発行に失敗しました：'+(e&&e.message||''), true); }
+}
+async function revokeReviewLink(){
+  if(!currentCase||!currentCase.review||!currentCase.review.token){ toast('発行されていません', true); return; }
+  if(!confirm('このリンクを失効させますか？\n（相続人の方が開いても表示されなくなります）')) return;
+  try{ await reviewDbSet(currentCase.review.token,null); }catch(e){ console.warn(e); }
+  delete currentCase.review; cacheCurrentCase(); renderReviewLink(); toast('失効させました');
+}
+// 期限切れリンクの掃除（起動時・全案件が対象。公開データを残さないため）
+async function sweepReviewLinks(){
+  try{
+    const cases=Object.keys((cloud&&cloud.cases)||{});
+    const now=Date.now(); let n=0;
+    for(const id of cases){
+      const c=cloud.cases[id]; const rv=c&&c.review;
+      if(!rv||!rv.token) continue;
+      if(rv.expiresAt && Date.parse(rv.expiresAt)>now) continue;
+      try{ await reviewDbSet(rv.token,null); }catch(e){ continue; }
+      delete c.review; n++;
+    }
+    if(n){ saveCloudLocal(); if(typeof Realtime!=='undefined') Realtime.push(); }
+  }catch(e){ /* 掃除は失敗しても業務に影響させない */ }
+}
+function renderReviewLink(){
+  const box=$('reviewLinkBox'); if(!box) return;
+  const rv=currentCase&&currentCase.review;
+  if(!currentCase){ box.innerHTML='<div class="muted" style="font-size:13px;">案件を開くと発行できます。</div>'; return; }
+  if(!rv||!rv.token){ box.innerHTML='<div class="muted" style="font-size:13px;">まだ発行されていません。上のボタンから発行してください。</div>'; return; }
+  const url=reviewPageUrl(rv.token);
+  const exp=rv.expiresAt?formatJDate(rv.expiresAt.slice(0,10)):'';
+  box.innerHTML='<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">'
+    +'<div id="reviewQr" style="width:150px;height:150px;background:#fff;border:1px solid #e2e2e8;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#888;">QR生成中…</div>'
+    +'<div style="flex:1;min-width:260px;">'
+      +'<div class="muted" style="font-size:12px;margin-bottom:4px;">相続人の方にお渡しするリンク（有効期限 '+esc(exp)+'）</div>'
+      +'<input type="text" readonly value="'+esc(url)+'" id="reviewUrlBox" style="width:100%;font-size:12px;" onclick="this.select()">'
+      +'<div class="btn-row" style="margin-top:8px;">'
+        +'<button class="btn" onclick="copyReviewUrl()">リンクをコピー</button>'
+        +'<button class="btn" onclick="window.open(\''+url+'\',\'_blank\')">開いて確認</button>'
+        +'<button class="btn" onclick="printReviewCard()">QRを印刷（お渡し用）</button>'
+      +'</div>'
+    +'</div></div>';
+  drawReviewQr(url);
+}
+function copyReviewUrl(){ const el=$('reviewUrlBox'); if(!el) return; el.select(); try{ document.execCommand('copy'); toast('コピーしました'); }catch(e){ toast('コピーできませんでした', true); } }
+// QRは端末内で生成（外部サービスにURLを渡さない）
+function drawReviewQr(url){
+  const box=$('reviewQr'); if(!box) return;
+  const draw=()=>{ if(!window.QRCode||!window.QRCode.toCanvas){ box.textContent='QRを表示できません（リンクをお使いください）'; return; }
+    box.innerHTML=''; const cv=document.createElement('canvas'); box.appendChild(cv);
+    window.QRCode.toCanvas(cv,url,{width:148,margin:1},function(err){ if(err){ box.textContent='QRを表示できません（リンクをお使いください）'; } }); };
+  if(window.QRCode&&window.QRCode.toCanvas){ draw(); return; }
+  const sc=document.createElement('script');
+  sc.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
+  sc.onload=draw; sc.onerror=()=>{ box.textContent='QRを表示できません（リンクをお使いください）'; };
+  document.head.appendChild(sc);
+}
+// お渡し用のQRカードを印刷
+function printReviewCard(){
+  const rv=currentCase&&currentCase.review; if(!rv||!rv.token){ toast('先に発行してください', true); return; }
+  const url=reviewPageUrl(rv.token);
+  const load=()=>new Promise((res,rej)=>{ if(window.QRCode&&window.QRCode.toDataURL) return res();
+    const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js'; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc); });
+  load().then(()=>window.QRCode.toDataURL(url,{width:520,margin:1})).then(png=>{
+    const w=window.open('','_blank'); if(!w){ toast('ポップアップがブロックされました', true); return; }
+    const html='<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title>'
+      +'<style>@media print{@page{size:A4;margin:0}body{padding:24mm 22mm}}'
+      +'body{font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:#222;}'
+      +'h1{font-size:20px;margin:0 0 6mm;}p{font-size:13px;line-height:1.9;margin:0 0 4mm;}'
+      +'.qr{text-align:center;margin:8mm 0;}.qr img{width:60mm;height:60mm;}'
+      +'.url{font-size:11px;color:#666;word-break:break-all;text-align:center;}'
+      +'.foot{margin-top:10mm;font-size:12px;color:#444;}</style></head><body>'
+      +'<h1>クチコミのお願い</h1>'
+      +'<p>このたびは当事務所にご依頼いただき、ありがとうございました。<br>差し支えなければ、下のQRコードから<b>クチコミのご協力</b>をお願いできますと幸いです。</p>'
+      +'<p>スマートフォンで読み取り、あてはまるものを選んでいただくと<b>文章の下書きが自動でできます</b>（30秒ほど）。<br>下書きはご自由に書き換えていただけます。</p>'
+      +'<div class="qr"><img src="'+png+'" alt="QR"></div>'
+      +'<div class="url">'+esc(url)+'</div>'
+      +'<div class="foot">'+esc(OFFICE.name)+'　'+esc(OFFICE.tel)+'</div>'
+      +'</'+'body></'+'html>';
+    w.document.open(); w.document.write(html); w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  }).catch(()=>toast('QRの生成に失敗しました', true));
+}
+
 
 // ============================================================
 //  相続税節税シミュレーション
@@ -8121,6 +8281,8 @@ window.addEventListener('load',()=>{
   if(Realtime.embedded){ setTimeout(()=>{ try{ Realtime.connect(); }catch(e){} }, 200); }
   else if(settings.fbConfig && settings.fbRoom){ setTimeout(()=>{ try{ Realtime.connect(); }catch(e){} }, 600); }
   else { setSyncStatus('off'); }
+  // 期限切れのクチコミ依頼リンク（公開データ）を掃除する。同期が始まってから実行
+  setTimeout(()=>{ try{ sweepReviewLinks(); }catch(e){} }, 4000);
 });
 // タブを離れる・閉じる時にローカルへ保存
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden'){ saveCloudLocal(); } });
