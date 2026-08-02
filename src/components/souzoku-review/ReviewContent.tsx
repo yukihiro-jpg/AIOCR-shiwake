@@ -117,60 +117,72 @@ export default function ReviewContent() {
     )
   }
 
-  const Chip = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) => (
+  // 選択は「薄い青の帯＋青字＋右端の青いチェック」で示す（全面を濃い青で塗らないので、
+  // たくさん選んでも画面がうるさくならない）
+  const Opt = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) => (
     <button
       type="button"
       onClick={onClick}
-      className={`text-left px-3.5 py-2 rounded-xl border text-[14.5px] leading-snug transition ${
-        on ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-700 border-gray-300 active:bg-gray-50'
+      className={`w-full flex items-center justify-between gap-3 text-left px-3 py-3.5 -mx-3 rounded-xl border-b transition ${
+        on ? 'bg-[#eff5ff] text-blue-700 font-bold border-transparent' : 'text-gray-700 border-gray-100 active:bg-gray-50'
       }`}
     >
-      <span className="mr-1.5">{on ? '✓' : '＋'}</span>{children}
+      <span className="text-[15px] leading-snug">{children}</span>
+      <span
+        className={`shrink-0 w-[22px] h-[22px] rounded-full grid place-items-center text-[13px] border ${
+          on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 text-transparent'
+        }`}
+      >
+        ✓
+      </span>
     </button>
   )
   const Section = ({ n, title, sub, children }: { n: string; title: string; sub?: string; children: React.ReactNode }) => (
-    <section className="mb-5">
-      <h2 className="text-[15px] font-bold text-gray-800 mb-1">
-        <span className="inline-block bg-gray-800 text-white text-[11px] rounded px-1.5 py-0.5 mr-2 align-middle">{n}</span>
+    <section className="px-5 pt-7 pb-3 border-b-8 border-[#f6f8fb]">
+      <h2 className="text-[16px] font-bold text-gray-900 leading-snug">
+        <span className="text-blue-600 font-extrabold mr-1.5">{n}</span>
         {title}
       </h2>
-      {sub && <p className="text-xs text-gray-500 mb-2">{sub}</p>}
-      <div className="grid gap-1.5">{children}</div>
+      {sub && <p className="text-xs text-gray-400 mt-2">{sub}</p>}
+      <div className="mt-1">{children}</div>
     </section>
   )
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-5 py-4">
-        <h1 className="text-lg font-bold text-gray-900">クチコミのお願い</h1>
-        {pub?.officeName && <p className="text-xs text-gray-500 mt-0.5">{pub.officeName}</p>}
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+    <div className="min-h-screen bg-white">
+      <header className="px-5 pt-6 pb-4 border-b border-gray-100">
+        <h1 className="text-xl font-extrabold text-gray-900 flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+          クチコミのお願い
+        </h1>
+        {pub?.officeName && <p className="text-xs text-gray-400 mt-1.5">{pub.officeName}</p>}
+        <p className="text-[12.5px] text-gray-500 mt-2.5 leading-relaxed">
           あてはまるものを選ぶだけで、投稿用の文章の下書きができます（30秒ほど）。
         </p>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-4 pb-28">
+      <main className="max-w-2xl mx-auto pb-28">
         <Section n="Q1" title="どのようなことでご依頼・ご相談されましたか？" sub="あてはまるものをすべて選んでください（最初からいくつか選ばれています）">
           {TASK_LABELS.map(([k, label]) => (
-            <Chip key={k} on={tasks.includes(k)} onClick={() => toggle(tasks, k, setTasks)}>{label}</Chip>
+            <Opt key={k} on={tasks.includes(k)} onClick={() => toggle(tasks, k, setTasks)}>{label}</Opt>
           ))}
         </Section>
 
         <Section n="Q2" title="よかった点を3つまで選んでください" sub={`選択中 ${goods.length}／3`}>
           {GOOD_LABELS.map(([k, label]) => (
-            <Chip key={k} on={goods.includes(k)} onClick={() => toggle(goods, k, setGoods, 3)}>{label}</Chip>
+            <Opt key={k} on={goods.includes(k)} onClick={() => toggle(goods, k, setGoods, 3)}>{label}</Opt>
           ))}
         </Section>
 
         <Section n="Q3" title="どんな方におすすめしたいですか？" sub="1つ選んでください（選ばなくても大丈夫です）">
           {RECOMMEND_LABELS.map(([k, label]) => (
-            <Chip key={k} on={recommend === k} onClick={() => setRecommend(recommend === k ? '' : k)}>{label}</Chip>
+            <Opt key={k} on={recommend === k} onClick={() => setRecommend(recommend === k ? '' : k)}>{label}</Opt>
           ))}
         </Section>
 
         <Section n="Q4" title="依頼する前は、どんなことが不安でしたか？" sub="あてはまるものがあれば選んでください（任意）">
           {WORRY_LABELS.map(([k, label]) => (
-            <Chip key={k} on={worries.includes(k)} onClick={() => toggle(worries, k, setWorries)}>{label}</Chip>
+            <Opt key={k} on={worries.includes(k)} onClick={() => toggle(worries, k, setWorries)}>{label}</Opt>
           ))}
         </Section>
 
@@ -180,15 +192,15 @@ export default function ReviewContent() {
             onChange={(e) => setNote(e.target.value)}
             rows={2}
             placeholder="例：母も納得したうえで進められました"
-            className="w-full border border-gray-300 rounded-xl px-3 py-2 text-[15px]"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-[15px] mt-1 focus:border-blue-400 focus:outline-none"
           />
         </Section>
       </main>
 
       {/* 下書きは画面下の小さなバーに置き、タップでシートを開く（質問を隠さないため） */}
       {!sheetOpen && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,.08)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2">
+        <div className="fixed bottom-0 left-0 right-0 bg-white/97 backdrop-blur border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,.06)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          <div className="max-w-2xl mx-auto px-5 py-2.5 flex items-center gap-3">
             <button type="button" onClick={() => setSheetOpen(true)} className="flex-1 min-w-0 text-left">
               <span className="block text-[11px] text-gray-500 truncate">下書き（{text.length}字）― タップで確認・編集</span>
               <span className="block text-[13px] text-gray-800 truncate">{text}</span>
@@ -196,7 +208,7 @@ export default function ReviewContent() {
             <button
               type="button"
               onClick={() => { copy(); setSheetOpen(true) }}
-              className="shrink-0 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm active:bg-blue-700"
+              className="shrink-0 px-5 py-2.5 rounded-full bg-blue-600 text-white font-bold text-sm active:bg-blue-700"
             >
               コピー
             </button>
@@ -237,7 +249,7 @@ export default function ReviewContent() {
                 <button
                   type="button"
                   onClick={copy}
-                  className="flex-1 px-3 py-3 rounded-xl bg-blue-600 text-white font-bold text-[15px] whitespace-nowrap active:bg-blue-700"
+                  className="flex-1 px-3 py-3 rounded-full bg-blue-600 text-white font-bold text-[15px] whitespace-nowrap active:bg-blue-700"
                 >
                   {copied ? '✓ コピー済み' : '文章をコピー'}
                 </button>
@@ -245,7 +257,7 @@ export default function ReviewContent() {
                   href={pub?.reviewUrl || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex-1 px-3 py-3 rounded-xl font-bold text-[15px] text-center whitespace-nowrap ${
+                  className={`flex-1 px-3 py-3 rounded-full font-bold text-[15px] text-center whitespace-nowrap ${
                     copied ? 'bg-green-600 text-white active:bg-green-700' : 'bg-gray-100 text-gray-500 border border-gray-300'
                   }`}
                 >

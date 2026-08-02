@@ -288,10 +288,14 @@ const FALLBACK = [
 function joinTasks(tasks: TaskKey[], pick: Pick): string {
   const phrases = tasks.map((t) => TASK_PHRASE[t]).filter((p) => p && p.length).map((p) => pick(p))
   if (!phrases.length) return ''
-  const head = phrases.slice(0, 2)
-  const body = head.length === 2 ? `${head[0]}と${head[1]}` : head[0]
-  const extra = phrases.length > 2 ? pick(['、あわせて' + phrases[2] + 'も', '、' + phrases[2] + 'まで']) : ''
-  return body + extra + pick(TASK_TAIL)
+  // 3つまでを1文にまとめる。語尾（TASK_TAIL）にそのままつながる形だけを使う
+  const h = phrases.slice(0, 3)
+  const body = h.length === 1 ? h[0]
+    : h.length === 2 ? pick([`${h[0]}と${h[1]}`, `${h[0]}、${h[1]}`])
+      : pick([`${h[0]}と${h[1]}、それに${h[2]}`, `${h[0]}、${h[1]}、${h[2]}`, `${h[0]}から${h[2]}まで`])
+  // 「AからBまで」の形は「〜について相談しました」に続けると不自然になるため語尾を絞る
+  const tails = /まで$/.test(body) ? TASK_TAIL.filter((t) => t.startsWith('を')) : TASK_TAIL
+  return body + pick(tails)
 }
 
 /** ひとことを地の文になじませる（かぎ括弧での引用にはしない） */
