@@ -4830,25 +4830,23 @@ function renderReviewLink(){
   drawReviewQr(url);
 }
 function copyReviewUrl(){ const el=$('reviewUrlBox'); if(!el) return; el.select(); try{ document.execCommand('copy'); toast('コピーしました'); }catch(e){ toast('コピーできませんでした', true); } }
-// QRは端末内で生成（外部サービスにURLを渡さない）
+// QRは端末内で生成（外部サービスにURLを渡さない）。総合アプリ側に同梱のqrcodeで作るためCDN不要
+function makeQrDataUrl(url, size){
+  const core=_szCore();
+  if(core&&core.makeQr) return core.makeQr(url, size||300);
+  return Promise.reject(new Error('QR生成が利用できません'));
+}
 function drawReviewQr(url){
   const box=$('reviewQr'); if(!box) return;
-  const draw=()=>{ if(!window.QRCode||!window.QRCode.toCanvas){ box.textContent='QRを表示できません（リンクをお使いください）'; return; }
-    box.innerHTML=''; const cv=document.createElement('canvas'); box.appendChild(cv);
-    window.QRCode.toCanvas(cv,url,{width:148,margin:1},function(err){ if(err){ box.textContent='QRを表示できません（リンクをお使いください）'; } }); };
-  if(window.QRCode&&window.QRCode.toCanvas){ draw(); return; }
-  const sc=document.createElement('script');
-  sc.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
-  sc.onload=draw; sc.onerror=()=>{ box.textContent='QRを表示できません（リンクをお使いください）'; };
-  document.head.appendChild(sc);
+  makeQrDataUrl(url,300).then(png=>{
+    box.innerHTML='<img src="'+png+'" alt="QRコード" style="width:148px;height:148px;display:block;">';
+  }).catch(()=>{ box.textContent='QRを表示できません（リンクをお使いください）'; });
 }
 // お渡し用のQRカードを印刷
 function printReviewCard(){
   const rv=currentCase&&currentCase.review; if(!rv||!rv.token){ toast('先に発行してください', true); return; }
   const url=reviewPageUrl(rv.token);
-  const load=()=>new Promise((res,rej)=>{ if(window.QRCode&&window.QRCode.toDataURL) return res();
-    const sc=document.createElement('script'); sc.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js'; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc); });
-  load().then(()=>window.QRCode.toDataURL(url,{width:520,margin:1})).then(png=>{
+  makeQrDataUrl(url,520).then(png=>{
     const w=window.open('','_blank'); if(!w){ toast('ポップアップがブロックされました', true); return; }
     const html='<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title>'
       +'<style>@media print{@page{size:A4;margin:0}body{padding:24mm 22mm}}'

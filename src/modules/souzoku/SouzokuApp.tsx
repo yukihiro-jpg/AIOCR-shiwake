@@ -46,6 +46,11 @@ export default function SouzokuApp() {
             getDb,
             hasRoom,
             modulePath,
+            // QRコードの生成（同梱の qrcode を使う。CDNに依存せずオフラインでも生成できる）
+            makeQr: async (text: string, size = 300) => {
+              const QR = await import('qrcode');
+              return QR.toDataURL(text, { width: size, margin: 1, errorCorrectionLevel: 'M' });
+            },
             dbfns: {
               ref: dbfns.ref,
               get: dbfns.get,
