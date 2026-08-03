@@ -13,7 +13,7 @@
 
 import { writeFileSync, readFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const OUT_DIR = join(ROOT, 'public', 'rosenka-data', 'index')
@@ -100,15 +100,16 @@ async function fetchCities(year, pref) {
   return Array.from(cities.entries()).map(([code, name]) => ({ code, name }))
 }
 
-/** 町丁名索引ページ（{code}fr.htm 配下）から 町丁名→図番号[] を抽出 */
-async function fetchTowns(year, pref, cityCode, debug = false) {
-  const url = `${NTA}/main_${year}/${pref.bureau}/${pref.slug}/prices/${cityCode}fr.htm`
-  const pages = await fetchWithFrames(url)
+/** 索引ページHTML群から 町丁名→図番号[] を抽出する（純関数・テスト用に分離） */
+export function parseTownPages(pages, debug = false) {
   const towns = {}
   for (const p of pages) {
     if (!/html\/\d{5}f\.htm/.test(p.html)) continue
     // 行単位（<tr>）で「先頭セル=町丁名、行内のリンク=図番号」を抽出
     const rows = p.html.split(/<tr[\s>]/i)
+    // 図番号リンクは1行10件で折り返され、2行目以降は町丁名セルが rowspan で省略される。
+    // 町丁名の無い継続行は直前の町丁に図番号を追記する（捨てると11件目以降が索引から消える）
+    let lastTown = ''
     for (const row of rows) {
       const sheets = []
       const linkRe = /href\s*=\s*["']?[^"'>]*html\/(\d{5})f\.htm/gi
@@ -127,8 +128,10 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
         const text = stripTags(cellHtml)
         if (text && !/^[\d\s,]+$/.test(text)) town = text
       }
+      if (town && /^[ぁ-んァ-ヶ]$/.test(town)) continue // 五十音見出しのみの行は除外
+      if (!town) town = lastTown // 継続行（rowspanで町丁名セルなし）
       if (!town) continue
-      if (/^[ぁ-んァ-ヶ]$/.test(town)) continue // 五十音見出しのみの行は除外
+      lastTown = town
       if (!towns[town]) towns[town] = []
       for (const s of sheets) if (!towns[town].includes(s)) towns[town].push(s)
     }
@@ -138,6 +141,13 @@ async function fetchTowns(year, pref, cityCode, debug = false) {
     }
   }
   return towns
+}
+
+/** 町丁名索引ページ（{code}fr.htm 配下）から 町丁名→図番号[] を抽出 */
+async function fetchTowns(year, pref, cityCode, debug = false) {
+  const url = `${NTA}/main_${year}/${pref.bureau}/${pref.slug}/prices/${cityCode}fr.htm`
+  const pages = await fetchWithFrames(url)
+  return parseTownPages(pages, debug)
 }
 
 /** 図面ビューアページ（html/{no}f.htm）から隣接図面（北/南/東/西）を抽出する。
@@ -180,6 +190,26 @@ async function fetchAdjacency(year, pref, sheets, debugFirst = false) {
     if (rows[1][0]) d.w = rows[1][0]
     if (rows[1][2]) d.e = rows[1][2]
     if (Object.keys(d).length) adj[s] = d
+  }
+  return adj
+}
+
+/** 隣接データを「町丁由来の図番号 ∪ 隣接図として参照される図番号」の閉包まで補完する。
+ *  既存分は再利用し、不足図面だけ fetchBatch で取得（純ロジック・テスト用に fetch を注入可能）。
+ *  隣接図としてのみ登場する図面に adj が無いと、東西南北ナビでそこへ入った瞬間に
+ *  戻る方向も含め全ボタンが行き止まりになるため、閉包まで取得する。 */
+export async function completeAdjacency(allSheets, prevAdj, fetchBatch) {
+  const adj = { ...(prevAdj || {}) }
+  const want = new Set(allSheets)
+  for (const d of Object.values(adj)) for (const v of Object.values(d)) want.add(v)
+  const attempted = new Set()
+  for (;;) {
+    const missing = Array.from(want).filter((s) => !(s in adj) && !attempted.has(s)).sort()
+    if (!missing.length) break
+    for (const s of missing) attempted.add(s)
+    const got = await fetchBatch(missing)
+    Object.assign(adj, got)
+    for (const d of Object.values(got)) for (const v of Object.values(d)) want.add(v)
   }
   return adj
 }
@@ -260,25 +290,28 @@ async function main() {
         console.error(`${year}/${pref.slug}: 町丁を1件も抽出できませんでした。JSONは出力しません（既存データ保護）`)
         continue
       }
-      // 隣接図面（東西南北ナビ用）: 既存JSONに同数の隣接データがあれば再取得しない（毎年1回で十分）
+      // 隣接図面（東西南北ナビ用）: 既存JSONの隣接データは再利用し、不足分だけ追加取得する。
+      // 町丁sheetsに加え「隣接図としてのみ参照される図面」（市境の続き図など）も閉包まで取得する
       const allSheets = new Set()
       for (const c of outCities) for (const arr of Object.values(c.towns)) for (const s of arr) allSheets.add(s)
-      let adj = null
+      let prevAdj = {}
       if (existsSync(outPath)) {
-        try {
-          const prev = JSON.parse(readFileSync(outPath, 'utf8'))
-          if (prev.adj && Object.keys(prev.adj).length >= allSheets.size * 0.9) adj = prev.adj
-        } catch { /* ignore */ }
+        try { prevAdj = JSON.parse(readFileSync(outPath, 'utf8')).adj || {} } catch { /* ignore */ }
       }
-      if (!adj && process.env.SKIP_ADJ === '1') {
-        adj = {}
-        console.log('  隣接図面: SKIP_ADJ=1 のためスキップ')
-      } else if (!adj) {
-        console.log(`  隣接図面を抽出中…（${allSheets.size}図面）`)
-        adj = await fetchAdjacency(year, pref, Array.from(allSheets).sort(), true)
-        console.log(`  隣接図面: ${Object.keys(adj).length}/${allSheets.size}図面で検出`)
+      let adj
+      if (process.env.SKIP_ADJ === '1') {
+        adj = prevAdj
+        console.log(`  隣接図面: SKIP_ADJ=1 のためスキップ（既存${Object.keys(adj).length}図面を再利用）`)
       } else {
-        console.log(`  隣接図面: 既存データを再利用（${Object.keys(adj).length}図面）`)
+        const before = Object.keys(prevAdj).length
+        let first = true
+        adj = await completeAdjacency(allSheets, prevAdj, async (missing) => {
+          console.log(`  隣接図面を抽出中…（追加${missing.length}図面 / 既存${before}）`)
+          const got = await fetchAdjacency(year, pref, missing, first)
+          first = false
+          return got
+        })
+        console.log(`  隣接図面: ${Object.keys(adj).length}図面（町丁由来${allSheets.size}）`)
       }
       const idx = {
         year, yearLabel: yearLabel(year), bureau: pref.bureau, prefSlug: pref.slug, prefName: pref.name,
@@ -315,4 +348,7 @@ async function main() {
   console.log(`総リクエスト数: ${reqCount}`)
 }
 
-main().catch((e) => { console.error(e); process.exit(1) })
+// テストから parseTownPages / completeAdjacency を import できるよう、直接実行時のみ main を起動
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1) })
+}

@@ -44,8 +44,10 @@ export default function RosenkaMapContent() {
   const [point, setPoint] = useState<{ lat: number; lng: number; title: string } | null>(null)
   const [hits, setHits] = useState<GeocodeHit[]>([])
   const [matches, setMatches] = useState<TownMatch[]>([])
+  const [cityFound, setCityFound] = useState(false) // 照合で市区町村まで特定できたか（倍率地域と県外/表記不備の案内を分けるため）
   const [selTown, setSelTown] = useState('')
   const [selSheet, setSelSheet] = useState('')
+  const [indexLoading, setIndexLoading] = useState(true)
   const [extentNote, setExtentNote] = useState('')
   const [toshi, setToshi] = useState<ToshiData | null | undefined>(undefined)
   const [toshiHit, setToshiHit] = useState<ToshiHit | null>(null)
@@ -60,6 +62,9 @@ export default function RosenkaMapContent() {
   const extentSeq = useRef(0)
   // 地図クリックのハンドラ（Leafletのイベント登録は1回きりのため、最新のハンドラをrefで参照する）
   const mapClickRef = useRef<((lat: number, lng: number) => void) | null>(null)
+  // 最新の索引（geocode等の await 中に年切替・索引到着が起きても、照合は常に最新の索引で行うため。
+  // state の index を closure で参照すると、待機中に古い索引で照合して住所とPDFが食い違う）
+  const indexRef = useRef<RosenkaIndex | null>(null)
 
   // ---- 初期化: マニフェスト・都市計画データ・地図 ----
   useEffect(() => {
@@ -98,48 +103,40 @@ export default function RosenkaMapContent() {
   const prefSlug = manifest?.prefs?.[0]?.slug || 'ibaraki'
   useEffect(() => {
     if (!yearId) return
+    let cancelled = false
+    setIndexLoading(true)
     loadIndex(yearId, prefSlug).then((idx) => {
+      // cleanup後のsetIndexは捨てる（年を連続で切り替えたとき、遅延した古い年のfetchが
+      // 後から解決して「年ラベルと索引・PDFが別の年」のまま固定される競合の防止）
+      if (cancelled) return
+      indexRef.current = idx
       setIndex(idx)
+      setIndexLoading(false)
     })
+    return () => { cancelled = true }
   }, [yearId, prefSlug])
 
   // 年切替時: 同じ住所を新しい年の索引で照合し直す（図番号は年により変わるため流用しない）
   useEffect(() => {
-    if (!index || !point) return
+    if (!index) {
+      // 索引を読み込めなかった年へ切り替えた場合、旧年の候補・図番号を残さない
+      // （残すと「表示中の年ラベル」と無関係な町丁チップ・図ボタンが並び続ける）
+      setMatches([]); setCityFound(false); setSelTown(''); setSelSheet('')
+      return
+    }
+    if (!point) return
     const m = matchAddress(index, point.title)
     setMatches(m.matches)
+    setCityFound(!!m.city)
     const prevNorm = normalizeTown(selTown)
     const keep = m.matches.find((x) => normalizeTown(x.town) === prevNorm) || m.matches[0] || null
     setSelTown(keep?.town || '')
-    setSelSheet(keep?.sheets[0] || '')
+    // ユーザーが選んでいた図が新しい年にもそのまま在るなら維持する（年次比較で選択を勝手に先頭へ戻さない）
+    setSelSheet(keep && selSheet && keep.sheets.includes(selSheet) ? selSheet : keep?.sheets[0] || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index])
 
   // ---- 検索 ----
-  const runSearch = useCallback(async (q?: string) => {
-    const text = (q ?? query).trim()
-    if (!text || busy) return
-    setBusy(true)
-    setErr('')
-    setHits([])
-    try {
-      const results = await geocode(text)
-      if (!results.length) {
-        setErr('住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
-        return
-      }
-      pushHistory(text)
-      setHistory(loadHistory())
-      if (results.length > 1 && !results[0].title.includes(text.replace(/[ 　]/g, ''))) setHits(results.slice(0, 6))
-      selectHit(results[0])
-    } catch (e) {
-      setErr('検索に失敗しました（地理院ジオコーダに接続できません）: ' + (e instanceof Error ? e.message : String(e)))
-    } finally {
-      setBusy(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, busy, index, toshi])
-
   const selectHit = useCallback((hit: GeocodeHit, opts?: { pan?: boolean }) => {
     const pan = opts?.pan !== false
     setPoint({ lat: hit.lat, lng: hit.lng, title: hit.title })
@@ -155,17 +152,48 @@ export default function RosenkaMapContent() {
         if (pan) mapRef.current.setView([hit.lat, hit.lng], 16)
       })
     }
-    // 町丁の照合
-    if (index) {
-      const m = matchAddress(index, hit.title)
+    // 町丁の照合（awaitを挟んで呼ばれるため、closureのstateではなく常に最新の索引を使う）
+    const idx = indexRef.current
+    if (idx) {
+      const m = matchAddress(idx, hit.title)
       setMatches(m.matches)
+      setCityFound(!!m.city)
       setSelTown(m.matches[0]?.town || '')
       setSelSheet(m.matches[0]?.sheets[0] || '')
+    } else {
+      setMatches([]); setCityFound(false); setSelTown(''); setSelSheet('')
     }
     // 都市計画区分
     if (toshi) setToshiHit(lookupToshi(toshi, hit.lng, hit.lat))
     else setToshiHit(null)
-  }, [index, toshi])
+  }, [toshi])
+
+  const runSearch = useCallback(async (q?: string) => {
+    const text = (q ?? query).trim()
+    if (!text || busy) return
+    setBusy(true)
+    setErr('')
+    setHits([])
+    try {
+      const results = await geocode(text)
+      if (!results.length) {
+        setErr('住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
+        return
+      }
+      pushHistory(text)
+      setHistory(loadHistory())
+      // 対象県内の候補を優先して自動採用する（他県特有の地名がヒットの先頭に来たとき、
+      // 県外へ地図がパンして「倍率地域の可能性」と誤案内されるのを防ぐ）
+      const prefName = indexRef.current?.prefName || '茨城県'
+      const pick = results.find((r) => r.title.includes(prefName)) || results[0]
+      if (results.length > 1 && !pick.title.includes(text.replace(/[ 　]/g, ''))) setHits(results.filter((r) => r !== pick).slice(0, 6))
+      selectHit(pick)
+    } catch (e) {
+      setErr('検索に失敗しました（地理院ジオコーダに接続できません）: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setBusy(false)
+    }
+  }, [query, busy, selectHit])
 
   // 地図クリック: 逆ジオコーディングで町丁名を取得し、その地点を基準に照合・表示する
   useEffect(() => {
@@ -247,6 +275,11 @@ export default function RosenkaMapContent() {
     return () => { cancelled = true }
   }, [index, selSheet])
 
+  // アンマウント時にblob URLを解放（SPA内遷移でPDF1枚分のメモリが残留しないように）
+  useEffect(() => () => {
+    if (pdfBlobRef.current) { URL.revokeObjectURL(pdfBlobRef.current); pdfBlobRef.current = null }
+  }, [])
+
   // ---- 表示用 ----
   const curMatch = matches.find((m) => m.town === selTown) || null
   const pdfUrl = index && selSheet ? rosenkaPdfUrl(index, selSheet) : ''
@@ -260,8 +293,21 @@ export default function RosenkaMapContent() {
   const mappleUrl = point ? `https://labs.mapple.com/mapplexml.html#17.00/${point.lat.toFixed(6)}/${point.lng.toFixed(6)}` : ''
   const gsiMapUrl = point ? `https://maps.gsi.go.jp/#17/${point.lat.toFixed(6)}/${point.lng.toFixed(6)}` : ''
 
-  // 隣接図面（東西南北）ナビ
-  const adjacent = (index?.adj && selSheet && index.adj[selSheet]) || null
+  // 隣接図面（東西南北）ナビ。索引に当図のエントリが無い図（隣接図として参照されるだけの図）へ
+  // 移動した場合も、逆向きリンクから復元して行き止まりにしない（戻る方向は常に確保する）
+  const adjacent = useMemo(() => {
+    if (!index?.adj || !selSheet) return null
+    const own = index.adj[selSheet]
+    if (own) return own
+    const OPP = { n: 's', s: 'n', w: 'e', e: 'w' } as const
+    const inv: { n?: string; s?: string; w?: string; e?: string } = {}
+    for (const [k, d] of Object.entries(index.adj)) {
+      for (const dir of ['n', 's', 'w', 'e'] as const) {
+        if (d[dir] === selSheet && !inv[OPP[dir]]) inv[OPP[dir]] = k
+      }
+    }
+    return Object.keys(inv).length ? inv : null
+  }, [index, selSheet])
   const goAdjacent = useCallback((dir: 'n' | 's' | 'e' | 'w') => {
     const target = adjacent?.[dir]
     if (target) setSelSheet(target)
@@ -311,14 +357,19 @@ export default function RosenkaMapContent() {
                   {curMatch.exact ? '町丁名索引と一致 ✓' : '近い町丁を推定（下の候補から選択可）'}
                 </span>
               )}
-              {index && !curMatch && matches.length === 0 && (
+              {index && !curMatch && matches.length === 0 && (cityFound ? (
                 <span className="text-amber-700">
                   この住所は町丁名索引と自動照合できませんでした。
                   路線価図が無い市町村（<b>倍率地域</b>）の可能性があります —
                   <a className="underline mx-1" href={rosenkaRatiosUrl(index)} target="_blank" rel="noreferrer">評価倍率表を開く ↗</a>／
                   <a className="underline ml-1" href={rosenkaYearTopUrl(index.year)} target="_blank" rel="noreferrer">町丁名索引 ↗</a>
                 </span>
-              )}
+              ) : (
+                <span className="text-amber-700">
+                  この地点は{index.prefName}の市区町村と照合できませんでした（対象は{index.prefName}のみ・県外の住所や施設名だけの検索には対応していません）。
+                  町丁名まで含む住所でお試しください（例: 茨城県水戸市姫子2丁目）。
+                </span>
+              ))}
               {matches.length > 0 && (
                 <span className="flex items-center gap-1 flex-wrap">
                   {matches.slice(0, 8).map((m) => (
@@ -426,17 +477,21 @@ export default function RosenkaMapContent() {
                 <b className="text-sm min-w-[86px] text-center">{manifest.years[yearIdx]?.label || ''}</b>
                 <button onClick={() => changeYear(-1)} disabled={yearIdx <= 0}
                   title="次の年分" className="px-1.5 py-0.5 text-xs bg-gray-100 rounded disabled:opacity-30 hover:bg-gray-200">▶</button>
+                {indexLoading && yearId && <span className="text-[11px] text-gray-400">索引を読込中…</span>}
+                {!indexLoading && !index && yearId && (
+                  <span className="text-[11px] text-red-600">この年分の索引を読み込めませんでした（年分を切り替え直すと再試行します）</span>
+                )}
               </span>
             )}
-            {pdfUrl && (
+            {!indexLoading && pdfUrl && (
               <a href={pdfUrl} target="_blank" rel="noreferrer"
                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400">PDFを別タブで ↗</a>
             )}
-            {index && selSheet && (
+            {!indexLoading && index && selSheet && (
               <a href={rosenkaViewerUrl(index, selSheet)} target="_blank" rel="noreferrer"
                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400">国税庁ページ ↗</a>
             )}
-            {index && curMatch && (
+            {!indexLoading && index && curMatch && (
               <a href={rosenkaCityIndexUrl(index, curMatch.city.code)} target="_blank" rel="noreferrer"
                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:border-blue-400">町丁名索引 ↗</a>
             )}
@@ -470,7 +525,9 @@ export default function RosenkaMapContent() {
             )}
           </div>
           <div className="flex-1 bg-gray-700 min-h-0">
-            {typeof pdfView === 'string' && pdfView.startsWith('blob:') ? (
+            {indexLoading && yearId ? (
+              <div className="h-full flex items-center justify-center text-gray-300 text-sm">年分の索引を読み込み中…</div>
+            ) : typeof pdfView === 'string' && pdfView.startsWith('blob:') ? (
               <iframe key={pdfView} src={pdfView} title="路線価図PDF" className="w-full h-full border-0" />
             ) : pdfView === 'loading' ? (
               <div className="h-full flex items-center justify-center text-gray-300 text-sm">路線価図PDFを読み込み中…</div>
