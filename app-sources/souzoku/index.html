@@ -378,9 +378,6 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .dtbl .rowops button{border:none;background:var(--surface-2);color:var(--ink-2);border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px;margin:0 1px;}
 .dtbl .rowops button:hover{background:#e8e8ed;}
 .dtbl .rowops button.del:hover{background:var(--red);color:#fff;}
-.dtbl .rowops button.force{color:var(--red);font-weight:700;background:#fff;border:1px solid #f3c9c6;}
-.dtbl .rowops button.force:hover{background:#fdecea;}
-.dtbl .rowops button.force.on{background:var(--red);color:#fff;border-color:var(--red);}
 .dtbl .evalsel{display:flex;flex-direction:column;gap:3px;}
 .dtbl .evalsel label{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-2);}
 .dtbl .evalsel input[type=radio]{width:auto;}
@@ -2575,7 +2572,7 @@ function insuranceFxJpy(a){
 }
 function computeAssetValue(a){
   if(a.category==='cash') return num(a.value)+num(a.interest); // 預貯金残高＋既経過利息
-  if(a.autoCalc===false) return num(a.value);                  // 強制入力：入力された金額をそのまま使う
+  if(a.autoCalc===false) return num(a.value);                  // 手入力（「計算」チェックOFF）：入力された金額をそのまま使う
   const fx=insuranceFxJpy(a); if(fx!=null) return fx;          // 外貨建て生命保険：外貨額×TTB
   if(MANUAL_VAL.includes(a.category)) return num(a.value);
   const own=(num(a.ownNum)||1)/((num(a.ownDen)||1)||1);
@@ -2626,7 +2623,7 @@ function updKobo(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); i
 function refreshAssetRow(a){
   const vc=$('val-'+a.id);
   if(vc){
-    const fx=(a.autoCalc===false)?null:insuranceFxJpy(a); // 強制入力中は自動換算しない
+    const fx=(a.autoCalc===false)?null:insuranceFxJpy(a); // 手入力中は自動換算しない
     if(fx!=null){
       // 外貨建て生命保険：外貨額×TTBの円換算額を金額(円)へセットし、手入力は無効化する
       if(!vc.readOnly){ vc.readOnly=true; vc.classList.add('computed'); }
@@ -2669,8 +2666,22 @@ function gotoAssetCat(key){ switchView('assets'); selectAssetCat(key); }
 function selectAssetCat(key){ currentAssetCat=key; renderAssetNav(); renderAssetDetail(); }
 
 // ---- detailed entry table ----
+// 表を作り直すと横スクロールが左端に戻ってしまうため、描画前の位置を覚えて描画後に戻す
+//（「計算」チェックや路線価/倍率の切替のたびに画面が左端へ飛ぶのを防ぐ）
+let _lastDetailCat=null;
+function keepTableScroll(c,draw){
+  // 別の財産種別へ切り替えたときは先頭から見せる（前の表の横位置を持ち越さない）
+  const old=(_lastDetailCat===currentAssetCat)?c.querySelector('.dtbl-wrap'):null;
+  const x=old?old.scrollLeft:0, y=old?old.scrollTop:0;
+  draw();
+  _lastDetailCat=currentAssetCat;
+  if(x||y){ const w=c.querySelector('.dtbl-wrap'); if(w){ w.scrollLeft=x; w.scrollTop=y; } }
+}
 function renderAssetDetail(){
   if(!currentCase) return; const c=$('assetDetail'); if(!c) return;
+  keepTableScroll(c,function(){ renderAssetDetailBody(c); });
+}
+function renderAssetDetailBody(c){
   if(currentAssetCat==='movement'){
     c.innerHTML='<div class="detail-head"><div class="ic" style="background:'+MOVEMENT_META.color+'"></div><h2>'+MOVEMENT_META.name+'</h2></div>'
       +movementTableHtml()
@@ -2886,32 +2897,26 @@ function updMovementField(rowId,field,val){ const r=(currentCase.movement.rows||
   cacheCurrentCase(); }
 function updMovementCell(rowId,accId,field,val){ const r=(currentCase.movement.rows||[]).find(x=>x.id===rowId); if(!r) return; r.cells=r.cells||{}; r.cells[accId]=r.cells[accId]||{}; r.cells[accId][field]=val; cacheCurrentCase(); }
 function updMovementUsage(accId,val){ if(!currentCase.movement.usage) currentCase.movement.usage={}; currentCase.movement.usage[accId]=val; cacheCurrentCase(); }
-// 自動計算される価額を、その行だけ手入力に切り替えられる種別
-//（現金・預貯金は元から手入力なので対象外）
-const FORCE_OK=['land','building','securities','unlisted','other','gift','funeral','insurance'];
-function forceBtn(a){
-  if(!a||FORCE_OK.indexOf(a.category)<0) return '';
-  // 生命保険は外貨建て（外貨額×TTB）のときだけ自動計算になるので、その場合のみ表示する
-  if(a.category==='insurance' && insuranceFxJpy(a)==null && a.autoCalc!==false) return '';
-  const on=a.autoCalc===false;
-  return '<button class="force'+(on?' on':'')+'" onclick="toggleForce(\''+a.id+'\')" title="'+(on?'自動計算に戻す':'この行の価額を手で入力する')+'">'+(on?'強制入力中':'強制入力')+'</button>';
+function opsCell(id){
+  return '<td class="rowops"><button onclick="dupAsset(\''+id+'\')">複製</button><button class="del" onclick="removeAsset(\''+id+'\')">削除</button></td>';
 }
-// 強制入力⇄自動計算の切り替え。強制入力にした時点の自動計算値を初期値として残す
-function toggleForce(id){
+function fracCell(a){ return '<td><div class="frac"><input value="'+esc(a.ownNum||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownNum\',this.value)"><span>/</span><input value="'+esc(a.ownDen||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownDen\',this.value)"></div></td>'; }
+// 「計算」チェック: 外すとその行の価額を手入力できる（現金・預貯金など元から手入力の種別には出さない）
+function calcCell(a){
+  // 生命保険は外貨建て（外貨額×TTB）のときだけ自動計算になるので、それ以外は空欄にする
+  if(a.category==='insurance' && insuranceFxJpy(a)==null && a.autoCalc!==false) return '<td class="chk-cell"></td>';
+  return '<td class="chk-cell"><input type="checkbox"'+(a.autoCalc!==false?' checked':'')
+    +' onchange="setAutoCalc(\''+a.id+'\',this.checked)" title="チェックを外すと価額を手で入力できます"></td>';
+}
+// 自動計算⇄手入力の切り替え。手入力にした時点の自動計算値を初期値として残す
+function setAutoCalc(id,on){
   const a=currentCase.assets.find(x=>x.id===id); if(!a) return;
-  const now=a.autoCalc===false;
-  if(!now){ const v=computeAssetValue(a); a.autoCalc=false; if(!num(a.value)) a.value=String(v||0); }
+  if(!on){ const v=computeAssetValue(a); a.autoCalc=false; if(!num(a.value)) a.value=String(v||0); }
   else { a.autoCalc=true; }
   renderAssetDetail(); renderSummary(); cacheCurrentCase();
 }
-function opsCell(id){
-  const a=currentCase&&currentCase.assets?currentCase.assets.find(x=>x.id===id):null;
-  return '<td class="rowops">'+forceBtn(a)+'<button onclick="dupAsset(\''+id+'\')">複製</button><button class="del" onclick="removeAsset(\''+id+'\')">削除</button></td>';
-}
-function fracCell(a){ return '<td><div class="frac"><input value="'+esc(a.ownNum||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownNum\',this.value)"><span>/</span><input value="'+esc(a.ownDen||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownDen\',this.value)"></div></td>'; }
-function calcCell(a){ return '<td class="chk-cell"><input type="checkbox" '+(a.autoCalc!==false?'checked':'')+' onchange="updAssetBool(\''+a.id+'\',\'autoCalc\',this.checked)"></td>'; }
 function valueCell(a){
-  // 外貨建て生命保険（外貨額×TTBが入力済み）は自動計算＝手入力不可。ただし「強制入力」なら手入力を優先する
+  // 外貨建て生命保険（外貨額×TTBが入力済み）は自動計算＝手入力不可。ただし「計算」チェックOFFなら手入力を優先する
   const editable=(a.autoCalc===false) || ((insuranceFxJpy(a)==null) && MANUAL_VAL.includes(a.category));
   if(editable) return '<td><input type="text" class="num" id="val-'+a.id+'" value="'+(num(a.value)?num(a.value).toLocaleString('ja-JP'):'')+'" placeholder="0" oninput="updAsset(\''+a.id+'\',\'value\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>';
   const v=computeAssetValue(a); return '<td><input type="text" readonly class="num computed" id="val-'+a.id+'" value="'+(v?v.toLocaleString('ja-JP'):'0')+'"></td>';
@@ -2937,7 +2942,7 @@ function quoteCell(a, field, fromField, ph, isNum){
 }
 function landTableHtml(items){
   let rows='';
-  if(!items.length) rows='<tr><td colspan="23" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
+  if(!items.length) rows='<tr><td colspan="25" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
     const koOpts=[['none','適用なし'],['residence','特定居住用(330㎡80%)'],['business','特定事業用(400㎡80%)'],['company','特定同族会社(400㎡80%)'],['rental','貸付事業用(200㎡50%)']];
     const k=a.kobo||{type:'none',area:''};
@@ -2960,6 +2965,7 @@ function landTableHtml(items){
         +'<label><input type="radio" name="em-'+a.id+'" '+(isRosen?'checked':'')+' onchange="updAsset(\''+a.id+'\',\'evalMethod\',\'rosen\');renderAssetDetail()">路線価</label>'
         +'<label><input type="radio" name="em-'+a.id+'" '+(!isRosen?'checked':'')+' onchange="updAsset(\''+a.id+'\',\'evalMethod\',\'baisu\');renderAssetDetail()">倍率</label>'
         +'</div>'+evalInput+'</div></td>'
+      +calcCell(a)
       +valueCell(a)
       +'<td><select onchange="updKobo(\''+a.id+'\',\'type\',this.value)">'+koOpts.map(o=>'<option value="'+o[0]+'"'+(o[0]===k.type?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></td>'
       +'<td><input type="text" class="num" value="'+esc(k.area)+'" placeholder="面積㎡" oninput="updKobo(\''+a.id+'\',\'area\',this.value)"><div class="muted" id="kobored-'+a.id+'" style="font-size:10px;text-align:right;">減額 '+yen(red)+'</div></td>'
@@ -2978,10 +2984,10 @@ function landTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:3060px;"><thead><tr>'
-    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th><th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:3120px;"><thead><tr>'
+    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th><th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>計算</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="9" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="10" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
 }
 function buildingTableHtml(items){
   const t=ASSET_BY_KEY['building'];
@@ -3019,11 +3025,11 @@ const ASSET_COLS={
   securities:[['subcategory','種類','sel'],['evalWay','評価方法','text'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','銘柄','text'],['unitPrice','単価','money'],['quantity','数量','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   unlisted:[['subcategory','種類','sel'],['evalWay','評価方法','optsel','optUnlistedEval'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','会社名（銘柄）','text'],['unitPrice','単価','money'],['quantity','株数','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   cash:[['nominee','名義','nameSel'],['subcategory','種類','optsel','optCashType'],['name','金融機関','text'],['branch','支店','text'],['accountNo','口座番号','text'],['_value','金額(円)','value'],['interest','既経過利息','money'],['memo','注記','text']],
-  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_value','金額(円)','value'],['memo','注記','text']],
+  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_calc','計算','calc'],['_value','金額(円)','value'],['memo','注記','text']],
   retirement:[['subcategory','種類','sel'],['name','支給者','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
   other:[['subcategory','細目','sel'],['name','内容','text'],['location','所在・明細','text'],['quantity','数量','num'],['unitPrice','単価','money'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   debt:[['subcategory','種類','sel'],['location','細目','text'],['name','債権者の氏名','text'],['creditorAddr','債権者住所','text'],['debtStart','債務発生年月日','date'],['debtDue','弁済期限','date'],['_value','金額(円)','value'],['memo','注記','text']],
-  funeral:[['name','支払者の氏名','text'],['payerAddr','支払者住所','text'],['location','細目','text'],['payDate','支払年月日','date'],['claimAmount','請求額(円)','money'],['excludeAmount','葬式費用に含まれない金額(円)','money'],['_value','葬式費用の額(円)','value'],['memo','注記','text']],
+  funeral:[['name','支払者の氏名','text'],['payerAddr','支払者住所','text'],['location','細目','text'],['payDate','支払年月日','date'],['claimAmount','請求額(円)','money'],['excludeAmount','葬式費用に含まれない金額(円)','money'],['_calc','計算','calc'],['_value','葬式費用の額(円)','value'],['memo','注記','text']],
   gift:[['subcategory','区分','selopt',['暦年課税(加算対象)','相続時精算課税']],['name','内容','text'],['location','贈与日','text'],['_value','価額(円)','value'],['giftTax','課された贈与税額','money'],['is4to7','3年超7年','check'],['memo','注記','text']]
 };
 function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNote||'')+'" placeholder="確認する事項" style="min-width:160px;" oninput="updAsset(\''+a.id+'\',\'checkNote\',this.value)"></td>'; }
@@ -3192,7 +3198,7 @@ function securitiesTableHtml(items){
       +m('divPerShare','1株配当',fund)
       +'<td style="text-align:center;font-size:11px;"><span id="divkind-'+a.id+'">'+di.kind+'</span></td>'
       +'<td><input type="text" readonly class="num computed" id="divval-'+a.id+'" value="'+(di.net?di.net.toLocaleString('ja-JP'):'0')+'" title="配当総額 '+yen(di.gross)+' − 源泉 '+yen(di.tax)+'"></td>'
-      +'<td class="chk-cell"><input type="checkbox" '+(a.autoCalc!==false?'checked':'')+' onchange="updAssetBool(\''+a.id+'\',\'autoCalc\',this.checked)"></td>'
+      +calcCell(a)
       +'<td>'+valCell+'<div class="muted" style="font-size:10px;text-align:right;">'+hint+'</div></td>'
       +'<td><input type="text" value="'+esc(a.memo||'')+'" oninput="updAsset(\''+a.id+'\',\'memo\',this.value)"></td>'
       +checkNoteCell(a)
