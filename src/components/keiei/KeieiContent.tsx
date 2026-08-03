@@ -129,7 +129,7 @@ export default function KeieiContent() {
   // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
   const hasAnken = !!current?.name?.includes('藤井設計')
   const PRINT_TABS: [View, string][] = PRINT_VIEWS as unknown as [View, string][]
-  // 印刷専用ビュー（3期推移A3縦・試算表全科目）は画面タブに出さない
+  // 印刷専用ビュー（3期推移・試算表全科目）は画面タブに出さない
   // （画面では「試算表・3期比較・推移」タブ内に同じ内容の表があるため重複させない）
   const SCREEN_TABS: [View, string][] = PRINT_TABS.filter(([v]) => !(PRINT_ONLY_VIEWS as string[]).includes(v as string))
   // 元帳分析は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない（会計監査は税務チェックへ移設済み）

@@ -25,11 +25,10 @@ export const PRINT_VIEWS: [PrintView, string][] = [
   ['cvpfcf', '損益分岐点・キャッシュフロー'],
   ['issues', '経営課題'],
   ['cash', '資金繰り・安全性'],
-  ['trend3pl', '損益計算書（3期推移・A3縦）'],
+  ['trend3pl', '損益計算書（3期推移・全科目）'],
 ]
 /** 印刷のみ（画面タブには出さない）ビュー */
 export const PRINT_ONLY_VIEWS: PrintView[] = ['trialfull', 'trend3pl']
-const A3_PORTRAIT_VIEWS: PrintView[] = ['trend3pl']
 
 export interface PrintReportInput {
   views: PrintView[]
@@ -987,7 +986,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     `)
   }
 
-  // ---------- 損益計算書（3期推移）A3縦 ----------
+  // ---------- 損益計算書（3期推移・全科目） ----------
   function pageTrend3(no: number): string {
     const sorted = sortedYears(years)
     const ci = sorted.findIndex((y) => y.id === fy.id)
@@ -1047,10 +1046,10 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
       bodyGroups += `<tbody class="acct">${trs}</tbody>`
     }
     const head = `<tr><th class="t3name">科目</th><th class="t3ki">期</th>${pmonths.map((m) => `<th class="t3d">${m}月</th>`).join('')}<th class="t3d">合計額<div class="t3sub">年計</div></th><th class="t3d t3last">累計額<div class="t3sub">期首〜${monthLabel}</div></th></tr>`
-    // 科目数が多く1枚に収まらないため、A3縦を複数枚に流し込む（見出し行は各ページで繰返し）
+    // 科目数が多く1枚に収まらないため、複数枚に流し込む（見出し行は各ページで繰返し）
     return `<section class="a3sheet">${pageHead(no, '損益計算書（3期推移）')}
       <table class="t3tbl"><thead>${head}</thead>${bodyGroups}</table>
-      <div class="note mt1">各科目を当期・前期・前々期の3期で表示（単月発生額）。合計額＝年計、累計額＝期首〜${monthLabel}。段階利益と純売上高は太罫線、マイナスは赤字。A3縦・複数ページ可。</div></section>`
+      <div class="note mt1">各科目を当期・前期・前々期の3期で表示（単月発生額）。合計額＝年計、累計額＝期首〜${monthLabel}。段階利益と純売上高は太罫線、マイナスは赤字。科目数に応じて複数ページに続きます。</div></section>`
   }
 
   const renderers: Record<PrintView, (no: number) => string> = {
@@ -1075,7 +1074,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   .toolbar button { padding: 9px 22px; font-size: 14px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; background: ${NAVY}; color: #fff; }
   .toolbar span { font-size: 11px; color: #5b6675; margin-left: 10px; }
   .page { width: 297mm; height: 209mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm 10mm; position: relative; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
-  /* 損益計算書（3期推移）は科目が多いため A3縦・複数ページに流し込む（クリップしない） */
+  /* 損益計算書（3期推移）は科目が多いため複数ページに流し込む（クリップしない） */
   .a3sheet { width: 297mm; background: #fff; margin: 0 auto 10px; padding: 9mm 11mm; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
 
   /* 試算表（全科目）・3期比較：科目数が多いページは可変高にして次の紙へ流す（科目を省略しない） */
@@ -1212,12 +1211,15 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
   @media print {
     body { background: #fff; }
     .toolbar { display: none; }
+    /* 用紙はA3横で統一する。紙面が大きくなるぶん、A4横で組んだ紙面を 420/297＝約1.41倍に
+       引き伸ばして文字を大きくする（zoom はレイアウトごと拡大するので、複数ページに
+       流れる資料でも改ページが正しく計算される。transform だと流し込みが壊れる）。
+       3期推移も同じA3横に載せるため、ページの向きが混在せず、PDFでも正位置で開ける。 */
+    @page { size: A3 landscape; margin: 0; }
+    body { zoom: 1.41421; }
     .page { margin: 0; box-shadow: none; page-break-after: always; }
     .page:last-of-type { page-break-after: auto; }
-    @page { size: A4 landscape; margin: 0; }
-    /* 損益計算書（3期推移）だけ A3縦で出力（科目数が多い場合は複数ページに流す） */
-    @page a3 { size: A3 portrait; margin: 8mm; }
-    .a3sheet { page: a3; page-break-before: always; box-shadow: none; padding: 0; margin: 0; }
+    .a3sheet { page-break-before: always; box-shadow: none; margin: 0; }
     .t3tbl thead { display: table-header-group; }
     .t3tbl tbody.acct { break-inside: avoid; page-break-inside: avoid; }
     /* 全科目ページ：1枚に収まらないときはA4横のまま次の紙へ流す（見出し行は各ページで繰返し） */
@@ -1227,7 +1229,7 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     .tb tr { break-inside: avoid; page-break-inside: avoid; }
   }
 </style></head><body>
-  <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>横向き（A4ランドスケープ）でそのまま印刷されます。1資料＝1枚です。</span></div>
+  <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>横向きのA3で印刷されます（用紙にA3を選んでください）。1資料＝1枚です。</span></div>
   ${cover}
   ${pages}
   <script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 400) })</script>
