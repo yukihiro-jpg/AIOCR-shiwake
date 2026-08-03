@@ -378,6 +378,9 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .dtbl .rowops button{border:none;background:var(--surface-2);color:var(--ink-2);border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px;margin:0 1px;}
 .dtbl .rowops button:hover{background:#e8e8ed;}
 .dtbl .rowops button.del:hover{background:var(--red);color:#fff;}
+.dtbl .rowops button.force{color:var(--red);font-weight:700;background:#fff;border:1px solid #f3c9c6;}
+.dtbl .rowops button.force:hover{background:#fdecea;}
+.dtbl .rowops button.force.on{background:var(--red);color:#fff;border-color:var(--red);}
 .dtbl .evalsel{display:flex;flex-direction:column;gap:3px;}
 .dtbl .evalsel label{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-2);}
 .dtbl .evalsel input[type=radio]{width:auto;}
@@ -2572,8 +2575,9 @@ function insuranceFxJpy(a){
 }
 function computeAssetValue(a){
   if(a.category==='cash') return num(a.value)+num(a.interest); // 預貯金残高＋既経過利息
+  if(a.autoCalc===false) return num(a.value);                  // 強制入力：入力された金額をそのまま使う
   const fx=insuranceFxJpy(a); if(fx!=null) return fx;          // 外貨建て生命保険：外貨額×TTB
-  if(a.autoCalc===false || MANUAL_VAL.includes(a.category)) return num(a.value);
+  if(MANUAL_VAL.includes(a.category)) return num(a.value);
   const own=(num(a.ownNum)||1)/((num(a.ownDen)||1)||1);
   const adj=(a.adjust===''||a.adjust==null)?1:num(a.adjust);
   if(a.category==='land'){
@@ -2622,7 +2626,7 @@ function updKobo(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); i
 function refreshAssetRow(a){
   const vc=$('val-'+a.id);
   if(vc){
-    const fx=insuranceFxJpy(a);
+    const fx=(a.autoCalc===false)?null:insuranceFxJpy(a); // 強制入力中は自動換算しない
     if(fx!=null){
       // 外貨建て生命保険：外貨額×TTBの円換算額を金額(円)へセットし、手入力は無効化する
       if(!vc.readOnly){ vc.readOnly=true; vc.classList.add('computed'); }
@@ -2882,12 +2886,33 @@ function updMovementField(rowId,field,val){ const r=(currentCase.movement.rows||
   cacheCurrentCase(); }
 function updMovementCell(rowId,accId,field,val){ const r=(currentCase.movement.rows||[]).find(x=>x.id===rowId); if(!r) return; r.cells=r.cells||{}; r.cells[accId]=r.cells[accId]||{}; r.cells[accId][field]=val; cacheCurrentCase(); }
 function updMovementUsage(accId,val){ if(!currentCase.movement.usage) currentCase.movement.usage={}; currentCase.movement.usage[accId]=val; cacheCurrentCase(); }
-function opsCell(id){ return '<td class="rowops"><button onclick="dupAsset(\''+id+'\')">複製</button><button class="del" onclick="removeAsset(\''+id+'\')">削除</button></td>'; }
+// 自動計算される価額を、その行だけ手入力に切り替えられる種別
+//（現金・預貯金は元から手入力なので対象外）
+const FORCE_OK=['land','building','securities','unlisted','other','gift','funeral','insurance'];
+function forceBtn(a){
+  if(!a||FORCE_OK.indexOf(a.category)<0) return '';
+  // 生命保険は外貨建て（外貨額×TTB）のときだけ自動計算になるので、その場合のみ表示する
+  if(a.category==='insurance' && insuranceFxJpy(a)==null && a.autoCalc!==false) return '';
+  const on=a.autoCalc===false;
+  return '<button class="force'+(on?' on':'')+'" onclick="toggleForce(\''+a.id+'\')" title="'+(on?'自動計算に戻す':'この行の価額を手で入力する')+'">'+(on?'強制入力中':'強制入力')+'</button>';
+}
+// 強制入力⇄自動計算の切り替え。強制入力にした時点の自動計算値を初期値として残す
+function toggleForce(id){
+  const a=currentCase.assets.find(x=>x.id===id); if(!a) return;
+  const now=a.autoCalc===false;
+  if(!now){ const v=computeAssetValue(a); a.autoCalc=false; if(!num(a.value)) a.value=String(v||0); }
+  else { a.autoCalc=true; }
+  renderAssetDetail(); renderSummary(); cacheCurrentCase();
+}
+function opsCell(id){
+  const a=currentCase&&currentCase.assets?currentCase.assets.find(x=>x.id===id):null;
+  return '<td class="rowops">'+forceBtn(a)+'<button onclick="dupAsset(\''+id+'\')">複製</button><button class="del" onclick="removeAsset(\''+id+'\')">削除</button></td>';
+}
 function fracCell(a){ return '<td><div class="frac"><input value="'+esc(a.ownNum||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownNum\',this.value)"><span>/</span><input value="'+esc(a.ownDen||'1')+'" oninput="updAsset(\''+a.id+'\',\'ownDen\',this.value)"></div></td>'; }
 function calcCell(a){ return '<td class="chk-cell"><input type="checkbox" '+(a.autoCalc!==false?'checked':'')+' onchange="updAssetBool(\''+a.id+'\',\'autoCalc\',this.checked)"></td>'; }
 function valueCell(a){
-  // 外貨建て生命保険（外貨額×TTBが入力済み）は自動計算＝手入力不可にする
-  const editable=(insuranceFxJpy(a)==null) && (MANUAL_VAL.includes(a.category)||a.autoCalc===false);
+  // 外貨建て生命保険（外貨額×TTBが入力済み）は自動計算＝手入力不可。ただし「強制入力」なら手入力を優先する
+  const editable=(a.autoCalc===false) || ((insuranceFxJpy(a)==null) && MANUAL_VAL.includes(a.category));
   if(editable) return '<td><input type="text" class="num" id="val-'+a.id+'" value="'+(num(a.value)?num(a.value).toLocaleString('ja-JP'):'')+'" placeholder="0" oninput="updAsset(\''+a.id+'\',\'value\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>';
   const v=computeAssetValue(a); return '<td><input type="text" readonly class="num computed" id="val-'+a.id+'" value="'+(v?v.toLocaleString('ja-JP'):'0')+'"></td>';
 }
