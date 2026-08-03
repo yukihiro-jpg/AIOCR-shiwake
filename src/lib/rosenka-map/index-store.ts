@@ -107,3 +107,30 @@ export function matchAddress(idx: RosenkaIndex, address: string): {
   }
   return { city, matches, rest }
 }
+
+export type AddressMatch = ReturnType<typeof matchAddress>
+
+/** 照合結果の具体性スコア（大きいほど具体的）。市すら取れない=0／市のみ=1／推定=2／完全一致=3 */
+function matchScore(r: AddressMatch): number {
+  const top = r.matches[0]
+  if (!r.city) return 0
+  if (!top) return 1
+  // 同じ段でも町丁名が長い＝より細かく特定できている方を採る（姫子２ > 姫子）
+  return (top.exact ? 3 : 2) + Math.min(normalizeTown(top.town).length, 30) / 100
+}
+
+/** 複数の住所文字列（ジオコーダの正規化名・利用者が入力した地番など）のうち、
+ *  最も具体的に町丁を特定できたものを採用する。
+ *  ジオコーダは地番（登記簿の「大字○○字△△1234番1」等）を解釈できず町丁を落とすことがあるため、
+ *  入力文字列そのものでも照合して良い方を使う。 */
+export function matchAddressBest(idx: RosenkaIndex, texts: Array<string | null | undefined>): AddressMatch {
+  let best: AddressMatch = { city: null, matches: [], rest: '' }
+  let bestScore = -1
+  for (const t of texts) {
+    if (!t) continue
+    const r = matchAddress(idx, t)
+    const s = matchScore(r)
+    if (s > bestScore) { bestScore = s; best = r }
+  }
+  return best
+}

@@ -13,7 +13,7 @@ import {
   rosenkaPdfUrl, rosenkaViewerUrl, rosenkaCityIndexUrl, rosenkaYearTopUrl, rosenkaRatiosUrl,
   rosenkaMirrorPdfUrl, NTA_TOP_URL,
 } from '@/lib/rosenka-map/types'
-import { loadManifest, loadIndex, matchAddress, normalizeTown } from '@/lib/rosenka-map/index-store'
+import { loadManifest, loadIndex, matchAddress, matchAddressBest, normalizeTown } from '@/lib/rosenka-map/index-store'
 import { geocode, geocodeTownCached, reverseGeocode, type GeocodeHit } from '@/lib/rosenka-map/gsi'
 import { muniName } from '@/lib/rosenka-map/muni'
 import { loadToshiData, lookupToshi, type ToshiHit } from '@/lib/rosenka-map/toshi'
@@ -137,7 +137,7 @@ export default function RosenkaMapContent() {
   }, [index])
 
   // ---- 検索 ----
-  const selectHit = useCallback((hit: GeocodeHit, opts?: { pan?: boolean }) => {
+  const selectHit = useCallback((hit: GeocodeHit, opts?: { pan?: boolean; queryText?: string }) => {
     const pan = opts?.pan !== false
     setPoint({ lat: hit.lat, lng: hit.lng, title: hit.title })
     // 地図
@@ -152,10 +152,12 @@ export default function RosenkaMapContent() {
         if (pan) mapRef.current.setView([hit.lat, hit.lng], 16)
       })
     }
-    // 町丁の照合（awaitを挟んで呼ばれるため、closureのstateではなく常に最新の索引を使う）
+    // 町丁の照合（awaitを挟んで呼ばれるため、closureのstateではなく常に最新の索引を使う）。
+    // ジオコーダの正規化名と入力文字列の両方で照合し、町丁をより具体的に特定できた方を採る
+    // （地番「大字○○字△△1234番1」はジオコーダが町丁を落とすことがあるため）
     const idx = indexRef.current
     if (idx) {
-      const m = matchAddress(idx, hit.title)
+      const m = matchAddressBest(idx, [hit.title, opts?.queryText])
       setMatches(m.matches)
       setCityFound(!!m.city)
       setSelTown(m.matches[0]?.town || '')
@@ -168,6 +170,25 @@ export default function RosenkaMapContent() {
     else setToshiHit(null)
   }, [toshi])
 
+  /** ジオコーダで地点を出せなかったときの保険: 入力文字列だけを索引と照合して路線価図を出す。
+   *  地番（登記簿の表記）はジオコーダが解決できないことがあるが、路線価図は町丁単位なので
+   *  町名・大字名さえ読み取れれば図面は特定できる。地図のピンは立たない（その旨を表示する）。 */
+  const matchTextOnly = useCallback((text: string, note: string): boolean => {
+    const idx = indexRef.current
+    if (!idx) return false
+    const m = matchAddressBest(idx, [text])
+    if (!m.matches.length) return false
+    setPoint(null)
+    if (markerRef.current) { markerRef.current.remove(); markerRef.current = null }
+    setMatches(m.matches)
+    setCityFound(!!m.city)
+    setSelTown(m.matches[0].town)
+    setSelSheet(m.matches[0].sheets[0] || '')
+    setToshiHit(null)
+    setErr(`${note}町丁名「${m.matches[0].town}」から路線価図を表示しています（地図上の位置は特定できていません）。`)
+    return true
+  }, [])
+
   const runSearch = useCallback(async (q?: string) => {
     const text = (q ?? query).trim()
     if (!text || busy) return
@@ -177,7 +198,13 @@ export default function RosenkaMapContent() {
     try {
       const results = await geocode(text)
       if (!results.length) {
-        setErr('住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
+        // 地番などジオコーダが解釈できない表記でも、索引で町丁が取れれば路線価図は出す
+        if (!matchTextOnly(text, '地図上の地点は特定できませんでしたが、')) {
+          setErr('住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
+        } else {
+          pushHistory(text)
+          setHistory(loadHistory())
+        }
         return
       }
       pushHistory(text)
@@ -187,13 +214,15 @@ export default function RosenkaMapContent() {
       const prefName = indexRef.current?.prefName || '茨城県'
       const pick = results.find((r) => r.title.includes(prefName)) || results[0]
       if (results.length > 1 && !pick.title.includes(text.replace(/[ 　]/g, ''))) setHits(results.filter((r) => r !== pick).slice(0, 6))
-      selectHit(pick)
+      selectHit(pick, { queryText: text })
     } catch (e) {
-      setErr('検索に失敗しました（地理院ジオコーダに接続できません）: ' + (e instanceof Error ? e.message : String(e)))
+      if (!matchTextOnly(text, 'ジオコーダに接続できませんでしたが、')) {
+        setErr('検索に失敗しました（地理院ジオコーダに接続できません）: ' + (e instanceof Error ? e.message : String(e)))
+      }
     } finally {
       setBusy(false)
     }
-  }, [query, busy, selectHit])
+  }, [query, busy, selectHit, matchTextOnly])
 
   // 地図クリック: 逆ジオコーディングで町丁名を取得し、その地点を基準に照合・表示する
   useEffect(() => {
@@ -325,7 +354,7 @@ export default function RosenkaMapContent() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') runSearch() }}
-            placeholder="住所を入力（例: 茨城県水戸市姫子2丁目）"
+            placeholder="住所・地番を入力（例: 水戸市姫子2丁目 / 水戸市大字渡里町3096番1）"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
             list="rosenka-history"
           />
@@ -340,7 +369,7 @@ export default function RosenkaMapContent() {
       </header>
 
       {/* 照合結果バー */}
-      {(point || err || manifest === null) && (
+      {(point || err || matches.length > 0 || manifest === null) && (
         <div className="bg-amber-50/60 border-b border-amber-100 px-4 py-1.5 text-xs flex items-center gap-3 flex-wrap shrink-0">
           {err && <span className="text-red-600">{err}</span>}
           {manifest === null && (
@@ -370,29 +399,31 @@ export default function RosenkaMapContent() {
                   町丁名まで含む住所でお試しください（例: 茨城県水戸市姫子2丁目）。
                 </span>
               ))}
-              {matches.length > 0 && (
-                <span className="flex items-center gap-1 flex-wrap">
-                  {matches.slice(0, 8).map((m) => (
-                    <button key={m.town}
-                      onClick={() => { setSelTown(m.town); setSelSheet(m.sheets[0] || '') }}
-                      className={`px-2 py-0.5 rounded border text-[11px] ${m.town === selTown ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
-                      {m.town}
-                    </button>
-                  ))}
-                </span>
-              )}
-              {curMatch && curMatch.sheets.length > 0 && (
-                <span className="flex items-center gap-1 flex-wrap">
-                  <span className="text-gray-500">図:</span>
-                  {curMatch.sheets.map((s) => (
-                    <button key={s} onClick={() => setSelSheet(s)}
-                      className={`px-2 py-0.5 rounded border font-mono text-[11px] ${s === selSheet ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
-                      {s}
-                    </button>
-                  ))}
-                </span>
-              )}
             </>
+          )}
+          {/* 町丁の候補・図番号は地図のピンが無くても表示する（地番検索でジオコーダが
+              地点を出せなかった場合でも、路線価図そのものは選べるようにするため） */}
+          {matches.length > 0 && (
+            <span className="flex items-center gap-1 flex-wrap">
+              {matches.slice(0, 8).map((m) => (
+                <button key={m.town}
+                  onClick={() => { setSelTown(m.town); setSelSheet(m.sheets[0] || '') }}
+                  className={`px-2 py-0.5 rounded border text-[11px] ${m.town === selTown ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                  {m.town}
+                </button>
+              ))}
+            </span>
+          )}
+          {curMatch && curMatch.sheets.length > 0 && (
+            <span className="flex items-center gap-1 flex-wrap">
+              <span className="text-gray-500">図:</span>
+              {curMatch.sheets.map((s) => (
+                <button key={s} onClick={() => setSelSheet(s)}
+                  className={`px-2 py-0.5 rounded border font-mono text-[11px] ${s === selSheet ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                  {s}
+                </button>
+              ))}
+            </span>
           )}
           {hits.length > 0 && (
             <span className="flex items-center gap-1 flex-wrap">
