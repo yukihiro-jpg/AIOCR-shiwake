@@ -38,7 +38,16 @@ export interface PrintReportInput {
   years: Record<string, FiscalYearData>
   monthIdx: number
   settings: KeieiSettings
+  /** 用紙の向き。A3横（既定）／A3縦（損益計算書3期推移だけ別ジョブで出す） */
+  paper?: 'landscape' | 'portrait'
+  /** 表紙を付けるか（既定true。3期推移だけの別ジョブでは付けない） */
+  withCover?: boolean
 }
+
+/** 縦向き（A3縦）で出す資料。1つの印刷ジョブに縦と横を混ぜると、ブラウザの
+ *  印刷ダイアログで選んだ用紙・向きが全ページに適用され、縦の資料が横になってしまう。
+ *  そのためこの資料は別ウィンドウ＝別の印刷ジョブとして出す。 */
+export const PORTRAIT_VIEWS: PrintView[] = ['trend3pl']
 
 const NAVY = '#1f3a5f'
 const GOLD = '#c8a24b'
@@ -217,6 +226,7 @@ function svgBullet(value: number, max: number, zones: { to: number; color: strin
 // ===== 本体 =====
 export function buildPrintReportHtml(input: PrintReportInput): string {
   const { views, company, fy, prior, years, monthIdx, settings } = input
+  const portrait = input.paper === 'portrait'
   const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
   const priorIdx = prior ? Math.min(monthIdx, prior.lastFilledIndex) : 0
   const single = plKpisSingle(fy, monthIdx)
@@ -1214,9 +1224,9 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     /* 用紙はA3横で統一する。紙面が大きくなるぶん、A4横で組んだ紙面を 420/297＝約1.41倍に
        引き伸ばして文字を大きくする（zoom はレイアウトごと拡大するので、複数ページに
        流れる資料でも改ページが正しく計算される。transform だと流し込みが壊れる）。
-       3期推移も同じA3横に載せるため、ページの向きが混在せず、PDFでも正位置で開ける。 */
-    @page { size: A3 landscape; margin: 0; }
-    body { zoom: 1.41421; }
+       損益計算書（3期推移）はA3縦のため、別の印刷ジョブ（別ウィンドウ）で出す。 */
+    @page { size: A3 ${portrait ? 'portrait' : 'landscape'}; margin: 0; }
+    ${portrait ? '' : 'body { zoom: 1.41421; }'}
     .page { margin: 0; box-shadow: none; page-break-after: always; }
     .page:last-of-type { page-break-after: auto; }
     .a3sheet { page-break-before: always; box-shadow: none; margin: 0; }
@@ -1229,8 +1239,8 @@ export function buildPrintReportHtml(input: PrintReportInput): string {
     .tb tr { break-inside: avoid; page-break-inside: avoid; }
   }
 </style></head><body>
-  <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>横向きのA3で印刷されます（用紙にA3を選んでください）。1資料＝1枚です。</span></div>
-  ${cover}
+  <div class="toolbar"><button onclick="window.print()">🖨 印刷 / PDF保存</button><span>${portrait ? '縦向きのA3で印刷されます（用紙にA3・縦を選んでください）。' : '横向きのA3で印刷されます（用紙にA3・横を選んでください）。1資料＝1枚です。'}</span></div>
+  ${input.withCover === false ? '' : cover}
   ${pages}
   <script>window.addEventListener('load', function () { setTimeout(function () { window.print() }, 400) })</script>
 </body></html>`

@@ -30,7 +30,7 @@ import SectionAnken from './SectionAnken'
 import SectionLedger from './SectionLedger'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
-import { buildPrintReportHtml, PRINT_VIEWS, PRINT_ONLY_VIEWS, type PrintView } from '@/lib/keiei/print-report'
+import { buildPrintReportHtml, PRINT_VIEWS, PRINT_ONLY_VIEWS, PORTRAIT_VIEWS, type PrintView } from '@/lib/keiei/print-report'
 
 type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
@@ -152,17 +152,33 @@ export default function KeieiContent() {
     if (!views.length || !fy) return
     setPrintOpen(false)
     setErr(null)
-    const html = buildPrintReportHtml({
-      views: views as PrintView[],
-      company: current?.name || '',
-      fy, prior, years, monthIdx, settings,
-    })
-    const w = window.open('', '_blank')
-    if (!w) {
+    // A3縦の資料（損益計算書3期推移）は別ウィンドウ＝別の印刷ジョブで開く。
+    // 1つのジョブに縦と横を混ぜると、印刷ダイアログで選んだ用紙の向きが全ページに
+    // 適用されてしまい、縦の資料が横向きで出力されるため。
+    const portraitSel = (views as string[]).filter((v) => (PORTRAIT_VIEWS as string[]).includes(v)) as PrintView[]
+    const landscapeSel = (views as string[]).filter((v) => !(PORTRAIT_VIEWS as string[]).includes(v)) as PrintView[]
+    const open = (sel: PrintView[], paper: 'landscape' | 'portrait', withCover: boolean) => {
+      if (!sel.length) return true
+      const html = buildPrintReportHtml({
+        views: sel,
+        company: current?.name || '',
+        fy, prior, years, monthIdx, settings, paper, withCover,
+      })
+      const w = window.open('', '_blank')
+      if (!w) return false
+      w.document.open(); w.document.write(html); w.document.close()
+      return true
+    }
+    const ok1 = open(landscapeSel, 'landscape', true)
+    const ok2 = open(portraitSel, 'portrait', landscapeSel.length === 0)
+    if (!ok1 || !ok2) {
       setErr('ポップアップがブロックされました。ブラウザの設定で許可してから、もう一度「印刷」を押してください。')
       return
     }
-    w.document.open(); w.document.write(html); w.document.close()
+    if (landscapeSel.length && portraitSel.length) {
+      setMsg('「損益計算書（3期推移）」はA3縦のため、別のタブで開きました。そちらでも印刷を実行してください。')
+      setTimeout(() => setMsg(null), 8000)
+    }
   }
   const sorted = useMemo(() => sortedYears(years), [years])
   const comp = useMemo(() => {
