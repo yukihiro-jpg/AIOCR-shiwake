@@ -2962,6 +2962,12 @@ function valueCell(a){
   if(editable) return '<td><input type="text" class="num" id="val-'+a.id+'" value="'+(num(a.value)?num(a.value).toLocaleString('ja-JP'):'')+'" placeholder="0" oninput="updAsset(\''+a.id+'\',\'value\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>';
   const v=computeAssetValue(a); return '<td><input type="text" readonly class="num computed" id="val-'+a.id+'" value="'+(v?v.toLocaleString('ja-JP'):'0')+'"></td>';
 }
+// 自由入力＋入力候補（datalist）。候補から選ぶことも、候補にない文字を自由に入力することもできる
+function dlCell(a,f,opts,listId,ph,w){
+  const tdSt=w?(' style="min-width:'+w+'px;"'):'';
+  return '<td'+tdSt+'><input type="text" list="'+listId+'" value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>';
+}
+function dataListHtml(listId,opts){ return '<datalist id="'+listId+'">'+(opts||[]).map(o=>'<option value="'+esc(o)+'">').join('')+'</datalist>'; }
 function txtCell(a,f,ph,w){ const tdSt=w?(' style="min-width:'+w+'px;"'):''; const inSt=w?'style="width:100%;box-sizing:border-box;" ':''; return '<td'+tdSt+'><input type="text" '+inSt+'value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>'; }
 function numCell(a,f,ph){ return '<td><input type="text" class="num" value="'+esc(a[f]==null?'':a[f])+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)"></td>'; }
 function moneyCell(a,f,ph){ return '<td><input type="text" class="num" value="'+(num(a[f])?num(a[f]).toLocaleString('ja-JP'):'')+'" placeholder="'+esc(ph||'')+'" oninput="updAsset(\''+a.id+'\',\''+f+'\',this.value)" onblur="this.value=(num(this.value)?num(this.value).toLocaleString(\'ja-JP\'):\'\')"></td>'; }
@@ -3040,7 +3046,7 @@ function buildingTableHtml(items){
       +txtCell(a,'chiban','所在 例：水戸市〇〇町字△△',280)
       +txtCell(a,'kaokuNo','家屋番号')
       +fracCell(a)
-      +selCell(a,'subcategory',t.subs)
+      +dlCell(a,'subcategory',t.subs,'bld-kind-list','居宅・店舗 等')
       +txtCell(a,'kozo','構造')
       +txtCell(a,'kaiso','階層')
       +numCell(a,'tokiYuka','㎡')
@@ -3055,7 +3061,8 @@ function buildingTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:2000px;"><thead><tr>'
+  return dataListHtml('bld-kind-list',t.subs)
+    +'<div class="dtbl-wrap"><table class="dtbl" style="min-width:2000px;"><thead><tr>'
     +'<th style="min-width:280px;">所在</th><th>家屋番号</th><th>持分</th><th>種類</th><th>構造</th><th>階層</th><th>登記床面積(㎡)</th><th>課税床面積(㎡)</th><th>固定資産税評価額</th><th>自用貸家</th><th>賃貸割合</th><th>相続税評価額(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
     +'<tfoot><tr><td colspan="11" style="text-align:right;">計</td><td class="num" id="foot-building">'+yen(sub)+'</td><td colspan="3"></td></tr></tfoot></table></div>';
