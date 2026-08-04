@@ -992,6 +992,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
           <button class="btn" onclick="downloadChecklistExcel()">必要資料 Excel</button>
           <button class="btn" onclick="downloadAgreement()">遺産分割協議書 PDF</button>
           <button class="btn" onclick="downloadAgreementWord()">遺産分割協議書 Word</button>
+          <button class="btn" onclick="openSendaiModal()" title="先代名義のまま残っている不動産の名義変更用（今回の申告には含めません）">先代名義 遺産分割協議書…</button>
           <button class="btn" onclick="downloadPostAgreementFlowPDF()">押印後の流れ ご案内資料 PDF</button>
           <button class="btn" onclick="downloadContract()">委任契約書</button>
         </div>
@@ -1090,6 +1091,21 @@ function getStock_(symbol){
     <div class="btn-row" style="margin-top:20px;justify-content:flex-end;">
       <button class="btn" onclick="closeModal('newCaseModal')">キャンセル</button>
       <button class="btn primary" onclick="createCase()">作成する</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- 先代名義の不動産の遺産分割協議書（数次相続） -->
+<div class="modal-ov" id="sendaiModal">
+  <div class="modal" style="max-width:1080px;">
+    <h2>先代名義 遺産分割協議書</h2>
+    <div class="btn-row" id="sendaiTabs" style="margin-bottom:10px;flex-wrap:wrap;"></div>
+    <div id="sendaiBody" style="max-height:62vh;overflow:auto;"></div>
+    <div class="btn-row" style="margin-top:18px;justify-content:flex-end;">
+      <button class="btn" onclick="closeModal('sendaiModal')">閉じる</button>
+      <button class="btn" onclick="downloadSendaiAgreementWord()">Word</button>
+      <button class="btn primary" onclick="downloadSendaiAgreement()">PDF</button>
     </div>
   </div>
 </div>
@@ -1619,6 +1635,9 @@ function ensureCaseShape(c){
   if(!Array.isArray(c.assets)) c.assets=[];
   c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[]; } });
   if(!c.successive||typeof c.successive!=='object') c.successive={enabled:false,A:'',B:'',years:'',prevDate:''};
+  // 先代名義の不動産（数次相続）の遺産分割協議書。今回の申告には含めないため assets とは別に持つ
+  if(!Array.isArray(c.sendai)) c.sendai=[];
+  c.sendai.forEach(sd=>{ if(sd&&typeof sd==='object'){ if(!Array.isArray(sd.lands)) sd.lands=[]; if(!Array.isArray(sd.builds)) sd.builds=[]; } });
   if(!Array.isArray(c.compensations)) c.compensations=[];
   if(!c.compByHeir||typeof c.compByHeir!=='object'||Array.isArray(c.compByHeir)) c.compByHeir={};
   if(!Object.keys(c.compByHeir).length && c.compensations.length){ c.compensations.forEach(cm=>{ const amt=num(cm.amount); if(cm.from) c.compByHeir[cm.from]=String(num(c.compByHeir[cm.from])-amt); if(cm.to) c.compByHeir[cm.to]=String(num(c.compByHeir[cm.to])+amt); }); }
@@ -6835,6 +6854,79 @@ const DOC_STYLE_BASE=`*{margin:0;padding:0;box-sizing:border-box;}body{font-fami
 // ============================================================
 function toWarekiDate(s){ if(!s) return ''; const d=new Date(s); if(isNaN(d)) return ''; const y=d.getFullYear(),m=d.getMonth()+1,day=d.getDate(); let era,ey; if(y>=2019){era='令和';ey=y-2018;}else if(y>=1989){era='平成';ey=y-1988;}else if(y>=1926){era='昭和';ey=y-1925;}else if(y>=1912){era='大正';ey=y-1911;}else{era='明治';ey=y-1867;} return era+(ey===1?'元':ey)+'年'+m+'月'+day+'日'; }
 function allocAmt(a,h){ const al=(a.allocations||[]).find(x=>x.heirId===h.id); return al?num(al.amount):0; }
+// 遺産分割協議書の体裁（本体・先代名義分で共通）
+function agreementStyles(){ return DOC_STYLE_BASE+`
+    h1{font-size:17pt;letter-spacing:10px;text-align:center;border:none;margin:6px 0 16px;}
+    .intro{text-indent:1em;margin-bottom:14px;line-height:1.9;}
+    .agr-sec{margin:15px 0;page-break-inside:avoid;break-inside:avoid;}
+    .agr-sec-title{background:#ececec;border-left:5px solid #444;padding:5px 10px;font-weight:700;font-size:11.5pt;margin-bottom:8px;page-break-after:avoid;}
+    .agr-lead{margin:6px 0;line-height:1.9;page-break-after:avoid;}
+    .agr-par{margin:8px 0;line-height:1.85;}
+    .agr-parn{font-weight:700;}
+    .agr-tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5pt;}
+    .agr-tbl th{background:#f4f4f4;border:1px solid #999;padding:5px 6px;font-weight:600;text-align:center;}
+    .agr-tbl td{border:1px solid #999;padding:5px 6px;vertical-align:middle;}
+    .agr-tbl .r{text-align:right;} .agr-tbl .c{text-align:center;}
+    .muted-s{font-size:8.5pt;color:#555;}
+    .dec-info{margin:4px 0 4px 1em;}
+    .dec-info div{display:flex;padding:3px 0;}
+    .dec-info .k{width:120px;}
+    .closing{text-indent:1em;margin:20px 0 8px;line-height:1.9;}
+    .date{text-align:right;margin:14px 0 18px;}
+    .sig-area-tbl{width:100%;border-collapse:collapse;}
+    .sig-area-tbl td{border:0;vertical-align:middle;}
+    .sig-row{page-break-inside:avoid;break-inside:avoid;}
+    .sig-row>td{padding-bottom:16px;}
+    .seal-cell{width:72px;text-align:center;padding:8px 2px;}
+    .seal-cap{font-size:9pt;color:#c4c4c4;margin-bottom:3px;}
+    .seal-mark{font-size:22pt;color:#d0d0d0;line-height:1;}
+    .sig-cell{padding:2px 18px;}
+    .sig-line-row{display:flex;align-items:flex-end;padding:11px 0;font-size:11pt;}
+    .sig-line-row .sl{width:74px;white-space:nowrap;flex:none;}
+    .sig-line-row .sv{flex:1;border-bottom:1px solid #000;padding:0 8px;min-height:1.4em;}
+    .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
+    .pgbreak{page-break-before:always;break-before:page;}
+    /* 契印（製本テープにまたがる押印）の見本図 */
+    .bk-wrap{display:flex;gap:14mm;align-items:flex-start;margin-top:8mm;}
+    .bk-book{position:relative;width:74mm;flex:none;}
+    .bk-tape{position:absolute;left:0;top:0;bottom:0;width:15mm;background:#e9ebef;border:1px solid #9aa2ad;border-right:1px dashed #6f7783;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-tape span{font-size:8pt;color:#5a626d;letter-spacing:1px;line-height:1.25;text-align:center;}
+    /* 表紙のタイトルは右寄せ（左側は氏名ラベルの領域なので重ならないようにする） */
+    .bk-cover{position:absolute;left:15mm;top:0;right:0;bottom:0;border:1px solid #9aa2ad;border-left:none;background:#fff;
+      display:flex;align-items:center;justify-content:flex-end;padding-right:7mm;}
+    .bk-title{font-size:11pt;letter-spacing:3px;color:#1F3A5F;font-weight:700;writing-mode:vertical-rl;}
+    /* 印影: テープと表紙の境目(左15mm)をまたぐように中心を置く */
+    .bk-seal{position:absolute;left:15mm;transform:translateX(-50%);width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.55);}
+    .bk-seal span{font-size:7pt;color:#c0392b;font-weight:700;letter-spacing:1px;}
+    .bk-name{position:absolute;left:24mm;font-size:8.5pt;color:#555;white-space:nowrap;}
+    .bk-legend{flex:1;padding-top:2mm;}
+    .bk-lg-row{display:flex;gap:9px;margin-bottom:9px;}
+    .bk-lg-mark{flex:none;width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;color:#c0392b;font-size:7pt;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-lg-num{flex:none;width:13mm;height:13mm;border-radius:50%;background:#eef1f5;color:#1F3A5F;font-size:9pt;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    .bk-legend b{font-size:10.5pt;color:#243042;}
+    .bk-legend p{font-size:9pt;color:#555;line-height:1.7;margin-top:2px;}
+    .bk-lg-note{font-size:8.5pt;color:#777;line-height:1.7;margin-top:10px;border-top:1px dashed #ccc;padding-top:7px;}
+    /* 表紙（タイトルのみ） */
+    .agr-cover{min-height:245mm;display:flex;flex-direction:column;page-break-after:always;position:relative;padding-top:8mm;}
+    .agr-cover .cv-rule{border-top:3px double #1F3A5F;border-bottom:3px double #1F3A5F;padding:26px 0;margin:90mm 8mm 0;text-align:center;}
+    .agr-cover .cv-title{font-size:30pt;letter-spacing:14px;font-weight:700;color:#1F3A5F;}
+    /* 全ページ共通の上下余白フレーム。
+       印刷時、表の thead/tfoot は各ページの上端・下端に自動で繰り返されるため、
+       ここへ高さのあるスペーサーを置くことで、全ページ（途中ページを含む）に
+       上下余白を確保できる。左右余白は body の padding で確保する。 */
+    .print-frame{width:100%;border-collapse:collapse;}
+    .print-frame>thead>tr>td,.print-frame>tbody>tr>td,.print-frame>tfoot>tr>td{border:0;padding:0;}
+    .pf-sp{height:0;border:0;padding:0;}
+    /* @page の余白を0にし、実際の余白は body padding（左右）と print-frame（上下）で確保する。
+       これにより、ブラウザ印刷時に余白領域へ自動挿入される日時・タイトル・URL
+       （ヘッダー/フッター）が印字されないうえ、全ページに上下左右の余白が付く。
+       左は製本（ホチキス）用に広めに確保する。 */
+    @media print{ @page{ size:A4; margin:0; } body{ padding:0 16mm 0 30mm; } .pf-sp{height:16mm;} }
+`; }
 function buildAgreement(){ return withDivPattern(appliedDivPatternId(), buildAgreementBody); }
 function buildAgreementBody(){
   if(!currentCase){ toast('案件がありません', true); return; }
@@ -7128,78 +7220,7 @@ function buildAgreementBody(){
     +'<div style="margin-bottom:8px;">相続人</div>'
     +sigArea(filled);
 
-  const styles=DOC_STYLE_BASE+`
-    h1{font-size:17pt;letter-spacing:10px;text-align:center;border:none;margin:6px 0 16px;}
-    .intro{text-indent:1em;margin-bottom:14px;line-height:1.9;}
-    .agr-sec{margin:15px 0;page-break-inside:avoid;break-inside:avoid;}
-    .agr-sec-title{background:#ececec;border-left:5px solid #444;padding:5px 10px;font-weight:700;font-size:11.5pt;margin-bottom:8px;page-break-after:avoid;}
-    .agr-lead{margin:6px 0;line-height:1.9;page-break-after:avoid;}
-    .agr-par{margin:8px 0;line-height:1.85;}
-    .agr-parn{font-weight:700;}
-    .agr-tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5pt;}
-    .agr-tbl th{background:#f4f4f4;border:1px solid #999;padding:5px 6px;font-weight:600;text-align:center;}
-    .agr-tbl td{border:1px solid #999;padding:5px 6px;vertical-align:middle;}
-    .agr-tbl .r{text-align:right;} .agr-tbl .c{text-align:center;}
-    .muted-s{font-size:8.5pt;color:#555;}
-    .dec-info{margin:4px 0 4px 1em;}
-    .dec-info div{display:flex;padding:3px 0;}
-    .dec-info .k{width:120px;}
-    .closing{text-indent:1em;margin:20px 0 8px;line-height:1.9;}
-    .date{text-align:right;margin:14px 0 18px;}
-    .sig-area-tbl{width:100%;border-collapse:collapse;}
-    .sig-area-tbl td{border:0;vertical-align:middle;}
-    .sig-row{page-break-inside:avoid;break-inside:avoid;}
-    .sig-row>td{padding-bottom:16px;}
-    .seal-cell{width:72px;text-align:center;padding:8px 2px;}
-    .seal-cap{font-size:9pt;color:#c4c4c4;margin-bottom:3px;}
-    .seal-mark{font-size:22pt;color:#d0d0d0;line-height:1;}
-    .sig-cell{padding:2px 18px;}
-    .sig-line-row{display:flex;align-items:flex-end;padding:11px 0;font-size:11pt;}
-    .sig-line-row .sl{width:74px;white-space:nowrap;flex:none;}
-    .sig-line-row .sv{flex:1;border-bottom:1px solid #000;padding:0 8px;min-height:1.4em;}
-    .ref-note{border:1px solid #888;background:#f4f5f7;border-radius:4px;padding:9px 13px;margin-bottom:16px;font-size:10pt;line-height:1.7;}
-    .pgbreak{page-break-before:always;break-before:page;}
-    /* 契印（製本テープにまたがる押印）の見本図 */
-    .bk-wrap{display:flex;gap:14mm;align-items:flex-start;margin-top:8mm;}
-    .bk-book{position:relative;width:74mm;flex:none;}
-    .bk-tape{position:absolute;left:0;top:0;bottom:0;width:15mm;background:#e9ebef;border:1px solid #9aa2ad;border-right:1px dashed #6f7783;
-      display:flex;align-items:center;justify-content:center;}
-    .bk-tape span{font-size:8pt;color:#5a626d;letter-spacing:1px;line-height:1.25;text-align:center;}
-    /* 表紙のタイトルは右寄せ（左側は氏名ラベルの領域なので重ならないようにする） */
-    .bk-cover{position:absolute;left:15mm;top:0;right:0;bottom:0;border:1px solid #9aa2ad;border-left:none;background:#fff;
-      display:flex;align-items:center;justify-content:flex-end;padding-right:7mm;}
-    .bk-title{font-size:11pt;letter-spacing:3px;color:#1F3A5F;font-weight:700;writing-mode:vertical-rl;}
-    /* 印影: テープと表紙の境目(左15mm)をまたぐように中心を置く */
-    .bk-seal{position:absolute;left:15mm;transform:translateX(-50%);width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;
-      display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.55);}
-    .bk-seal span{font-size:7pt;color:#c0392b;font-weight:700;letter-spacing:1px;}
-    .bk-name{position:absolute;left:24mm;font-size:8.5pt;color:#555;white-space:nowrap;}
-    .bk-legend{flex:1;padding-top:2mm;}
-    .bk-lg-row{display:flex;gap:9px;margin-bottom:9px;}
-    .bk-lg-mark{flex:none;width:13mm;height:13mm;border:1.6px solid #c0392b;border-radius:50%;color:#c0392b;font-size:7pt;font-weight:700;
-      display:flex;align-items:center;justify-content:center;}
-    .bk-lg-num{flex:none;width:13mm;height:13mm;border-radius:50%;background:#eef1f5;color:#1F3A5F;font-size:9pt;font-weight:700;
-      display:flex;align-items:center;justify-content:center;}
-    .bk-legend b{font-size:10.5pt;color:#243042;}
-    .bk-legend p{font-size:9pt;color:#555;line-height:1.7;margin-top:2px;}
-    .bk-lg-note{font-size:8.5pt;color:#777;line-height:1.7;margin-top:10px;border-top:1px dashed #ccc;padding-top:7px;}
-    /* 表紙（タイトルのみ） */
-    .agr-cover{min-height:245mm;display:flex;flex-direction:column;page-break-after:always;position:relative;padding-top:8mm;}
-    .agr-cover .cv-rule{border-top:3px double #1F3A5F;border-bottom:3px double #1F3A5F;padding:26px 0;margin:90mm 8mm 0;text-align:center;}
-    .agr-cover .cv-title{font-size:30pt;letter-spacing:14px;font-weight:700;color:#1F3A5F;}
-    /* 全ページ共通の上下余白フレーム。
-       印刷時、表の thead/tfoot は各ページの上端・下端に自動で繰り返されるため、
-       ここへ高さのあるスペーサーを置くことで、全ページ（途中ページを含む）に
-       上下余白を確保できる。左右余白は body の padding で確保する。 */
-    .print-frame{width:100%;border-collapse:collapse;}
-    .print-frame>thead>tr>td,.print-frame>tbody>tr>td,.print-frame>tfoot>tr>td{border:0;padding:0;}
-    .pf-sp{height:0;border:0;padding:0;}
-    /* @page の余白を0にし、実際の余白は body padding（左右）と print-frame（上下）で確保する。
-       これにより、ブラウザ印刷時に余白領域へ自動挿入される日時・タイトル・URL
-       （ヘッダー/フッター）が印字されないうえ、全ページに上下左右の余白が付く。
-       左は製本（ホチキス）用に広めに確保する。 */
-    @media print{ @page{ size:A4; margin:0; } body{ padding:0 16mm 0 30mm; } .pf-sp{height:16mm;} }
-  `;
+  const styles=agreementStyles();
   // 表紙はタイトルのみ（英字サブタイトル・被相続人表示・作成日・事務所情報は記載しない）
   const cover='<div class="agr-cover">'
     +'<div class="cv-rule"><div class="cv-title">遺 産 分 割 協 議 書</div></div>'
@@ -7256,6 +7277,205 @@ function buildAgreementBody(){
 function downloadAgreement(){ const r=buildAgreement(); if(r) openPrintWindow(r.title, r.body, r.styles); }
 function downloadAgreementWord(){
   const r=buildAgreement(); if(!r) return;
+  const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'+esc(r.title)+'</title>'
+    +'<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->'
+    +'<style>@page{size:A4;margin:20mm;} body{font-family:"Yu Mincho","游明朝","MS Mincho",serif;}'+r.styles+'</'+'style></'+'head><body>'+r.body+'</'+'body></'+'html>';
+  saveAs(new Blob(['﻿'+html],{type:'application/msword'}), r.title+'.doc');
+}
+
+
+// ============================================================
+//  Document: 先代名義の不動産の遺産分割協議書（数次相続）
+//  先代（今回の被相続人の親など）名義のまま残っている不動産の名義変更用。
+//  先代は今回の相続税申告の対象外なので基本情報には登録せず、この画面で入力する。
+//  協議に参加するのは「今回の被相続人の相続人」＝先代の相続人の権利義務承継者。
+// ============================================================
+function newSendai(){
+  return {id:uid(),name:'',honseki:'',address:'',birth:'',deathDate:'',date:'',copies:'',notes:'',lands:[],builds:[]};
+}
+function newSendaiLand(){ return {id:uid(),location:'',chiban:'',chimoku:'',chiseki:'',taker:'',share:''}; }
+function newSendaiBuild(){ return {id:uid(),location:'',kaokuNo:'',kind:'',structure:'',floor:'',taker:'',share:''}; }
+function sendaiList(){ return (currentCase&&Array.isArray(currentCase.sendai))?currentCase.sendai:[]; }
+function sendaiAt(id){ return sendaiList().find(x=>x.id===id)||null; }
+
+function openSendaiModal(){
+  if(!currentCase){ toast('案件がありません', true); return; }
+  if(!Array.isArray(currentCase.sendai)) currentCase.sendai=[];
+  if(!currentCase.sendai.length) currentCase.sendai.push(newSendai());
+  if(!_sendaiCur || !sendaiAt(_sendaiCur)) _sendaiCur=currentCase.sendai[0].id;
+  renderSendai();
+  openModal('sendaiModal');
+}
+let _sendaiCur=null;
+function addSendai(){ const sd=newSendai(); currentCase.sendai.push(sd); _sendaiCur=sd.id; renderSendai(); cacheCurrentCase(); }
+function delSendai(id){
+  const sd=sendaiAt(id); if(!sd) return;
+  if(!confirm('先代「'+(sd.name||'（未入力）')+'」の入力内容を削除します。よろしいですか。')) return;
+  currentCase.sendai=currentCase.sendai.filter(x=>x.id!==id);
+  if(!currentCase.sendai.length) currentCase.sendai.push(newSendai());
+  _sendaiCur=currentCase.sendai[0].id; renderSendai(); cacheCurrentCase();
+}
+function pickSendai(id){ _sendaiCur=id; renderSendai(); }
+function updSendai(id,field,val){ const sd=sendaiAt(id); if(!sd) return; sd[field]=val; cacheCurrentCase(); if(field==='name') renderSendaiTabs(); }
+function addSendaiRow(id,kind){ const sd=sendaiAt(id); if(!sd) return; (kind==='land'?sd.lands:sd.builds).push(kind==='land'?newSendaiLand():newSendaiBuild()); renderSendai(); cacheCurrentCase(); }
+function delSendaiRow(id,kind,rowId){ const sd=sendaiAt(id); if(!sd) return; if(kind==='land') sd.lands=sd.lands.filter(x=>x.id!==rowId); else sd.builds=sd.builds.filter(x=>x.id!==rowId); renderSendai(); cacheCurrentCase(); }
+function updSendaiRow(id,kind,rowId,field,val){ const sd=sendaiAt(id); if(!sd) return; const r=(kind==='land'?sd.lands:sd.builds).find(x=>x.id===rowId); if(!r) return; r[field]=val; cacheCurrentCase(); }
+
+function renderSendaiTabs(){
+  const el=$('sendaiTabs'); if(!el) return;
+  el.innerHTML=sendaiList().map(sd=>'<button class="btn sm'+(sd.id===_sendaiCur?' primary':'')+'" onclick="pickSendai(\''+sd.id+'\')">'+esc(sd.name||'（未入力）')+'</button>').join('')
+    +'<button class="btn sm" onclick="addSendai()">＋ 先代を追加</button>';
+}
+function renderSendai(){
+  renderSendaiTabs();
+  const el=$('sendaiBody'); if(!el) return;
+  const sd=sendaiAt(_sendaiCur); if(!sd){ el.innerHTML=''; return; }
+  const heirs=(currentCase.heirs||[]).filter(h=>(h.name||'').trim());
+  const takerSel=(kind,r)=>'<select onchange="updSendaiRow(\''+sd.id+'\',\''+kind+'\',\''+r.id+'\',\'taker\',this.value)"><option value="">—</option>'
+    +heirs.map(h=>'<option value="'+esc(h.name)+'"'+(h.name===r.taker?' selected':'')+'>'+esc(h.name)+'</option>').join('')+'</select>';
+  const tin=(kind,r,f,ph)=>'<input type="text" value="'+esc(r[f]||'')+'" placeholder="'+esc(ph)+'" oninput="updSendaiRow(\''+sd.id+'\',\''+kind+'\',\''+r.id+'\',\''+f+'\',this.value)">';
+  const fin=(f,ph,type)=>'<input type="'+(type||'text')+'" value="'+esc(sd[f]||'')+'" placeholder="'+esc(ph||'')+'" oninput="updSendai(\''+sd.id+'\',\''+f+'\',this.value)">';
+  const landRows=sd.lands.map(r=>'<tr>'
+    +'<td>'+tin('land',r,'location','例：水戸市姫子一丁目')+'</td><td>'+tin('land',r,'chiban','820番6')+'</td>'
+    +'<td>'+tin('land',r,'chimoku','宅地')+'</td><td>'+tin('land',r,'chiseki','228.71㎡')+'</td>'
+    +'<td>'+takerSel('land',r)+'</td><td>'+tin('land',r,'share','全部／2分の1')+'</td>'
+    +'<td class="rowops"><button class="del" onclick="delSendaiRow(\''+sd.id+'\',\'land\',\''+r.id+'\')">削除</button></td></tr>').join('');
+  const bldRows=sd.builds.map(r=>'<tr>'
+    +'<td>'+tin('build',r,'location','例：水戸市姫子一丁目820番地6')+'</td><td>'+tin('build',r,'kaokuNo','820番6')+'</td>'
+    +'<td>'+tin('build',r,'kind','居宅')+'</td><td>'+tin('build',r,'structure','木造かわらぶき2階建')+'</td><td>'+tin('build',r,'floor','1階 65.00㎡／2階 52.00㎡')+'</td>'
+    +'<td>'+takerSel('build',r)+'</td><td>'+tin('build',r,'share','全部／2分の1')+'</td>'
+    +'<td class="rowops"><button class="del" onclick="delSendaiRow(\''+sd.id+'\',\'build\',\''+r.id+'\')">削除</button></td></tr>').join('');
+  el.innerHTML=
+    '<div class="m-sub">先代（今回の被相続人より前に亡くなり、不動産の名義がそのままになっている方）の情報を入力してください。'
+    +'今回の相続税申告には含まれないため、基本情報には登録されません。協議に参加するのは<b>今回の相続人（'+heirs.length+'名）</b>です。</div>'
+    +'<div class="frow">'
+    +'<div class="field"><label>先代 氏名</label>'+fin('name','例：山田 一郎')+'</div>'
+    +'<div class="field"><label>死亡年月日</label>'+fin('deathDate','','date')+'</div>'
+    +'<div class="field"><label>出生年月日（任意）</label>'+fin('birth','','date')+'</div>'
+    +'</div>'
+    +'<div class="field"><label>最後の本籍</label>'+fin('honseki','例：茨城県水戸市姫子一丁目820番地6')+'</div>'
+    +'<div class="field"><label>最後の住所</label>'+fin('address','例：茨城県水戸市姫子一丁目820番6号')+'</div>'
+    +'<h3 style="margin:16px 0 6px;font-size:14px;">先代名義の土地</h3>'
+    +'<div class="dtbl-wrap"><table class="dtbl"><thead><tr><th style="min-width:200px;">所　在</th><th>地　番</th><th>地　目</th><th>地　積</th><th>取得者</th><th>持　分</th><th></th></tr></thead>'
+    +'<tbody>'+(landRows||'<tr><td colspan="7" class="muted" style="text-align:center;padding:10px;">未登録です</td></tr>')+'</tbody></table></div>'
+    +'<button class="btn sm" onclick="addSendaiRow(\''+sd.id+'\',\'land\')">＋ 土地を追加</button>'
+    +'<h3 style="margin:16px 0 6px;font-size:14px;">先代名義の建物</h3>'
+    +'<div class="dtbl-wrap"><table class="dtbl"><thead><tr><th style="min-width:200px;">所　在</th><th>家屋番号</th><th>種　類</th><th>構　造</th><th>床面積</th><th>取得者</th><th>持　分</th><th></th></tr></thead>'
+    +'<tbody>'+(bldRows||'<tr><td colspan="8" class="muted" style="text-align:center;padding:10px;">未登録です</td></tr>')+'</tbody></table></div>'
+    +'<button class="btn sm" onclick="addSendaiRow(\''+sd.id+'\',\'build\')">＋ 建物を追加</button>'
+    +'<div class="frow" style="margin-top:16px;">'
+    +'<div class="field"><label>協議書の作成日（空欄なら「令和　年　月　日」）</label>'+fin('date','','date')+'</div>'
+    +'<div class="field"><label>作成部数（空欄なら相続人の人数）</label>'+fin('copies','例：3')+'</div>'
+    +'</div>'
+    +'<div class="field"><label>特記事項（任意）</label><textarea rows="2" oninput="updSendai(\''+sd.id+'\',\'notes\',this.value)" placeholder="協議書に加える文言があれば入力してください">'+esc(sd.notes||'')+'</textarea></div>'
+    +(sendaiList().length>1?'<div style="margin-top:10px;"><button class="btn sm" onclick="delSendai(\''+sd.id+'\')">この先代の入力を削除</button></div>':'');
+}
+
+// 先代名義の遺産分割協議書を組み立てる（本体の協議書と同じ体裁）
+function buildSendaiAgreement(id){
+  if(!currentCase){ toast('案件がありません', true); return null; }
+  syncUIToCase(); applyOfficeSettings();
+  const sd=sendaiAt(id); if(!sd){ toast('先代の情報が見つかりません', true); return null; }
+  const d=currentCase.deceased;
+  if(!sd.name){ toast('先代の氏名を入力してください', true); return null; }
+  if(!d.name){ toast('被相続人氏名を入力してください', true); return null; }
+  const heirs=(currentCase.heirs||[]).filter(h=>(h.name||'').trim());
+  if(!heirs.length){ toast('相続人を入力してください', true); return null; }
+  const lands=sd.lands.filter(r=>(r.location||'').trim()||(r.chiban||'').trim());
+  const builds=sd.builds.filter(r=>(r.location||'').trim()||(r.kaokuNo||'').trim());
+  if(!lands.length&&!builds.length){ toast('先代名義の不動産を1件以上入力してください', true); return null; }
+  const namesJoin=(arr)=>arr.length<=1?arr.join(''):arr.slice(0,-1).join('、')+'及び'+arr[arr.length-1];
+  const heirNames=namesJoin(heirs.map(h=>esc(h.name)));
+
+  let cn=0; let sections='';
+  const sec=(title,inner)=>{ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（'+title+'）</div>'+inner+'</div>'; return cn; };
+
+  // ===== 第1条 被相続人（先代）の表示 =====
+  sec('被相続人の表示',
+    '<div class="dec-info">'
+    +(sd.honseki?'<div><span class="k">本　　籍</span><span>'+esc(sd.honseki)+'</span></div>':'')
+    +(sd.address?'<div><span class="k">最後の住所</span><span>'+esc(sd.address)+'</span></div>':'')
+    +'<div><span class="k">氏　　名</span><span>'+esc(sd.name)+'</span></div>'
+    +(sd.birth?'<div><span class="k">出生年月日</span><span>'+toWarekiDate(sd.birth)+'</span></div>':'')
+    +(sd.deathDate?'<div><span class="k">死亡年月日</span><span>'+toWarekiDate(sd.deathDate)+'</span></div>':'')
+    +'</div>');
+
+  // ===== 第2条 協議に参加した者の表示 =====
+  sec('本協議に参加した者の表示',
+    '<p class="agr-lead">本協議に参加した者は、次の'+heirs.length+'名であり、他に本協議に参加すべき者はいない。</p>'
+    +'<table class="agr-tbl"><thead><tr><th style="width:150px;">氏　名</th><th>住　所</th><th style="width:180px;">資　格</th></tr></thead><tbody>'
+    +heirs.map(h=>'<tr><td>'+esc(h.name)+'</td><td>'+esc(h.address||'')+'</td>'
+      +'<td class="c">被相続人の相続人 '+esc(d.name)+' の権利義務承継者</td></tr>').join('')
+    +'</tbody></table>');
+
+  // ===== 第3条 不動産 =====
+  const takerCell=(r)=>'<td>'+esc(r.taker||'')+'</td><td class="c">'+esc(r.share||'全部')+'</td>';
+  let inner='<p class="agr-lead">本協議に参加した者は、被相続人名義の次の不動産を、それぞれ次に掲げる者が取得する。</p>';
+  if(lands.length){
+    inner+='<table class="agr-tbl"><thead><tr><th style="width:38px;">番号</th><th>所　在</th><th style="width:80px;">地　番</th><th style="width:58px;">地　目</th><th style="width:88px;">地　積</th><th style="width:105px;">取得者</th><th style="width:80px;">持　分</th></tr></thead><tbody>'
+      +lands.map((r,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+esc(r.location)+'</td><td>'+esc(r.chiban)+'</td><td class="c">'+esc(r.chimoku)+'</td><td class="r">'+esc(r.chiseki)+'</td>'+takerCell(r)+'</tr>').join('')
+      +'</tbody></table>';
+  }
+  if(builds.length){
+    inner+='<table class="agr-tbl"><thead><tr><th style="width:30px;">番号</th><th>所　在</th><th style="width:66px;">家屋番号</th><th style="width:44px;">種　類</th><th style="width:96px;">構　造</th><th style="width:92px;">床面積</th><th style="width:84px;">取得者</th><th style="width:58px;">持　分</th></tr></thead><tbody>'
+      +builds.map((r,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+esc(r.location)+'</td><td>'+esc(r.kaokuNo)+'</td><td class="c">'+esc(r.kind)+'</td><td>'+esc(r.structure)+'</td><td class="r">'+esc(r.floor)+'</td>'+takerCell(r)+'</tr>').join('')
+      +'</tbody></table>';
+  }
+  sec('不動産', inner);
+
+  // ===== 後日判明した財産 =====
+  sec('後日判明した財産',
+    '<p class="agr-lead">本協議書に記載のない被相続人名義の財産及び本協議書作成後に判明した被相続人名義の財産については、本協議に参加した者が別途協議のうえ、その帰属を定めるものとする。</p>');
+
+  // ===== 手続への協力 =====
+  sec('手続への協力',
+    '<p class="agr-lead">本協議に参加した者は、本協議の履行に必要な相続登記その他の手続について、相互に協力し、必要な書類の交付、押印及び印鑑登録証明書の提出等を遅滞なく行うものとする。</p>');
+
+  if(sd.notes) sec('特記事項','<div class="agr-par">'+esc(sd.notes).replace(/\n/g,'<br>')+'</div>');
+
+  // ===== 結語・署名欄 =====
+  const copies=Math.max(1, Math.floor(num(sd.copies)) || heirs.length);
+  const closing=(copies===1)
+    ?'上記のとおり協議が成立したので、これを証するため本協議書を1通作成し、各自署名押印のうえ、保管する。'
+    :'上記のとおり協議が成立したので、これを証するため本協議書を'+copies+'通作成し、各自署名押印のうえ、各1通を保有する。';
+  const dateStr=sd.date? toWarekiDate(sd.date) : '令和　　年　　月　　日';
+  const sigArea=(filled)=>{ let sigs=''; heirs.forEach(h=>{ sigs+='<tr class="sig-row">'
+    +'<td class="seal-cell"><div class="seal-cap">捨印</div><div class="seal-mark">㊞</div></td>'
+    +'<td class="sig-cell">'
+    +'<div class="sig-line-row"><span class="sl">住　所</span><span class="sv">'+(filled?esc(h.address||''):'')+'</span></div>'
+    +'<div class="sig-line-row"><span class="sl">氏　名</span><span class="sv">'+(filled?esc(h.name):'')+'</span></div>'
+    +'</td>'
+    +'<td class="seal-cell"><div class="seal-cap">実印</div><div class="seal-mark">㊞</div></td>'
+    +'</tr>'; });
+    return '<div class="sig-area"><table class="sig-area-tbl"><tbody>'+sigs+'</tbody></table></div>'; };
+  const lastPage=(filled,note)=> (note?'<div class="ref-note">'+note+'</div>':'')
+    +'<p class="closing">'+closing+'</p>'
+    +'<div class="date">'+dateStr+'</div>'
+    +'<div style="margin-bottom:8px;">相続人</div>'
+    +sigArea(filled);
+
+  const cover='<div class="agr-cover">'
+    +'<div class="cv-rule"><div class="cv-title">遺 産 分 割 協 議 書</div></div>'
+    +'</div>';
+  // 前段（ご指定の文面）。1文目と2文目の間で改行する
+  const intro='<p class="intro">被相続人 '+esc(sd.name)+' の死亡により開始した相続において、共同相続人である '+heirNames+' は、次の相続について、下記のとおり遺産分割の協議が成立した。<br>'
+    +'なお、'+heirNames+' は被相続人の相続人 '+esc(d.name)+'（'+(d.deathDate?toWarekiDate(d.deathDate):'令和　年　月　日')+'死亡）の権利義務承継者（相続人）として本協議に参加した。</p>';
+  const inner2=cover
+    +'<h1>遺 産 分 割 協 議 書</h1>'
+    +intro
+    +sections
+    +'<div class="pgbreak"></div>'
+    +lastPage(false,'')
+    +'<div class="pgbreak"></div>'
+    +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。');
+  const body='<table class="print-frame"><thead><tr><td class="pf-sp"></td></tr></thead>'
+    +'<tbody><tr><td>'+inner2+'</td></tr></tbody>'
+    +'<tfoot><tr><td class="pf-sp"></td></tr></tfoot></table>';
+  return {title:'遺産分割協議書_先代_'+sd.name, body, styles:agreementStyles()};
+}
+function downloadSendaiAgreement(){ const r=buildSendaiAgreement(_sendaiCur); if(r) openPrintWindow(r.title, r.body, r.styles); }
+function downloadSendaiAgreementWord(){
+  const r=buildSendaiAgreement(_sendaiCur); if(!r) return;
   const html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'+esc(r.title)+'</title>'
     +'<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->'
     +'<style>@page{size:A4;margin:20mm;} body{font-family:"Yu Mincho","游明朝","MS Mincho",serif;}'+r.styles+'</'+'style></'+'head><body>'+r.body+'</'+'body></'+'html>';
