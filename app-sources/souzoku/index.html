@@ -2614,6 +2614,28 @@ function assetDesc(a){
   else { p.push(a.subcategory,a.name,a.location); }
   const s=p.filter(Boolean).join('　'); return s||t.name;
 }
+// 財産診断書（PDF/Excel）の明細に載せる説明文。
+// assetDesc とは別にする：assetDesc の文字列はAI通帳分析の口座ラベルの突合に使っており、
+// 変えると既存案件の口座の紐付けが外れるため。
+function assetDescReport(a){
+  const t=ASSET_BY_KEY[a.category];
+  if(a.category==='securities'){
+    // 明細には証券会社・支店を載せる（銘柄コード/ISIN・協会コードは内部作業用なので載せない）
+    const q=a.quantity?num(a.quantity).toLocaleString('ja-JP'):'';
+    const p=[a.subcategory,a.name||(isFund(a)?'投資信託':''),a.broker,q?(q+(isFund(a)?'口':'株')):''];
+    return p.filter(Boolean).join('　')||t.name;
+  }
+  if(a.category==='cash'){
+    // 評価額のうち既経過利息がいくらかを明細で分かるようにする
+    const it=num(a.interest);
+    return assetDesc(a)+(it?('　残高'+yen(num(a.value))+'＋既経過利息'+yen(it)):'');
+  }
+  if(a.category==='insurance'){
+    const p=[a.name,a.insurerAddr,a.subcategory,a.accountNo?('証券番号:'+a.accountNo):'',a.insType,a.payDate?('支払日:'+a.payDate):''];
+    return p.filter(Boolean).join('　')||t.name;
+  }
+  return assetDesc(a);
+}
 function addAsset(cat){ if(!currentCase) return; currentCase.assets.push(newAsset(cat)); renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase(); }
 function dupAsset(id){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; const c=JSON.parse(JSON.stringify(a)); c.id=uid(); c.allocations=[]; const i=currentCase.assets.indexOf(a); currentCase.assets.splice(i+1,0,c); renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase(); }
 function removeAsset(id){ currentCase.assets=currentCase.assets.filter(a=>a.id!==id); renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase(); }
@@ -3025,7 +3047,7 @@ const ASSET_COLS={
   securities:[['subcategory','種類','sel'],['evalWay','評価方法','text'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','銘柄','text'],['unitPrice','単価','money'],['quantity','数量','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   unlisted:[['subcategory','種類','sel'],['evalWay','評価方法','optsel','optUnlistedEval'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','会社名（銘柄）','text'],['unitPrice','単価','money'],['quantity','株数','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   cash:[['nominee','名義','nameSel'],['subcategory','種類','optsel','optCashType'],['name','金融機関','text'],['branch','支店','text'],['accountNo','口座番号','text'],['_value','金額(円)','value'],['interest','既経過利息','money'],['memo','注記','text']],
-  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_calc','計算','calc'],['_value','金額(円)','value'],['memo','注記','text']],
+  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insurerAddr','保険会社住所','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['payDate','支払日','date'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_calc','計算','calc'],['_value','金額(円)','value'],['memo','注記','text']],
   retirement:[['subcategory','種類','sel'],['name','支給者','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
   other:[['subcategory','細目','sel'],['name','内容','text'],['location','所在・明細','text'],['quantity','数量','num'],['unitPrice','単価','money'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   debt:[['subcategory','種類','sel'],['location','細目','text'],['name','債権者の氏名','text'],['creditorAddr','債権者住所','text'],['debtStart','債務発生年月日','date'],['debtDue','弁済期限','date'],['_value','金額(円)','value'],['memo','注記','text']],
@@ -5293,7 +5315,7 @@ function downloadShindanPDFBody(){
     const items=currentCase.assets.filter(a=>a.category===t.key);
     if(!items.length) return;
     const sg=t.sign<0?-1:1; let sub=0;
-    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; let desc=assetDesc(a);
+    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; let desc=assetDescReport(a);
       if(t.key==='gift' && a.giftRecipient){ const rh=currentCase.heirs.find(x=>x.id===a.giftRecipient); if(rh) desc+='　'+(rh.name||'')+' 様へ贈与'; }
       return '<tr><td>'+esc(desc)+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
     detailBody+='<h3 class="blk">'+t.name+'（'+items.length+'件）</h3>'
@@ -5305,8 +5327,8 @@ function downloadShindanPDFBody(){
   let heirDetail='';
   heirs.forEach(h=>{
     let rows='';
-    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
-    currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDesc(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
+    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
+    currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDescReport(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
     { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows+='<tr><td>代償金</td><td>'+(cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金')+'</td><td class="r">'+(cb<0?'△'+yen(-cb):yen(cb))+'</td></tr>'; } }
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
     heirDetail+='<h3 class="blk">'+esc(h.name||'')+' 様（'+relDisp(h)+'）　純財産合計：'+yen(totals[h.id])+'</h3>'
@@ -5448,7 +5470,7 @@ async function downloadShindanExcelBody(){
     if(!items.length) return; anyDetail=true;
     const sg=t.sign<0?-1:1; let sub=0;
     blkTitle(w6,t.name+'（'+items.length+'件）');
-    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; return {cells:[assetDesc(a),sval(v,sg)]}; });
+    const rows=items.map(a=>{ const v=assetVal(a); sub+=v; return {cells:[assetDescReport(a),sval(v,sg)]}; });
     rows.push({cells:['小計',sval(sub,sg)],kind:'tot'});
     addTable(w6,['明細',t.key==='gift'?'贈与時の価額':'評価額'],rows,[2]);
     w6.addRow([]);
@@ -5575,15 +5597,15 @@ async function downloadShindanExcelBody(){
     // --- 生命保険金等 ---
     { const items=catItems('insurance');
       if(items.length){
-        const ws=detailSheet('生命保険金等',[26,18,16,14,12,10,14,12,16,18,22]);
+        const ws=detailSheet('生命保険金等',[26,18,28,16,14,12,14,10,14,12,16,18,22]);
         const r0=startRow(ws);
         const rows=items.map((a,i)=>{ const r=r0+i; const fx=insuranceFxJpy(a);
-          return {cells:[T(a.subcategory),T(a.name),T(a.insType),T(a.accountNo),T(a.nominee),T(a.fxCurrency),V(a.fxAmount),Vz(a.fxRate),
-            fx!=null?F('ROUND(G'+r+'*H'+r+',0)',fx):(num(a.value)||null),T(a.memo),T(a.checkNote)]};
+          return {cells:[T(a.subcategory),T(a.name),T(a.insurerAddr),T(a.insType),T(a.accountNo),T(a.nominee),T(a.payDate),T(a.fxCurrency),V(a.fxAmount),Vz(a.fxRate),
+            fx!=null?F('ROUND(I'+r+'*J'+r+',0)',fx):(num(a.value)||null),T(a.memo),T(a.checkNote)]};
         });
         const rl=r0+items.length-1;
-        rows.push({cells:['計','','','','','','','',F('SUM(I'+r0+':I'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
-        addTable(ws,['区分','保険会社','保険種類','証券番号','受取人','通貨','外貨建保険金額','TTB(死亡日)','金額(円)','注記','確認する事項'],rows,[7,9]);
+        rows.push({cells:['計','','','','','','','','','',F('SUM(K'+r0+':K'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'',''],kind:'tot'});
+        addTable(ws,['区分','保険会社','保険会社住所','保険種類','証券番号','受取人','支払日','通貨','外貨建保険金額','TTB(死亡日)','金額(円)','注記','確認する事項'],rows,[9,11]);
         ws.addRow([]); ws.addRow(['※ 外貨建ては 外貨建保険金額×TTB(死亡日) で円換算。死亡保険金の非課税限度額（500万円×法定相続人の数）は「2_資産構成」で控除しています。']);
       }
     }
@@ -5697,8 +5719,8 @@ async function downloadShindanExcelBody(){
   heirs.forEach(h=>{
     blkTitle(w5,(h.name||'')+' 様（'+relDisp(h)+'）　純財産合計：'+yen(totals[h.id]));
     const rows=[];
-    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; const sg=t.sign<0?-1:1; rows.push({cells:[t.name,assetDesc(a),sval(amt,sg)]}); }); });
-    currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows.push({cells:['生前贈与',assetDesc(a),assetVal(a)]}); });
+    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; const sg=t.sign<0?-1:1; rows.push({cells:[t.name,assetDescReport(a),sval(amt,sg)]}); }); });
+    currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows.push({cells:['生前贈与',assetDescReport(a),assetVal(a)]}); });
     { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows.push({cells:['代償金',cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金',cb]}); } }
     if(!rows.length) rows.push({cells:['','取得財産はありません','']});
     addTable(w5,['種類','明細','取得額'],rows,[3]);
