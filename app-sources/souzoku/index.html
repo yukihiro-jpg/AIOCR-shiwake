@@ -3074,34 +3074,57 @@ const ASSET_COLS={
   gift:[['subcategory','区分','selopt',['暦年課税(加算対象)','相続時精算課税']],['name','内容','text'],['location','贈与日','text'],['_value','価額(円)','value'],['giftTax','課された贈与税額','money'],['is4to7','3年超7年','check'],['memo','注記','text']]
 };
 function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNote||'')+'" placeholder="確認する事項" style="min-width:160px;" oninput="updAsset(\''+a.id+'\',\'checkNote\',this.value)"></td>'; }
-// [arrow-nav] 財産一覧の表：入力欄にフォーカスがある状態で矢印キーを押すと隣のセルへ移動（Excel風）。
-// テキスト欄の左右はカーソルが端にあるときだけセル移動（欄内のカーソル移動を妨げない）。
-// 矢印キー自体で値が変わる欄（日付・プルダウン・ラジオ）は対象外（通常動作のまま）。
+// [arrow-nav] 財産一覧の表：入力欄にフォーカスがある状態でのキーボード移動（Excel風）。
+//   Enter        … 右の入力欄へ。行の右端なら次の行の左端へ
+//   ←→           … 左右の入力欄へ（文字入力欄はカーソルが端にあるときだけ。欄内のカーソル移動を妨げない）
+//   ↑↓           … 同じ列の上下の行へ
+// プルダウンは↑↓で選択肢を選べるようにそのままにし、←→とEnterで抜けられるようにする。
+// 日付欄は矢印キーが年月日の移動・増減に使われるためそのままにし、Enterで抜けられるようにする。
 (function(){
-  const FOCUSABLE='input:not([disabled]):not([readonly]):not([type=radio]):not([type=date]):not([type=button]):not([type=file]), textarea:not([disabled]):not([readonly])';
-  const focusables=scope=>Array.from(scope.querySelectorAll(FOCUSABLE)).filter(el=>el.offsetParent!==null);
-  const isTextLike=el=>el && el.tagName==='INPUT' && el.type!=='checkbox';
+  const SEL='input:not([disabled]):not([readonly]):not([type=radio]):not([type=button]):not([type=file]), select:not([disabled]), textarea:not([disabled]):not([readonly])';
+  const focusables=scope=>Array.from(scope.querySelectorAll(SEL)).filter(el=>el.offsetParent!==null);
+  const typeOf=el=>(el.getAttribute('type')||'text').toLowerCase();
+  const isSelect=el=>el.tagName==='SELECT';
+  const isDate=el=>el.tagName==='INPUT'&&typeOf(el)==='date';
+  const isCheck=el=>el.tagName==='INPUT'&&typeOf(el)==='checkbox';
+  // 移動先が文字入力欄なら中身を選択状態にして、そのまま上書き入力できるようにする
+  const isTextLike=el=>el&&el.tagName==='INPUT'&&!isCheck(el)&&!isDate(el);
+  // カーソルが欄の端にあるか（端でなければ欄内のカーソル移動を優先する）
+  function atEdge(el,k){
+    let s=null,t=null; try{ s=el.selectionStart; t=el.selectionEnd; }catch(_){}
+    if(s==null) return true;
+    if(k==='ArrowLeft') return s===0&&t===0;
+    return s===el.value.length&&t===el.value.length;
+  }
   document.addEventListener('keydown',function(e){
     const k=e.key;
-    if(k!=='ArrowUp'&&k!=='ArrowDown'&&k!=='ArrowLeft'&&k!=='ArrowRight') return;
+    const isEnter=(k==='Enter');
+    const isLR=(k==='ArrowLeft'||k==='ArrowRight');
+    const isUD=(k==='ArrowUp'||k==='ArrowDown');
+    if(!isEnter&&!isLR&&!isUD) return;
     if(e.altKey||e.ctrlKey||e.metaKey) return;
-    const el=e.target;
-    if(!el||el.tagName!=='INPUT') return;                        // select・textarea等は通常動作のまま
-    const type=(el.getAttribute('type')||'text').toLowerCase();
-    if(type==='radio'||type==='date'||type==='button'||type==='file') return;
+    const el=e.target; if(!el) return;
+    const tag=el.tagName;
+    if(tag!=='INPUT'&&tag!=='SELECT'&&tag!=='TEXTAREA') return;
+    if(tag==='INPUT'){ const t=typeOf(el); if(t==='radio'||t==='button'||t==='file') return; }
     const td=el.closest('td'), tr=el.closest('tr'), table=el.closest('table.dtbl');
     if(!td||!tr||!table||!tr.closest('tbody')) return;
-    if(type!=='checkbox'&&(k==='ArrowLeft'||k==='ArrowRight')){
-      let s=null,t=null; try{ s=el.selectionStart; t=el.selectionEnd; }catch(_){}
-      if(s!=null){
-        if(k==='ArrowLeft' && !(s===0&&t===0)) return;                                   // 先頭でなければ欄内移動
-        if(k==='ArrowRight' && !(s===el.value.length&&t===el.value.length)) return;      // 末尾でなければ欄内移動
-      }
-    }
+    // --- そのままにする組み合わせ ---
+    if(tag==='TEXTAREA'&&isEnter) return;              // 注記などの改行
+    if(isDate(el)&&!isEnter) return;                   // 日付は矢印キーが年月日の操作に必要
+    if(isSelect(el)&&isUD) return;                     // プルダウンは↑↓で選択肢を選ぶ
+    if(isUD&&tag==='TEXTAREA') return;                 // 複数行の欄内移動
+    if(isLR&&!isSelect(el)&&!isCheck(el)&&!atEdge(el,k)) return;
     let target=null;
-    if(k==='ArrowLeft'||k==='ArrowRight'){
+    if(isEnter||isLR){
+      const dir=(isEnter||k==='ArrowRight')?1:-1;
       const list=focusables(tr); const i=list.indexOf(el);
-      if(i>=0) target=list[i+(k==='ArrowRight'?1:-1)]||null;
+      if(i>=0) target=list[i+dir]||null;
+      // Enterは行の右端まで来たら次の行の左端へ送る
+      if(isEnter&&!target){
+        let row=tr;
+        while((row=row.nextElementSibling)){ const l=focusables(row); if(l.length){ target=l[0]; break; } }
+      }
     } else {
       const col=td.cellIndex, dir=(k==='ArrowDown')?1:-1;
       let row=tr;
