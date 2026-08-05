@@ -7537,6 +7537,35 @@ function kubunHoseiCalc(d, deathDate){
 }
 const _gcd=(a,b)=>b?_gcd(b,a%b):a;
 
+// 和暦・西暦の日付文字列を ISO(YYYY-MM-DD) に変換。読めなければ '' を返す。
+// 例：昭和47年3月14日／昭47.3.14／S47.3.14／R6.1.1／令和元年5月1日／1972/3/14／1972-03-14
+function parseJDateInput(sIn){
+  let t=String(sIn||'').trim().replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xfee0)).replace(/[ 　]/g,'');
+  if(!t) return '';
+  const ERA={'明治':1867,'大正':1911,'昭和':1925,'平成':1988,'令和':2018,'明':1867,'大':1911,'昭':1925,'平':1988,'令':2018,'M':1867,'T':1911,'S':1925,'H':1988,'R':2018,'m':1867,'t':1911,'s':1925,'h':1988,'r':2018};
+  let y,mo,dd;
+  let m=t.match(/^(明治|大正|昭和|平成|令和|[明大昭平令MTSHRmtshr])(元|\d{1,2})[年.\/\-](\d{1,2})[月.\/\-](\d{1,2})日?$/);
+  if(m){ y=ERA[m[1]]+(m[2]==='元'?1:parseInt(m[2],10)); mo=parseInt(m[3],10); dd=parseInt(m[4],10); }
+  else { m=t.match(/^(\d{4})[年.\/\-](\d{1,2})[月.\/\-](\d{1,2})日?$/); if(!m) return ''; y=+m[1]; mo=+m[2]; dd=+m[3]; }
+  if(!(y>=1868&&y<=2100&&mo>=1&&mo<=12&&dd>=1&&dd<=31)) return '';
+  const dt=new Date(Date.UTC(y,mo-1,dd));
+  if(dt.getUTCFullYear()!==y||dt.getUTCMonth()!==mo-1||dt.getUTCDate()!==dd) return '';
+  return y+'-'+String(mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+}
+// 建築年月日などの入力方式（既定＝和暦。端末ごとの設定で同期しない）
+function dateEraPref(){ try{ return localStorage.getItem('souzoku-date-era')==='seireki'?'seireki':'wareki' }catch(_){ return 'wareki' } }
+function setDateEraPref(v){ try{ localStorage.setItem('souzoku-date-era',v) }catch(_){ } renderKubun(); }
+// 和暦入力欄の確定（blur時）: 解析できたら和暦表記に整形、できなければ赤枠＋案内
+function commitBuiltWareki(el){
+  if(!_kubunDraft) return;
+  const note=$('kbBuiltWarekiNote');
+  const raw=el.value.trim();
+  if(!raw){ _kubunDraft.builtDate=''; _kubunDraft.builtDateRaw=''; el.style.borderColor=''; if(note) note.textContent=''; renderKubunPreview(); return; }
+  const iso=parseJDateInput(raw);
+  if(iso){ _kubunDraft.builtDate=iso; _kubunDraft.builtDateRaw=''; el.value=toWarekiDate(iso); el.style.borderColor=''; if(note) note.textContent='（西暦 '+iso.replace(/-/g,'/')+'）'; }
+  else { _kubunDraft.builtDate=''; el.style.borderColor='#d9534f'; if(note) note.textContent='日付を読み取れません（例：昭和47年3月14日／S47.3.14／1972/3/14）'; }
+  renderKubunPreview();
+}
 let _kubunDraft=null;
 function openKubunModal(id){
   if(!currentCase){ toast('案件がありません', true); return; }
@@ -7622,7 +7651,11 @@ function renderKubun(){
     +'<div class="field"><label>床面積（何階部分）</label>'+fin('floorPart','例：5階部分')+'</div>'
     +'<div class="field"><label>床面積（㎡）</label>'+fin('area','例：65.00')+'</div>'
     +'<div class="field"><label>建物全体の総階数（地階を除く）</label>'+fin('totalFloors','例：14')+'</div>'
-    +'<div class="field"><label>建築年月日</label>'+fin('builtDate','','date')+'</div>'
+    +((dateEraPref()==='seireki')
+      ?('<div class="field"><label>建築年月日（西暦）　<a href="javascript:void(0)" onclick="setDateEraPref(\'wareki\')" style="font-weight:400;font-size:11px;">和暦入力に切替</a></label>'+fin('builtDate','','date')+'</div>')
+      :('<div class="field"><label>建築年月日（和暦）　<a href="javascript:void(0)" onclick="setDateEraPref(\'seireki\')" style="font-weight:400;font-size:11px;">西暦入力に切替</a></label>'
+        +'<input type="text" id="kbBuiltWareki" value="'+esc(d.builtDate?toWarekiDate(d.builtDate):(d.builtDateRaw||''))+'" placeholder="例：昭和47年3月14日／S47.3.14" oninput="_kubunDraft.builtDateRaw=this.value" onblur="commitBuiltWareki(this)">'
+        +'<div class="muted" id="kbBuiltWarekiNote" style="font-size:10px;min-height:14px;">'+(d.builtDate?('（西暦 '+d.builtDate.replace(/-/g,'/')+'）'):'')+'</div></div>'))
     +'</div>'
     +'<h3 style="margin:12px 0 6px;font-size:14px;">附属建物の表示（ある場合のみ）</h3>'
     +(d.fuzoku.length
@@ -7716,7 +7749,7 @@ function applyKubun(){
   const h=kubunHoseiCalc(d, currentCase.deceased?currentCase.deceased.deathDate:'');
   const rate=(h.rate!=null)?h.rate:1;
   const built=_kubunToRows(d, rate);
-  const data=JSON.parse(JSON.stringify(d)); delete data.id;
+  const data=JSON.parse(JSON.stringify(d)); delete data.id; delete data.builtDateRaw;
   let bld;
   if(d.id){
     bld=currentCase.assets.find(x=>x.id===d.id);
