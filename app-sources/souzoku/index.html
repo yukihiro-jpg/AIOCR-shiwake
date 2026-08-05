@@ -1647,7 +1647,9 @@ function ensureCaseShape(c){
   if(!Array.isArray(c.heirs)||!c.heirs.length) c.heirs=[newHeir()];
   if(!c.checklist||typeof c.checklist!=='object'||Array.isArray(c.checklist)) c.checklist={};
   if(!Array.isArray(c.assets)) c.assets=[];
-  c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[]; } });
+  c.assets.forEach(a=>{ if(a&&typeof a==='object'){ if(!a.kobo||typeof a.kobo!=='object')a.kobo={type:'none',area:''}; if(!Array.isArray(a.allocations))a.allocations=[];
+    // 区分所有建物: Firebase同期は空配列を保存しないため、共有者なし等で消えた配列を復元する
+    if(a.kubun&&typeof a.kubun==='object'){ if(!Array.isArray(a.kubun.lands)) a.kubun.lands=[]; if(!Array.isArray(a.kubun.coowners)) a.kubun.coowners=[]; } } });
   if(!c.successive||typeof c.successive!=='object') c.successive={enabled:false,A:'',B:'',years:'',prevDate:''};
   // 先代名義の不動産（数次相続）の遺産分割協議書。今回の申告には含めないため assets とは別に持つ
   if(!Array.isArray(c.sendai)) c.sendai=[];
@@ -5670,7 +5672,7 @@ async function downloadShindanExcelBody(){
           });
           if((k.coowners||[]).some(c=>(c.name||'').trim())){
             kv('【共有者】','');
-            k.coowners.filter(c=>(c.name||'').trim()).forEach(c=>kv('共有者',c.name+'　持分 '+(c.den||'—')+'分の'+(c.num||'—')));
+            (k.coowners||[]).filter(c=>(c.name||'').trim()).forEach(c=>kv('共有者',c.name+'　持分 '+(c.den||'—')+'分の'+(c.num||'—')));
           }
           kv('【評価（マンション通達）】','');
           const h=kubunHoseiCalc(k, currentCase.deceased?currentCase.deceased.deathDate:'');
@@ -7501,7 +7503,10 @@ function openKubunModal(id){
   if(id){
     const a=currentCase.assets.find(x=>x.id===id&&x.kubun);
     if(a){
-      _kubunDraft=JSON.parse(JSON.stringify(a.kubun));
+      // 既定値へマージ: 同期の往復で消えたキー（空配列・空文字はRTDBに保存されない）があっても編集できるように
+      _kubunDraft=Object.assign(newKubunDraft(), JSON.parse(JSON.stringify(a.kubun)));
+      if(!Array.isArray(_kubunDraft.lands)||!_kubunDraft.lands.length) _kubunDraft.lands=newKubunDraft().lands;
+      if(!Array.isArray(_kubunDraft.coowners)) _kubunDraft.coowners=[];
       _kubunDraft.id=a.id;
       _kubunDraft.koteiValue=a.koteiValue||''; _kubunDraft.buildingUse=a.buildingUse||'自用';
       _kubunDraft.chintaiRatio=a.chintaiRatio||''; _kubunDraft.ownNum=a.ownNum||'1'; _kubunDraft.ownDen=a.ownDen||'1';
@@ -7532,6 +7537,8 @@ function renderKubun(){
   const el=$('kubunBody'); if(!el||!_kubunDraft) return;
   const d=_kubunDraft;
   const fin=(f,ph,type,extra)=>'<input type="'+(type||'text')+'" value="'+esc(d[f]==null?'':d[f])+'" placeholder="'+esc(ph||'')+'" '+(extra||'')+' oninput="updKubun(\''+f+'\',this.value)">';
+  if(!Array.isArray(d.lands)) d.lands=[];
+  if(!Array.isArray(d.coowners)) d.coowners=[];
   const landRows=d.lands.map((L,i)=>'<tr>'
     +'<td style="width:46px;"><input value="'+esc(L.fugo)+'" oninput="updKubunLand('+i+',\'fugo\',this.value)"></td>'
     +'<td style="min-width:230px;"><input style="width:100%;box-sizing:border-box;" value="'+esc(L.shozai)+'" placeholder="例：水戸市姫子一丁目820番地6" oninput="updKubunLand('+i+',\'shozai\',this.value)"></td>'
