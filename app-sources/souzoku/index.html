@@ -7615,6 +7615,15 @@ function renderKubunPreview(){
     +'</div>';
   el.innerHTML=v;
 }
+// 登記の「所在及び地番」（例：杉並区荻窪三丁目567番）を 所在／地番 に分ける。
+// 末尾の「N番」「N番M」「N番地M」「N番のM」を地番として切り出す（丁目の数字は巻き込まない）。
+// 分けられない表記はそのまま所在に入れる
+function splitShozaiChiban(s){
+  const t=String(s||'').trim();
+  const m=t.match(/^(.*?)[ 　]*(\d+番(?:地)?(?:の?\d+)*)$/);
+  if(m&&m[1].trim()) return {shozai:m[1].trim(), chiban:m[2]};
+  return {shozai:t, chiban:''};
+}
 // 下書き → 財産一覧の行（建物1行＋土地行）を組み立てる（登録・プレビュー共用）
 function _kubunToRows(d, rate){
   const bld=Object.assign(newAsset('building'),{
@@ -7626,8 +7635,9 @@ function _kubunToRows(d, rate){
   (d.lands||[]).forEach(L=>{
     if(!(L.shozai||'').trim() && !num(L.chiseki)) return;
     const [on,od]=fracMul(num(L.rightNum)||1, num(L.rightDen)||1, num(d.ownNum)||1, num(d.ownDen)||1);
+    const sc=splitShozaiChiban(L.shozai);
     lands.push(Object.assign(newAsset('land'),{
-      location:L.shozai, chiban:'', tokiChimoku:L.chimoku, kazeiChimoku:L.chimoku, genkyo:'敷地権',
+      location:sc.shozai, chiban:sc.chiban, tokiChimoku:L.chimoku, kazeiChimoku:L.chimoku, genkyo:'敷地権',
       tokiChiseki:L.chiseki, kazeiChiseki:L.chiseki, evalMethod:'rosen', unitPrice:L.unitPrice,
       ownNum:String(on), ownDen:String(od),
       landUse:(d.buildingUse==='貸家')?'貸家建付地':'自用地',
