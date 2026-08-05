@@ -2616,7 +2616,9 @@ function computeAssetValue(a){
   if(a.category==='land'){
     const area=num(a.kazeiChiseki)||num(a.tokiChiseki)||num(a.quantity); // 課税地積（無ければ登記地積→旧面積）
     const base=(a.evalMethod==='baisu')? num(a.koteiValue)*num(a.baisu) : num(a.unitPrice)*area;
-    return Math.round(base*own*landUseFactor(a)*kh);
+    // 敷地権割合（区分所有の敷地利用権のみ設定される。持分とは別に乗算する）
+    const shiki=(num(a.shikiNum)>0&&num(a.shikiDen)>0)? num(a.shikiNum)/num(a.shikiDen):1;
+    return Math.round(base*own*shiki*landUseFactor(a)*kh);
   }
   if(a.category==='building'){
     let v=num(a.koteiValue)*own;
@@ -3033,8 +3035,16 @@ function quoteCell(a, field, fromField, ph, isNum){
   return '<td><div class="quote-field"><input type="text"'+(isNum?' class="num"':'')+' value="'+v+'" placeholder="'+esc(ph)+'" oninput="updAsset(\''+a.id+'\',\''+field+'\',this.value)"'+blur+'><button class="quote-btn" title="登記の値を引用" onclick="quoteLandField(\''+a.id+'\',\''+fromField+'\',\''+field+'\')">'+icon+'</button></div></td>';
 }
 function landTableHtml(items){
+  // 敷地権割合の列は、区分所有物件（敷地利用権の行）を登録した案件でのみ表示する
+  const hasShiki=items.some(a=>a.kubunId&&num(a.shikiNum)>0&&num(a.shikiDen)>0);
+  const shikiCell=(a)=>hasShiki
+    ?('<td class="c" style="white-space:nowrap;">'+((num(a.shikiNum)>0&&num(a.shikiDen)>0)
+      ?('<span title="敷地権の割合（編集は建物の🏢編集から）">'+esc(String(num(a.shikiDen)))+'分の'+esc(String(num(a.shikiNum)))+'</span>')
+      :'<span class="muted">—</span>')+'</td>')
+    :'';
   let rows='';
-  if(!items.length) rows='<tr><td colspan="25" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
+  const NCOL=hasShiki?26:25;
+  if(!items.length) rows='<tr><td colspan="'+NCOL+'" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
     const koOpts=[['none','適用なし'],['residence','特定居住用(330㎡80%)'],['business','特定事業用(400㎡80%)'],['company','特定同族会社(400㎡80%)'],['rental','貸付事業用(200㎡50%)']];
     const k=a.kobo||{type:'none',area:''};
@@ -3048,6 +3058,7 @@ function landTableHtml(items){
       +txtCell(a,'location','所在 例：水戸市〇〇町字△△',280)
       +txtCell(a,'chiban','地番')
       +fracCell(a)
+      +shikiCell(a)
       +txtCell(a,'tokiChimoku','登記地目')
       +quoteCell(a,'kazeiChimoku','tokiChimoku','課税地目',false)
       +txtCell(a,'genkyo','現況')
@@ -3076,10 +3087,10 @@ function landTableHtml(items){
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:3120px;"><thead><tr>'
-    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th><th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>計算</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:'+(hasShiki?3220:3120)+'px;"><thead><tr>'
+    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th>'+(hasShiki?'<th>敷地権割合</th>':'')+'<th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>計算</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="10" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="'+(hasShiki?11:10)+'" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
 }
 function buildingTableHtml(items){
   const t=ASSET_BY_KEY['building'];
@@ -5600,27 +5611,44 @@ async function downloadShindanExcelBody(){
     // --- 土地 ---
     { const items=catItems('land');
       if(items.length){
-        const ws=detailSheet('土地',[26,12,8,10,10,10,12,12,10,12,14,8,16,22,12,14,12,11,10,12,12,10,11,10,14,18,22]);
+        // 敷地権割合の列は、区分所有の敷地利用権の行がある案件でのみ挿入する（アプリの表示と同じ）
+        const hasShiki=items.some(a=>num(a.shikiNum)>0&&num(a.shikiDen)>0);
+        const off=hasShiki?1:0;
+        const CL=(n)=>{ let x=n+((n>3)?off:0)-1, t=''; do{ t=String.fromCharCode(65+x%26)+t; x=Math.floor(x/26)-1; }while(x>=0); return t; }; // 持分(3)より後ろの列を敷地権割合の分だけ右へ
+        const widths=[26,12,8,10,10,10,12,12,10,12,14,8,16,22,12,14,12,11,10,12,12,10,11,10,14,18,22];
+        if(hasShiki) widths.splice(3,0,12);
+        const ws=detailSheet('土地',widths);
         const r0=startRow(ws);
         const rows=items.map((a,i)=>{ const r=r0+i; const auto=a.autoCalc!==false; const isRosen=a.evalMethod!=='baisu';
           const areaK=num(a.kazeiChiseki)||null, areaT=num(a.tokiChiseki)||null;
           const areaKcell=(areaK==null&&areaT==null&&num(a.quantity))?num(a.quantity):areaK; // 旧データ（面積のみ）は課税地積欄へ
           const kh=num(a.kubunHosei)>0?num(a.kubunHosei):1; // 区分所有補正率（敷地利用権のみ）
-          const valF='ROUND(IF(I'+r+'="倍率",K'+r+'*L'+r+',J'+r+'*IF(H'+r+'>0,H'+r+',G'+r+'))*C'+r
-            +'*IF(Q'+r+'="貸宅地",MAX(0,1-R'+r+'/100),IF(Q'+r+'="借地権",R'+r+'/100,IF(Q'+r+'="貸家建付地",MAX(0,1-R'+r+'/100*IF(W'+r+'="",30,W'+r+')/100*IF(X'+r+'="",100,X'+r+')/100),1)))'+(kh!==1?('*'+kh):'')+',0)';
+          const sn=num(a.shikiNum), sd=num(a.shikiDen); const hasS=(sn>0&&sd>0); // 敷地権割合（数式には分数リテラルで乗せる）
+          const valF='ROUND(IF('+CL(9)+r+'="倍率",'+CL(11)+r+'*'+CL(12)+r+','+CL(10)+r+'*IF('+CL(8)+r+'>0,'+CL(8)+r+','+CL(7)+r+'))*C'+r
+            +(hasS?('*('+sn+'/'+sd+')'):'')
+            +'*IF('+CL(17)+r+'="貸宅地",MAX(0,1-'+CL(18)+r+'/100),IF('+CL(17)+r+'="借地権",'+CL(18)+r+'/100,IF('+CL(17)+r+'="貸家建付地",MAX(0,1-'+CL(18)+r+'/100*IF('+CL(23)+r+'="",30,'+CL(23)+r+')/100*IF('+CL(24)+r+'="",100,'+CL(24)+r+')/100),1)))'+(kh!==1?('*'+kh):'')+',0)';
           const k=a.kobo||{type:'none',area:''}; const ka=koboApplied[a.id]; const red=kb.byAsset[a.id]||0;
-          const redCell=ka? ((num(a.unitPrice)>0)? F('ROUND(J'+r+'*'+ka.applied+'*'+ka.rate+',0)',red):(red||null)) : null;
-          return {cells:[T(a.location),T(a.chiban),fracF(a),T(a.tokiChimoku),T(a.kazeiChimoku),T(a.genkyo),
+          const redCell=ka? ((num(a.unitPrice)>0)? F('ROUND('+CL(10)+r+'*'+ka.applied+'*'+ka.rate+',0)',red):(red||null)) : null;
+          const cells=[T(a.location),T(a.chiban),fracF(a),T(a.tokiChimoku),T(a.kazeiChimoku),T(a.genkyo),
             areaT,areaKcell,isRosen?'路線価':'倍率',V(a.unitPrice),V(a.koteiValue),Vz(a.baisu),
             auto?F(valF,computeAssetValue(a)):num(a.value),
             KOBO_LABEL[k.type||'none'],Vz(k.area),redCell,
-            T(a.landUse||'自用地'),Vz(a.shakuchiRatio),T(a.sokuho),T(a.toshiKeikaku),T(a.youtoChiiki),T(a.fukuin),Vz(a.shakkaRatio),Vz(a.chintaiRatio),V(a.landDebt),T(a.memo),T(a.checkNote)]};
+            T(a.landUse||'自用地'),Vz(a.shakuchiRatio),T(a.sokuho),T(a.toshiKeikaku),T(a.youtoChiiki),T(a.fukuin),Vz(a.shakkaRatio),Vz(a.chintaiRatio),V(a.landDebt),T(a.memo),T(a.checkNote)];
+          if(hasShiki) cells.splice(3,0, hasS?(sd+'分の'+sn):'');
+          return {cells};
         });
         const rl=r0+items.length-1;
-        rows.push({cells:['計','','','','','','','','','','','',F('SUM(M'+r0+':M'+rl+')',items.reduce((s,a)=>s+assetVal(a),0)),'','',F('SUM(P'+r0+':P'+rl+')',kb.total),'','','','','','','','',F('SUM(Y'+r0+':Y'+rl+')',items.reduce((s,a)=>s+num(a.landDebt),0)),'',''],kind:'tot'});
-        addTable(ws,['所在','地番','持分','登記地目','課税地目','現況','登記地積(㎡)','課税地積(㎡)','評価方式','㎡単価(路線価)','固定資産税評価額','倍率','相続税評価額(円)','小規模区分','小規模面積(㎡)','小規模減額(円)','自用借地区分','借地権割合(%)','側方・二方','都市計画','用途地域','正面幅員','借家権割合(%)','賃貸割合(%)','債務(円)','注記','確認する事項'],rows,[10,11,13,16,25]);
+        const totCells=Array.from({length:27+off},()=>'');
+        totCells[0]='計';
+        totCells[12+off]=F('SUM('+CL(13)+r0+':'+CL(13)+rl+')',items.reduce((s,a)=>s+assetVal(a),0));
+        totCells[15+off]=F('SUM('+CL(16)+r0+':'+CL(16)+rl+')',kb.total);
+        totCells[24+off]=F('SUM('+CL(25)+r0+':'+CL(25)+rl+')',items.reduce((s,a)=>s+num(a.landDebt),0));
+        rows.push({cells:totCells,kind:'tot'});
+        const headers=['所在','地番','持分','登記地目','課税地目','現況','登記地積(㎡)','課税地積(㎡)','評価方式','㎡単価(路線価)','固定資産税評価額','倍率','相続税評価額(円)','小規模区分','小規模面積(㎡)','小規模減額(円)','自用借地区分','借地権割合(%)','側方・二方','都市計画','用途地域','正面幅員','借家権割合(%)','賃貸割合(%)','債務(円)','注記','確認する事項'];
+        if(hasShiki) headers.splice(3,0,'敷地権割合');
+        addTable(ws,headers,rows,[10+off,11+off,13+off,16+off,25+off]);
         ws.getColumn(3).numFmt='??/??';
-        ws.addRow([]); ws.addRow(['※ 相続税評価額＝（路線価方式：㎡単価×地積（課税地積優先）／倍率方式：固定資産税評価額×倍率）×持分×利用区分の調整（借家権割合の既定30%・賃貸割合の既定100%）。小規模減額は限度面積（併用の限度枠）適用後の面積で計算しています。']);
+        ws.addRow([]); ws.addRow(['※ 相続税評価額＝（路線価方式：㎡単価×地積（課税地積優先）／倍率方式：固定資産税評価額×倍率）×持分'+(hasShiki?'×敷地権割合（区分所有の敷地利用権）':'')+'×利用区分の調整（借家権割合の既定30%・賃貸割合の既定100%）。小規模減額は限度面積（併用の限度枠）適用後の面積で計算しています。']);
       }
     }
     // --- 建物 ---
@@ -5665,7 +5693,9 @@ async function downloadShindanExcelBody(){
             const rr=ws.rowCount+1;
             const lf=lrow?landUseFactor(lrow):1;
             const on=lrow?((num(lrow.ownNum)||1)+'/'+((num(lrow.ownDen)||1)||1)):'1';
-            const valF='ROUND(G'+rr+'*D'+rr+'*'+on+'*'+lf+(kh!==1?('*'+kh):'')+',0)';
+            // 敷地権割合は土地行に分離保持（旧データは持分に織込済みのため二重掛けしない）
+            const sk=(lrow&&num(lrow.shikiNum)>0&&num(lrow.shikiDen)>0)?('('+num(lrow.shikiNum)+'/'+num(lrow.shikiDen)+')'):'';
+            const valF='ROUND(G'+rr+'*D'+rr+(sk?('*'+sk):'')+'*'+on+'*'+lf+(kh!==1?('*'+kh):'')+',0)';
             const row=ws.addRow([L.fugo,L.shozai,L.chimoku,num(L.chiseki)||null,L.rightKind,(L.rightDen||'—')+'分の'+(L.rightNum||'—'),num(L.unitPrice)||null,
               lrow?F(valF,computeAssetValue(lrow)):null]);
             row.eachCell({includeEmpty:true},(c,i)=>{ if(i<=8) c.border=BORDER; });
@@ -7495,7 +7525,6 @@ function kubunHoseiCalc(d, deathDate){
   return {rate, note:kindTxt, detail:{years,idx,A,B,C,D,shiki,kyosho,kairi,level}};
 }
 const _gcd=(a,b)=>b?_gcd(b,a%b):a;
-function fracMul(n1,d1,n2,d2){ let n=n1*n2, d=d1*d2; const g=_gcd(n,d)||1; return [n/g,d/g]; }
 
 let _kubunDraft=null;
 function openKubunModal(id){
@@ -7634,12 +7663,14 @@ function _kubunToRows(d, rate){
   const lands=[];
   (d.lands||[]).forEach(L=>{
     if(!(L.shozai||'').trim() && !num(L.chiseki)) return;
-    const [on,od]=fracMul(num(L.rightNum)||1, num(L.rightDen)||1, num(d.ownNum)||1, num(d.ownDen)||1);
     const sc=splitShozaiChiban(L.shozai);
+    const hasShiki=num(L.rightNum)>0&&num(L.rightDen)>0;
     lands.push(Object.assign(newAsset('land'),{
       location:sc.shozai, chiban:sc.chiban, tokiChimoku:L.chimoku, kazeiChimoku:L.chimoku, genkyo:'敷地権',
       tokiChiseki:L.chiseki, kazeiChiseki:L.chiseki, evalMethod:'rosen', unitPrice:L.unitPrice,
-      ownNum:String(on), ownDen:String(od),
+      // 持分＝被相続人の持分（登記の表記のまま・約分しない）。敷地権割合は別に持ち、評価で両方を乗算する
+      ownNum:String(num(d.ownNum)||1), ownDen:String(num(d.ownDen)||1),
+      shikiNum:hasShiki?String(num(L.rightNum)):'', shikiDen:hasShiki?String(num(L.rightDen)):'',
       landUse:(d.buildingUse==='貸家')?'貸家建付地':'自用地',
       shakuchiRatio:(d.buildingUse==='貸家')?(d.shakuchiRatio||''):'', chintaiRatio:(d.buildingUse==='貸家')?(d.chintaiRatio||''):'',
       kubunFugo:L.fugo, kubunHosei:(rate&&rate!==1)?String(rate):'',
