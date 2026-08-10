@@ -16,6 +16,11 @@ export interface CardFormat {
   layout: StatementLayout
   /** 摘要が文字化けするフォーマットか（＝ローカルOCRで読み直す必要がある） */
   descNeedsOcr: boolean
+  /**
+   * 「化けた文字列 → 読み取れた店名」の辞書。化け方はフォントの対応表で決まるので、
+   * 同じ店名は毎回まったく同じ文字列に化ける。一度読めた店名は次回以降OCRしなくてよい。
+   */
+  descDict?: Record<string, string>
   /** 前回の取引件数（件数が大きく変わったときの気付き用） */
   lastRows: number
   useCount: number
@@ -44,12 +49,23 @@ export function getCardFormat(signature: string): CardFormat | null {
   return getCardFormats()[signature] || null
 }
 
+/** 辞書が肥大化しないように上限を設ける（古い順に落とす） */
+const DESC_DICT_MAX = 600
+
 export function saveCardFormat(fmt: Omit<CardFormat, 'useCount' | 'updatedAt'>): void {
   if (typeof window === 'undefined' || !fmt.signature) return
   const all = getCardFormats()
   const prev = all[fmt.signature]
+  let descDict = fmt.descDict
+  if (descDict) {
+    const keys = Object.keys(descDict)
+    if (keys.length > DESC_DICT_MAX) {
+      descDict = Object.fromEntries(keys.slice(-DESC_DICT_MAX).map((k) => [k, descDict![k]]))
+    }
+  }
   all[fmt.signature] = {
     ...fmt,
+    descDict,
     useCount: (prev?.useCount || 0) + 1,
     updatedAt: new Date().toISOString(),
   }

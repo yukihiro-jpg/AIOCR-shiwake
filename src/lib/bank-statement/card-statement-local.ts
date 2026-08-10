@@ -73,15 +73,28 @@ export async function parseCardStatementLocally(
 
   onProgress?.('text', 35, `${result.rows.length}件の取引を読み取りました`)
 
-  // 摘要が化けているフォーマットなら、摘要の列だけ端末内OCRで読み直す
+  // 摘要が化けているフォーマットなら、摘要の列だけ端末内OCRで読み直す。
+  // 前回までに読めた店名の辞書を渡すので、2回目以降は新しい店だけをOCRすればよい
+  const descDict: Record<string, string> = { ...(saved?.descDict || {}) }
   const needsOcr = saved?.descNeedsOcr || mojibakeRatio(result.rows) > 0.3
   let ocrFilled = 0
   if (needsOcr) {
     try {
-      ocrFilled = await fillDescriptionsByOcr(file, result.rows, result.layout, (done, total) => {
-        onProgress?.('ocr', 35 + Math.round(55 * (total ? done / total : 1)),
-          `摘要を読み取り中… (${done}/${total}ページ)`)
-      })
+      const rowCount = result.rows.length
+      ocrFilled = await fillDescriptionsByOcr(file, result.rows, result.layout, (done, total, phase) => {
+        if (phase === 'prepare') {
+          onProgress?.('ocr', 36,
+            `${rowCount}件の日付・金額を読み取りました。摘要（店名）の読み取りを準備中…`
+            + '（この端末での初回だけ、日本語の読み取りデータ約2MBを取得します）')
+          return
+        }
+        if (phase === 'start') {
+          onProgress?.('ocr', 38, `${rowCount}件の日付・金額を読み取りました。摘要（店名）を読み取り中… (0/${total}ページ)`)
+          return
+        }
+        onProgress?.('ocr', 38 + Math.round(52 * (total ? done / total : 1)),
+          `${rowCount}件の日付・金額を読み取りました。摘要（店名）を読み取り中… (${done}/${total}ページ)`)
+      }, descDict)
     } catch (e) {
       // OCRに失敗しても日付・金額は正しいので、摘要なしで続行する
       console.warn('摘要のローカルOCRに失敗しました（日付・金額はそのまま使えます）', e)
@@ -96,6 +109,7 @@ export async function parseCardStatementLocally(
       label,
       layout: result.layout,
       descNeedsOcr: needsOcr,
+      descDict,
       lastRows: result.rows.length,
     })
   }

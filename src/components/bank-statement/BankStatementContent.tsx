@@ -574,6 +574,8 @@ export default function BankStatementContent() {
           try {
             const { parseCardStatementLocally, describeReconciliation } =
               await import('@/lib/bank-statement/card-statement-local')
+            // 経過時間ベースの見せかけ進捗は止める（実際の進み具合で出すため）
+            if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
             const local = await parseCardStatementLocally(config.file, (_stage, pct, msg) => {
               setLoadingProgress(pct)
               setInfo(msg)
@@ -610,13 +612,20 @@ export default function BankStatementContent() {
                 `カード明細をAI未使用で解析: ${entries.length}件（合計: ¥${local.data.totalAmount.toLocaleString()}）／`
                 + `${describeReconciliation(local.reconciliation, local.data.transactions.length)}／${memo}`,
               )
-              clearInterval(progressTimer)
               setLoadingProgress(100)
               setIsLoading(false)
               return
             }
           } catch (e) {
             console.warn('カード明細のローカル解析に失敗。AI解析へ切り替えます', e)
+          }
+          // ローカル解析で決着しなかったので、経過時間ベースの進捗表示に戻す
+          if (!progressTimer) {
+            progressTimer = setInterval(() => {
+              const elapsed = (Date.now() - startTime) / 1000
+              setLoadingProgress(Math.round(Math.min(15 + 80 * (1 - Math.exp(-elapsed / 8)), 95)))
+              setParseElapsed(`${elapsed.toFixed(0)}秒`)
+            }, 500)
           }
 
           // ローカル解析できない明細（画像PDF等）は従来どおり Gemini OCR

@@ -48,14 +48,38 @@ export async function fillDescriptionsByOcr(
   file: File,
   rows: LayoutRow[],
   layout: StatementLayout,
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: (done: number, total: number, phase?: 'prepare' | 'start') => void,
+  /**
+   * 「化けた文字列 → 読み取れた店名」の辞書。入出力兼用で、新しく読めたものを書き足す。
+   * 化け方はフォントの対応表で決まるので、同じ店名は毎回まったく同じ文字列に化ける。
+   * つまり一度読めた店名は二度とOCRしなくてよい（次回以降の明細でも使える）。
+   */
+  dict?: Record<string, string>,
 ): Promise<number> {
   if (typeof window === 'undefined') return 0
-  // 化けている行があるページだけを対象にする
-  const targetPages = Array.from(
-    new Set(rows.filter((r) => looksMojibake(r.descRaw) || !r.descRaw).map((r) => r.pageIndex)),
+
+  // 行ごとに「化けた元の文字列」を控えておく（これが辞書のキーになる）
+  const keys = rows.map((r) => (looksMojibake(r.descRaw) ? r.descRaw : ''))
+  const needsOcr = rows.map((r, i) => keys[i] !== '' || !r.descRaw)
+  let filled = 0
+
+  // まず辞書で埋められるだけ埋める
+  const applyDict = () => {
+    if (!dict) return
+    for (let i = 0; i < rows.length; i++) {
+      if (!needsOcr[i] || !keys[i]) continue
+      const hit = dict[keys[i]]
+      if (hit) { rows[i].descRaw = hit; needsOcr[i] = false; filled++ }
+    }
+  }
+  applyDict()
+
+  const pagesLeft = () => Array.from(
+    new Set(rows.map((_, i) => i).filter((i) => needsOcr[i]).map((i) => rows[i].pageIndex)),
   ).sort((a, b) => a - b)
-  if (!targetPages.length) return 0
+
+  const targetPages = pagesLeft()
+  if (!targetPages.length) return filled
 
   const { createWorker } = await import('tesseract.js')
   const pdfjsLib = await getPdfjsLib()
@@ -66,16 +90,20 @@ export async function fillDescriptionsByOcr(
   const cropLeft = Math.max(0, layout.descX[0] - 4)
   const cropRight = Math.max(cropLeft + 40, layout.amountX[0] - 4)
 
-  // ページ数ぶんの待ち時間になるので、複数ワーカーで並行してOCRする
+  // ページ数ぶんの待ち時間になるので、複数ワーカーで並行してOCRする。
+  // 1つ目を先に作ってから残りを作る（同時に作ると学習データを人数分ダウンロードしてしまう。
+  // 1つ目が終わればブラウザにキャッシュされるので、2つ目以降は待たずに立ち上がる）
+  onProgress?.(0, targetPages.length, 'prepare')
   const poolSize = Math.max(1, Math.min(3, targetPages.length))
-  const workers = await Promise.all(
-    Array.from({ length: poolSize }, () => createJpnWorker(createWorker)),
-  )
+  const first = await createJpnWorker(createWorker)
+  const workers = [first, ...(poolSize > 1
+    ? await Promise.all(Array.from({ length: poolSize - 1 }, () => createJpnWorker(createWorker)))
+    : [])]
+  onProgress?.(0, targetPages.length, 'start')
 
   // 画像化はメインスレッドなので直列。OCR（ワーカー側）だけを並行させる
   let nextPage = 0
   let done = 0
-  let filled = 0
   let renderChain: Promise<void> = Promise.resolve()
 
   const renderCrop = async (pageIndex: number): Promise<HTMLCanvasElement | null> => {
@@ -113,6 +141,12 @@ export async function fillDescriptionsByOcr(
         const i = nextPage++
         if (i >= targetPages.length) return
         const pageIndex = targetPages[i]
+        // 直前のページで辞書が育って、このページはもう読む必要が無くなったかもしれない
+        if (!rows.some((r, ri) => r.pageIndex === pageIndex && needsOcr[ri])) {
+          done++
+          onProgress?.(done, targetPages.length)
+          continue
+        }
         // 画像化は1つずつ順番に（同時に走らせるとメモリを食うだけで速くならない）
         const step: Promise<HTMLCanvasElement | null> = renderChain.then(() => renderCrop(pageIndex))
         renderChain = step.then(() => { /* 次の画像化へ */ }, () => { /* 失敗しても続行 */ })
@@ -121,12 +155,17 @@ export async function fillDescriptionsByOcr(
 
         const { data } = await worker.recognize(crop, {}, { blocks: true, text: true })
         const lines = collectLines(data)
-        for (const r of rows) {
-          if (r.pageIndex !== pageIndex) continue
-          if (r.descRaw && !looksMojibake(r.descRaw)) continue
-          const text = pickLineFor(lines, r)
-          if (text) { r.descRaw = text; filled++ }
+        for (let ri = 0; ri < rows.length; ri++) {
+          if (rows[ri].pageIndex !== pageIndex || !needsOcr[ri]) continue
+          const text = pickLineFor(lines, rows[ri])
+          if (!text) continue
+          rows[ri].descRaw = text
+          needsOcr[ri] = false
+          filled++
+          // 同じ化け方をする行は他のページにもあるので、辞書に入れて一斉に埋める
+          if (dict && keys[ri]) dict[keys[ri]] = text
         }
+        applyDict()
         crop.width = 0; crop.height = 0
         done++
         onProgress?.(done, targetPages.length)
