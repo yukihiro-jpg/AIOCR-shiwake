@@ -1301,7 +1301,76 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     mapping = detectColumnMappingFromAllPages(allRawPages)
   }
 
-  if (!mapping) {
+  // 列の見出しから読めた件数。0件や極端に少ないときは、見出し検出が的外れだった
+  // （カード明細のように日本語が文字化けするPDFで起きる）とみなして位置ベース解析を使う
+  const mappedPages: StatementPage[] = mapping
+    ? rawPages.map((p, i) => ({
+        pageIndex: i,
+        transactions: extractTransactions(p.rows, mapping!, i),
+        openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
+      }))
+    : []
+  const mappedCount = mappedPages.reduce((s, p) => s + p.transactions.length, 0)
+
+  // 位置ベース解析の下見（OCRを走らせない軽い判定）
+  let layoutProbe: import('./statement-layout-parser').LayoutParseResult | null = null
+  try {
+    const { parseByLayout } = await import('./statement-layout-parser')
+    layoutProbe = parseByLayout(allRawPages, rawPages.map((p) => p.pageHeight))
+  } catch { /* 下見に失敗したら従来どおり */ }
+
+  // 見出しから1件も取れなかったとき、または「小計と完全に一致した位置ベース解析のほうが
+  // 明らかに多く拾えている」ときだけ乗り換える（通常の通帳で誤って乗り換えないため）
+  const useLayout = !!layoutProbe && (
+    mappedCount === 0 ||
+    (layoutProbe.reconciliation.ok && layoutProbe.rows.length >= 10 && layoutProbe.rows.length > mappedCount * 1.2)
+  )
+
+  if (useLayout) {
+    // 見出しから列が取れない明細（カード明細など、日本語が文字化けするPDF）は、
+    // 列のx位置で読む解析をAPI不使用で行う。小計と突き合わせて漏れも確認する
+    try {
+      const { parseCardStatementLocally } = await import('./card-statement-local')
+      const local = await parseCardStatementLocally(file, undefined, { pages: rawPages, isTextPdf })
+      if (local && local.rows.length > 0) {
+        console.log(
+          `列位置ベースのローカル解析に成功: ${local.rows.length}件`,
+          local.reconciliation.ok ? '（小計と一致・漏れなし）' : '（小計と突合できず）',
+        )
+        const localPages: StatementPage[] = rawPages.map((_, i) => ({
+          pageIndex: i,
+          transactions: local.rows
+            .filter((r) => r.pageIndex === i)
+            .map((r, ri) => ({
+              id: generateId(), pageIndex: i, rowIndex: ri,
+              date: r.date, description: r.descRaw,
+              deposit: r.deposit, withdrawal: r.withdrawal, balance: 0,
+            })),
+          openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
+        }))
+        if (localPages.length > 0) {
+          localPages[0].imageDataUrl = await renderPdfPageToImage(file, 1, 2)
+        }
+        return {
+          pages: localPages,
+          pdfFile: file,
+          sourceType: 'pdf-text',
+          needsColumnMapping: false,
+          corrections: [
+            `AIを使わずに解析しました（${local.formatLabel}）: `
+            + (local.reconciliation.ok
+              ? `明細書の小計${local.reconciliation.subtotalCount}区分すべてと一致（${local.rows.length}件・漏れなし）`
+              : `${local.rows.length}件を抽出（小計の記載が無く件数の検算はできていません）`),
+          ],
+        }
+      }
+      console.log('列位置ベースのローカル解析は不成立。AI解析へ切り替えます')
+    } catch (e) {
+      console.log('列位置ベースのローカル解析でエラー。AI解析へ切り替えます:', e)
+    }
+  }
+
+  if (!mapping || mappedCount === 0) {
     // テキスト抽出はできたが列検出に失敗 → Gemini OCRにフォールバック
     console.log('Text PDF column detection failed, trying PDF-direct Gemini')
 
@@ -1398,19 +1467,8 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
     }
   }
 
-  // テキストPDF: 取引抽出（画像はページ表示時にオンデマンド生成）
-  const statementPages: StatementPage[] = []
-  for (let i = 0; i < rawPages.length; i++) {
-    const transactions = extractTransactions(rawPages[i].rows, mapping, i)
-    statementPages.push({
-      pageIndex: i,
-      transactions,
-      openingBalance: 0,
-      closingBalance: 0,
-      isBalanceValid: true,
-      balanceDifference: 0,
-    })
-  }
+  // テキストPDF: 列マッピングで抽出済みの結果を使う（画像はページ表示時にオンデマンド生成）
+  const statementPages: StatementPage[] = mappedPages
   // 最初のページの画像だけ先に生成
   if (statementPages.length > 0) {
     statementPages[0].imageDataUrl = await renderPdfPageToImage(file, 1, 2)

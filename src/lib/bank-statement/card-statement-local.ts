@@ -7,7 +7,7 @@
 //
 // どれか1つでも成立しなければ null を返す。呼び出し側は従来どおり Gemini へ回す。
 
-import type { CreditCardData, CreditCardTransaction } from './types'
+import type { CreditCardData, CreditCardTransaction, RawTableRow } from './types'
 import { parsePdfText } from './pdf-text-parser'
 import {
   parseByLayout, detectLayout, mojibakeRatio,
@@ -42,11 +42,13 @@ export interface LocalCardProgress {
 export async function parseCardStatementLocally(
   file: File,
   onProgress?: LocalCardProgress,
+  /** すでに parsePdfText 済みならその結果を渡す（PDFの二重解析を避ける） */
+  pre?: { pages: { rows: RawTableRow[]; pageWidth: number; pageHeight: number }[]; isTextPdf: boolean },
 ): Promise<LocalCardParseResult | null> {
-  if (!/\.pdf$/i.test(file.name)) return null
+  if (!pre && !/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return null
 
   onProgress?.('text', 5, 'PDFのテキストを読み取り中…')
-  const { pages, isTextPdf } = await parsePdfText(file)
+  const { pages, isTextPdf } = pre || (await parsePdfText(file))
   if (!isTextPdf || !pages.length) return null
 
   const rowsByPage = pages.map((p) => p.rows)

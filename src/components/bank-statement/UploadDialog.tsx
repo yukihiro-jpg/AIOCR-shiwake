@@ -17,7 +17,7 @@ interface Props {
 const DOC_TYPES: { value: DocumentType; label: string; desc: string; icon: string }[] = [
   { value: 'bank-statement', label: '通帳', desc: 'PDF / Excel', icon: '🏦' },
   { value: 'cash-book', label: '現金出納帳', desc: 'PDF / Excel', icon: '📒' },
-  { value: 'credit-card', label: 'クレジットカード', desc: 'CSV / Excel', icon: '💳' },
+  { value: 'credit-card', label: 'クレジットカード', desc: 'PDF / CSV / Excel', icon: '💳' },
   { value: 'sales-invoice', label: '売上請求書', desc: 'PDF / Excel', icon: '📄' },
   { value: 'purchase-invoice', label: '仕入請求書', desc: 'PDF / Excel', icon: '📑' },
   { value: 'receipt', label: 'レシート・領収書', desc: 'PDF / Excel / CSV', icon: '🧾' },

@@ -66,48 +66,75 @@ export async function fillDescriptionsByOcr(
   const cropLeft = Math.max(0, layout.descX[0] - 4)
   const cropRight = Math.max(cropLeft + 40, layout.amountX[0] - 4)
 
-  const worker = await createJpnWorker(createWorker)
+  // ページ数ぶんの待ち時間になるので、複数ワーカーで並行してOCRする
+  const poolSize = Math.max(1, Math.min(3, targetPages.length))
+  const workers = await Promise.all(
+    Array.from({ length: poolSize }, () => createJpnWorker(createWorker)),
+  )
+
+  // 画像化はメインスレッドなので直列。OCR（ワーカー側）だけを並行させる
+  let nextPage = 0
+  let done = 0
   let filled = 0
+  let renderChain: Promise<void> = Promise.resolve()
+
+  const renderCrop = async (pageIndex: number): Promise<HTMLCanvasElement | null> => {
+    const page = await pdf.getPage(pageIndex + 1)
+    const viewport = page.getViewport({ scale: SCALE })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(viewport.width)
+    canvas.height = Math.ceil(viewport.height)
+    const ctx = canvas.getContext('2d')!
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({ canvasContext: ctx, viewport }).promise
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { (page as any).cleanup?.() } catch { /* ignore */ }
+
+    // 摘要列だけを切り出す
+    const sx = Math.round(cropLeft * SCALE)
+    const sw = Math.min(canvas.width - sx, Math.round((cropRight - cropLeft) * SCALE))
+    if (sw <= 0) return null
+    const crop = document.createElement('canvas')
+    crop.width = sw
+    crop.height = canvas.height
+    const cctx = crop.getContext('2d')!
+    cctx.fillStyle = '#fff'
+    cctx.fillRect(0, 0, sw, canvas.height)
+    cctx.drawImage(canvas, sx, 0, sw, canvas.height, 0, 0, sw, canvas.height)
+    canvas.width = 0; canvas.height = 0 // 大きなページ画像はすぐ手放す
+    return crop
+  }
+
   try {
-    for (let i = 0; i < targetPages.length; i++) {
-      const pageIndex = targetPages[i]
-      onProgress?.(i, targetPages.length)
-      const page = await pdf.getPage(pageIndex + 1)
-      const viewport = page.getViewport({ scale: SCALE })
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.ceil(viewport.width)
-      canvas.height = Math.ceil(viewport.height)
-      const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      await page.render({ canvasContext: ctx, viewport }).promise
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await Promise.all(workers.map(async (worker: any) => {
+      for (;;) {
+        const i = nextPage++
+        if (i >= targetPages.length) return
+        const pageIndex = targetPages[i]
+        // 画像化は1つずつ順番に（同時に走らせるとメモリを食うだけで速くならない）
+        const step: Promise<HTMLCanvasElement | null> = renderChain.then(() => renderCrop(pageIndex))
+        renderChain = step.then(() => { /* 次の画像化へ */ }, () => { /* 失敗しても続行 */ })
+        const crop = await step
+        if (!crop) { done++; onProgress?.(done, targetPages.length); continue }
 
-      // 摘要列だけを切り出す
-      const sx = Math.round(cropLeft * SCALE)
-      const sw = Math.min(canvas.width - sx, Math.round((cropRight - cropLeft) * SCALE))
-      if (sw <= 0) continue
-      const crop = document.createElement('canvas')
-      crop.width = sw
-      crop.height = canvas.height
-      const cctx = crop.getContext('2d')!
-      cctx.fillStyle = '#fff'
-      cctx.fillRect(0, 0, sw, canvas.height)
-      cctx.drawImage(canvas, sx, 0, sw, canvas.height, 0, 0, sw, canvas.height)
-
-      const { data } = await worker.recognize(crop, {}, { blocks: true, text: true })
-      const lines = collectLines(data)
-      for (const r of rows) {
-        if (r.pageIndex !== pageIndex) continue
-        if (r.descRaw && !looksMojibake(r.descRaw)) continue
-        const text = pickLineFor(lines, r)
-        if (text) { r.descRaw = text; filled++ }
+        const { data } = await worker.recognize(crop, {}, { blocks: true, text: true })
+        const lines = collectLines(data)
+        for (const r of rows) {
+          if (r.pageIndex !== pageIndex) continue
+          if (r.descRaw && !looksMojibake(r.descRaw)) continue
+          const text = pickLineFor(lines, r)
+          if (text) { r.descRaw = text; filled++ }
+        }
+        crop.width = 0; crop.height = 0
+        done++
+        onProgress?.(done, targetPages.length)
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { (page as any).cleanup?.() } catch { /* ignore */ }
-    }
-    onProgress?.(targetPages.length, targetPages.length)
+    }))
   } finally {
-    await worker.terminate()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await Promise.all(workers.map((w: any) => w.terminate().catch(() => { /* ignore */ })))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     try { (pdf as any).destroy?.() } catch { /* ignore */ }
   }
