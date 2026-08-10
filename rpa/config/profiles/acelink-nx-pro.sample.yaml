@@ -32,6 +32,11 @@ version: 1
 #   nxrpa inspect --windows の出力をそのまま貼れる
 # -------------------------------------------------------------------
 windows:
+  login:
+    title_re: '担当者ログイン'
+    description: 起動直後の担当者ログイン画面
+    timeout_sec: 180
+
   main:
     title_re: '.*ACELINK.*|.*NX-PRO.*'
     description: NX-PRO のメイン画面
@@ -76,6 +81,11 @@ vars:
   ok_button: 'OK'
   close_button: '閉じる'
 
+  # --- 担当者ログイン（事務所ごとに書き換える） ---
+  login_id: '02'                 # 担当者ログインID
+  login_user_name: '日下部 幸広'  # 上のIDに対応する担当者名。取り違え防止の照合に使う
+  start_app_name: '電子申告'      # 起動するアプリケーション
+
 # ===================================================================
 flows:
 
@@ -83,16 +93,35 @@ flows:
   # 起動。実行1回につき1度だけ呼ばれる
   # -----------------------------------------------------------------
   startup:
-    description: NX-PRO を開いて、電子申告システムまで入る
+    description: NX-PRO を起動し、担当者ログインして電子申告を開く
     steps:
       - name: NX-PRO を起動（起動済みなら接続のみ）
         action: start_app
         app: nxpro
 
+      # --- 担当者ログイン -------------------------------------------
+      # 既に起動済みでログイン後の画面なら、この画面は出ない。
+      # そのため一連を optional にして、出ていなければ丸ごと飛ばす。
+      - name: 担当者ログイン画面を待つ
+        action: wait_window
+        window: login
+        timeout: 120
+        optional: true
+
+      - action: run_flow
+        flow: login_as_staff
+        when: {var: vars.login_id, is_true: true}
+
+      # --- メイン画面 -----------------------------------------------
+      # ログイン後、スプラッシュ（NX-Pro のロゴ画面）が出てから
+      # メイン画面が開く。読み込みに時間がかかるので長めに待つ。
       - name: メイン画面を待つ
         action: wait_window
         window: main
-        timeout: 180
+        timeout: 300
+
+      - action: wait_idle
+        timeout: 300
 
       - action: maximize_window
         window: main
@@ -100,9 +129,133 @@ flows:
       - action: log
         message: 'NX-PRO に接続しました'
 
-      # 【要確認】ログインが必要な構成なら、ここに利用者IDとパスワードの入力を足す。
-      # パスワードは settings.yaml の secrets_required に名前を足したうえで
-      # type_secret で入れること（平文でここに書かない）。
+      - name: 電子申告アプリケーションを起動
+        action: run_flow
+        flow: launch_application
+
+  # -----------------------------------------------------------------
+  # 担当者ログイン
+  #
+  # 動画で確認した画面構成:
+  #   [ログインID] [____]  [担当者名(表示のみ)]
+  #   [パスワード] [____]  □パスワードを表示しながら入力する
+  #                        □ログインIDを保存する
+  #   [パスワードの変更]   [OK] [キャンセル]
+  #
+  # 【要確認】入力欄には表示名が付かないので、auto_id が分かるまでは
+  # 並び順（index）で指定している。`nxrpa inspect --title 担当者ログイン`
+  # で auto_id を採取して置き換えること。index 指定のままだと、
+  # 画面に欄が増えたときに静かにずれる。
+  # -----------------------------------------------------------------
+  login_as_staff:
+    description: 担当者IDとパスワードでログインする
+    steps:
+      - action: focus_window
+        window: login
+
+      - name: ログインIDを入力
+        action: set_text
+        window: login
+        target:
+          control_type: Edit
+          index: 0
+          description: ログインID入力欄
+        text: '{vars.login_id}'
+
+      # IDを入れると担当者名が自動で表示される。表示が追いつくまで待つ。
+      - action: press_keys
+        keys: '{TAB}'
+
+      - action: sleep
+        seconds: 0.5
+
+      # ★ 取り違え防止 ★
+      # 別の担当者としてログインすると、その担当者の権限・履歴で申告することになる。
+      # 自動表示された担当者名が想定と一致するか、パスワードを入れる前に確かめる。
+      - name: 担当者名が想定どおりか確かめる
+        action: assert_text
+        window: login
+        target:
+          control_type: Edit
+          index: 1
+          description: 担当者名の表示欄
+        contains: '{vars.login_user_name}'
+
+      - name: パスワードを入力
+        action: type_secret
+        window: login
+        target:
+          control_type: Edit
+          index: 2
+          description: パスワード入力欄
+        secret: pw_nxpro
+        clear: true
+
+      - action: click
+        window: login
+        target:
+          name: '{vars.ok_button}'
+          control_type: Button
+
+      - name: ログイン画面が閉じるのを待つ
+        action: wait_window_gone
+        window: login
+        timeout: 180
+
+      # パスワードが違うとエラーが出たままログイン画面が残る。
+      # 自動で入れ直すと、ロックや意図しない試行回数の消費につながるので
+      # ここで止めて人に判断させる。
+      - name: 認証エラーが出ていないか確かめる
+        action: assert_not_exists
+        target:
+          name_re: '.*(パスワード.*(誤|違|正しく)|ログイン.*(失敗|できません)).*'
+        timeout: 5
+
+  # -----------------------------------------------------------------
+  # アプリケーションの起動
+  #
+  # 動画で確認した画面構成:
+  #   タブ [顧問先] [履歴] [アプリケーション]
+  #   一覧: 会計（会計大将／決算内訳書／減価償却）
+  #         税務（法人税申告書／所得税確定申告書／消費税申告書／電子申告／…）
+  #         給与（給与計算／年末調整／法定調書）
+  #   下部ボタン [アプリケーションを起動する(A)]
+  #
+  # 【要確認】一覧がツリーか一覧表かは inspect で確認すること。
+  # ツリーなら select_tree_item に、一覧表なら select_grid_row のままでよい。
+  # -----------------------------------------------------------------
+  launch_application:
+    description: アプリケーション一覧から目的のアプリを起動する
+    steps:
+      - action: focus_window
+        window: main
+
+      - name: アプリケーションタブを開く
+        action: click
+        window: main
+        target:
+          name: 'アプリケーション'
+          control_type: TabItem
+
+      - name: 起動するアプリを選ぶ
+        action: select_grid_row
+        window: main
+        target:
+          control_type: List
+          index: 0
+          description: アプリケーション一覧
+        value: '{vars.start_app_name}'
+
+      - name: 起動する
+        action: click
+        window: main
+        target:
+          name_re: 'アプリケーションを起動する.*'
+          control_type: Button
+
+      - name: 起動を待つ
+        action: wait_idle
+        timeout: 300
 
   # -----------------------------------------------------------------
   # 顧問先を開く。変数 client.* が使える

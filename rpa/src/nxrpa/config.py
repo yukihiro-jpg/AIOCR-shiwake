@@ -54,6 +54,30 @@ class DocumentSpec:
 
 
 @dataclass(frozen=True)
+class SecretSpec:
+    """起動時に入力を求める秘密情報1つ分。
+
+    事務所の実際の運用では複数ある:
+      - NX-Pro の担当者パスワード（ソフトへのログイン）
+      - 税理士カードの暗証番号（電子署名）
+    どちらも保存せず、実行のたびに入力する。ただし性質が違うので分けて扱う。
+    """
+
+    name: str                     # プロファイルの type_secret から参照する名前
+    label: str                    # 入力画面に出す説明
+    lockout_risk: bool = False    # 誤入力でロックされるか（カードの暗証番号は true）
+    hint: str = ""                # 入力画面の補足
+
+    def prompt_text(self) -> str:
+        parts = [self.label]
+        if self.hint:
+            parts.append(self.hint)
+        if self.lockout_risk:
+            parts.append("※ 規定回数間違えるとカードがロックされます。自動での入れ直しは行いません。")
+        return "\n".join(parts)
+
+
+@dataclass(frozen=True)
 class SubmissionSpec:
     """申告の送信1単位（国税・地方税・消費税など）。
 
@@ -129,8 +153,7 @@ class Settings:
     default_app: str = ""
     flows: dict[str, str] = field(default_factory=dict)
     clients_file: str = "config/clients.csv"
-    pin_label: str = "税理士カードの暗証番号"
-    secrets_required: tuple[str, ...] = ("pin_tax_accountant",)
+    secrets: tuple[SecretSpec, ...] = ()
     root: Path = field(default_factory=lambda: Path("."))
     source: Path | None = None
 
@@ -424,9 +447,7 @@ def load_settings(path: str | Path, *, overrides: dict[str, Any] | None = None) 
 
     flows_map = _require_mapping(raw.get("flows"), "flows")
 
-    secrets_required = raw.get("secrets_required") or ["pin_tax_accountant"]
-    if isinstance(secrets_required, str):
-        secrets_required = [secrets_required]
+    secrets = _parse_secrets(raw)
 
     settings = Settings(
         run=run,
@@ -438,8 +459,7 @@ def load_settings(path: str | Path, *, overrides: dict[str, Any] | None = None) 
         default_app=default_app,
         flows={str(k): str(v) for k, v in flows_map.items()},
         clients_file=str(raw.get("clients_file") or "config/clients.csv"),
-        pin_label=str(raw.get("pin_label") or "税理士カードの暗証番号"),
-        secrets_required=tuple(str(s) for s in secrets_required),
+        secrets=secrets,
         root=root,
         source=p,
     )
@@ -447,6 +467,52 @@ def load_settings(path: str | Path, *, overrides: dict[str, Any] | None = None) 
     for key, value in (overrides or {}).items():
         _apply_override(settings, key, value)
     return settings
+
+
+def _parse_secrets(raw: dict[str, Any]) -> tuple[SecretSpec, ...]:
+    """`secrets:` を読む。
+
+    昔ながらの `secrets_required: [名前, 名前]`（名前だけの並び）でも読めるようにする。
+    そのときの説明文は `pin_label` を使う。
+    """
+    items = raw.get("secrets")
+    if items is None:
+        items = raw.get("secrets_required")
+    if items is None:
+        items = [{"name": "pin_tax_accountant",
+                  "label": str(raw.get("pin_label") or "税理士カードの暗証番号"),
+                  "lockout_risk": True}]
+    if isinstance(items, (str, dict)):
+        items = [items]
+    if not isinstance(items, list):
+        raise ConfigError("secrets はリストで書いてください")
+
+    fallback_label = str(raw.get("pin_label") or "暗証番号")
+    specs: list[SecretSpec] = []
+    seen: set[str] = set()
+    for i, item in enumerate(items):
+        if isinstance(item, str):
+            item = {"name": item, "label": fallback_label}
+        item = _require_mapping(item, f"secrets[{i}]")
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise ConfigError(f"secrets[{i}] に name がありません")
+        if name in seen:
+            raise ConfigError(f"secrets の name '{name}' が重複しています")
+        seen.add(name)
+        specs.append(
+            SecretSpec(
+                name=name,
+                label=str(item.get("label") or fallback_label),
+                lockout_risk=bool(item.get("lockout_risk", False)),
+                hint=str(item.get("hint") or ""),
+            )
+        )
+    if not specs:
+        raise ConfigError(
+            "secrets が空です。実行時に入力を求める暗証番号・パスワードを定義してください。"
+        )
+    return tuple(specs)
 
 
 def _apply_override(settings: Settings, key: str, value: Any) -> None:

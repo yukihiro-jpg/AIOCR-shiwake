@@ -192,3 +192,61 @@ class TestConflictPolicy:
         s = make_settings(tmp_path)
         t = resolve_target(s, CLIENT, s.document("kessansho"))
         assert apply_conflict_policy(t, "rename") is t
+
+
+class Test秘密情報の定義:
+    """NX-Pro の担当者パスワードとカードの暗証番号は別物として扱う。"""
+
+    def test_名前と説明を読める(self, tmp_path):
+        body = MINIMAL + """
+secrets:
+  - {name: pw_nxpro, label: 'NX-Pro 担当者パスワード'}
+  - {name: pin_tax_accountant, label: '税理士カードの暗証番号', lockout_risk: true}
+"""
+        s = make_settings(tmp_path, body)
+        assert [x.name for x in s.secrets] == ["pw_nxpro", "pin_tax_accountant"]
+        assert s.secrets[0].lockout_risk is False
+        assert s.secrets[1].lockout_risk is True
+
+    def test_ロックの注意を説明文に入れる(self, tmp_path):
+        body = MINIMAL + """
+secrets:
+  - {name: pin, label: 'カードの暗証番号', lockout_risk: true}
+"""
+        s = make_settings(tmp_path, body)
+        assert "ロック" in s.secrets[0].prompt_text()
+
+    def test_名前の重複を弾く(self, tmp_path):
+        body = MINIMAL + """
+secrets:
+  - {name: pin, label: A}
+  - {name: pin, label: B}
+"""
+        with pytest.raises(ConfigError, match="重複"):
+            make_settings(tmp_path, body)
+
+    def test_名前だけの古い書き方も読める(self, tmp_path):
+        body = MINIMAL + """
+pin_label: '税理士カードの暗証番号'
+secrets_required: [pin_tax_accountant]
+"""
+        s = make_settings(tmp_path, body)
+        assert s.secrets[0].name == "pin_tax_accountant"
+        assert s.secrets[0].label == "税理士カードの暗証番号"
+
+    def test_未設定なら暗証番号1つを既定にする(self, tmp_path):
+        s = make_settings(tmp_path)
+        assert [x.name for x in s.secrets] == ["pin_tax_accountant"]
+        assert s.secrets[0].lockout_risk is True
+
+    def test_同梱のひな形は2つを別々に定義している(self):
+        from pathlib import Path
+
+        from nxrpa.config import load_settings
+
+        root = Path(__file__).resolve().parent.parent
+        s = load_settings(root / "config" / "settings.sample.yaml")
+        names = [x.name for x in s.secrets]
+        assert "pw_nxpro" in names and "pin_tax_accountant" in names
+        labels = {x.label for x in s.secrets}
+        assert len(labels) == len(names), "説明文が使い回されている"

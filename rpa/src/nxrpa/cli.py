@@ -359,8 +359,12 @@ def _execute(settings: Settings, book: ClientBook, codes: list[str], *, quiet: b
             profile = load_profile(settings.profile_path(settings.default_app))
 
             if settings.run.mode != MODE_SIMULATE:
-                for name in settings.secrets_required:
-                    vault.put(name, prompt_pin(settings.pin_label))
+                # 秘密情報ごとに別々に尋ねる。NX-Pro の担当者パスワードと
+                # カードの暗証番号は別物なので、まとめて1回にしてはいけない。
+                for spec in settings.secrets:
+                    print()
+                    print(spec.prompt_text())
+                    vault.put(spec.name, prompt_pin(spec.label))
 
             backend = _make_backend(settings)
             pipeline = Pipeline(settings, profile, backend, log, vault, shots, ConsoleConfirmer())

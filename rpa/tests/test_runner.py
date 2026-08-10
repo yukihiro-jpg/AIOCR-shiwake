@@ -334,3 +334,51 @@ class Test同梱ひな形:
             assert profile.has_flow(flow), f"出力フロー {flow} が無い（{doc['label']}）"
         for logical, name in raw["flows"].items():
             assert profile.has_flow(name), f"フロー {name}（{logical}）が無い"
+
+
+class Test複数の秘密情報:
+    """NX-Pro の担当者パスワードとカードの暗証番号を取り違えないこと。
+
+    以前は画面側が1回の入力を全部の秘密情報に使い回していたため、
+    NX-Pro に暗証番号を、カードにパスワードを打ち込む形になっていた。
+    """
+
+    BODY = prof(
+        """      - action: type_secret
+        window: main
+        target: {auto_id: txtNxproPw}
+        secret: pw_nxpro
+      - action: type_secret
+        window: main
+        target: {auto_id: txtCardPin}
+        secret: pin_tax_accountant"""
+    )
+
+    def test_それぞれの欄に対応する値が入る(self, tmp_path):
+        r, ctx, backend = make(tmp_path, self.BODY)
+        ctx.vault.put("pw_nxpro", "nxpro-secret")
+        ctx.vault.put("pin_tax_accountant", "1234")
+        r.run_flow("f")
+
+        assert backend.elements["main/txtNxproPw"].text == "nxpro-secret"
+        assert backend.elements["main/txtCardPin"].text == "1234"
+
+    def test_片方が未入力なら止まる(self, tmp_path):
+        from nxrpa.errors import PinError
+
+        r, ctx, backend = make(tmp_path, self.BODY)
+        ctx.vault.put("pw_nxpro", "nxpro-secret")
+        with pytest.raises(PinError, match="pin_tax_accountant"):
+            r.run_flow("f")
+        # 先に進まず、カードの欄には何も打っていない
+        assert "main/txtCardPin" not in backend.elements
+
+    def test_どちらもログに残らない(self, tmp_path):
+        r, ctx, _ = make(tmp_path, self.BODY)
+        ctx.vault.put("pw_nxpro", "nxpro-secret")
+        ctx.vault.put("pin_tax_accountant", "1234")
+        r.run_flow("f")
+        ctx.log.finish(ok=True)
+        text = ctx.log.text_path.read_text(encoding="utf-8")
+        assert "nxpro-secret" not in text
+        assert "1234" not in text

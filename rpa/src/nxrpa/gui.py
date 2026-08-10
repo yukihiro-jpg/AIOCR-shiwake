@@ -116,9 +116,9 @@ class App:
         self.mode_box.pack(side="left", padx=(6, 18))
         self.mode_box.bind("<<ComboboxSelected>>", lambda e: self._on_mode_change())
 
-        self.pin_label = ttk.Label(top, text="暗証番号: 未入力", foreground="#b00")
+        self.pin_label = ttk.Label(top, text="未入力", foreground="#b00")
         self.pin_label.pack(side="left")
-        ttk.Button(top, text="暗証番号を入力", command=self._ask_pin).pack(side="left", padx=8)
+        ttk.Button(top, text="パスワード・暗証番号を入力", command=self._ask_pin).pack(side="left", padx=8)
 
         self.print_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(top, text="印刷する", variable=self.print_var).pack(side="right")
@@ -206,30 +206,47 @@ class App:
         self._ask_pin()
 
     def _ask_pin(self) -> None:
+        """設定された秘密情報を1つずつ入力してもらう。
+
+        NX-Pro の担当者パスワードとカードの暗証番号は別物なので、
+        1回の入力を使い回してはいけない（以前はそうなっていた）。
+        """
         from tkinter import simpledialog
 
-        label = self.settings.pin_label if self.settings else "税理士カードの暗証番号"
-        value = simpledialog.askstring(
-            "暗証番号の入力",
-            f"{label} を入力してください。\n\n"
-            f"※ 入力した番号はこのアプリの実行中のみメモリ上で保持し、\n"
-            f"　 ファイルにも記録にも残しません。\n"
-            f"※ 誤入力の自動やり直しは行いません（カードのロックを避けるため）。",
-            show="*", parent=self.root,
-        )
-        if not value:
-            self._set_pin_state(False)
+        if self.settings is None:
             return
-        names = self.settings.secrets_required if self.settings else ("pin_tax_accountant",)
-        for name in names:
-            self.vault.put(name, value)
-        self._set_pin_state(True)
-        self._log("暗証番号を受け取りました（内容は記録しません）")
+        for spec in self.settings.secrets:
+            value = simpledialog.askstring(
+                "入力",
+                f"{spec.prompt_text()}\n\n"
+                f"※ 入力した内容はこのアプリの実行中のみメモリ上で保持し、\n"
+                f"　 ファイルにも記録にも残しません。",
+                show="*", parent=self.root,
+            )
+            if not value:
+                self._log(f"{spec.label} が未入力です。実行前に入力してください。", "warn")
+                self._set_pin_state()
+                return
+            self.vault.put(spec.name, value)
+            self._log(f"{spec.label} を受け取りました（内容は記録しません）")
+        self._set_pin_state()
 
-    def _set_pin_state(self, ok: bool) -> None:
+    def _missing_secrets(self) -> list:
+        if self.settings is None:
+            return []
+        return [s for s in self.settings.secrets if not self.vault.has(s.name)]
+
+    def _set_pin_state(self, ok: bool | None = None) -> None:
+        missing = self._missing_secrets()
+        done = ok if ok is not None else not missing
+        if done:
+            text = "入力済み"
+        elif self.settings is None:
+            text = "未入力"
+        else:
+            text = "未入力: " + "、".join(s.label for s in missing)
         self.pin_label.configure(
-            text="暗証番号: 入力済み" if ok else "暗証番号: 未入力",
-            foreground="#070" if ok else "#b00",
+            text=text, foreground="#070" if done else "#b00",
         )
 
     def _on_mode_change(self) -> None:
@@ -341,8 +358,11 @@ class App:
             return
 
         mode = self._mode()
-        if mode != MODE_SIMULATE and not self.vault.has(self.settings.secrets_required[0]):
-            messagebox.showwarning("実行", "先に暗証番号を入力してください。")
+        missing = self._missing_secrets()
+        if mode != MODE_SIMULATE and missing:
+            messagebox.showwarning(
+                "実行", "先に次の入力を済ませてください:\n" + "\n".join(f"・{s.label}" for s in missing)
+            )
             self._ask_pin()
             return
 
