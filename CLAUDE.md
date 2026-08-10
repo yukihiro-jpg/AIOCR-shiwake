@@ -124,7 +124,12 @@
   - **漏れの検知は明細書の小計との突合**（`reconciliation`）。日付の無い金額行を小計候補とし、
     直前の小計以降の累計と一致したらそこまで漏れなしとみなす。`ok===true` のときだけフォーマットを記憶する
   - 年は「西暦4桁で最頻のもの」、締め月は「出現した月を円環に並べていちばん大きい空きの手前」（年跨ぎ対応）
-  - 摘要が化けているときだけ**摘要の列だけを切り出して端末内OCR**（`statement-ocr.ts`・tesseract.js・
+  - **文字化けはOCRの前にPDF側で直す**（`pdf-cid-glyph-fix.ts`）。ToUnicodeの無いPDFは
+    `/Differences` のグリフ名が `CTIU`＋Adobe-Japan1のCID(16進4桁)になっているので、pdf.jsが読める
+    `uniXXXX` へ書き換えたPDFをpdf-libで作り直して読み直す（実測2秒・OCR不要・通信不要）。
+    CID→Unicode表は `adobe-japan1-ucs2.ts`（`tools/build-adobe-japan1-table.mjs` が生成・Adobe公式）。
+    異体字セレクタ付き（茨󠄀）は基底文字だけ使う。この修復は `parsePdfText` に入れてあるので全モジュールに効く
+  - それでも化けている場合だけ**摘要の列を切り出して端末内OCR**（`statement-ocr.ts`・tesseract.js・
     `4.0.0_best_int` を優先し取得できなければ既定へ）。**金額はOCRに頼らない**ので画像OCRより精度が高い
   - **2段構え**: 日付・金額はテキスト層だけで確定するので**先に仕訳を出して表示を終える**（実測0.7秒）。
     摘要のOCRとページ画像生成は後追いで、終わったら「ユーザーがまだ触っていない仕訳」だけ作り直す

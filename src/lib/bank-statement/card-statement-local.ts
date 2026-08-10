@@ -82,7 +82,8 @@ export async function parseCardStatementLocally(
 
   // 摘要が化けているフォーマットか。前回までに読めた店名の辞書があれば先に当てはめる
   const descDict: Record<string, string> = { ...(saved?.descDict || {}) }
-  const needsOcr = saved?.descNeedsOcr || mojibakeRatio(result.rows) > 0.3
+  // 摘要がまだ化けているときだけOCRする（PDFのグリフ名から直せた場合はここが0になる）
+  const needsOcr = mojibakeRatio(result.rows) > 0.3
   const label = saved?.label || computeCardLabel(rowsByPage[0] || [])
   const rowsRef = result.rows
   const layoutRef = result.layout

@@ -43,9 +43,36 @@ function normalizeKangxiRadicals(s: string): string {
 export async function parsePdfText(
   file: File,
 ): Promise<{ pages: PdfPageResult[]; isTextPdf: boolean }> {
+  // pdf.js は渡したバッファを切り離す（detach）ので、読み直し用に控えを持つ
+  const raw = new Uint8Array(await file.arrayBuffer())
+  const first = await extractPdfText(raw.slice())
+
+  // 文字コード対応表を持たないPDF（カード明細等）は日本語が全部化ける。
+  // グリフ名がCID表記ならUnicodeへ直したPDFを作って読み直す（OCR不要・通信不要）
+  if (first.isTextPdf) {
+    const sample = first.pages.flatMap((p) => p.rows.slice(0, 40).map((r) => r.cells.join('')))
+    const { textLooksMojibake, repairCidGlyphNames } = await import('./pdf-cid-glyph-fix')
+    if (textLooksMojibake(sample)) {
+      const repaired = await repairCidGlyphNames(raw.slice())
+      if (repaired) {
+        try {
+          const second = await extractPdfText(repaired.slice())
+          const sample2 = second.pages.flatMap((p) => p.rows.slice(0, 40).map((r) => r.cells.join('')))
+          if (second.isTextPdf && !textLooksMojibake(sample2)) return second
+        } catch (e) {
+          console.warn('修復したPDFの読み取りに失敗しました（元のまま使います）', e)
+        }
+      }
+    }
+  }
+  return first
+}
+
+async function extractPdfText(
+  data: Uint8Array,
+): Promise<{ pages: PdfPageResult[]; isTextPdf: boolean }> {
   const pdfjsLib = await getPdfjsLib()
-  const arrayBuffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer), ...PDF_DOC_OPTIONS }).promise
+  const pdf = await pdfjsLib.getDocument({ data, ...PDF_DOC_OPTIONS }).promise
 
   const pages: PdfPageResult[] = []
   let totalTextItems = 0
