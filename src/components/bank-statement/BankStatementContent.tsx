@@ -6,6 +6,7 @@ import AccountMasterUploader from '@/components/bank-statement/AccountMasterUplo
 import PatternListDialog from '@/components/bank-statement/PatternListDialog'
 import FixedJournalDialog from '@/components/bank-statement/FixedJournalDialog'
 import InvoiceRegistryDialog from '@/components/bank-statement/InvoiceRegistryDialog'
+import CardFormatDialog from '@/components/bank-statement/CardFormatDialog'
 import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog'
 import KikuchiGasRentDialog from '@/components/bank-statement/KikuchiGasRentDialog'
 import StatementViewer from '@/components/bank-statement/StatementViewer'
@@ -97,6 +98,7 @@ export default function BankStatementContent() {
   const [showPatternList, setShowPatternList] = useState(false)
   const [showFixedJournal, setShowFixedJournal] = useState(false)
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
+  const [showCardFormats, setShowCardFormats] = useState(false)
   const [showPayroll, setShowPayroll] = useState(false)
   // キクチ・エステート専用: ガス・家賃集計表取込（顧問先名で判定して表示）
   const [showKikuchi, setShowKikuchi] = useState(false)
@@ -566,7 +568,58 @@ export default function BankStatementContent() {
             return
           }
 
-          // クレジットカード PDF 処理（Gemini OCR）
+          // クレジットカード PDF 処理
+          // まず API を使わない解析を試す（テキストPDFなら日付・金額はテキスト層から
+          // 正確に取れ、小計との突合で漏れが無いことまで確認できる）
+          try {
+            const { parseCardStatementLocally, describeReconciliation } =
+              await import('@/lib/bank-statement/card-statement-local')
+            const local = await parseCardStatementLocally(config.file, (_stage, pct, msg) => {
+              setLoadingProgress(pct)
+              setInfo(msg)
+            })
+            if (local && local.data.transactions.length > 0) {
+              const { creditCardToEntries } = await import('@/lib/bank-statement/credit-card-mapper')
+              const entries = creditCardToEntries(
+                local.data, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName,
+              )
+              const { renderAllPdfPages } = await import('@/lib/bank-statement/pdf-text-parser')
+              const imgs = await renderAllPdfPages(config.file, 2)
+              const localPages: StatementPage[] = imgs.map((url, i) => ({
+                pageIndex: i,
+                transactions: local.rows
+                  .map((r, ri) => ({ r, ri }))
+                  .filter(({ r }) => r.pageIndex === i)
+                  .map(({ r, ri }) => ({
+                    id: `cc-loc-${ri}`, pageIndex: i, rowIndex: ri,
+                    date: r.date, description: r.descRaw,
+                    deposit: r.deposit, withdrawal: r.withdrawal, balance: 0,
+                  })),
+                openingBalance: 0,
+                closingBalance: 0,
+                isBalanceValid: true,
+                balanceDifference: 0,
+                imageDataUrl: url,
+              }))
+              setPages((prev) => [...prev, ...localPages])
+              setJournalEntries((prev) => [...prev, ...entries])
+              const memo = local.useCount > 1
+                ? `記憶済みフォーマット「${local.formatLabel}」で解析（${local.useCount}回目）`
+                : `フォーマット「${local.formatLabel}」を新しく記憶しました`
+              setInfo(
+                `カード明細をAI未使用で解析: ${entries.length}件（合計: ¥${local.data.totalAmount.toLocaleString()}）／`
+                + `${describeReconciliation(local.reconciliation, local.data.transactions.length)}／${memo}`,
+              )
+              clearInterval(progressTimer)
+              setLoadingProgress(100)
+              setIsLoading(false)
+              return
+            }
+          } catch (e) {
+            console.warn('カード明細のローカル解析に失敗。AI解析へ切り替えます', e)
+          }
+
+          // ローカル解析できない明細（画像PDF等）は従来どおり Gemini OCR
           const { renderPdfPageToImage, getPdfPageCount } = await import('@/lib/bank-statement/pdf-text-parser')
           const pageCount = await getPdfPageCount(config.file)
           const imageDataUrls: string[] = []
@@ -1550,6 +1603,11 @@ export default function BankStatementContent() {
                 icon: '📋',
                 onClick: () => setShowInvoiceRegistry(true),
               },
+              {
+                label: 'カード明細フォーマット',
+                icon: '💳',
+                onClick: () => setShowCardFormats(true),
+              },
               { divider: true },
               {
                 label: 'Gemini モデル',
@@ -1922,6 +1980,8 @@ export default function BankStatementContent() {
         open={showInvoiceRegistry}
         onClose={() => setShowInvoiceRegistry(false)}
       />
+
+      {showCardFormats && <CardFormatDialog onClose={() => setShowCardFormats(false)} />}
 
       <PayrollUploadDialog
         open={showPayroll}

@@ -1,0 +1,165 @@
+// 摘要（加盟店名）だけを端末内OCRで読み直す。API・通信費ゼロ。
+//
+// カード会社のPDFには日本語フォントに文字コード対応表（ToUnicode）が無く、
+// テキスト層の日本語がすべて化けるものがある。日付と金額はテキスト層から
+// 1円の誤りもなく取れるので、化けている「摘要の列」だけを画像にしてOCRする。
+// 金額をOCRに頼らないぶん、画像まるごとのOCRより原理的に精度が高い。
+
+import type { LayoutRow, StatementLayout } from './statement-layout-parser'
+import { looksMojibake } from './statement-layout-parser'
+
+async function getPdfjsLib() {
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
+  if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`
+  }
+  return pdfjsLib
+}
+
+const PDF_DOC_OPTIONS = {
+  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+}
+
+// 300dpi 相当。これ以下だと日本語の細部（ー と 一 など）が潰れる
+const SCALE = 300 / 72
+
+interface OcrLine { yTop: number; yBottom: number; text: string }
+
+// 日本語の学習データ。int版(_best_int)は約2MBで、標準版(約16MB)より
+// 加盟店名の読み取りが良かったので優先する。取得できない場合は既定へ戻す。
+const TESS_BEST_INT = 'https://tessdata.projectnaptha.com/4.0.0_best_int'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function createJpnWorker(createWorker: any): Promise<any> {
+  try {
+    return await createWorker('jpn', 1, { langPath: TESS_BEST_INT })
+  } catch {
+    return await createWorker('jpn')
+  }
+}
+
+/**
+ * 摘要列をOCRして rows[].descRaw を上書きする（化けている行だけ）。
+ * 返り値は実際に書き換えた行数。
+ */
+export async function fillDescriptionsByOcr(
+  file: File,
+  rows: LayoutRow[],
+  layout: StatementLayout,
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  if (typeof window === 'undefined') return 0
+  // 化けている行があるページだけを対象にする
+  const targetPages = Array.from(
+    new Set(rows.filter((r) => looksMojibake(r.descRaw) || !r.descRaw).map((r) => r.pageIndex)),
+  ).sort((a, b) => a - b)
+  if (!targetPages.length) return 0
+
+  const { createWorker } = await import('tesseract.js')
+  const pdfjsLib = await getPdfjsLib()
+  const buf = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf), ...PDF_DOC_OPTIONS }).promise
+
+  // 摘要列の切り出し範囲（pt）。左は摘要列の開始、右は金額列の手前
+  const cropLeft = Math.max(0, layout.descX[0] - 4)
+  const cropRight = Math.max(cropLeft + 40, layout.amountX[0] - 4)
+
+  const worker = await createJpnWorker(createWorker)
+  let filled = 0
+  try {
+    for (let i = 0; i < targetPages.length; i++) {
+      const pageIndex = targetPages[i]
+      onProgress?.(i, targetPages.length)
+      const page = await pdf.getPage(pageIndex + 1)
+      const viewport = page.getViewport({ scale: SCALE })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, viewport }).promise
+
+      // 摘要列だけを切り出す
+      const sx = Math.round(cropLeft * SCALE)
+      const sw = Math.min(canvas.width - sx, Math.round((cropRight - cropLeft) * SCALE))
+      if (sw <= 0) continue
+      const crop = document.createElement('canvas')
+      crop.width = sw
+      crop.height = canvas.height
+      const cctx = crop.getContext('2d')!
+      cctx.fillStyle = '#fff'
+      cctx.fillRect(0, 0, sw, canvas.height)
+      cctx.drawImage(canvas, sx, 0, sw, canvas.height, 0, 0, sw, canvas.height)
+
+      const { data } = await worker.recognize(crop, {}, { blocks: true, text: true })
+      const lines = collectLines(data)
+      for (const r of rows) {
+        if (r.pageIndex !== pageIndex) continue
+        if (r.descRaw && !looksMojibake(r.descRaw)) continue
+        const text = pickLineFor(lines, r)
+        if (text) { r.descRaw = text; filled++ }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { (page as any).cleanup?.() } catch { /* ignore */ }
+    }
+    onProgress?.(targetPages.length, targetPages.length)
+  } finally {
+    await worker.terminate()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { (pdf as any).destroy?.() } catch { /* ignore */ }
+  }
+  return filled
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function collectLines(data: any): OcrLine[] {
+  const out: OcrLine[] = []
+  // tesseract.js v5+ は data.lines を返さない。blocks→paragraphs→lines を辿る
+  for (const b of data?.blocks || []) {
+    for (const p of b?.paragraphs || []) {
+      for (const l of p?.lines || []) {
+        const text = String(l?.text || '').replace(/\s+/g, ' ').trim()
+        if (!text || !l?.bbox) continue
+        out.push({ yTop: l.bbox.y0 / SCALE, yBottom: l.bbox.y1 / SCALE, text })
+      }
+    }
+  }
+  return out
+}
+
+/** 取引行の縦位置に重なるOCR行を摘要にする */
+function pickLineFor(lines: OcrLine[], row: LayoutRow): string {
+  const top = row.yTop
+  const bottom = row.yTop + (row.height || 12)
+  const center = (top + bottom) / 2
+  let best: OcrLine | null = null
+  let bestD = Infinity
+  for (const l of lines) {
+    const lc = (l.yTop + l.yBottom) / 2
+    const d = Math.abs(lc - center)
+    // 行の高さの2倍まで許容（OCRの行box は行間を含んで上下にずれる）
+    if (d > Math.max(10, (bottom - top) * 2)) continue
+    if (d < bestD) { bestD = d; best = l }
+  }
+  if (!best) return ''
+  // 行頭に残った日付・行末に残った金額を落として加盟店名だけにする
+  const t = best.text
+    .replace(/^\s*\d{1,2}\s*月\s*\d{1,2}\s*日\s*/, '')
+    .replace(/[\d,]{3,}\s*(?:[(（][^)）]{0,3}[)）])?\s*$/, '')
+    .trim()
+  return squeezeJapaneseSpaces(t)
+}
+
+/**
+ * OCRは日本語の文字と文字の間にスペースを入れてくる（「ホー ムセン ター 山 新」）。
+ * 英単語の区切りは残したいので、両隣が英数字のスペースだけ残して他は詰める。
+ */
+export function squeezeJapaneseSpaces(s: string): string {
+  // 後続文字は先読みで見る（消費すると「A B C」の2つ目のスペースを判定できなくなる）
+  return s.replace(/(\S)[ 　]+(?=(\S))/g, (_m, a: string, b: string) =>
+    /[A-Za-z0-9]/.test(a) && /[A-Za-z0-9]/.test(b) ? `${a} ` : a,
+  ).trim()
+}

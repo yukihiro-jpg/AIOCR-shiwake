@@ -13,6 +13,7 @@ export const STORAGE_KEY_MAP: Record<string, (cid: string) => string> = {
   'payroll-settings': (cid) => `bs-payroll-settings-${cid}`,
   'questions': (cid) => `bs-questions-${cid}`,
   'excel-mapping': (cid) => `bs-excel-mapping-${cid}`,
+  'card-formats': (cid) => `bs-card-formats-${cid}`,
 }
 export const STORAGE_KEYS = Object.keys(STORAGE_KEY_MAP)
 
