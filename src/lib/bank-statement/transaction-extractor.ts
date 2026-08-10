@@ -1347,6 +1347,8 @@ async function parsePdfFile(file: File, accountCode?: string): Promise<ParseResu
               deposit: r.deposit, withdrawal: r.withdrawal, balance: 0,
             })),
           openingBalance: 0, closingBalance: 0, isBalanceValid: true, balanceDifference: 0,
+          // カード明細には残高の欄が無い。通帳として取り込まれても残高検証をしない
+          noBalance: true,
         }))
         if (localPages.length > 0) {
           localPages[0].imageDataUrl = await renderPdfPageToImage(file, 1, 2)

@@ -240,8 +240,8 @@ export default function StatementViewer({
         )}
       </div>
 
-      {/* 残高情報 */}
-      {hideBalance ? (
+      {/* 残高情報（残高欄の無い書類は金額合計だけ出す） */}
+      {hideBalance || currentPage.noBalance ? (
         // クレジットカード等: 金額合計のみ表示
         <div className="px-4 py-2 bg-[#fafbfd] border-t border-gray-200 shrink-0 text-sm">
           <span className="text-gray-600">金額合計: </span>

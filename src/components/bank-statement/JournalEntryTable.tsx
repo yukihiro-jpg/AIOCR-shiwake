@@ -864,7 +864,8 @@ export default function JournalEntryTable({
   // 取引ID→通帳残高のルックアップ
   const txBalanceMap = useMemo(() => {
     const m = new Map<string, number>()
-    for (const p of pages) for (const t of p.transactions) m.set(t.id, t.balance)
+    // 残高欄が無い書類（カード明細等）は突合しない
+    for (const p of pages) { if (p.noBalance) continue; for (const t of p.transactions) m.set(t.id, t.balance) }
     return m
   }, [pages])
 
@@ -892,6 +893,7 @@ export default function JournalEntryTable({
     const mismatches: { pageIndex: number; calculated: number; expected: number; diff: number }[] = []
     for (const page of pages) {
       if (page.transactions.length === 0) continue
+      if (page.noBalance) continue // 残高欄が無い書類（カード明細等）は検証しない
       const pageEntries = entries.filter((e) =>
         page.transactions.some((t) => t.id === e.transactionId)
       )
