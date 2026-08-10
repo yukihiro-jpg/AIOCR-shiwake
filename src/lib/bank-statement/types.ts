@@ -36,6 +36,7 @@ export interface StatementPage {
   imageDataUrl?: string
   pdfDataUrl?: string   // 元PDFのdata URL（iframe表示用、キャンバス描画失敗時のフォールバック）
   id?: string           // レシート・請求書等「1書類=1画像」ページの一意ID。仕訳行(sourcePageId)と紐付け、行削除時の画像削除に使う
+  sourceId?: string     // 同じ取込みで作られたページ群の目印。あとから画像だけ差し込むときに使う
 }
 
 // 仕訳行

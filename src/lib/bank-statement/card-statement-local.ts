@@ -28,8 +28,15 @@ export interface LocalCardParseResult {
   signature: string
   /** このフォーマットを使うのが何回目か（1＝今回はじめて覚えた） */
   useCount: number
-  /** 摘要をローカルOCRで読み直した件数 */
-  ocrFilled: number
+  /** 摘要がまだ文字化けしていて、端末内OCRで読み直せる状態か */
+  descriptionsPending: boolean
+  /**
+   * 摘要（店名）を端末内OCRで読み直す。rows[].descRaw を書き換え、埋まった件数を返す。
+   * 日付・金額はテキスト層だけで確定しているので、これは後追いで実行してよい。
+   */
+  finishDescriptions?: (
+    onProgress?: (done: number, total: number, phase?: 'prepare' | 'start') => void,
+  ) => Promise<number>
 }
 
 export interface LocalCardProgress {
@@ -71,48 +78,44 @@ export async function parseCardStatementLocally(
   // 小計と突き合わせられず件数も少ないときは、誤検出の疑いがあるので AI 解析へ譲る
   if (!result.reconciliation.ok && result.rows.length < 5) return null
 
-  onProgress?.('text', 35, `${result.rows.length}件の取引を読み取りました`)
+  onProgress?.('text', 90, `${result.rows.length}件の取引を読み取りました`)
 
-  // 摘要が化けているフォーマットなら、摘要の列だけ端末内OCRで読み直す。
-  // 前回までに読めた店名の辞書を渡すので、2回目以降は新しい店だけをOCRすればよい
+  // 摘要が化けているフォーマットか。前回までに読めた店名の辞書があれば先に当てはめる
   const descDict: Record<string, string> = { ...(saved?.descDict || {}) }
   const needsOcr = saved?.descNeedsOcr || mojibakeRatio(result.rows) > 0.3
-  let ocrFilled = 0
-  if (needsOcr) {
-    try {
-      const rowCount = result.rows.length
-      ocrFilled = await fillDescriptionsByOcr(file, result.rows, result.layout, (done, total, phase) => {
-        if (phase === 'prepare') {
-          onProgress?.('ocr', 36,
-            `${rowCount}件の日付・金額を読み取りました。摘要（店名）の読み取りを準備中…`
-            + '（この端末での初回だけ、日本語の読み取りデータ約2MBを取得します）')
-          return
-        }
-        if (phase === 'start') {
-          onProgress?.('ocr', 38, `${rowCount}件の日付・金額を読み取りました。摘要（店名）を読み取り中… (0/${total}ページ)`)
-          return
-        }
-        onProgress?.('ocr', 38 + Math.round(52 * (total ? done / total : 1)),
-          `${rowCount}件の日付・金額を読み取りました。摘要（店名）を読み取り中… (${done}/${total}ページ)`)
-      }, descDict)
-    } catch (e) {
-      // OCRに失敗しても日付・金額は正しいので、摘要なしで続行する
-      console.warn('摘要のローカルOCRに失敗しました（日付・金額はそのまま使えます）', e)
-    }
-  }
-
   const label = saved?.label || computeCardLabel(rowsByPage[0] || [])
-  // 小計と一致した（＝漏れが無いと確認できた）ときだけフォーマットを覚える
-  if (result.reconciliation.ok) {
+  const rowsRef = result.rows
+  const layoutRef = result.layout
+  const reconOk = result.reconciliation.ok
+
+  // 小計と一致した（＝漏れが無いと確認できた）ときだけフォーマットを覚える。
+  // 摘要のOCRを待たずにここで保存しておく（日付・金額はもう確定している）
+  const remember = () => {
+    if (!reconOk) return
     saveCardFormat({
-      signature,
-      label,
-      layout: result.layout,
-      descNeedsOcr: needsOcr,
-      descDict,
-      lastRows: result.rows.length,
+      signature, label, layout: layoutRef,
+      descNeedsOcr: needsOcr, descDict, lastRows: rowsRef.length,
     })
   }
+  remember()
+
+  // 摘要は後追いで読む。日付・金額の結果はすぐ画面に出せるようにするため、
+  // ここでは実行せず「あとで呼べる関数」を返すだけにする
+  const finishDescriptions = needsOcr
+    ? async (
+        cb?: (done: number, total: number, phase?: 'prepare' | 'start') => void,
+      ): Promise<number> => {
+        try {
+          const filled = await fillDescriptionsByOcr(file, rowsRef, layoutRef, cb, descDict)
+          remember() // 新しく読めた店名を辞書に反映して覚え直す
+          return filled
+        } catch (e) {
+          // OCRに失敗しても日付・金額は正しいので、摘要なしで続行する
+          console.warn('摘要のローカルOCRに失敗しました（日付・金額はそのまま使えます）', e)
+          return 0
+        }
+      }
+    : undefined
 
   const transactions: CreditCardTransaction[] = result.rows.map((r) => ({
     usageDate: r.date,
@@ -135,7 +138,8 @@ export async function parseCardStatementLocally(
     formatLabel: label,
     signature,
     useCount: (saved?.useCount || 0) + 1,
-    ocrFilled,
+    descriptionsPending: !!finishDescriptions,
+    finishDescriptions,
   }
 }
 

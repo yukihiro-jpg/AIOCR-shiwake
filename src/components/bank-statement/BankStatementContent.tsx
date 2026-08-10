@@ -585,35 +585,97 @@ export default function BankStatementContent() {
               const entries = creditCardToEntries(
                 local.data, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName,
               )
-              const { renderAllPdfPages } = await import('@/lib/bank-statement/pdf-text-parser')
-              const imgs = await renderAllPdfPages(config.file, 2)
-              const localPages: StatementPage[] = imgs.map((url, i) => ({
-                pageIndex: i,
-                transactions: local.rows
-                  .map((r, ri) => ({ r, ri }))
-                  .filter(({ r }) => r.pageIndex === i)
-                  .map(({ r, ri }) => ({
-                    id: `cc-loc-${ri}`, pageIndex: i, rowIndex: ri,
-                    date: r.date, description: r.descRaw,
-                    deposit: r.deposit, withdrawal: r.withdrawal, balance: 0,
-                  })),
-                openingBalance: 0,
-                closingBalance: 0,
-                isBalanceValid: true,
-                balanceDifference: 0,
-                imageDataUrl: url,
-              }))
-              setPages((prev) => [...prev, ...localPages])
+              // 日付・金額はここで確定しているので、まず結果を出してしまう。
+              // ページ画像は表示のためだけなので、待たずに後から差し込む
+              const uid = `cc-loc-${Date.now()}`
+              const pageCount0 = local.rows.reduce((m, r) => Math.max(m, r.pageIndex + 1), 0)
+              const mkPages = (imgs?: string[]): StatementPage[] =>
+                Array.from({ length: pageCount0 }, (_, i) => ({
+                  pageIndex: i,
+                  transactions: local.rows
+                    .map((r, ri) => ({ r, ri }))
+                    .filter(({ r }) => r.pageIndex === i)
+                    .map(({ r, ri }) => ({
+                      id: `${uid}-${ri}`, pageIndex: i, rowIndex: ri,
+                      date: r.date, description: r.descRaw,
+                      deposit: r.deposit, withdrawal: r.withdrawal, balance: 0,
+                    })),
+                  openingBalance: 0,
+                  closingBalance: 0,
+                  isBalanceValid: true,
+                  balanceDifference: 0,
+                  imageDataUrl: imgs?.[i],
+                  sourceId: uid,
+                }))
+              setPages((prev) => [...prev, ...mkPages()])
               setJournalEntries((prev) => [...prev, ...entries])
               const memo = local.useCount > 1
                 ? `記憶済みフォーマット「${local.formatLabel}」で解析（${local.useCount}回目）`
                 : `フォーマット「${local.formatLabel}」を新しく記憶しました`
-              setInfo(
+              const headline =
                 `カード明細をAI未使用で解析: ${entries.length}件（合計: ¥${local.data.totalAmount.toLocaleString()}）／`
-                + `${describeReconciliation(local.reconciliation, local.data.transactions.length)}／${memo}`,
-              )
+                + `${describeReconciliation(local.reconciliation, local.data.transactions.length)}／${memo}`
+              setInfo(local.descriptionsPending ? `${headline}／摘要（店名）はこの後で読み取ります` : headline)
               setLoadingProgress(100)
               setIsLoading(false)
+
+              // ページ画像の生成（表示用）は結果を出した後で進める
+              void (async () => {
+                try {
+                  const { renderAllPdfPages } = await import('@/lib/bank-statement/pdf-text-parser')
+                  await renderAllPdfPages(config.file, 2, (idx, url) => {
+                    setPages((prev) => prev.map((p) =>
+                      p.sourceId === uid && p.pageIndex === idx ? { ...p, imageDataUrl: url } : p))
+                  })
+                } catch { /* 画像が出なくても仕訳は使える */ }
+              })()
+
+              // 摘要（店名）は端末内OCRで後追いする。読み終わったら、
+              // まだ手が入っていない仕訳だけを新しい摘要で作り直す
+              if (local.finishDescriptions) {
+                const cfg = config
+                const created = entries
+                void (async () => {
+                  const filled = await local.finishDescriptions!((doneP, totalP, phase) => {
+                    setInfo(phase === 'prepare'
+                      ? `${headline}／摘要（店名）の読み取りを準備中…（この端末での初回だけ日本語データ約2MBを取得します）`
+                      : `${headline}／摘要（店名）を読み取り中… (${doneP}/${totalP}ページ)`)
+                  })
+                  const fresh = creditCardToEntries(
+                    {
+                      ...local.data,
+                      transactions: local.rows.map((r) => ({
+                        usageDate: r.date, storeName: r.descRaw,
+                        amount: r.withdrawal != null ? r.withdrawal : -(r.deposit || 0),
+                      })),
+                    },
+                    cfg.creditCode!, cfg.creditName!, cfg.creditSubCode, cfg.creditSubName,
+                  )
+                  const byId = new Map(created.map((e, i) => [e.id, i]))
+                  const untouched = (a: JournalEntry, b: JournalEntry) =>
+                    a.description === b.description && a.debitCode === b.debitCode
+                    && a.debitSubCode === b.debitSubCode && a.creditCode === b.creditCode
+                    && a.creditSubCode === b.creditSubCode && a.debitAmount === b.debitAmount
+                    && a.date === b.date && a.debitTaxCode === b.debitTaxCode
+                  setJournalEntries((prev) => prev.map((e) => {
+                    const i = byId.get(e.id)
+                    if (i === undefined || !fresh[i]) return e
+                    // 読み取り中にユーザーが編集した仕訳は触らない
+                    if (!untouched(e, created[i])) return e
+                    return { ...fresh[i], id: e.id }
+                  }))
+                  setPages((prev) => prev.map((p) => ({
+                    ...p,
+                    transactions: p.transactions.map((t) => {
+                      if (!t.id.startsWith(`${uid}-`)) return t
+                      const ri = Number(t.id.slice(uid.length + 1))
+                      const row = local.rows[ri]
+                      return row ? { ...t, description: row.descRaw } : t
+                    }),
+                  })))
+                  setInfo(`${headline}／摘要（店名）を${filled}件読み取りました`)
+                })()
+              }
               return
             }
           } catch (e) {
