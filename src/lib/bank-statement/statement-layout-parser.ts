@@ -90,16 +90,28 @@ export function mojibakeRatio(rows: { descRaw: string }[]): number {
   return withDesc.filter((r) => looksMojibake(r.descRaw)).length / withDesc.length
 }
 
-/** 「7月10日」「8月1日」等（区切りが文字化けしていても数字2つで判定） */
-function dateValue(s: string): { month: number; day: number } | null {
+/**
+ * セルの先頭にある日付を読む。「7月10日」「10月19日」のほか、区切りが文字化けしていても
+ * 数字2つで判定する。
+ *
+ * 日付のうしろに摘要がくっついたセル（「10月19日ＥＴＣ特別割引 関東」）になることがある。
+ * PDFの列の間隔が狭いと日付と摘要が1つのセルにまとまってしまうため。
+ * その場合は日付だけ切り出して、残りは摘要として返す。
+ */
+function leadingDate(s: string): { month: number; day: number; rest: string } | null {
   const t = s.trim()
-  if (!t || t.length > 12) return null
-  if (/\d{3}/.test(t)) return null // 3桁以上の連番は日付ではない（金額・番号）
-  const nums = t.match(/\d{1,2}/g)
-  if (!nums || nums.length !== 2) return null
-  const month = Number(nums[0]), day = Number(nums[1])
+  if (!t) return null
+  // 月・日とも1〜2桁（そのうしろに数字が続かない＝金額や番号ではない）
+  // 末尾は「日」と空白だけ食べる（摘要の1文字目まで食べてしまわないように）
+  const m = /^(\d{1,2})(?!\d)\D{0,3}(\d{1,2})(?!\d)[日\s]*/.exec(t)
+  if (!m) return null
+  const month = Number(m[1]), day = Number(m[2])
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return { month, day }
+  return { month, day, rest: t.slice(m[0].length).trim() }
+}
+
+function dateValue(s: string): { month: number; day: number } | null {
+  return leadingDate(s)
 }
 
 /**
@@ -207,7 +219,7 @@ export function parseByLayout(
       if (ai < 0) continue
       const amt = amountValue(r.cells[ai])!
 
-      const d = inRange(posOf(0), lay.dateX) ? dateValue(r.cells[0]) : null
+      const d = inRange(posOf(0), lay.dateX) ? leadingDate(r.cells[0]) : null
       if (d) {
         seq.push({ kind: 'tx', idx: drafts.length })
         drafts.push({
@@ -215,7 +227,8 @@ export function parseByLayout(
           yTop: r.boundingBox ? r.boundingBox.y : H,
           height: r.boundingBox ? r.boundingBox.height : 12,
           month: d.month, day: d.day, amount: amt,
-          descRaw: r.cells.slice(1, ai).join(' ').trim(),
+          // 日付セルに摘要がくっついていた場合は、その残りも摘要に含める
+          descRaw: [d.rest, ...r.cells.slice(1, ai)].filter(Boolean).join(' ').trim(),
         })
       } else if (!dateValue(r.cells[0])) {
         // 日付の無い金額行＝小計・合計の候補
