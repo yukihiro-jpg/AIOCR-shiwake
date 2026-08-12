@@ -30,9 +30,9 @@ import SectionAnken from './SectionAnken'
 import SectionLedger from './SectionLedger'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
-import { buildPrintReportHtml, PRINT_VIEWS, PRINT_ONLY_VIEWS, PORTRAIT_VIEWS, type PrintView } from '@/lib/keiei/print-report'
+import SectionReport2 from './SectionReport2'
 
-type View = 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
+type View = 'report2' | 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -128,58 +128,23 @@ export default function KeieiContent() {
   // ===== 印刷（タブ選択式・新規ウィンドウに「1資料＝横A4・1枚」の報告書を生成） =====
   // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
   const hasAnken = !!current?.name?.includes('藤井設計')
-  const PRINT_TABS: [View, string][] = PRINT_VIEWS as unknown as [View, string][]
-  // 印刷専用ビュー（3期推移・試算表全科目）は画面タブに出さない
-  // （画面では「試算表・3期比較・推移」タブ内に同じ内容の表があるため重複させない）
-  const SCREEN_TABS: [View, string][] = PRINT_TABS.filter(([v]) => !(PRINT_ONLY_VIEWS as string[]).includes(v as string))
-  // 元帳分析は端末ローカルデータ（IndexedDB）を使うため印刷選択には含めない（会計監査は税務チェックへ移設済み）
+  // 画面タブ。顧問先へお渡しする報告書は「報告書」タブ（新デザイン・A4横2色）に一本化した。
+  // 他のタブは事務所内で数字を確かめるための作業画面（経営課題は報告書には入れない）。
+  const SCREEN_TABS: [View, string][] = [
+    ['report2', '報告書'],
+    ['overview', '概要'],
+    ['budget', '予算・予実'],
+    ['report', '試算表・3期比較・推移'],
+    ['detail', '原価・経費明細'],
+    ['cvpfcf', '損益分岐点・キャッシュフロー'],
+    ['issues', '経営課題'],
+    ['cash', '資金繰り・安全性'],
+  ]
+  // 元帳分析は端末ローカルデータ（IndexedDB）を使う（会計監査は税務チェックへ移設済み）
   const TABS: [View, string][] = [...SCREEN_TABS, ['ledger', '元帳分析'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
-  const [printOpen, setPrintOpen] = useState(false)
   // 損益分岐点シミュレーションのスライダー値を親で保持（画面タブ用）
   const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
-  const [printSel, setPrintSel] = useState<View[]>(['overview', 'budget', 'report', 'trialfull' as View, 'detail', 'cvpfcf', 'issues', 'cash', 'trend3pl' as View])
-  const printRef = useRef<HTMLDivElement>(null)
-  const togglePrintSel = (v: View) => setPrintSel((s) => s.includes(v) ? s.filter((x) => x !== v) : [...s, v])
-  const orderedSel = PRINT_TABS.map(([v]) => v).filter((v) => printSel.includes(v))
-  useEffect(() => {
-    const h = (e: MouseEvent) => { if (printRef.current && !printRef.current.contains(e.target as Node)) setPrintOpen(false) }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [])
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
-  // 選択タブの報告書を新規ウィンドウで生成（表紙に選択資料の番号付き目次。未選択の資料は番号が繰り上がる）
-  const doPrint = (views: View[]) => {
-    if (!views.length || !fy) return
-    setPrintOpen(false)
-    setErr(null)
-    // A3縦の資料（損益計算書3期推移）は別ウィンドウ＝別の印刷ジョブで開く。
-    // 1つのジョブに縦と横を混ぜると、印刷ダイアログで選んだ用紙の向きが全ページに
-    // 適用されてしまい、縦の資料が横向きで出力されるため。
-    const portraitSel = (views as string[]).filter((v) => (PORTRAIT_VIEWS as string[]).includes(v)) as PrintView[]
-    const landscapeSel = (views as string[]).filter((v) => !(PORTRAIT_VIEWS as string[]).includes(v)) as PrintView[]
-    const open = (sel: PrintView[], paper: 'landscape' | 'portrait', withCover: boolean) => {
-      if (!sel.length) return true
-      const html = buildPrintReportHtml({
-        views: sel,
-        company: current?.name || '',
-        fy, prior, years, monthIdx, settings, paper, withCover,
-      })
-      const w = window.open('', '_blank')
-      if (!w) return false
-      w.document.open(); w.document.write(html); w.document.close()
-      return true
-    }
-    const ok1 = open(landscapeSel, 'landscape', true)
-    const ok2 = open(portraitSel, 'portrait', landscapeSel.length === 0)
-    if (!ok1 || !ok2) {
-      setErr('ポップアップがブロックされました。ブラウザの設定で許可してから、もう一度「印刷」を押してください。')
-      return
-    }
-    if (landscapeSel.length && portraitSel.length) {
-      setMsg('「損益計算書（3期推移）」はA3縦のため、別のタブで開きました。そちらでも印刷を実行してください。')
-      setTimeout(() => setMsg(null), 8000)
-    }
-  }
   const sorted = useMemo(() => sortedYears(years), [years])
   const comp = useMemo(() => {
     if (!fy) return []
@@ -192,6 +157,7 @@ export default function KeieiContent() {
     if (!fy) return null
     if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} priorFy={prior} monthIdx={monthIdx} reloadKey={ledgerReload} />
     switch (v) {
+      case 'report2': return <SectionReport2 fy={fy} prior={prior} years={years} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} company={current?.name || ''} />
       case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
       case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
       case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
@@ -457,28 +423,9 @@ export default function KeieiContent() {
                 <button key={v} onClick={() => setView(v)}
                   className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
               ))}
-              {fy && <div ref={printRef} className="ml-auto relative">
-                <button onClick={() => setPrintOpen((o) => !o)} className="px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 印刷 ▾</button>
-                {printOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-30 p-3">
-                    <div className="text-xs font-bold text-gray-700 mb-1">印刷する資料を選択</div>
-                    <div className="text-[11px] text-gray-400 mb-2">1資料＝横A4・1枚に要約して出力します。表紙に選択した資料の番号付き目次が付きます。</div>
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {PRINT_TABS.map(([v, l]) => { const on = printSel.includes(v); return (
-                        <button key={v} onClick={() => togglePrintSel(v)}
-                          className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${on ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{on ? '✓ ' : ''}{l}</button>
-                      ) })}
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <button onClick={() => setPrintSel(PRINT_TABS.map(([v]) => v))} className="text-[11px] text-[#1a73e8] hover:underline">全部選択</button>
-                      <div className="flex gap-2">
-                        <button onClick={() => doPrint(PRINT_TABS.map(([v]) => v))} className="px-3 py-1.5 text-xs bg-[#C8A24B] text-white rounded-lg font-bold hover:brightness-95">全部出力</button>
-                        <button onClick={() => doPrint(orderedSel)} disabled={!orderedSel.length} className="px-3 py-1.5 text-xs bg-[#1F3A5F] text-white rounded-lg font-bold hover:brightness-110 disabled:opacity-40">選択を出力</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>}
+              {fy && view !== 'report2' && (
+                <button onClick={() => setView('report2')} className="ml-auto px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 報告書を作る</button>
+              )}
             </div>
           </div>
 

@@ -116,8 +116,9 @@ export function bepChart(ctx: ReportV2Context): string {
   const px = (v: number): number => X0 + (clamp(v, 0, SMAX) / SMAX) * (X1 - X0)
   const py = (v: number): number => Y0 - (clamp(v, 0, SMAX) / SMAX) * (Y0 - Y1)
 
-  // 総費用の線：固定費から始まり、傾きが変動費率（＝1−限界利益率）
-  const varRate = 1 - fin(b.marginalRate) / 100
+  // 総費用の線：固定費から始まり、傾きが変動費率（＝1−限界利益率）。
+  // marginalRate は割合（0.35＝35%）で持っている。100で割らないこと（過去に線が45度になる不具合）
+  const varRate = 1 - fin(b.marginalRate)
   const costAt = (s: number): number => fixed + s * varRate
   // 上端をはみ出す（限界利益率がゼロ以下＝売っても利益が出ない）ときは枠内で切る
   let sEnd = SMAX
