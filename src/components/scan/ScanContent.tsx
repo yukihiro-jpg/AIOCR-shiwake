@@ -18,6 +18,8 @@ import {
   markFileDownloaded,
   markFileDriveSaved,
   SCAN_FILE_RETENTION_DAYS,
+  SCAN_INBOX_RETENTION_DAYS,
+  scanExpiry,
   SCAN_FILE_MAX_BYTES,
   SCAN_FILE_MAX_TOTAL,
   type ScanFile,
@@ -64,7 +66,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState, ExpiryNote } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
@@ -131,7 +133,7 @@ export default function ScanContent() {
       await Promise.all(
         Object.values(comps).map(async (c) => {
           try {
-            // 保存期間（画像1年・ファイル90日）を過ぎたデータを自動削除してから件数を数える
+            // 保存期間（画像1年／ファイル便は顧問先→税理士1年・税理士→顧問先4年）を過ぎたデータを自動削除してから件数を数える
             try { await sweepOldScanData(c.token) } catch { /* 権限エラー等は下で表示される */ }
             for (const m of Object.values(c.members || {})) {
               try { await sweepOldScanData(m.token) } catch { /* ignore */ }
@@ -1657,7 +1659,11 @@ function RecentUploads({
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <h3 className="text-base font-bold text-gray-800">🕒 最新アップロードファイル</h3>
-        <span className="text-xs text-gray-500">両方向のファイルを新しい順に表示しています（{rows.length}件）</span>
+        <span className="text-xs text-gray-500">
+          両方向のファイルを新しい順に表示しています（{rows.length}件）／保存期間は
+          {labelToClient} {Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年・
+          {labelToOffice} {Math.round(SCAN_FILE_RETENTION_DAYS / 365)}年
+        </span>
         <div className="ml-auto flex items-center gap-1.5">
           <button
             onClick={dlSelectedZip}
@@ -1708,6 +1714,7 @@ function RecentUploads({
                 <th className="text-left px-3 py-2">ファイル名</th>
                 <th className="text-left px-3 py-2 whitespace-nowrap">アップロードした人</th>
                 <th className="text-left px-3 py-2">格納フォルダ</th>
+                <th className="text-left px-3 py-2 whitespace-nowrap">保存期限</th>
                 <th className="text-right px-3 py-2 whitespace-nowrap"></th>
               </tr>
             </thead>
@@ -1741,6 +1748,9 @@ function RecentUploads({
                     >
                       📁 {folderPath(r.root, r.folderId)}
                     </button>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <ExpiryNote at={r.at} root={r.root} />
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <button
@@ -1874,11 +1884,9 @@ function FilesPanel({
   }))
   const toOfficeFiles = senderFilter ? toOfficeFilesAll.filter((f) => senderOf((f.raw as ScanFile).member) === senderFilter) : toOfficeFilesAll
 
-  // 削除までの残り日数（90日保存）
+  // 削除までの残り日数（顧問先→税理士のファイル便＝1年保存）
   function daysLeft(f: ScanFile): number {
-    const t = Date.parse(f.submittedAt || '')
-    if (!t) return 999
-    return Math.ceil((t + SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000 - Date.now()) / (24 * 3600 * 1000))
+    return scanExpiry(f.submittedAt || '', 'toOffice')?.daysLeft ?? 999
   }
 
   function isNew(f: ScanFile): boolean {
@@ -2018,7 +2026,11 @@ function FilesPanel({
       </div>
 
       {msg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{msg}</div>}
-      <p className="text-xs text-gray-500 mb-2">送信から90日で自動削除されます。長期保管するものはDLまたはDriveへ退避してください。</p>
+      <p className="text-xs text-gray-500 mb-2">
+        保存期間は <b>顧問先 → 税理士：{Math.round(SCAN_FILE_RETENTION_DAYS / 365)}年</b>／
+        <b>税理士 → 顧問先：{Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年</b>（送信日から）。
+        各ファイルに削除予定日を表示しています。法定保存年限まで残すものはDLまたはDriveへ退避してください。
+      </p>
 
       {browseRoot === 'toClient' ? (
         <FolderBrowser
@@ -2416,7 +2428,10 @@ function SendFilesDialog({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-gray-800 mb-1">📤 {client.name} へファイルを送る</h3>
-        <p className="text-xs text-gray-500 mb-3">送信から90日で自動削除されます。顧問先の受け取り（DL）状況は送信済み一覧で確認できます。</p>
+        <p className="text-xs text-gray-500 mb-3">
+          送信から<b>{Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年</b>で自動削除されます（申告書PDF・元帳CSV等をあとから取り出せるようにしています）。
+          顧問先の受け取り（DL）状況は送信済み一覧で確認できます。
+        </p>
 
         <div className="mb-3">
           <div className="text-xs font-semibold text-gray-600 mb-1">宛先</div>

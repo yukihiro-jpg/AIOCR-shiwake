@@ -25,6 +25,8 @@ import {
   type ScanFolder,
   type CashEntryType,
   type CashDepositType,
+  SCAN_FILE_RETENTION_DAYS,
+  SCAN_INBOX_RETENTION_DAYS,
 } from '@/lib/scan/store'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import FolderBrowser, { type BrowserFile, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
@@ -487,7 +489,11 @@ export default function ScanUpload() {
                       )}
                     </button>
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-3">送信されたファイルは90日で自動削除されます。</p>
+                  <p className="text-[11px] text-gray-500 mt-3 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 leading-relaxed">
+                    <b>保存期間</b>：こちらからお送りいただいたファイルは<b>送信から{Math.round(SCAN_FILE_RETENTION_DAYS / 365)}年</b>、
+                    税理士から届いたファイルは<b>送信から{Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年</b>で自動削除されます。
+                    各ファイルに削除予定日を表示しています。お手元の元データには影響しません。
+                  </p>
                 </div>
                 {/* PC：ツリー未選択時のヒント */}
                 <div className="hidden md:block text-center text-gray-400 py-20 text-sm">
@@ -826,7 +832,9 @@ export default function ScanUpload() {
 
         <p className="text-[11px] text-gray-400 text-center">
           カメラが開かないときは LINE 等ではなく Safari / Chrome で開き直してください（アルバムからの選択はどのアプリでも使えます）。<br />
-          送信された画像は送信から1年後、ファイルは90日後に自動削除されます（お手元の元データには影響しません）。
+          <b>保存期間</b>：送信された画像は1年、ファイルはこちらからお送りいただいたものが{Math.round(SCAN_FILE_RETENTION_DAYS / 365)}年、
+          税理士から届いたものが{Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年で自動削除されます（お手元の元データには影響しません）。
+          長期保存が必要な書類は、削除予定日までにお手元へ保存してください。
         </p>
       </div>
     </div>

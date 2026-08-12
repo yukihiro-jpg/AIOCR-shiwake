@@ -4,7 +4,20 @@
 // ルート（toOffice/toClient）は仮想（DBに実体を持たない）。folders はルート配下のサブフォルダのみ。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ScanFolder } from '@/lib/scan/store'
+import { type ScanFolder, scanExpiry, retentionDaysFor } from '@/lib/scan/store'
+
+/** 「削除予定 2029/11/20（あと1,461日）」。期限が近いものは目立たせる */
+export function ExpiryNote({ at, root, compact }: { at: string; root: 'toOffice' | 'toClient'; compact?: boolean }) {
+  const e = scanExpiry(at, root)
+  if (!e) return null
+  const cls = e.soon ? 'text-red-600 font-bold' : 'text-gray-400'
+  return (
+    <span className={`text-[11px] ${cls}`} title={`保存期間 ${Math.round(retentionDaysFor(root) / 365 * 10) / 10}年。この日を過ぎると自動削除されます`}>
+      🗑 {compact ? e.date : `削除予定 ${e.date}`}
+      {e.daysLeft <= 60 && `（あと${Math.max(0, e.daysLeft)}日）`}
+    </span>
+  )
+}
 
 // ドラッグ中のファイル移動情報を保持（一覧⇔サイドバーツリーの橋渡し用モジュール変数）
 export interface ScanDragItem {
@@ -698,6 +711,7 @@ export default function FolderBrowser({
                     <div className="sm:hidden text-[11px] text-gray-400 mt-0.5">
                       {new Date(f.at).toLocaleString('ja-JP')}・{fmtSize(f.size)}{f.member ? `・👤${f.member}` : ''}
                     </div>
+                    <div className="mt-0.5"><ExpiryNote at={f.at} root={rootKey} /></div>
                     {f.member && <div className="hidden sm:block text-[11px] text-gray-400">👤{f.member}</div>}
                     {f.comment && (
                       <div className="text-[11px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mt-1 whitespace-pre-wrap">💬 {f.comment}</div>

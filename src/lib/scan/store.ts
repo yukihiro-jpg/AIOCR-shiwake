@@ -469,7 +469,32 @@ export async function deleteScanFolder(
   }
 }
 
-export const SCAN_FILE_RETENTION_DAYS = 90 // 送信から90日で自動削除
+// 共有フォルダ（ファイル便）の保存期間。向きで長さが違う。
+// 顧問先→税理士：受け渡しの箱なので1年。税理士→顧問先：申告書PDF・元帳CSV等を
+// あとから取り出せるように4年（法定保存期間より短いので、長期保管は各自で退避する運用）。
+export const SCAN_FILE_RETENTION_DAYS = 365          // 顧問先 → 税理士
+export const SCAN_INBOX_RETENTION_DAYS = 365 * 4     // 税理士 → 顧問先
+/** 向きごとの保存日数 */
+export const retentionDaysFor = (root: 'toOffice' | 'toClient'): number =>
+  root === 'toClient' ? SCAN_INBOX_RETENTION_DAYS : SCAN_FILE_RETENTION_DAYS
+
+/**
+ * 削除予定日。表示と実際の削除で同じ計算を使う（画面の「あと◯日」と実削除がずれないように）。
+ * 日付が読めないときは null。
+ */
+export function scanExpiry(atIso: string, root: 'toOffice' | 'toClient'):
+  { at: number; date: string; daysLeft: number; soon: boolean } | null {
+  const t = Date.parse(atIso || '')
+  if (!t) return null
+  const at = t + retentionDaysFor(root) * 24 * 3600 * 1000
+  const daysLeft = Math.ceil((at - Date.now()) / (24 * 3600 * 1000))
+  return {
+    at,
+    date: new Date(at).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    daysLeft,
+    soon: daysLeft <= 30,
+  }
+}
 export const SCAN_FILE_MAX_BYTES = 50 * 1024 * 1024 // 1ファイル上限 50MB
 export const SCAN_FILE_MAX_TOTAL = 200 * 1024 * 1024 // 1回の送信上限 200MB
 
@@ -883,7 +908,7 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
       try { await remove(ref(db, publicPath(token, 'cash', c.id))); removed++ } catch { /* 次回に再試行 */ }
     }
   }
-  // ファイル便は送信から90日で削除（受け渡しの箱の掃除。顧問先の元ファイルには影響しない）
+  // 顧問先→税理士のファイル便は送信から1年で削除（顧問先の元ファイルには影響しない）
   const fileCutoff = Date.now() - SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000
   try {
     const files = await loadFiles(token)
@@ -894,12 +919,13 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
       }
     }
   } catch { /* ignore */ }
-  // 事務所→顧問先のファイル（inbox）も送信から90日で削除
+  // 税理士→顧問先のファイル（inbox）は送信から4年で削除
+  const inboxCutoff = Date.now() - SCAN_INBOX_RETENTION_DAYS * 24 * 3600 * 1000
   try {
     const inbox = await loadInbox(token)
     for (const f of Object.values(inbox)) {
       const t = Date.parse(f.sentAt || '')
-      if (t && t < fileCutoff) {
+      if (t && t < inboxCutoff) {
         try { await deleteInboxFile(token, f); removed++ } catch { /* 次回に再試行 */ }
       }
     }
