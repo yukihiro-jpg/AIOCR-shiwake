@@ -7,6 +7,7 @@ import { REPORT_V2_PAGES } from './types'
 import { buildReportV2Context } from './context'
 import { wrapHtml } from './theme'
 import { pageCover } from './pages/cover'
+import { pageMonthlyPl } from './pages/monthly-pl'
 import { pageTrial } from './pages/trial'
 import { pageLanding } from './pages/landing'
 import { pageCf } from './pages/cf'
@@ -23,6 +24,7 @@ export { buildReportV2Context } from './context'
 function renderPage(ctx: ReportV2Context, key: string): string[] {
   switch (key) {
     case 'cover': return [pageCover(ctx)]
+    case 'monthlypl': return [pageMonthlyPl(ctx)]
     case 'trial': return [pageTrial(ctx)]
     case 'landing': return [pageLanding(ctx)]
     case 'cf': return [pageCf(ctx)]

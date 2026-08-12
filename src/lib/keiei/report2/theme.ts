@@ -194,6 +194,17 @@ td.nm{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .tr3 tr.g td.nm{ background:var(--ink08); }
 .tr3 tr.cur td.sumc{ background:var(--mg30); }
 
+/* 当事業年度の月次損益推移（報告月の列だけシアン網） */
+.tr3.mpl th,.tr3.mpl td{ padding:0.3mm 0.9mm; }
+.tr3.mpl td.nm{ font-weight:400; border-right:0.25mm solid var(--ink); }
+.tr3.mpl tr.key td.nm,.tr3.mpl tr.sub td.nm,.tr3.mpl tr.total td.nm{ font-weight:700; }
+.tr3.mpl td.ind1{ padding-left:3mm; }
+.tr3.mpl td.cm{ background:var(--mg15); font-weight:700; }
+.tr3.mpl tr.key td{ background:var(--mg15); }
+.tr3.mpl tr.key td.cm{ background:var(--mg30); }
+.tr3.mpl tr.sub td{ background:var(--ink08); }
+.tr3.mpl tr.total td{ background:var(--ink08); border-top:0.4mm solid var(--ink); border-bottom:0.4mm solid var(--ink); }
+
 /* 日繰り表 */
 .day th,.day td{ font-size:7.4pt; padding:0.5mm 1.2mm; }
 .day td.nt{ font-size:7pt; color:var(--ink70); white-space:nowrap; overflow:hidden; }

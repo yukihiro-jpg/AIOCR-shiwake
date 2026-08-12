@@ -11,6 +11,7 @@ import {
   type ReportV2Context, type ReportV2Input, type ReportV2PageKey,
   REPORT_V2_PAGES, defaultBepSim, v2SettingsOf,
 } from './types'
+import { computeMonthlyPl } from './monthly-pl'
 import { computeLanding } from './landing'
 import { computeCorporateTax, computeVat } from './tax-forecast'
 import { computeDailyCash } from './daily-cash'
@@ -57,6 +58,7 @@ export function buildReportV2Context(input: ReportV2Input): ReportV2Context {
   const monthsDone = monthIdx + 1
   const annualFactor = monthsDone > 0 ? 12 / monthsDone : 1
 
+  const monthlyPl = computeMonthlyPl(fy, monthIdx)
   const landing = computeLanding(years, fy, prior, monthIdx)
   const corpTax = computeCorporateTax(landing, v2)
   const vat = computeVat(fy, prior, monthIdx, landing, v2)
@@ -80,7 +82,7 @@ export function buildReportV2Context(input: ReportV2Input): ReportV2Context {
     monthLabels: fy.fiscalMonths.map((m) => `${m}月`),
     ymLabel: `${calYear}年${calMonth}月度`,
     monthsDone, annualFactor,
-    landing, corpTax, vat, daily, bep, loan, labor, trend3, cashflow, cfPattern,
+    monthlyPl, landing, corpTax, vat, daily, bep, loan, labor, trend3, cashflow, cfPattern,
     pageNo, pages,
   }
 }

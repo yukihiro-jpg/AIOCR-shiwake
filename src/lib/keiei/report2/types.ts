@@ -13,7 +13,8 @@ export type Unit = 'thousand' | 'yen'
 // ===== ページ =====
 export type ReportV2PageKey =
   | 'cover'      // 表紙
-  | 'trial'      // 1 単月の損益計算書・貸借対照表
+  | 'monthlypl'  // 1 当事業年度の月次損益推移
+  | 'trial'      // 2 単月の損益計算書・貸借対照表
   | 'landing'    // 2 着地見込と納税予測
   | 'cf'         // 3 キャッシュ・フロー計算書（間接法）
   | 'daily'      // 4 月次資金繰り表（日繰り）
@@ -24,6 +25,7 @@ export type ReportV2PageKey =
 
 /** 表紙の目次に出す並び順とタイトル（本文の通し番号もこの順） */
 export const REPORT_V2_PAGES: [ReportV2PageKey, string][] = [
+  ['monthlypl', '当事業年度の月次損益推移'],
   ['trial', '単月の損益計算書・貸借対照表'],
   ['landing', '着地見込と納税予測（法人税等・消費税）'],
   ['cf', 'キャッシュ・フロー計算書（間接法）'],
@@ -327,6 +329,38 @@ export interface Labor2Result {
   accounts: { name: string; cur: number; pre: number | null }[]
 }
 
+// ===== 当事業年度の月次損益推移 =====
+export interface MonthlyPlRow {
+  name: string
+  kind: 'plain' | 'ind' | 'sub' | 'key' | 'total'
+  /** 12か月の単月値。未入力月は null */
+  monthly: (number | null)[]
+  /** 期首〜報告月の累計 */
+  cum: number
+  /** 月平均（累計 ÷ 経過月数） */
+  avg: number
+  /** 対売上比（累計ベース・%）。売上0なら null */
+  ratio: number | null
+}
+export interface MonthlyPlResult {
+  months: number[]
+  reportIdx: number
+  rows: MonthlyPlRow[]
+  /** 販管費の明細を「その他」へ丸めたか */
+  condensed: boolean
+  /** グラフ用（12か月・未入力は null） */
+  salesSeries: (number | null)[]
+  grossSeries: (number | null)[]
+  opSeries: (number | null)[]
+  /** リード文の材料 */
+  bestIdx: number | null      // 売上が最も高かった月
+  worstIdx: number | null     // 売上が最も低かった月
+  lossMonths: number[]        // 営業赤字だった月のインデックス
+  /** 直近3か月の売上平均 と それ以前の平均（傾向の判定用） */
+  recentAvg: number | null
+  earlierAvg: number | null
+}
+
 // ===== 3期推移PL =====
 export interface Trend3Row {
   name: string
@@ -377,6 +411,7 @@ export interface ReportV2Context {
   monthsDone: number       // 経過月数
   annualFactor: number     // 12 / monthsDone
   // --- 計算結果 ---
+  monthlyPl: MonthlyPlResult
   landing: LandingResult
   corpTax: CorporateTaxForecast
   vat: VatForecast
