@@ -3,13 +3,11 @@
 // 単月PL（次ページ）と3期推移PL（最終ページ）の間をつなぐ位置づけ。
 import type { ReportV2Context } from '../types'
 import { amt, esc, negCls, pageFoot, pageHead, pct, section, unitLabel, unitWord } from '../theme'
-import { monthlyPlChart } from '../charts'
 
 export function pageMonthlyPl(ctx: ReportV2Context): string {
   const u = ctx.unit
   const w = unitWord(u)
   const m = ctx.monthlyPl
-  const shown = m.months.length
 
   // ---- リード文（実データから組み立てる） ----
   const mLabel = (i: number | null) => (i == null ? '—' : `${m.months[i]}月`)
@@ -65,10 +63,7 @@ export function pageMonthlyPl(ctx: ReportV2Context): string {
   })}
   <div class="lead">${parts.join(' ')}</div>
 
-  <div class="blk-t" style="margin-top:2mm">売上高と利益の月次推移<span class="sub">棒＝売上高／破線＝売上総利益／実線＝営業利益（すべて同じ軸なので、線の高さの差がそのまま利益の厚みです）</span></div>
-  ${monthlyPlChart(ctx)}
-
-  <div class="blk-t" style="margin-top:1mm">科目別の月次推移<span class="sub">単月発生額。網かけの列＝報告月（${esc(ctx.monthLabel)}）</span></div>
+  <div class="blk-t" style="margin-top:2.5mm">科目別の月次推移<span class="sub">単月発生額。網かけの列＝報告月（${esc(ctx.monthLabel)}）</span></div>
   <table class="tr3 mpl">
     ${cols}
     ${head}
