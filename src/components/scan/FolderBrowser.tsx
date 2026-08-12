@@ -195,7 +195,7 @@ export default function FolderBrowser({
   const [bodyH, setBodyH] = useState(360)
 
   // プレビュー
-  const [preview, setPreview] = useState<{ url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string } | null>(null)
+  const [preview, setPreview] = useState<PreviewState | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   // AI質問（選択）
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -274,18 +274,9 @@ export default function FolderBrowser({
     setPreviewLoading(true)
     setErr('')
     try {
-      const blob = await onGetBlob(file)
-      const ext = (file.name.split('.').pop() || '').toLowerCase()
-      if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'tif', 'tiff'].includes(ext)) {
-        setPreview({ url: URL.createObjectURL(blob), name: file.name, kind: 'image' })
-      } else if (ext === 'pdf') {
-        setPreview({ url: URL.createObjectURL(blob), name: file.name, kind: 'pdf' })
-      } else if (['csv', 'txt', 'tsv', 'json'].includes(ext)) {
-        const text = await blob.text()
-        setPreview({ url: '', name: file.name, kind: 'text', text })
-      } else {
-        setErr(`「${file.name}」はプレビュー非対応の形式です。ダウンロードしてご確認ください（Excel・Word 等）。`)
-      }
+      const p = await buildPreview(await onGetBlob(file), file.name)
+      if (p) setPreview(p)
+      else setErr(previewUnsupportedMessage(file.name))
     } catch (e) {
       setErr('プレビューの取得に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
@@ -857,8 +848,30 @@ export default function FolderBrowser({
   )
 }
 
+/** プレビューの中身。フォルダ一覧と最新アップロード一覧の両方で使う */
+export interface PreviewState {
+  url: string
+  name: string
+  kind: 'image' | 'pdf' | 'text'
+  text?: string
+}
+
+/** 拡張子を見てプレビューの中身を作る。対応していない形式なら null */
+export async function buildPreview(blob: Blob, name: string): Promise<PreviewState | null> {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'tif', 'tiff'].includes(ext)) {
+    return { url: URL.createObjectURL(blob), name, kind: 'image' }
+  }
+  if (ext === 'pdf') return { url: URL.createObjectURL(blob), name, kind: 'pdf' }
+  if (['csv', 'txt', 'tsv', 'json'].includes(ext)) return { url: '', name, kind: 'text', text: await blob.text() }
+  return null
+}
+
+export const previewUnsupportedMessage = (name: string) =>
+  `「${name}」はプレビュー非対応の形式です。ダウンロードしてご確認ください（Excel・Word 等）。`
+
 // ファイルプレビュー（画像・PDF・テキスト）
-function PreviewModal({ preview, onClose }: { preview: { url: string; name: string; kind: 'image' | 'pdf' | 'text'; text?: string }; onClose: () => void; onDownload?: () => void }) {
+export function PreviewModal({ preview, onClose }: { preview: PreviewState; onClose: () => void; onDownload?: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-[80] flex flex-col p-3 sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
       <div className="bg-white rounded-xl w-full h-full flex flex-col overflow-hidden max-w-5xl mx-auto" onClick={(e) => e.stopPropagation()}>

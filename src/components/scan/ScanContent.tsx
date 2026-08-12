@@ -64,7 +64,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
@@ -1505,6 +1505,9 @@ function RecentUploads({
   const [dir, setDir] = useState<'all' | 'toOffice' | 'toClient'>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [zipMsg, setZipMsg] = useState('')
+  // プレビュー（フォルダ一覧と同じ見た目・同じ対応形式）
+  const [preview, setPreview] = useState<PreviewState | null>(null)
+  const [previewErr, setPreviewErr] = useState('')
 
   // フォルダの階層をたどって「ルート / 親 / 子」の表示名にする
   const folderPath = (root: 'toOffice' | 'toClient', id: string | null | undefined) =>
@@ -1597,6 +1600,25 @@ function RecentUploads({
       return next
     })
   }
+  // 一覧からそのまま中身を確認する。開いただけでは「受取済み」にはしない
+  // （受取の記録はダウンロード／Drive保存のときだけ付ける）
+  async function openPreview(r: Row) {
+    setBusy(r.key)
+    setPreviewErr('')
+    try {
+      const p = await buildPreview(await r.get(), r.name)
+      if (p) setPreview(p)
+      else setPreviewErr(previewUnsupportedMessage(r.name))
+    } catch (e) {
+      setPreviewErr('プレビューの取得に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy('')
+  }
+  function closePreview() {
+    if (preview?.url) URL.revokeObjectURL(preview.url)
+    setPreview(null)
+  }
+
   async function dlSelectedZip() {
     if (!picked.length) return
     setBusy('zip')
@@ -1657,6 +1679,13 @@ function RecentUploads({
       </div>
 
       {zipMsg && <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">{zipMsg}</div>}
+      {previewErr && (
+        <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 mb-2 flex items-start gap-2">
+          <span className="flex-1">{previewErr}</span>
+          <button onClick={() => setPreviewErr('')} className="text-amber-500 hover:text-amber-700">×</button>
+        </div>
+      )}
+      {preview && <PreviewModal preview={preview} onClose={closePreview} />}
 
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500 py-10 text-center">アップロードされたファイルはまだありません。</p>
@@ -1714,6 +1743,14 @@ function RecentUploads({
                     </button>
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => openPreview(r)}
+                      disabled={busy === r.key}
+                      title="ダウンロードせずに中身を確認します（画像・PDF・CSV/テキスト）"
+                      className="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 mr-1"
+                    >
+                      {busy === r.key ? '取得中…' : '👁 表示'}
+                    </button>
                     <button
                       onClick={() => dl(r)}
                       disabled={busy === r.key}
