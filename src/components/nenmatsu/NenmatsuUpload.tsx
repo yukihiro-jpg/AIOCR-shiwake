@@ -293,18 +293,33 @@ export default function NenmatsuUpload() {
       </Center>
     )
 
+  // 進み具合（全4ステップ）。どこまで来たかが分かると、途中でやめる人が減る
+  const stepNo = phase === 'select' ? 1 : phase === 'verify' ? 2 : phase === 'declare' ? 3 : 4
+  const stepName = phase === 'select' ? 'あてはまるものを選ぶ'
+    : phase === 'verify' ? 'ご本人の確認'
+      : phase === 'declare' ? 'ご本人の情報' : '書類の撮影'
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-gray-50 pb-28">
       <header className="bg-blue-600 text-white px-4 py-3">
         <div className="max-w-md mx-auto">
-          <div className="text-xs opacity-80">年末調整 書類アップロード</div>
-          <div className="font-bold">{companyName}</div>
+          <div className="text-[12px] opacity-85">年末調整 書類アップロード</div>
+          <div className="font-bold text-[17px]">{companyName}</div>
         </div>
       </header>
 
+      <div className="max-w-md mx-auto px-4 pt-3">
+        <div className="flex gap-1.5">
+          {[1, 2, 3, 4].map((n) => (
+            <span key={n} className={`flex-1 h-1.5 rounded ${n <= stepNo ? 'bg-blue-600' : 'bg-blue-100'}`} />
+          ))}
+        </div>
+        <div className="text-[13px] font-semibold text-gray-600 mt-1.5">ステップ {stepNo} / 4　{stepName}</div>
+      </div>
+
       <div className="max-w-md mx-auto p-4">
         {deadlineInfo && (
-          <div className={`rounded-xl px-3 py-2.5 mb-3 text-sm border ${
+          <div className={`rounded-xl px-4 py-3 mb-3 text-[15px] leading-relaxed border-[1.5px] ${
             deadlineInfo.days < 0
               ? 'bg-red-50 border-red-300 text-red-800'
               : deadlineInfo.days <= 7
@@ -322,22 +337,25 @@ export default function NenmatsuUpload() {
         )}
         {phase === 'select' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
-            <h1 className="font-bold text-gray-800 mb-3">あてはまるものを選んでください</h1>
-            <button onClick={startExisting} className="w-full py-3 mb-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">
+            <h1 className="font-bold text-gray-800 text-[20px] mb-4">あてはまるものを選んでください</h1>
+            <button onClick={startExisting} className="w-full h-[58px] mb-3 bg-blue-600 text-white rounded-xl text-[18px] font-bold hover:bg-blue-700">
               在籍中の従業員の方
             </button>
-            <button onClick={startNewHire} className="w-full py-3 border border-blue-600 text-blue-700 rounded-lg font-semibold hover:bg-blue-50">
+            <button onClick={startNewHire} className="w-full h-[58px] border-[1.5px] border-blue-600 text-blue-700 rounded-xl text-[18px] font-bold hover:bg-blue-50">
               本年入社の方
             </button>
+            <p className="text-[14px] text-gray-500 leading-relaxed mt-4">
+              本年入社の方は<b className="text-red-600">お名前が一覧に表示されません</b>。「本年入社の方」を選んで、ご自身の情報を入力してください。
+            </p>
           </div>
         )}
 
         {phase === 'verify' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
-            <h1 className="font-bold text-gray-800 mb-1">ご本人の確認</h1>
-            <p className="text-xs text-gray-500 mb-4">お名前と生年月日（必須）で確認します。</p>
-            <label className="block text-sm font-medium text-gray-700 mb-1">お名前</label>
-            <select value={empId} onChange={(e) => setEmpId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded mb-4">
+            <h1 className="font-bold text-gray-800 text-[20px] mb-1">ご本人の確認</h1>
+            <p className="text-[14px] text-gray-500 leading-relaxed mb-4">お名前と生年月日で確認します。</p>
+            <label className="block text-[15px] font-semibold text-gray-700 mb-1.5">お名前</label>
+            <select value={empId} onChange={(e) => setEmpId(e.target.value)} className="w-full h-[52px] px-3.5 border-[1.5px] border-gray-300 rounded-xl text-[18px] bg-white mb-4">
               <option value="">選択してください</option>
               {sortedEmployees.map((e) => (
                 <option key={e.id} value={e.id}>
@@ -345,54 +363,53 @@ export default function NenmatsuUpload() {
                 </option>
               ))}
             </select>
-            <label className="block text-sm font-medium text-gray-700 mb-1">生年月日</label>
+            <label className="block text-[15px] font-semibold text-gray-700 mb-1.5">生年月日</label>
             <div className="flex gap-2 mb-2">
-              <select value={by} onChange={(e) => setBy(e.target.value)} className="flex-1 px-2 py-2 border border-gray-300 rounded">
+              <select value={by} onChange={(e) => setBy(e.target.value)} className="flex-1 h-[52px] px-2 border-[1.5px] border-gray-300 rounded-xl text-[18px] bg-white">
                 <option value="">年</option>
                 {years.map((y) => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
-              <select value={bm} onChange={(e) => setBm(e.target.value)} className="w-20 px-2 py-2 border border-gray-300 rounded">
+              <select value={bm} onChange={(e) => setBm(e.target.value)} className="w-[86px] h-[52px] px-2 border-[1.5px] border-gray-300 rounded-xl text-[18px] bg-white">
                 <option value="">月</option>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
-              <select value={bd} onChange={(e) => setBd(e.target.value)} className="w-20 px-2 py-2 border border-gray-300 rounded">
+              <select value={bd} onChange={(e) => setBd(e.target.value)} className="w-[86px] h-[52px] px-2 border-[1.5px] border-gray-300 rounded-xl text-[18px] bg-white">
                 <option value="">日</option>
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((dd) => (
                   <option key={dd} value={dd}>{dd}</option>
                 ))}
               </select>
             </div>
-            {verifyErr && <div className="text-sm text-red-600 mb-2">{verifyErr}</div>}
-            <button onClick={verify} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 mt-2">
+            {verifyErr && <div className="text-[15px] text-red-600 leading-relaxed mb-2">{verifyErr}</div>}
+            <button onClick={verify} className="w-full h-[58px] bg-blue-600 text-white rounded-xl text-[19px] font-bold hover:bg-blue-700 mt-3">
               次へ
             </button>
           </div>
         )}
 
         {phase === 'declare' && decl && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-5">
-            <h1 className="font-bold text-gray-800 mb-1">
-              {decl.isNewHire ? '扶養控除等申告書（本年入社）' : '個人情報・扶養親族の確認'}
-            </h1>
-            <p className="text-xs text-gray-500 mb-3">
-              {decl.isNewHire
-                ? '本人・配偶者・扶養親族の情報を入力してください。'
-                : '前年の情報をもとに表示しています。変更があれば修正してください。'}
-            </p>
-            {!decl.isNewHire && (
-              <label className="flex items-center gap-2 text-sm mb-3 bg-blue-50 rounded px-3 py-2">
-                <input type="checkbox" checked={noChange} onChange={(e) => setNoChange(e.target.checked)} />
-                <span>前年と相違ありません</span>
-              </label>
-            )}
+          <div>
+            <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4 mb-4">
+              <h1 className="font-bold text-gray-800 text-[20px] mb-1">
+                {decl.isNewHire ? '扶養控除等申告書（本年入社）' : '個人情報・扶養親族の確認'}
+              </h1>
+              <p className="text-[14px] text-gray-500 leading-relaxed">
+                {decl.isNewHire
+                  ? '本人・配偶者・扶養親族の情報を入力してください。紙の申告書のご提出は不要です。'
+                  : '前年の情報をもとに表示しています。変更があれば修正してください。'}
+              </p>
+              {!decl.isNewHire && (
+                <label className={`flex items-center gap-3 border-[1.5px] rounded-xl px-4 py-3.5 text-[18px] font-semibold mt-3 ${noChange ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700'}`}>
+                  <input type="checkbox" className="w-6 h-6 accent-blue-600" checked={noChange} onChange={(e) => setNoChange(e.target.checked)} />
+                  <span>前年と相違ありません</span>
+                </label>
+              )}
+            </div>
             <DeclarationForm value={decl} onChange={setDecl} fyGregorian={fyGregorian} editableName={decl.isNewHire} />
-            <button onClick={proceedToDocs} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 mt-5">
-              次へ（書類の撮影）
-            </button>
           </div>
         )}
 
@@ -498,11 +515,21 @@ export default function NenmatsuUpload() {
         )}
       </div>
 
-      {phase === 'docs' && (
-        <div className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 p-3">
+      {phase === 'declare' && decl && (
+        <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-gray-200 px-3 pt-3 pb-4">
           <div className="max-w-md mx-auto">
-            {submitErr && <div className="text-xs text-red-600 mb-2 break-words">{submitErr}</div>}
-            <button onClick={submit} disabled={submitting} className="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-60">
+            <button onClick={proceedToDocs} className="w-full h-[58px] bg-blue-600 text-white rounded-xl text-[19px] font-bold hover:bg-blue-700">
+              次へ（書類の撮影）
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase === 'docs' && (
+        <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-gray-200 px-3 pt-3 pb-4">
+          <div className="max-w-md mx-auto">
+            {submitErr && <div className="text-[14px] text-red-600 mb-2 break-words leading-relaxed">{submitErr}</div>}
+            <button onClick={submit} disabled={submitting} className="w-full h-[58px] bg-green-600 text-white rounded-xl text-[19px] font-bold hover:bg-green-700 disabled:opacity-60">
               {submitting ? progress || '送信中...' : '送信する'}
             </button>
           </div>
