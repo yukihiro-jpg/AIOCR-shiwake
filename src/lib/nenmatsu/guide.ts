@@ -46,29 +46,36 @@ function esc(s: string): string {
 }
 
 /**
- * A4 1枚に必ず収めるための縮小スクリプト。
- * 会社名の長さ・提出書類の増減で高さが変わり、数ミリはみ出すだけで2枚目に送られてしまう
- * （2枚目に「発行元」の1行だけ、という無駄な紙が出る）。組み上がってから測って、
- * はみ出した分だけ本文を縮めることで確実に1枚に収める。
+ * 決めた高さに必ず収めるための縮小スクリプト。
+ * `.fitbox`（用紙・面）と、その中の `.fitbody`（縮小の対象）を対にして使う。
+ * 高さは data-fit-h に mm で書く（A4縦なら297、A4横を2面に割った1面なら210）。
+ *
+ * 会社名の長さや提出書類の増減で高さが変わり、数ミリはみ出すだけで次の紙に送られてしまう
+ * （「発行元」の1行だけの2枚目が出る）。組み上がってから測って、はみ出した分だけ縮めることで
+ * 確実に決めた枚数に収める。
  */
 const FIT_ONE_PAGE_JS = `
   function fitOnePage(){
-    var sheet = document.querySelector('.sheet-body');
-    var page = document.querySelector('.sheet');
-    if (!sheet || !page) return;
-    var cs = getComputedStyle(page);
-    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    var limit = (297 * 96 / 25.4) - pad - 2;   // A4縦の高さ − 上下余白（1〜2pxの誤差も見る）
+    var boxes = document.querySelectorAll('.fitbox');
     var useZoom = false;
     try { useZoom = CSS.supports('zoom', '0.5'); } catch (e) { useZoom = false; }
-    var k = 1;
-    for (var i = 0; i < 8; i++) {
-      var h = sheet.scrollHeight * k;
-      if (h <= limit) break;
-      k = Math.max(0.6, k * (limit / h) * 0.998);
-      if (useZoom) { sheet.style.zoom = String(k); }
-      else { sheet.style.transformOrigin = 'top left'; sheet.style.transform = 'scale(' + k + ')'; sheet.style.width = (100 / k) + '%'; }
-      if (k <= 0.6) break;
+    for (var i = 0; i < boxes.length; i++) {
+      var box = boxes[i];
+      var body = box.querySelector('.fitbody');
+      if (!body) continue;
+      var cs = getComputedStyle(box);
+      var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      var mm = parseFloat(box.getAttribute('data-fit-h')) || 297;
+      var limit = (mm * 96 / 25.4) - pad - 2;   // 面の高さ − 上下余白（1〜2pxの誤差も見る）
+      var k = 1;
+      for (var t = 0; t < 8; t++) {
+        var h = body.scrollHeight * k;
+        if (h <= limit) break;
+        k = Math.max(0.6, k * (limit / h) * 0.998);
+        if (useZoom) { body.style.zoom = String(k); }
+        else { body.style.transformOrigin = 'top left'; body.style.transform = 'scale(' + k + ')'; body.style.width = (100 / k) + '%'; }
+        if (k <= 0.6) break;
+      }
     }
   }
 `
@@ -137,7 +144,7 @@ export function buildGuideHtml(o: GuideOptions): string {
 </head>
 <body>
   <div class="noprint"><button onclick="window.print()">🖨 印刷 / PDFに保存</button></div>
-  <div class="sheet"><div class="sheet-body">
+  <div class="sheet fitbox" data-fit-h="297"><div class="sheet-body fitbody">
 
   <div class="head">
     <div>
@@ -251,6 +258,40 @@ export interface QrSheetOptions {
 }
 
 export function buildQrSheetHtml(o: QrSheetOptions): string {
+  // A4横1枚に同じ内容を左右2面（各A5相当）並べる。真ん中で切ると2枚になるので、
+  // 顧問先が1枚なくしてももう1枚が残る（掲示用と保管用に分けて使ってもらう想定）。
+  const slip = (side: 'l' | 'r') => `
+    <div class="slip fitbox ${side}" data-fit-h="210"><div class="slip-body fitbody">
+      <div class="co">${esc(o.companyName)}</div>
+      <div class="ttl">年末調整のお手続き</div>
+      <div class="yr">${esc(o.yearLabel)}</div>
+
+      <div class="lead">
+        スマートフォンのカメラで下のQRコードを読み取り、画面の案内に沿って手続きしてください。<br>
+        最初の画面で「在籍中の従業員の方」か「本年入社の方」を選んでください。
+      </div>
+      <div class="alert">
+        <span class="red">本年${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年）` : ''}に入社された方は氏名が表示されません。</span>
+        ご自身の情報（住所・世帯主・配偶者・扶養親族など）の<b>入力</b>もお願いします。<br>
+        <b>マイナンバーは別途、担当者へお渡しください</b>（この画面では入力しません）。
+      </div>
+
+      <div class="qrwrap">
+        <div class="cap">スマホで読み取ってください</div>
+        <img src="${esc(o.qrDataUrl)}" alt="QRコード">
+        <div class="url">${esc(o.url)}</div>
+      </div>
+
+      ${o.deadlineText ? `<div class="dl">📅 提出期限<span class="date">${esc(o.deadlineText)}</span></div>` : ''}
+
+      <div class="note">
+        <b>読み取れないとき：</b>上のURLをブラウザ（Safari / Chrome）のアドレス欄に直接入力しても開けます。<br>
+        <b>カメラが使えないとき：</b>LINE などのアプリ内の画面ではカメラが使えないことがあります。
+        右上のメニューから「ブラウザで開く」を選んで開き直してください。
+      </div>
+      <div class="foot">この案内は担当会計事務所が発行しています。ご不明な点はご担当者までお問い合わせください。</div>
+    </div></div>`
+
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -265,62 +306,45 @@ export function buildQrSheetHtml(o: QrSheetOptions): string {
   html,body { font-family:'Noto Sans JP', sans-serif; color:#1f2937;
     -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body { background:#e5e7eb; }
-  @page { size:A4; margin:0; }
-  /* 画面でも印刷でも同じ幅で組む */
-  .sheet { width:210mm; min-height:297mm; margin:0 auto; padding:18mm; background:#fff; text-align:center; }
-  .co { font-size:16px; color:#6b7280; font-weight:500; }
-  .ttl { font-size:30px; font-weight:900; color:#1e3a8a; margin-top:4px; letter-spacing:.02em; }
-  .yr { font-size:14px; color:#6b7280; margin-top:6px; }
-  .lead { font-size:15px; line-height:1.8; margin:16px auto 0; max-width:150mm; }
-  .qrwrap { margin:14px auto 0; width:120mm; border:2px solid #111827; border-radius:14px; padding:10mm 6mm 7mm; }
-  .qrwrap img { width:100mm; height:100mm; display:block; margin:0 auto; }
-  .qrwrap .cap { font-size:15px; font-weight:700; margin-bottom:6mm; }
-  .url { font-size:11px; color:#2563eb; word-break:break-all; margin-top:6mm; line-height:1.6; }
-  .dl { margin:12px auto 0; max-width:150mm; border:2px solid #dc2626; background:#fef2f2; border-radius:12px;
-    padding:9px 14px; font-size:15px; color:#991b1b; font-weight:700; }
-  .dl .date { font-size:20px; font-weight:900; color:#dc2626; margin-left:6px; }
-  .note { font-size:12px; color:#6b7280; line-height:1.8; margin:14px auto 0; max-width:150mm; text-align:left; }
-  .note b { color:#374151; }
-  .foot { margin-top:14px; font-size:11px; color:#9ca3af; }
+  @page { size:A4 landscape; margin:0; }
+  /* A4横（297×210mm）を左右2面に割る。画面でも印刷でも同じ幅で組む */
+  .sheet { width:297mm; height:210mm; margin:0 auto; background:#fff; display:flex; position:relative; }
+  .slip { width:148.5mm; height:210mm; padding:9mm 8mm; text-align:center; }
+  /* 切り取り線（真ん中）。切る位置が一目で分かるようにハサミ印も出す */
+  .cut { position:absolute; left:148.5mm; top:0; bottom:0; width:0;
+    border-left:0.4mm dashed #9ca3af; }
+  .cut::before { content:'✂'; position:absolute; left:-3.2mm; top:2mm; font-size:12px; color:#9ca3af; background:#fff; }
+  .cut::after { content:'✂'; position:absolute; left:-3.2mm; bottom:2mm; font-size:12px; color:#9ca3af; background:#fff; }
+  .co { font-size:12.5px; color:#6b7280; font-weight:500; }
+  .ttl { font-size:22px; font-weight:900; color:#1e3a8a; margin-top:2px; letter-spacing:.02em; }
+  .yr { font-size:11.5px; color:#6b7280; margin-top:3px; }
+  .lead { font-size:11.5px; line-height:1.7; margin-top:7px; text-align:left; }
+  .alert { font-size:11px; line-height:1.65; margin-top:6px; text-align:left;
+    border:1.2px solid #fca5a5; background:#fef2f2; border-radius:8px; padding:6px 9px; }
   .red { color:#dc2626; font-weight:700; }
-  @media print { body { background:#fff; } .sheet { margin:0; min-height:0; } .noprint { display:none; } }
-  .noprint { position:fixed; top:10px; right:10px; }
+  .qrwrap { margin:8px auto 0; width:104mm; border:1.5px solid #111827; border-radius:12px; padding:5mm 4mm 4mm; }
+  .qrwrap img { width:74mm; height:74mm; display:block; margin:0 auto; }
+  .qrwrap .cap { font-size:12.5px; font-weight:700; margin-bottom:3mm; }
+  .url { font-size:9px; color:#2563eb; word-break:break-all; margin-top:3mm; line-height:1.5; }
+  .dl { margin:8px auto 0; border:1.5px solid #dc2626; background:#fef2f2; border-radius:10px;
+    padding:5px 10px; font-size:12.5px; color:#991b1b; font-weight:700; }
+  .dl .date { font-size:16px; font-weight:900; color:#dc2626; margin-left:5px; }
+  .note { font-size:9.5px; color:#6b7280; line-height:1.7; margin-top:8px; text-align:left; }
+  .note b { color:#374151; }
+  .foot { margin-top:6px; font-size:8.5px; color:#9ca3af; text-align:left; }
+  @media print { body { background:#fff; } .sheet { margin:0; } .noprint { display:none; } }
+  .noprint { position:fixed; top:10px; right:10px; z-index:2; }
   .noprint button { font-family:inherit; font-size:13px; padding:8px 16px; background:#2563eb; color:#fff;
     border:none; border-radius:8px; cursor:pointer; }
 </style>
 </head>
 <body>
   <div class="noprint"><button onclick="window.print()">🖨 印刷 / PDFに保存</button></div>
-  <div class="sheet"><div class="sheet-body">
-
-  <div class="co">${esc(o.companyName)}</div>
-  <div class="ttl">年末調整のお手続き</div>
-  <div class="yr">${esc(o.yearLabel)}</div>
-
-  <div class="lead">
-    スマートフォンのカメラで下のQRコードを読み取り、画面の案内に沿って手続きしてください。<br>
-    最初の画面で「在籍中の従業員の方」か「本年入社の方」を選んでください。<br>
-    <span class="red">本年${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年）` : ''}に入社された方は氏名が表示されません。</span>
-    ご自身の情報（住所・世帯主・配偶者・扶養親族など）の<b>入力</b>もお願いします。<br>
-    <b>マイナンバーは別途、担当者へお渡しください</b>（この画面では入力しません）。
+  <div class="sheet">
+    ${slip('l')}
+    <div class="cut"></div>
+    ${slip('r')}
   </div>
-
-  <div class="qrwrap">
-    <div class="cap">スマホで読み取ってください</div>
-    <img src="${esc(o.qrDataUrl)}" alt="QRコード">
-    <div class="url">${esc(o.url)}</div>
-  </div>
-
-  ${o.deadlineText ? `<div class="dl">📅 提出期限<span class="date">${esc(o.deadlineText)}</span></div>` : ''}
-
-  <div class="note">
-    <b>読み取れないとき：</b> 上のURLをブラウザ（Safari / Chrome）のアドレス欄に直接入力しても開けます。<br>
-    <b>カメラが使えないとき：</b> LINE などのアプリ内の画面ではカメラが使えないことがあります。
-    右上のメニューから「ブラウザで開く」を選んで開き直してください。
-  </div>
-
-  <div class="foot">この案内は担当会計事務所が発行しています。ご不明な点はご担当者までお問い合わせください。</div>
-  </div></div>
 
 <script>
   ${FIT_ONE_PAGE_JS}

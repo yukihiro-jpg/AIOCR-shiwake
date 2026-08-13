@@ -442,10 +442,11 @@ export default function NenmatsuContent() {
             }}
             className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
           >
-            🖨 このQRコードを印刷（A4・掲示用）
+            🖨 このQRコードを印刷（A4横・2枚分）
           </button>
           <p className="text-[11px] text-gray-400 mt-2">
-            QRコードを大きく1枚に印刷します。休憩室や掲示板に貼る用です。1人1枚お配りする場合は「案内PDF」をお使いください。
+            A4横1枚に同じものを左右2面ならべて印刷します。<b>真ん中の切り取り線で半分に切ると2枚分</b>になるので、
+            1枚を掲示・1枚を保管、といった使い方ができます（紛失時の予備にもなります）。1人1枚お配りする場合は「案内PDF」をお使いください。
           </p>
         </Overlay>
       )}
