@@ -483,6 +483,37 @@ export async function loadSubmissions(
   return { ...legacy, ...pub }
 }
 
+/**
+ * 提出件数だけを数える（一覧表示用）。
+ *
+ * loadSubmissions は「旧形式 → 会社ノード → 新形式」を**直列に3回**読むので、
+ * 100社ぶん回すと往復が300回になり一覧が出るまで数十秒かかっていた。
+ * 一覧に必要なのは件数だけなので、呼び出し側が既に持っている token を受け取って
+ * 会社ノードの読み直しを省き、残り2つを**同時に**読む（1往復ぶんの待ち時間で済む）。
+ */
+export async function countSubmissions(
+  yearId: string,
+  clientId: string,
+  token?: string,
+): Promise<number> {
+  const { db, ref, get } = await dbfns()
+  const legacyPath = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
+  const reads: Promise<Record<string, unknown>>[] = [
+    get(ref(db, legacyPath)).then((s) => (s.val() as Record<string, unknown>) || {}).catch(() => ({})),
+  ]
+  if (token) {
+    reads.push(
+      get(ref(db, publicPath(token, 'submissions')))
+        .then((s) => (s.val() as Record<string, unknown>) || {})
+        .catch(() => ({})),
+    )
+  }
+  const parts = await Promise.all(reads)
+  const ids = new Set<string>()
+  for (const p of parts) for (const k of Object.keys(p)) ids.add(k)
+  return ids.size
+}
+
 /** 保存期間（アップロードから1年6か月）を過ぎた提出データ・画像を自動削除する。
  *  事務所側の画面表示時に呼ばれる */
 export const NENMATSU_RETENTION_DAYS = 548 // 約1年6か月
@@ -615,9 +646,16 @@ export async function listEmployeeFiles(
  *  アップロード直後で記録が未書き込みのファイルを誤って消さないよう、
  *  作成から7日を超えたものだけを対象にする。 */
 const ORPHAN_MIN_AGE_MS = 7 * 24 * 3600 * 1000
-export async function cleanupOrphanImages(yearId: string, clientId: string): Promise<number> {
+export async function cleanupOrphanImages(
+  yearId: string,
+  clientId: string,
+  known?: NenmatsuCompany | null,
+): Promise<number> {
   const { db, ref, get } = await dbfns()
-  const comp = (await get(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)))).val() as NenmatsuCompany | null
+  // 呼び出し側が会社ノードを持っていれば読み直さない（全社を回すときの往復を減らす）
+  const comp = known !== undefined
+    ? known
+    : ((await get(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)))).val() as NenmatsuCompany | null)
   if (!comp || !comp.token) return 0
   const subs = await loadSubmissions(yearId, clientId)
   const referenced = new Set<string>()
@@ -625,6 +663,9 @@ export async function cleanupOrphanImages(yearId: string, clientId: string): Pro
   // 対象フォルダ＝提出記録のある従業員＋名簿上の従業員
   const empIds = new Set<string>(Object.keys(subs))
   try { (await loadEmployees(yearId, clientId)).forEach((e) => empIds.add(e.id)) } catch { /* ignore */ }
+  // 提出も名簿も無い会社は Storage に何も置かれていないので、listAll を投げない
+  // （100社×4年で400回の Storage 走査になり、これが清掃のいちばんの重さだった）
+  if (!empIds.size) return 0
   const { st, ref: sref, listAll, deleteObject, getMetadata } = await storageFns()
   let removed = 0
   for (const empId of Array.from(empIds)) {
@@ -662,10 +703,20 @@ export async function sweepAllNenmatsu(): Promise<void> {
   for (const fy of Object.keys(FY_BY_ID)) {
     let comps: Record<string, NenmatsuCompany> = {}
     try { comps = await loadCompanies(fy) } catch { continue }
-    for (const cid of Object.keys(comps)) {
-      try { await sweepOldSubmissions(fy, cid) } catch { /* 次回に再試行 */ }
-      try { await cleanupOrphanImages(fy, cid) } catch { /* 次回に再試行 */ }
+    const ids = Object.keys(comps)
+    // 1社ずつ直列に回すと100社×4年で数分かかる。ブラウザとRTDBを詰まらせない範囲で並列にする
+    const CONCURRENCY = 4
+    let next = 0
+    const worker = async () => {
+      for (;;) {
+        const i = next++
+        if (i >= ids.length) return
+        const cid = ids[i]
+        try { await sweepOldSubmissions(fy, cid) } catch { /* 次回に再試行 */ }
+        try { await cleanupOrphanImages(fy, cid, comps[cid]) } catch { /* 次回に再試行 */ }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker))
   }
 }
 

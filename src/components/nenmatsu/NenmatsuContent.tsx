@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, Fragment } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import { FISCAL_YEARS, defaultFiscalYearId } from '@/lib/nenmatsu/fiscal-year'
@@ -14,6 +14,7 @@ import {
   saveEmployees,
   loadEmployees,
   loadSubmissions,
+  countSubmissions,
   listEmployeeFiles,
   getFileBlobs,
   sweepAllNenmatsu,
@@ -37,7 +38,7 @@ import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nen
 interface Row {
   client: SharedClient
   company: NenmatsuCompany
-  submitted: number
+  submitted: number | null // 一覧を先に出し、件数は後から埋める（null＝集計中）
 }
 
 function saveBlob(blob: Blob, filename: string) {
@@ -114,51 +115,92 @@ export default function NenmatsuContent() {
     setYearId(defaultFiscalYearId(new Date().getFullYear()))
   }, [])
 
+  // 年度を切り替えたときに、前の年度の集計結果が遅れて入ってこないようにする目印
+  const loadSeq = useRef(0)
+  // 保守処理（purgeキュー・清掃・名簿移行）を開いてから1回だけ走らせるための目印
+  const maintenanceRan = useRef(false)
+
   const reload = useCallback(async () => {
     if (!hasRoom()) return
+    const seq = ++loadSeq.current
     setBusy(true)
     setMsg('')
     try {
-      // 顧問先削除の purge キューを処理（削除済み顧問先の公開名簿・提出画像を確実に消す）
-      try { await processNenmatsuPurgeQueue() } catch { /* 次回に再試行 */ }
-      // 保存期限（1年6か月）超過の提出と、再提出で参照が外れた旧画像の清掃。
-      // 表示中の年度・利用/未利用に関係なく全年度・全登録会社を対象にする（端末ごとに6時間に1回）
-      try { await sweepAllNenmatsu() } catch { /* 次回に再試行 */ }
-      const clients = await loadNenmatsuClients()
-      // 利用クライアントごとに会社（トークン）を自動用意
-      await Promise.all(clients.map((c) => registerCompany(yearId, c)))
-      // 旧仕様（生年月日・住所を平文公開）で発行済みの公開名簿を、安全な仕様（ハッシュ化・PII非公開）へ移行。
-      // 【重要】選択中の年度だけでなく全年度を対象にする（過去年度の平文名簿を残さない）。
-      // 失敗した年度はフラグを立てず、次回開いたときに再試行する。
-      try {
-        if (typeof window !== 'undefined') {
-          for (const fy of Object.keys(FY_BY_ID)) {
-            const migKey = `nenmatsu-roster-migrated-v2-${fy}`
-            if (!localStorage.getItem(migKey)) {
-              const ok = await republishRosters(fy)
-              if (ok) localStorage.setItem(migKey, '1')
-            }
-          }
-        }
-      } catch { /* ignore */ }
-      try {
-        const dd = await loadDefaultDeadline(yearId)
-        setDefaultDeadline(dd)
-        setDefaultDeadlineInput(dd)
-      } catch { /* ignore */ }
-      const comps = await loadCompanies(yearId)
-      const next: Row[] = []
+      // ---- 1) 一覧を出すのに必要な2件だけを先に読む ----
+      // 顧問先200件・利用100社でも、ここは「_clients」と「companies」の1往復ずつで済む。
+      const [clients, comps0, dd] = await Promise.all([
+        loadNenmatsuClients(),
+        loadCompanies(yearId),
+        loadDefaultDeadline(yearId).catch(() => ''),
+      ])
+      let comps = comps0
+      setDefaultDeadline(dd)
+      setDefaultDeadlineInput(dd)
+      // トークン未発行の会社だけ登録する（既存分まで1社ずつ読み直さない）
+      const missing = clients.filter((c) => !comps[c.id])
+      if (missing.length) {
+        await Promise.all(missing.map((c) => registerCompany(yearId, c).catch(() => null)))
+        comps = await loadCompanies(yearId)
+      }
+      if (seq !== loadSeq.current) return
+      const base: Row[] = []
       for (const c of clients) {
         const company = comps[c.id]
         if (!company) continue
-        const subs = await loadSubmissions(yearId, c.id)
-        next.push({ client: c, company, submitted: Object.keys(subs).length })
+        base.push({ client: c, company, submitted: null })
       }
-      setRows(next)
+      setRows(base)
+      setBusy(false)
+
+      // ---- 2) 提出件数は後から並列で埋める ----
+      // 1社ずつ待つと100社で300往復になり、一覧が出るまで数十秒かかっていた。
+      void (async () => {
+        const CONCURRENCY = 10
+        const counts = new Array<number>(base.length).fill(0)
+        let next = 0
+        const worker = async () => {
+          for (;;) {
+            const i = next++
+            if (i >= base.length) return
+            try {
+              counts[i] = await countSubmissions(yearId, base[i].client.id, base[i].company.token)
+            } catch { counts[i] = 0 }
+            // 10件ごとに画面へ反映（1件ごとに描き直すと重いため）
+            if (i % CONCURRENCY === CONCURRENCY - 1 && seq === loadSeq.current) {
+              setRows((prev) => prev.map((r, k) => (k <= i ? { ...r, submitted: counts[k] } : r)))
+            }
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, base.length) }, worker))
+        if (seq === loadSeq.current) setRows((prev) => prev.map((r, k) => ({ ...r, submitted: counts[k] ?? 0 })))
+      })()
+
+      // ---- 3) 保守処理は一覧を出したあと裏で走らせる ----
+      // 顧問先削除のpurgeキュー処理・保存期限の清掃・旧名簿の移行はどれも重く、
+      // 待ってから一覧を出す必要はない（結果は次に開いたときに反映されれば足りる）。
+      // どれも全年度が対象なので、年度を切り替えるたびに走らせず、開いてから1回だけにする。
+      if (maintenanceRan.current) return
+      maintenanceRan.current = true
+      void (async () => {
+        try { await processNenmatsuPurgeQueue() } catch { /* 次回に再試行 */ }
+        try {
+          if (typeof window !== 'undefined') {
+            for (const fy of Object.keys(FY_BY_ID)) {
+              const migKey = `nenmatsu-roster-migrated-v2-${fy}`
+              if (!localStorage.getItem(migKey)) {
+                const ok = await republishRosters(fy)
+                if (ok) localStorage.setItem(migKey, '1')
+              }
+            }
+          }
+        } catch { /* ignore */ }
+        // 保存期限（1年6か月）超過の提出と孤児画像の清掃（端末ごとに6時間に1回）
+        try { await sweepAllNenmatsu() } catch { /* 次回に再試行 */ }
+      })()
     } catch (e) {
       setMsg('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
+      setBusy(false)
     }
-    setBusy(false)
   }, [yearId])
 
   useEffect(() => {
@@ -325,7 +367,7 @@ export default function NenmatsuContent() {
               <tbody>
                 {rows.map(({ client, company, submitted }) => {
                   const eff = company.deadline || defaultDeadline
-                  const remain = Math.max(0, (company.employeeCount ?? 0) - submitted)
+                  const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - submitted)
                   const dd = daysToDeadline(eff)
                   return (
                   <tr key={client.id} className="border-t border-gray-100">
@@ -333,7 +375,7 @@ export default function NenmatsuContent() {
                     <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{client.name}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                       従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
-                      <span className="font-semibold text-blue-700">{submitted}</span>名
+                      <span className="font-semibold text-blue-700">{submitted == null ? '…' : submitted}</span>名
                       {remain > 0 && (company.employeeCount ?? 0) > 0 && (
                         <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${dd != null && dd < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
                           未提出 {remain}名
