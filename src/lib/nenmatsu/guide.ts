@@ -115,6 +115,9 @@ export function buildGuideHtml(o: GuideOptions): string {
   .newhire li::before { content:'▸'; position:absolute; left:0; color:#0284c7; font-weight:700; }
   .newhire .warn2 { font-size:12px; line-height:1.65; color:#7f1d1d; background:#fef2f2; border:1px solid #fecaca;
     border-radius:8px; padding:7px 10px; margin-top:7px; }
+  .newhire .mynum { font-size:12px; line-height:1.65; color:#1f2937; background:#fff; border:1px solid #cbd5e1;
+    border-radius:8px; padding:7px 10px; margin-top:6px; }
+  .red { color:#dc2626; font-weight:700; }
   .docs { margin:12px 0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:10px 16px; }
   .docs h3 { font-size:13.5px; margin-bottom:6px; color:#111827; }
   .docs ul { display:grid; grid-template-columns:1fr 1fr; column-gap:20px; list-style:none; }
@@ -155,7 +158,7 @@ export function buildGuideHtml(o: GuideOptions): string {
       <div class="step"><div class="n">2</div><div class="tx">最初の画面で <b>「在籍中の従業員の方」</b> か <b>「本年入社の方」</b>${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年に入社された方）` : ''} を選ぶ</div></div>
       <div class="step"><div class="n">3</div><div class="tx"><b>お名前と生年月日</b>でご本人を確認</div></div>
       <div class="step"><div class="n">4</div><div class="tx"><b>在籍中の方</b>は前年の内容が表示されます。変更（住所・扶養親族など）があれば直してください<br>
-        <b>本年入社の方</b>は控えがないため、<b>ご自身の情報を一から入力</b>していただきます（下の枠をご覧ください）</div></div>
+        <span class="red">本年入社の方は氏名が表示されません。</span><b>ご自身の情報を一から入力</b>していただきます（下の枠をご覧ください）</div></div>
       <div class="step"><div class="n">5</div><div class="tx">当てはまる<b>控除証明書などを撮影</b>して「送信」を押す</div></div>
     </div>
     <div class="qrbox">
@@ -168,7 +171,7 @@ export function buildGuideHtml(o: GuideOptions): string {
   <div class="newhire">
     <h3>🆕 ${esc(o.fyGregorian ? String(o.fyGregorian) + '年' : '本年')}に入社された方へ ― 個人情報のご入力をお願いします</h3>
     <p class="lead2">
-      前年から在籍されている方は前年の内容が画面に表示されますが、<b>本年入社の方は控えがありません</b>。
+      前年から在籍されている方は前年の内容が画面に表示されますが、<span class="red">本年入社の方は氏名が表示されません。</span>
       <b>扶養控除等（異動）申告書に書く内容を、画面でそのまま入力</b>していただきます（紙の申告書のご提出は不要です）。
       次の内容をお手元にご用意のうえ、操作を始めてください。
     </p>
@@ -176,6 +179,11 @@ export function buildGuideHtml(o: GuideOptions): string {
     <p class="warn2">
       ❗ <b>本年中に前の勤務先があった方</b>は、<b>前職の源泉徴収票の撮影が必須</b>です（複数社ある場合はすべて）。
       お手元にない場合は、前の勤務先へ早めに発行をご依頼ください。間に合わない場合は会社のご担当者へご相談ください。
+    </p>
+    <p class="mynum">
+      🔒 <b>マイナンバー（個人番号）は、この画面では入力しません。</b>
+      <span class="red">マイナンバーは別途、担当者へお渡しください。</span>
+      （ご本人・配偶者・扶養親族の分が必要です。撮影して送らないようご注意ください。）
     </p>
   </div>
 
@@ -274,6 +282,7 @@ export function buildQrSheetHtml(o: QrSheetOptions): string {
   .note { font-size:12px; color:#6b7280; line-height:1.8; margin:14px auto 0; max-width:150mm; text-align:left; }
   .note b { color:#374151; }
   .foot { margin-top:14px; font-size:11px; color:#9ca3af; }
+  .red { color:#dc2626; font-weight:700; }
   @media print { body { background:#fff; } .sheet { margin:0; min-height:0; } .noprint { display:none; } }
   .noprint { position:fixed; top:10px; right:10px; }
   .noprint button { font-family:inherit; font-size:13px; padding:8px 16px; background:#2563eb; color:#fff;
@@ -291,8 +300,9 @@ export function buildQrSheetHtml(o: QrSheetOptions): string {
   <div class="lead">
     スマートフォンのカメラで下のQRコードを読み取り、画面の案内に沿って手続きしてください。<br>
     最初の画面で「在籍中の従業員の方」か「本年入社の方」を選んでください。<br>
-    <b>本年${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年）` : ''}に入社された方</b>は、
-    ご自身の情報（住所・世帯主・配偶者・扶養親族など）の<b>入力</b>もお願いします。
+    <span class="red">本年${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年）` : ''}に入社された方は氏名が表示されません。</span>
+    ご自身の情報（住所・世帯主・配偶者・扶養親族など）の<b>入力</b>もお願いします。<br>
+    <b>マイナンバーは別途、担当者へお渡しください</b>（この画面では入力しません）。
   </div>
 
   <div class="qrwrap">
