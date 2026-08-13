@@ -29,7 +29,7 @@ import {
 } from '@/lib/nenmatsu/store'
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
-import { openGuidePrint } from '@/lib/nenmatsu/guide'
+import { openGuidePrint, openQrSheetPrint } from '@/lib/nenmatsu/guide'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
@@ -102,7 +102,7 @@ export default function NenmatsuContent() {
   const [rows, setRows] = useState<Row[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
+  const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string; deadline: string } | null>(null)
   const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
   const [importCheck, setImportCheck] = useState<{ company: NenmatsuCompany } | null>(null)
   const [guide, setGuide] = useState<{ company: NenmatsuCompany } | null>(null)
@@ -195,7 +195,7 @@ export default function NenmatsuContent() {
     const url = await buildUploadUrl(yearId, company)
     const QRCode = (await import('qrcode')).default
     const dataUrl = await QRCode.toDataURL(url, { width: 280, margin: 1 })
-    setQr({ name: company.name, url, dataUrl })
+    setQr({ name: company.name, url, dataUrl, deadline: company.deadline || defaultDeadline || '' })
   }
 
   async function copyUrl(company: NenmatsuCompany) {
@@ -424,7 +424,29 @@ export default function NenmatsuContent() {
           <p className="text-xs text-gray-500 mb-3">従業員に配布するQRコード</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr.dataUrl} alt="QR" className="mx-auto mb-3" />
-          <div className="text-[11px] text-gray-500 break-all bg-gray-50 rounded p-2">{qr.url}</div>
+          <div className="text-[11px] text-gray-500 break-all bg-gray-50 rounded p-2 mb-3">{qr.url}</div>
+          <button
+            onClick={async () => {
+              // 掲示用に大きいQRを作り直してから印刷する（画面表示用の280pxのまま刷ると粗くなる）
+              const QRCode = (await import('qrcode')).default
+              const big = await QRCode.toDataURL(qr.url, { width: 1024, margin: 1 })
+              const ok = openQrSheetPrint({
+                companyName: qr.name,
+                yearLabel: FY_BY_ID[yearId]?.label || yearId,
+                url: qr.url,
+                qrDataUrl: big,
+                deadlineText: fmtDeadlineJa(qr.deadline),
+                fyGregorian: FY_BY_ID[yearId]?.gregorian,
+              })
+              if (!ok) setMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。')
+            }}
+            className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+          >
+            🖨 このQRコードを印刷（A4・掲示用）
+          </button>
+          <p className="text-[11px] text-gray-400 mt-2">
+            QRコードを大きく1枚に印刷します。休憩室や掲示板に貼る用です。1人1枚お配りする場合は「案内PDF」をお使いください。
+          </p>
         </Overlay>
       )}
 
@@ -455,6 +477,15 @@ export default function NenmatsuContent() {
       )}
     </div>
   )
+}
+
+/** ISO日付（YYYY-MM-DD）を「2026年11月30日（月）」の形にする。空なら空文字 */
+function fmtDeadlineJa(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso + 'T00:00:00')
+  if (isNaN(d.getTime())) return iso
+  const w = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()]
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${w}）`
 }
 
 /** 従業員向け「年末調整のご案内」PDF（印刷）を作成するモーダル。
@@ -498,12 +529,7 @@ function GuideModal({
     })()
   }, [yearId, company])
 
-  function fmtDeadline(iso: string): string {
-    const d = new Date(iso + 'T00:00:00')
-    if (isNaN(d.getTime())) return iso
-    const w = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()]
-    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${w}）`
-  }
+  const fmtDeadline = fmtDeadlineJa
 
   function make() {
     if (!qr || !url) return
@@ -513,6 +539,7 @@ function GuideModal({
       url,
       qrDataUrl: qr,
       deadlineText: fmtDeadline(deadline),
+      fyGregorian: gregorian,
     })
     if (!ok) {
       alert('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度「案内PDFを作成」を押してください。')
