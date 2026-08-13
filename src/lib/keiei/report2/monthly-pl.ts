@@ -13,10 +13,12 @@ import { aggregateRows, type AggRow } from '../analysis'
 import type { MonthlyPlResult, MonthlyPlRow } from './types'
 
 const M = 12
-/** 1ページに収まる行数の上限（これを超えたら販管費の明細を丸める） */
-const MAX_ROWS = 28
+// 紙面に入り切らない分は theme.ts の自動フィットが縮めて必ず収めるので、科目はできるだけ丸めない。
+// ただし極端に多いと縮小率が下がって読めなくなるため、この行数を超えたときだけ販管費を丸める。
+/** 丸めを始める行数 */
+const MAX_ROWS = 42
 /** 丸めたあとに残す販管費の明細数 */
-const KEEP_SGNA = 14
+const KEEP_SGNA = 20
 
 const nameOf = (r: AggRow): string => r.name.replace(/[【】〔〕]/g, '').trim()
 

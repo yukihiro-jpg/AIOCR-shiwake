@@ -69,6 +69,6 @@ export function pageMonthlyPl(ctx: ReportV2Context): string {
     ${head}
     <tbody>${rows}</tbody>
   </table>
-  <div class="note" style="margin-top:0.6mm">${esc(ctx.monthLabel)}より後の月は未入力のため「—」です。月平均は「累計 ÷ ${ctx.monthsDone}か月」、対売上比は累計ベースです。${m.condensed ? '　※ 販管費は金額の大きい順に14科目を表示し、残りを「その他販管費」にまとめています（合計は全科目の合算です）。' : ''}</div>
+  <div class="note" style="margin-top:0.6mm">${esc(ctx.monthLabel)}より後の月は未入力のため「—」です。月平均は「累計 ÷ ${ctx.monthsDone}か月」、対売上比は累計ベースです。${m.condensed ? '　※ 科目数が多いため、販管費は金額の大きい順に主要科目を表示し、残りを「その他販管費」にまとめています（合計は全科目の合算です）。' : ''}</div>
   ${pageFoot(ctx.company, ctx.fyLabel, ctx.ymLabel, ctx.pageNo('monthlypl'))}`)
 }

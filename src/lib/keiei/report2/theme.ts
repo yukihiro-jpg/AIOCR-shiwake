@@ -211,8 +211,80 @@ td.nm{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .day tr.dg td{ background:var(--ink08); }
 .day tr.bt td{ background:var(--mg15); font-weight:700; }
 
+.pg-body{ transform-origin:top left; }
+
 .toolbar{ position:fixed; right:10px; bottom:10px; background:#fff; border:1px solid #000;
   padding:6px 10px; font-size:12px; z-index:9; }
+`
+
+/**
+ * ページに収まらない紙面を自動で縮めて、**何があっても文字が切れないようにする**安全網。
+ *
+ * 科目数は顧問先ごとにまったく違う（販管費が12科目の会社もあれば40科目の会社もある）ので、
+ * 行数を決め打ちにすると必ずどこかで溢れる。そこで「組んでから測って、はみ出していたら
+ * その分だけ縮める」方式にした。縮むのは本文だけで、フッター（会社名・ページ番号）は
+ * 絶対配置なので位置も大きさも変わらない。
+ *
+ * - 縮小は zoom（対応していないブラウザは transform+幅補正）。どちらも**先に幅を広く取ってから
+ *   縮める**ので、行の折り返し位置は変わらず、単に文字が小さくなるだけになる。
+ * - 下限は0.45。ここまで縮めばA4横に収まらない紙面は事実上無い（＝切れることはない）。
+ * - 画面プレビュー（iframe）でも印刷ウィンドウでも同じスクリプトが動くので、見た目が一致する。
+ */
+const AUTOFIT_JS = `
+(function(){
+  var MIN_SCALE = 0.45;   // これ以上は縮めない（読めなくなるため）
+  var GAP_MM = 1.5;       // フッターとの間に必ず空ける隙間
+  var useZoom = (function(){ try { return CSS.supports('zoom','0.5'); } catch(e){ return false; } })();
+  function mm(v){ return v * 96 / 25.4; }
+  function bodyOf(pg){
+    var b = pg.querySelector('.pg-body');
+    if (b) return b;
+    var kids = [];
+    for (var i = 0; i < pg.childNodes.length; i++) {
+      var n = pg.childNodes[i];
+      if (n.nodeType === 1 && n.className && String(n.className).indexOf('pfoot') >= 0) continue;
+      kids.push(n);
+    }
+    b = document.createElement('div');
+    b.className = 'pg-body';
+    pg.insertBefore(b, pg.firstChild);
+    for (var j = 0; j < kids.length; j++) b.appendChild(kids[j]);
+    return b;
+  }
+  function apply(b, k){
+    if (useZoom) { b.style.zoom = k === 1 ? '' : String(k); return; }
+    b.style.transform = k === 1 ? '' : 'scale(' + k + ')';
+    b.style.width = k === 1 ? '' : (100 / k) + '%';
+  }
+  function fit(){
+    var pages = document.querySelectorAll('.page');
+    for (var i = 0; i < pages.length; i++) {
+      var pg = pages[i];
+      var b = bodyOf(pg);
+      apply(b, 1);
+      var foot = pg.querySelector('.pfoot');
+      var padTop = parseFloat(window.getComputedStyle(pg).paddingTop) || 0;
+      var limit = (foot ? foot.offsetTop : pg.clientHeight) - padTop - mm(GAP_MM);
+      if (!(limit > 0)) continue;
+      var k = 1;
+      for (var t = 0; t < 8; t++) {
+        var h = b.scrollHeight * k;
+        if (h <= limit + 0.5) break;
+        k = Math.max(MIN_SCALE, k * (limit / h) * 0.998);
+        apply(b, k);
+        if (k <= MIN_SCALE) break;
+      }
+    }
+  }
+  function run(){
+    fit();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+  window.addEventListener('load', fit);
+  window.addEventListener('beforeprint', fit);
+})();
 `
 
 /** 完成HTML（印刷用の1枚もの）を組み立てる */
@@ -230,6 +302,7 @@ export function wrapHtml(title: string, body: string, preview = false): string {
 <body>
 ${body}
 ${preview ? '' : '<div class="toolbar">A4・横で印刷してください（余白なし）　<button onclick="window.print()">🖨 印刷 / PDF保存</button></div>'}
+<script>${AUTOFIT_JS}</script>
 </body>
 </html>`
 }
