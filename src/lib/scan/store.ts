@@ -138,10 +138,11 @@ export async function loadScanCompanies(): Promise<Record<string, ScanCompany>> 
 /** 会社をスキャン利用に登録（トークンを発行）。既存ならそれを返す。
  *  公開領域の会社名(info)は毎回書き直す（過去にルール不備等で書けていなくても自己修復される）。
  *  ※ members サブツリーを消さないよう、会社フィールドは update で書く */
-export async function registerScanCompany(client: ScanClient): Promise<ScanCompany> {
+export async function registerScanCompany(client: ScanClient, known?: ScanCompany | null): Promise<ScanCompany> {
   const { db, ref, get, set, update } = await dbfns()
   const path = await modulePath(SCAN_KEY, 'companies', client.id)
-  const existing = (await get(ref(db, path))).val() as ScanCompany | null
+  // 一覧をまとめて読んだ直後に呼ぶときは、その値を known で渡して1社ぶんの読み取りを省く
+  const existing = known !== undefined ? known : ((await get(ref(db, path))).val() as ScanCompany | null)
   const company: ScanCompany =
     existing && existing.token
       ? { ...existing, name: client.name || existing.name, code: client.code || existing.code || '' }
@@ -169,6 +170,35 @@ export async function registerScanCompany(client: ScanClient): Promise<ScanCompa
     }
   }
   return company
+}
+
+/** 一覧表示のための登録同期。**書き込みが必要な会社だけ**書く。
+ *  以前は画面を開くたびに全社ぶん（読み1＋書き2＋メンバー数）を実行していたため、
+ *  200社では一覧が出るまでに数百回の往復が必要だった。
+ *  トークン未発行・会社名/コードの変更があった会社だけを register し、それ以外は素通りする。
+ *  戻り値は「更新後の登録会社一覧」。 */
+export async function syncScanCompanies(
+  clients: ScanClient[],
+  comps: Record<string, ScanCompany>,
+): Promise<{ comps: Record<string, ScanCompany>; errors: string[] }> {
+  const need = clients.filter((c) => {
+    const e = comps[c.id]
+    if (!e || !e.token) return true
+    return (c.name && c.name !== e.name) || ((c.code || '') !== (e.code || ''))
+  })
+  if (!need.length) return { comps, errors: [] }
+  const next = { ...comps }
+  const errors: string[] = []
+  await Promise.all(
+    need.map(async (c) => {
+      try {
+        next[c.id] = await registerScanCompany(c, comps[c.id] || null)
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e))
+      }
+    }),
+  )
+  return { comps: next, errors }
 }
 
 // ===== メンバー別URL（宛先制御） =====
@@ -893,14 +923,19 @@ export const SCAN_RETENTION_DAYS = 365
 export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_RETENTION_DAYS): Promise<number> {
   const cutoff = Date.now() - maxAgeDays * 24 * 3600 * 1000
   let removed = 0
-  const batches = await loadBatches(token)
+  // 4つのノードは互いに独立なので同時に読む（1社あたり4往復の直列待ちをなくす）
+  const [batches, cash, files, inbox] = await Promise.all([
+    loadBatches(token).catch(() => ({} as Record<string, ScanBatch>)),
+    loadCashEntries(token).catch(() => ({} as Record<string, ScanCashEntry>)),
+    loadFiles(token).catch(() => ({} as Record<string, ScanFile>)),
+    loadInbox(token).catch(() => ({} as Record<string, ScanInboxFile>)),
+  ])
   for (const b of Object.values(batches)) {
     const t = Date.parse(b.submittedAt || '')
     if (t && t < cutoff) {
       try { await deleteBatch(token, b); removed++ } catch { /* 次回に再試行 */ }
     }
   }
-  const cash = await loadCashEntries(token)
   const { db, ref, remove } = await dbfns()
   for (const c of Object.values(cash)) {
     const t = Date.parse(c.submittedAt || '')
@@ -910,27 +945,69 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
   }
   // 顧問先→税理士のファイル便は送信から1年で削除（顧問先の元ファイルには影響しない）
   const fileCutoff = Date.now() - SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000
-  try {
-    const files = await loadFiles(token)
-    for (const f of Object.values(files)) {
-      const t = Date.parse(f.submittedAt || '')
-      if (t && t < fileCutoff) {
-        try { await deleteScanFile(token, f); removed++ } catch { /* 次回に再試行 */ }
-      }
+  for (const f of Object.values(files)) {
+    const t = Date.parse(f.submittedAt || '')
+    if (t && t < fileCutoff) {
+      try { await deleteScanFile(token, f); removed++ } catch { /* 次回に再試行 */ }
     }
-  } catch { /* ignore */ }
+  }
   // 税理士→顧問先のファイル（inbox）は送信から4年で削除
   const inboxCutoff = Date.now() - SCAN_INBOX_RETENTION_DAYS * 24 * 3600 * 1000
+  for (const f of Object.values(inbox)) {
+    const t = Date.parse(f.sentAt || '')
+    if (t && t < inboxCutoff) {
+      try { await deleteInboxFile(token, f); removed++ } catch { /* 次回に再試行 */ }
+    }
+  }
+  return removed
+}
+
+/** 一覧に出す未処理件数だけを数える（3ノードを同時に読む）。
+ *  保存期限の清掃（sweepOldScanData）とは切り離してあるので、一覧表示は削除処理を待たない。 */
+export async function countScanPending(token: string): Promise<{ batch: number; cash: number; file: number }> {
+  const [batches, cash, files] = await Promise.all([
+    loadBatches(token).catch(() => ({} as Record<string, ScanBatch>)),
+    loadCashEntries(token).catch(() => ({} as Record<string, ScanCashEntry>)),
+    loadFiles(token).catch(() => ({} as Record<string, ScanFile>)),
+  ])
+  return {
+    batch: Object.values(batches).filter((b) => b.status !== 'done').length,
+    cash: Object.values(cash).filter((c) => c.status !== 'done').length,
+    file: Object.values(files).filter((f) => f.status !== 'done').length,
+  }
+}
+
+/** 保存期限の清掃は「端末ごと6時間に1回」に間引く（年調の sweepAllNenmatsu と同じ考え方）。
+ *  200社×メンバー分の清掃を画面を開くたびに走らせると、一覧が出るまで待たされるため。 */
+function scanSweepDue(): boolean {
+  if (typeof window === 'undefined') return false
+  const KEY = 'scan-sweep-at'
   try {
-    const inbox = await loadInbox(token)
-    for (const f of Object.values(inbox)) {
-      const t = Date.parse(f.sentAt || '')
-      if (t && t < inboxCutoff) {
-        try { await deleteInboxFile(token, f); removed++ } catch { /* 次回に再試行 */ }
+    const last = Number(localStorage.getItem(KEY) || 0)
+    if (last && Date.now() - last < 6 * 3600 * 1000) return false
+    localStorage.setItem(KEY, String(Date.now())) // 先に印（途中で失敗しても6時間後に再試行）
+  } catch { /* localStorage不可でも清掃自体は行う */ }
+  return true
+}
+
+/** 登録会社（＋メンバー）の保存期限清掃をまとめて実行する。同時実行は4社まで。
+ *  6時間以内に実行済みなら何もしない（force で強制実行）。 */
+export async function sweepAllScan(companies: ScanCompany[], force = false): Promise<void> {
+  if (!force && !scanSweepDue()) return
+  const list = companies.filter((c) => c && c.token)
+  let i = 0
+  const worker = async () => {
+    while (i < list.length) {
+      const c = list[i++]
+      try { await sweepOldScanData(c.token) } catch { /* 次回に再試行 */ }
+      for (const m of Object.values(c.members || {})) {
+        if (m && m.token) {
+          try { await sweepOldScanData(m.token) } catch { /* ignore */ }
+        }
       }
     }
-  } catch { /* ignore */ }
-  return removed
+  }
+  await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker))
 }
 
 /** 事務所側：バッチを削除（Storageファイルも削除） */

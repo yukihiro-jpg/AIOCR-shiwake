@@ -6,7 +6,6 @@ import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
   loadScanClients,
   loadScanCompanies,
-  registerScanCompany,
   buildScanUrl,
   type ScanClient,
   loadBatches,
@@ -38,6 +37,9 @@ import {
   deleteScanFolder,
   collectFolderDescendantIds,
   processScanPurgeQueue,
+  syncScanCompanies,
+  countScanPending,
+  sweepAllScan,
   type ScanMember,
   type ScanInboxFile,
   type ScanFolder,
@@ -45,7 +47,6 @@ import {
   setCashStatus,
   getBatchImageUrls,
   getBatchImageBlobs,
-  sweepOldScanData,
   deleteBatch,
   saveAnalysis,
   loadAnalysis,
@@ -85,7 +86,10 @@ export default function ScanContent() {
   const [pass, setPass] = useState('')
   const [clients, setClients] = useState<SharedClient[]>([])
   const [companies, setCompanies] = useState<Record<string, ScanCompany>>({})
-  const [counts, setCounts] = useState<Record<string, { batch: number; cash: number; file: number }>>({})
+  // 未処理件数は一覧を出したあとに後追いで数える（null＝集計中）
+  const [counts, setCounts] = useState<Record<string, { batch: number; cash: number; file: number } | null>>({})
+  const maintenanceRan = useRef(false)
+  const loadSeq = useRef(0)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [qr, setQr] = useState<{ name: string; url: string; dataUrl: string } | null>(null)
@@ -112,55 +116,64 @@ export default function ScanContent() {
     if (!hasRoom()) return
     setBusy(true)
     setMsg('')
+    const seq = ++loadSeq.current
+    const showErrors = (errors: string[]) => {
+      if (!errors.length || seq !== loadSeq.current) return
+      const isPerm = errors.some((m) => /permission/i.test(m))
+      setMsg(
+        isPerm
+          ? '⚠️ Firebaseのセキュリティルールに scan-public の許可がありません。Firebaseコンソールのルールに scan-public ブロックを追加してください（追加するまで顧問先の送信もエラーになります）。詳細：' + errors[0]
+          : '一部の読み込みに失敗しました：' + errors[0],
+      )
+    }
     try {
-      // 顧問先削除の purge キューを処理（削除済み顧問先の公開データ・Storage実体を確実に消す）
-      try { await processScanPurgeQueue() } catch { /* 次回に再試行 */ }
-      // 顧問先情報で「書類スキャン受信＝利用」にした会社のみ対象。トークン未発行なら自動発行。
-      // 公開領域(scan-public)の会社名も毎回書き直す（ルール不備からの自己修復）
-      const cl = await loadScanClients()
-      const errors: string[] = []
-      await Promise.all(
-        cl.map((c) =>
-          registerScanCompany(c).catch((e) => {
-            errors.push(e instanceof Error ? e.message : String(e))
-          }),
-        ),
-      )
-      const comps = await loadScanCompanies()
+      // ① 一覧の表示に必要な2つだけを先に読んで、すぐ描画する。
+      //    （以前は purge キュー・全社の登録書き込み・全社の保存期限清掃を終えるまで一覧が出ず、
+      //      200社では表示までに数百回の往復が必要だった）
+      const [cl, comps0] = await Promise.all([loadScanClients(), loadScanCompanies()])
+      if (seq !== loadSeq.current) return
       setClients(cl)
-      setCompanies(comps)
-      const nextCounts: Record<string, { batch: number; cash: number; file: number }> = {}
-      await Promise.all(
-        Object.values(comps).map(async (c) => {
+      setCompanies(comps0)
+      setCounts(Object.fromEntries(cl.map((c) => [c.id, null])))
+      setBusy(false)
+
+      // ② トークン未発行・会社名/コードが変わった会社だけ登録を書き直す
+      const { comps, errors } = await syncScanCompanies(cl, comps0)
+      if (seq !== loadSeq.current) return
+      if (comps !== comps0) setCompanies(comps)
+      showErrors(errors)
+
+      // ③ 未処理件数は後追いで（同時8社まで）。数え終わった会社から順に表示を差し替える。
+      //    共有フォルダを新規タブ（?open=顧問先ID）で開いたときは一覧が見えないので集計も保守もしない
+      const list = Object.values(comps).filter((c) => c && c.token)
+      if (new URLSearchParams(window.location.search).get('open')) return
+      let i = 0
+      const countErrors: string[] = []
+      const worker = async () => {
+        while (i < list.length) {
+          const c = list[i++]
           try {
-            // 保存期間（画像1年／ファイル便は顧問先→税理士1年・税理士→顧問先4年）を過ぎたデータを自動削除してから件数を数える
-            try { await sweepOldScanData(c.token) } catch { /* 権限エラー等は下で表示される */ }
-            for (const m of Object.values(c.members || {})) {
-              try { await sweepOldScanData(m.token) } catch { /* ignore */ }
-            }
-            const [batches, cash, files] = await Promise.all([
-              loadBatches(c.token),
-              loadCashEntries(c.token),
-              loadFiles(c.token),
-            ])
-            nextCounts[c.clientId] = {
-              batch: Object.values(batches).filter((b) => b.status !== 'done').length,
-              cash: Object.values(cash).filter((c2) => c2.status !== 'done').length,
-              file: Object.values(files).filter((f) => f.status !== 'done').length,
-            }
+            const n = await countScanPending(c.token)
+            if (seq !== loadSeq.current) return
+            setCounts((prev) => ({ ...prev, [c.clientId]: n }))
           } catch (e) {
-            errors.push(e instanceof Error ? e.message : String(e))
+            countErrors.push(e instanceof Error ? e.message : String(e))
+            if (seq !== loadSeq.current) return
+            setCounts((prev) => ({ ...prev, [c.clientId]: { batch: 0, cash: 0, file: 0 } }))
           }
-        }),
-      )
-      setCounts(nextCounts)
-      if (errors.length) {
-        const isPerm = errors.some((m) => /permission/i.test(m))
-        setMsg(
-          isPerm
-            ? '⚠️ Firebaseのセキュリティルールに scan-public の許可がありません。Firebaseコンソールのルールに scan-public ブロックを追加してください（追加するまで顧問先の送信もエラーになります）。詳細：' + errors[0]
-            : '一部の読み込みに失敗しました：' + errors[0],
-        )
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(8, list.length) }, worker))
+      showErrors(countErrors)
+
+      // ④ 保守（purgeキュー処理・保存期限の清掃）は表示と関係ないので最後に、1セッション1回だけ。
+      //    清掃自体も端末ごと6時間に1回に間引いてある（sweepAllScan）
+      if (!maintenanceRan.current) {
+        maintenanceRan.current = true
+        void (async () => {
+          try { await processScanPurgeQueue() } catch { /* 次回に再試行 */ }
+          try { await sweepAllScan(list) } catch { /* 次回に再試行 */ }
+        })()
       }
     } catch (e) {
       setMsg('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
@@ -171,6 +184,15 @@ export default function ScanContent() {
   useEffect(() => {
     if (ready) reload()
   }, [ready, reload])
+
+  // 共有フォルダ側で変更があったときは、その顧問先の件数だけ数え直す
+  // （全社の再読み込みは200社ぶんの往復になるので、ファイル1件の操作では走らせない）
+  const refreshOne = useCallback(async (clientId: string, token: string) => {
+    try {
+      const n = await countScanPending(token)
+      setCounts((prev) => ({ ...prev, [clientId]: n }))
+    } catch { /* 次回の再読み込みで直る */ }
+  }, [])
 
   // 新規タブ（?open=顧問先ID）で開かれたら、その顧問先の共有フォルダを全画面表示する
   useEffect(() => {
@@ -290,7 +312,7 @@ export default function ScanContent() {
                 {clients.map((client) => {
                   const company = companies[client.id]
                   if (!company) return null
-                  const cnt = counts[client.id] || { batch: 0, cash: 0, file: 0 }
+                  const cnt = counts[client.id] // undefined/null＝まだ集計中
                   return (
                     <tr
                       key={client.id}
@@ -301,13 +323,13 @@ export default function ScanContent() {
                       <td className="px-4 py-3 text-gray-700">{client.code || '—'}</td>
                       <td className="px-4 py-3 font-medium text-gray-800">{client.name}</td>
                       <td className="px-4 py-3">
-                        <span className="font-semibold text-blue-700">{cnt.batch}</span>
+                        <span className="font-semibold text-blue-700">{cnt ? cnt.batch : <span className="text-gray-300">…</span>}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="font-semibold text-blue-700">{cnt.cash}</span>
+                        <span className="font-semibold text-blue-700">{cnt ? cnt.cash : <span className="text-gray-300">…</span>}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="font-semibold text-blue-700">{cnt.file}</span>
+                        <span className="font-semibold text-blue-700">{cnt ? cnt.file : <span className="text-gray-300">…</span>}</span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 justify-end flex-nowrap whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -355,7 +377,7 @@ export default function ScanContent() {
           analyzingIds={analyzingIds}
           fullPage={inbox.fullPage}
           onClose={() => (inbox.fullPage ? window.close() : setInbox(null))}
-          onChanged={reload}
+          onChanged={() => refreshOne(inbox.client.id, inbox.company.token)}
         />
       )}
 
@@ -491,6 +513,24 @@ export function InboxModal({
       setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     } finally {
       setLoading(false)
+    }
+  }, [company.token])
+
+  // 共有フォルダの操作（アップロード・削除・移動・フォルダ操作）で読み直すのはこの3つだけ。
+  // バッチ・現金・AI解析まで読み直すと、ファイルが増えるほど1操作ごとに待たされるため。
+  // ローディング表示も出さない（画面が一瞬空になってちらつくのを防ぐ）。
+  const reloadFolderData = useCallback(async () => {
+    try {
+      const [f, inbox, fol] = await Promise.all([
+        loadFiles(company.token),
+        loadInbox(company.token),
+        loadScanFolders(company.token),
+      ])
+      setFiles(f)
+      setCompanyInbox(inbox)
+      setFolders(Object.values(fol))
+    } catch (e) {
+      setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
     }
   }, [company.token])
 
@@ -687,7 +727,7 @@ export function InboxModal({
                 setFolderId={setFolderId}
                 onNavigate={selectFolder}
                 onChanged={async () => {
-                  await load()
+                  await reloadFolderData()
                   onChanged()
                 }}
               />
@@ -1827,13 +1867,18 @@ function FilesPanel({
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const out: { token: string; name: string; files: ScanInboxFile[] }[] = []
-      for (const m of memberList) {
-        try {
-          const inb = await loadInbox(m.token)
-          out.push({ token: m.token, name: m.name, files: Object.values(inb) })
-        } catch { /* ignore */ }
-      }
+      // メンバーごとの受信箱は互いに独立なので同時に読む（1人ずつ待つとメンバー数だけ表示が遅れる）
+      const out = (
+        await Promise.all(
+          memberList.map(async (m) => {
+            try {
+              return { token: m.token, name: m.name, files: Object.values(await loadInbox(m.token)) }
+            } catch {
+              return null
+            }
+          }),
+        )
+      ).filter((x): x is { token: string; name: string; files: ScanInboxFile[] } => !!x)
       if (!cancelled) setMemberInbox(out)
     })()
     return () => { cancelled = true }
@@ -2516,13 +2561,20 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
     setLoading(true)
     const out: { recipient: string; token: string; file: ScanInboxFile }[] = []
     try {
-      const shared = await loadInbox(company.token)
+      // 全員宛＋メンバー宛を同時に読む（メンバー数だけ直列に待たない）
+      const members = Object.values(company.members || {})
+      const [shared, perMember] = await Promise.all([
+        loadInbox(company.token),
+        Promise.all(
+          members.map(async (m) => {
+            try { return { m, inbox: await loadInbox(m.token) } } catch { return null }
+          }),
+        ),
+      ])
       for (const f of Object.values(shared)) out.push({ recipient: '全員', token: company.token, file: f })
-      for (const m of Object.values(company.members || {})) {
-        try {
-          const inbox = await loadInbox(m.token)
-          for (const f of Object.values(inbox)) out.push({ recipient: m.name, token: m.token, file: f })
-        } catch { /* ignore */ }
+      for (const r of perMember) {
+        if (!r) continue
+        for (const f of Object.values(r.inbox)) out.push({ recipient: r.m.name, token: r.m.token, file: f })
       }
     } catch { /* ignore */ }
     out.sort((a, b) => b.file.sentAt.localeCompare(a.file.sentAt))
