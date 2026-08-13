@@ -80,71 +80,11 @@ const FIT_ONE_PAGE_JS = `
   }
 `
 
-export function buildGuideHtml(o: GuideOptions): string {
+/** 案内1社ぶんの紙面（A4縦1枚）。複数社をまとめて刷るときはこれを並べる。 */
+function guideSheet(o: GuideOptions): string {
   const docs = DOC_EXAMPLES.map((d) => `<li>${esc(d)}</li>`).join('')
   const newHire = NEW_HIRE_ITEMS.map((d) => `<li>${esc(d)}</li>`).join('')
-  return `<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>年末調整のご案内 — ${esc(o.companyName)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { font-family:'Noto Sans JP', sans-serif; color:#1f2937; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  body { background:#e5e7eb; }
-  @page { size:A4; margin:0; }
-  /* 画面でも印刷でも同じ幅で組む（幅が変わると行の折り返しが変わり、1枚に収まるかの判定がずれる） */
-  .sheet { width:210mm; min-height:297mm; margin:0 auto; padding:12mm; background:#fff; }
-  .head { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #2563eb; padding-bottom:8px; margin-bottom:14px; }
-  .head .co { font-size:15px; color:#6b7280; font-weight:500; }
-  .head .ttl { font-size:26px; font-weight:900; color:#1e3a8a; letter-spacing:.02em; }
-  .head .yr { font-size:13px; color:#6b7280; }
-  .lead { font-size:13.5px; line-height:1.75; margin-bottom:11px; }
-  .cols { display:flex; gap:16px; align-items:stretch; }
-  .steps { flex:1; }
-  .step { display:flex; gap:10px; margin-bottom:8px; }
-  .step .n { flex:none; width:26px; height:26px; border-radius:50%; background:#2563eb; color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; }
-  .step .tx { font-size:13.5px; line-height:1.55; padding-top:2px; }
-  .step .tx b { font-weight:700; }
-  .qrbox { flex:none; width:210px; border:1.5px solid #e5e7eb; border-radius:12px; padding:12px; text-align:center; background:#f9fafb; }
-  .qrbox img { width:170px; height:170px; }
-  .qrbox .cap { font-size:12px; font-weight:700; margin-bottom:8px; color:#111827; }
-  .qrbox .url { font-size:9.5px; color:#2563eb; word-break:break-all; margin-top:8px; line-height:1.5; }
-  .newhire { margin:12px 0; border:2px solid #0284c7; background:#f0f9ff; border-radius:12px; padding:11px 15px; }
-  .newhire h3 { font-size:14px; color:#075985; margin-bottom:5px; }
-  .newhire .lead2 { font-size:12.5px; line-height:1.7; margin-bottom:6px; }
-  .newhire ul { display:grid; grid-template-columns:1fr 1fr; column-gap:20px; list-style:none; }
-  .newhire li { font-size:12px; line-height:1.68; padding-left:15px; position:relative; break-inside:avoid; }
-  .newhire li::before { content:'▸'; position:absolute; left:0; color:#0284c7; font-weight:700; }
-  .newhire .warn2 { font-size:12px; line-height:1.65; color:#7f1d1d; background:#fef2f2; border:1px solid #fecaca;
-    border-radius:8px; padding:7px 10px; margin-top:7px; }
-  .newhire .mynum { font-size:12px; line-height:1.65; color:#1f2937; background:#fff; border:1px solid #cbd5e1;
-    border-radius:8px; padding:7px 10px; margin-top:6px; }
-  .red { color:#dc2626; font-weight:700; }
-  .docs { margin:12px 0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:10px 16px; }
-  .docs h3 { font-size:13.5px; margin-bottom:6px; color:#111827; }
-  .docs ul { display:grid; grid-template-columns:1fr 1fr; column-gap:20px; list-style:none; }
-  .docs li { font-size:12.3px; line-height:1.72; padding-left:16px; position:relative; break-inside:avoid; }
-  .docs li::before { content:'✓'; position:absolute; left:0; color:#2563eb; font-weight:700; }
-  .warn { border:2px solid #dc2626; background:#fef2f2; border-radius:12px; padding:11px 16px; margin-bottom:11px; }
-  .warn .dl { font-size:15px; color:#991b1b; font-weight:700; margin-bottom:6px; }
-  .warn .dl .date { font-size:22px; font-weight:900; color:#dc2626; margin-left:6px; }
-  .warn .msg { font-size:12.5px; color:#7f1d1d; line-height:1.62; font-weight:500; }
-  .note { font-size:10.8px; color:#6b7280; line-height:1.62; border-top:1px dashed #d1d5db; padding-top:7px; }
-  .note b { color:#374151; }
-  .foot { margin-top:7px; text-align:right; font-size:10.5px; color:#9ca3af; }
-  @media print { body { background:#fff; } .sheet { margin:0; min-height:0; } .noprint { display:none; } }
-  .noprint { position:fixed; top:10px; right:10px; }
-  .noprint button { font-family:inherit; font-size:13px; padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer; }
-</style>
-</head>
-<body>
-  <div class="noprint"><button onclick="window.print()">🖨 印刷 / PDFに保存</button></div>
-  <div class="sheet fitbox" data-fit-h="297"><div class="sheet-body fitbody">
+  return `  <div class="sheet fitbox" data-fit-h="296"><div class="sheet-body fitbody">
 
   <div class="head">
     <div>
@@ -216,23 +156,102 @@ export function buildGuideHtml(o: GuideOptions): string {
   </div>
 
   <div class="foot">この案内は担当会計事務所が発行しています。ご不明な点はご担当者までお問い合わせください。</div>
-  </div></div>
+  </div></div>`
+}
+
+/**
+ * 案内PDFのHTML。`list` に複数社を渡すと、**1社1枚**で続けて刷る1つの文書になる。
+ * 各紙面は `.fitbox`（高さ296mm・はみ出し禁止）なので、会社名が長くても2枚目に送られない。
+ */
+export function buildGuideHtml(o: GuideOptions | GuideOptions[]): string {
+  const list = Array.isArray(o) ? o : [o]
+  const first = list[0]
+  const title =
+    list.length > 1 ? `年末調整のご案内 — ${list.length}社` : `年末調整のご案内 — ${esc(first?.companyName || '')}`
+  return `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { font-family:'Noto Sans JP', sans-serif; color:#1f2937; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { background:#e5e7eb; }
+  @page { size:A4; margin:0; }
+  /* 画面でも印刷でも同じ幅で組む（幅が変わると行の折り返しが変わり、1枚に収まるかの判定がずれる）。
+     高さも固定＋overflow:hidden にしてあるので、複数社をまとめて刷っても必ず1社1枚になる */
+  .sheet { width:210mm; height:296.5mm; margin:0 auto; padding:12mm; background:#fff; overflow:hidden; }
+  .sheet + .sheet { margin-top:8mm; break-before:page; page-break-before:always; }
+  .head { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:3px solid #2563eb; padding-bottom:8px; margin-bottom:14px; }
+  .head .co { font-size:15px; color:#6b7280; font-weight:500; }
+  .head .ttl { font-size:26px; font-weight:900; color:#1e3a8a; letter-spacing:.02em; }
+  .head .yr { font-size:13px; color:#6b7280; }
+  .lead { font-size:13.5px; line-height:1.75; margin-bottom:11px; }
+  .cols { display:flex; gap:16px; align-items:stretch; }
+  .steps { flex:1; }
+  .step { display:flex; gap:10px; margin-bottom:8px; }
+  .step .n { flex:none; width:26px; height:26px; border-radius:50%; background:#2563eb; color:#fff; font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; }
+  .step .tx { font-size:13.5px; line-height:1.55; padding-top:2px; }
+  .step .tx b { font-weight:700; }
+  .qrbox { flex:none; width:210px; border:1.5px solid #e5e7eb; border-radius:12px; padding:12px; text-align:center; background:#f9fafb; }
+  .qrbox img { width:170px; height:170px; }
+  .qrbox .cap { font-size:12px; font-weight:700; margin-bottom:8px; color:#111827; }
+  .qrbox .url { font-size:9.5px; color:#2563eb; word-break:break-all; margin-top:8px; line-height:1.5; }
+  .newhire { margin:12px 0; border:2px solid #0284c7; background:#f0f9ff; border-radius:12px; padding:11px 15px; }
+  .newhire h3 { font-size:14px; color:#075985; margin-bottom:5px; }
+  .newhire .lead2 { font-size:12.5px; line-height:1.7; margin-bottom:6px; }
+  .newhire ul { display:grid; grid-template-columns:1fr 1fr; column-gap:20px; list-style:none; }
+  .newhire li { font-size:12px; line-height:1.68; padding-left:15px; position:relative; break-inside:avoid; }
+  .newhire li::before { content:'▸'; position:absolute; left:0; color:#0284c7; font-weight:700; }
+  .newhire .warn2 { font-size:12px; line-height:1.65; color:#7f1d1d; background:#fef2f2; border:1px solid #fecaca;
+    border-radius:8px; padding:7px 10px; margin-top:7px; }
+  .newhire .mynum { font-size:12px; line-height:1.65; color:#1f2937; background:#fff; border:1px solid #cbd5e1;
+    border-radius:8px; padding:7px 10px; margin-top:6px; }
+  .red { color:#dc2626; font-weight:700; }
+  .docs { margin:12px 0; background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:10px 16px; }
+  .docs h3 { font-size:13.5px; margin-bottom:6px; color:#111827; }
+  .docs ul { display:grid; grid-template-columns:1fr 1fr; column-gap:20px; list-style:none; }
+  .docs li { font-size:12.3px; line-height:1.72; padding-left:16px; position:relative; break-inside:avoid; }
+  .docs li::before { content:'✓'; position:absolute; left:0; color:#2563eb; font-weight:700; }
+  .warn { border:2px solid #dc2626; background:#fef2f2; border-radius:12px; padding:11px 16px; margin-bottom:11px; }
+  .warn .dl { font-size:15px; color:#991b1b; font-weight:700; margin-bottom:6px; }
+  .warn .dl .date { font-size:22px; font-weight:900; color:#dc2626; margin-left:6px; }
+  .warn .msg { font-size:12.5px; color:#7f1d1d; line-height:1.62; font-weight:500; }
+  .note { font-size:10.8px; color:#6b7280; line-height:1.62; border-top:1px dashed #d1d5db; padding-top:7px; }
+  .note b { color:#374151; }
+  .foot { margin-top:7px; text-align:right; font-size:10.5px; color:#9ca3af; }
+  @media print { body { background:#fff; } .sheet { margin:0; } .sheet + .sheet { margin-top:0; } .noprint { display:none; } }
+  .noprint { position:fixed; top:10px; right:10px; }
+  .noprint button { font-family:inherit; font-size:13px; padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="noprint"><button onclick="window.print()">🖨 印刷 / PDFに保存</button></div>
+${list.map(guideSheet).join('\n')}
 
 <script>
   ${FIT_ONE_PAGE_JS}
   (function(){
     function go(){ try{ window.focus(); window.print(); }catch(e){} }
-    var img = document.querySelector('.qrbox img');
+    // すべてのQR画像とフォントの読み込みを待ってから測る（読み込み前に測ると高さがずれる）
+    var imgs = Array.prototype.slice.call(document.querySelectorAll('.qrbox img'));
     var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-    var imgReady = (img && !img.complete) ? new Promise(function(r){ img.onload = r; img.onerror = r; }) : Promise.resolve();
-    Promise.all([fontsReady, imgReady]).then(function(){ fitOnePage(); setTimeout(go, 350); });
+    var imgsReady = Promise.all(imgs.map(function(img){
+      return img.complete ? Promise.resolve() : new Promise(function(r){ img.onload = r; img.onerror = r; });
+    }));
+    Promise.all([fontsReady, imgsReady]).then(function(){ fitOnePage(); setTimeout(go, 350); });
   })();
 </script>
 </body>
 </html>`
 }
 
-export function openGuidePrint(o: GuideOptions): boolean {
+/** 案内PDFを印刷用の別ウインドウで開く。配列を渡すと1社1枚でまとめて刷る。 */
+export function openGuidePrint(o: GuideOptions | GuideOptions[]): boolean {
   const w = window.open('', '_blank', 'width=820,height=1040')
   if (!w) return false
   w.document.open()

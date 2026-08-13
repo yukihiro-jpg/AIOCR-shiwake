@@ -109,6 +109,9 @@ export default function NenmatsuContent() {
   const [guide, setGuide] = useState<{ company: NenmatsuCompany } | null>(null)
   const [defaultDeadline, setDefaultDeadline] = useState('')
   const [defaultDeadlineInput, setDefaultDeadlineInput] = useState('')
+  // 案内PDFの一括作成用に選んだ顧問先ID
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkMsg, setBulkMsg] = useState('')
 
   useEffect(() => {
     setReady(hasRoom())
@@ -240,6 +243,56 @@ export default function NenmatsuContent() {
     setQr({ name: company.name, url, dataUrl, deadline: company.deadline || defaultDeadline || '' })
   }
 
+  function toggleSelect(clientId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
+
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.client.id))
+  function toggleSelectAll() {
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.client.id)))
+  }
+
+  /** 選択した会社の案内PDFを、1社1枚でつないだ1つの印刷ジョブ（＝1つのPDF）にする */
+  async function printSelectedGuides() {
+    const targets = rows.filter((r) => selected.has(r.client.id))
+    if (!targets.length) return
+    setBusy(true)
+    setBulkMsg(`案内を作成しています…（0 / ${targets.length}社）`)
+    try {
+      const QRCode = (await import('qrcode')).default
+      const yearLabel = FY_BY_ID[yearId]?.label || yearId
+      const fyGregorian = FY_BY_ID[yearId]?.gregorian
+      const pages = []
+      for (let i = 0; i < targets.length; i++) {
+        const { client, company } = targets[i]
+        const url = await buildUploadUrl(yearId, company)
+        pages.push({
+          companyName: company.name || client.name,
+          yearLabel,
+          url,
+          qrDataUrl: await QRCode.toDataURL(url, { width: 340, margin: 1 }),
+          deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
+          fyGregorian,
+        })
+        setBulkMsg(`案内を作成しています…（${i + 1} / ${targets.length}社）`)
+      }
+      const ok = openGuidePrint(pages)
+      setBulkMsg(
+        ok
+          ? `${targets.length}社ぶんの案内（${targets.length}ページ）を別ウインドウで開きました。印刷ダイアログで「PDFに保存」を選ぶと1つのPDFになります。`
+          : 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。',
+      )
+    } catch (e) {
+      setBulkMsg('案内の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
   async function copyUrl(company: NenmatsuCompany) {
     const url = await buildUploadUrl(yearId, company)
     try {
@@ -354,9 +407,47 @@ export default function NenmatsuContent() {
               対象会社がありません。「顧問先情報登録」の「アプリ利用」で対象会社の<strong>年調データ受信</strong>を<strong>利用</strong>に設定してください。
             </div>
           ) : (
+            <>
+            {/* 案内PDFの一括作成バー（選択が0件でも操作方法が分かるよう常に出す） */}
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-emerald-50/50 flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} className="w-4 h-4 accent-emerald-600" />
+                全件選択
+              </label>
+              <span className="text-sm text-gray-500">
+                選択 <span className="font-bold text-emerald-700">{selected.size}</span> 社
+              </span>
+              <button
+                onClick={printSelectedGuides}
+                disabled={busy || selected.size === 0}
+                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700 disabled:opacity-40"
+              >
+                📄 選択した会社の案内PDFをまとめて作成（1社1枚）
+              </button>
+              {selected.size > 0 && (
+                <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-white">
+                  選択解除
+                </button>
+              )}
+              <span className="text-[11px] text-gray-400">
+                印刷ダイアログの送信先で「PDFに保存」を選ぶと、選んだ会社ぶんが1つのPDFファイルになります。
+              </span>
+            </div>
+            {bulkMsg && (
+              <div className="px-4 py-2 text-xs bg-emerald-50 border-b border-emerald-100 text-emerald-800">{bulkMsg}</div>
+            )}
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
+                  <th className="px-3 py-2 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      title="全件選択 / 解除"
+                      className="w-4 h-4 accent-emerald-600 align-middle"
+                    />
+                  </th>
                   <th className="text-left px-4 py-2 font-semibold">コード</th>
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
                   <th className="text-left px-4 py-2 font-semibold">従業員 / 提出</th>
@@ -370,7 +461,16 @@ export default function NenmatsuContent() {
                   const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - submitted)
                   const dd = daysToDeadline(eff)
                   return (
-                  <tr key={client.id} className="border-t border-gray-100">
+                  <tr key={client.id} className={`border-t border-gray-100 ${selected.has(client.id) ? 'bg-emerald-50/40' : ''}`}>
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(client.id)}
+                        onChange={() => toggleSelect(client.id)}
+                        title="案内PDFの一括作成に含める"
+                        className="w-4 h-4 accent-emerald-600 align-middle"
+                      />
+                    </td>
                     <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{client.code || '—'}</td>
                     <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{client.name}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
@@ -452,6 +552,7 @@ export default function NenmatsuContent() {
                 )})}
               </tbody>
             </table>
+            </>
           )}
         </div>
 
