@@ -31,6 +31,7 @@ import SectionLedger from './SectionLedger'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
 import SectionReport2 from './SectionReport2'
+import { buildKeieiExport, keieiExportFileName, keieiExportJson } from '@/lib/keiei/export-data'
 
 type View = 'report2' | 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
@@ -273,6 +274,25 @@ export default function KeieiContent() {
     await saveYears(clientId, next)
   }, [clientId, years, yearId])
 
+  // 取り込んだ試算表データ（取込済みの全期）を1つのJSONファイルとして書き出す。
+  // 顧問先へ渡して別アプリに読み込ませる想定。再計算はせず保存内容をそのまま出す。
+  const exportJson = useCallback(() => {
+    const list = sortedYears(years)
+    if (!list.length) return
+    const client = { code: current?.code || '', name: current?.name || '' }
+    const file = buildKeieiExport(client, years)
+    const blob = new Blob([keieiExportJson(file)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = keieiExportFileName(client)
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    setMsg(`取込データ（${list.length}期）をJSONファイルで書き出しました。`)
+  }, [years, current])
+
   // ---- 合言葉ゲート ----
   if (!roomReady) {
     return (
@@ -415,6 +435,13 @@ export default function KeieiContent() {
                   </span>
                 )
               })}
+              <button
+                onClick={exportJson}
+                title="取り込んだ全期の月次推移BS/PLを1つのJSONファイルで保存します（顧問先へ渡して別アプリで読み込む用）"
+                className="ml-auto px-3 py-1 text-xs border border-[#1a73e8] text-[#1a73e8] rounded-full hover:bg-[#e8f0fe] whitespace-nowrap"
+              >
+                📤 取込データを書き出し（JSON・{sorted.length}期）
+              </button>
             </div>
             </>)}
             {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
