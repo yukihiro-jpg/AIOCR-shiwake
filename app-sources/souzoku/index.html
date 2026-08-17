@@ -7084,6 +7084,25 @@ function agreementStyles(){ return DOC_STYLE_BASE+`
     .agr-tbl td{border:1px solid #999;padding:5px 6px;vertical-align:middle;}
     .agr-tbl .r{text-align:right;} .agr-tbl .c{text-align:center;}
     .muted-s{font-size:8.5pt;color:#555;}
+    /* 不動産は1物件＝1ブロック（登記事項証明書と同じ並び）で表示する。
+       表形式は列幅の取り合いで「所在」が縦に間延びし、土地か建物かも判別しづらかったため。
+       A4縦の本文幅は164mmしかなく、8列の表では所在に25mm程度しか回せない。 */
+    .est{border:1px solid #999;margin:8px 0;font-size:9.5pt;page-break-inside:avoid;break-inside:avoid;}
+    .est-hd{background:#f0f0f0;border-bottom:1px solid #999;padding:3px 10px;font-weight:700;}
+    .est-no{background:#444;color:#fff;font-size:8.5pt;padding:1px 7px;margin-right:10px;}
+    .est-kind{letter-spacing:3px;}
+    .est-tbl{width:100%;border-collapse:collapse;}
+    .est-tbl td{border-top:1px solid #ccc;padding:3px 10px;vertical-align:middle;}
+    .est-tbl tr:first-child td{border-top:none;}
+    .est-tbl td.k{width:76px;background:#fafafa;}
+    .est-tbl td.k2{width:76px;background:#fafafa;border-left:1px solid #ccc;}
+    .est-get{border-top:1px solid #999;background:#fbfbfb;padding:4px 10px;}
+    /* 物件が多いと .agr-sec の page-break-inside:avoid が効いて条ごと次ページへ送られ、
+       前のページが丸ごと空いてしまう。不動産の条だけ途中改ページを許し、
+       代わりに物件ブロック（.est）と表の行が途中で切れないようにする */
+    .agr-sec.long{page-break-inside:auto;break-inside:auto;}
+    .agr-tbl tr{page-break-inside:avoid;break-inside:avoid;}
+    .agr-tbl thead{display:table-header-group;}
     .dec-info{margin:4px 0 4px 1em;}
     .dec-info div{display:flex;padding:3px 0;}
     .dec-info .k{width:120px;}
@@ -7143,6 +7162,31 @@ function agreementStyles(){ return DOC_STYLE_BASE+`
        左は製本（ホチキス）用に広めに確保する。 */
     @media print{ @page{ size:A4; margin:0; } body{ padding:0 16mm 0 30mm; } .pf-sp{height:16mm;} }
 `; }
+// ===== 遺産分割協議書の不動産表示（物件カード） =====
+// 登記事項証明書と同じ並び（土地＝所在／地番／地目／地積、建物＝所在／家屋番号／種類／構造／床面積）で
+// 1物件＝1ブロックにする。本体・先代名義分の両方で使う。
+/** 1行。k2 を渡すと「地番｜値｜地目｜値」の2組を並べる */
+function estRow(k,v,k2,v2){
+  return k2!==undefined
+    ? '<tr><td class="k">'+k+'</td><td>'+v+'</td><td class="k2">'+k2+'</td><td>'+v2+'</td></tr>'
+    : '<tr><td class="k">'+k+'</td><td colspan="3">'+v+'</td></tr>';
+}
+function estCard(no,kindLabel,rows,footer){
+  return '<div class="est"><div class="est-hd"><span class="est-no">'+no+'</span><span class="est-kind">'+kindLabel+'</span></div>'
+    +'<table class="est-tbl">'+rows+'</table>'
+    +(footer?'<div class="est-get">'+footer+'</div>':'')+'</div>';
+}
+/** 建物の所在に混ざっている「家屋番号◯◯」を落とす（家屋番号は別項目で出すので重複するため） */
+function bldLocationText(loc){
+  return String(loc||'').replace(/[\s　]*家屋番号[\s　]*[^\s　]*$/,'');
+}
+/** 面積の表示（数値なら3桁区切り＋㎡、文字列ならそのまま） */
+function estArea(v){
+  const n=num(v);
+  if(n) return n.toLocaleString('ja-JP')+'㎡';
+  const s=String(v==null?'':v).trim();
+  return s?esc(s):'';
+}
 function buildAgreement(){ return withDivPattern(appliedDivPatternId(), buildAgreementBody); }
 function buildAgreementBody(){
   if(!currentCase){ toast('案件がありません', true); return; }
@@ -7174,7 +7218,8 @@ function buildAgreementBody(){
     || heirs.find(h=>h.isRepresentative) || heirs.find(h=>h.relationType==='spouse') || heirs[0];
 
   let cn=0; let sections=''; let yokinNo=0;
-  const sec=(title,inner)=>{ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（'+title+'）</div>'+inner+'</div>'; return cn; };
+  // cls に 'long' を渡すと、その条だけ途中改ページを許す（不動産のように物件数で長くなる条で使う）
+  const sec=(title,inner,cls)=>{ cn++; sections+='<div class="agr-sec'+(cls?' '+cls:'')+'"><div class="agr-sec-title">第'+cn+'条（'+title+'）</div>'+inner+'</div>'; return cn; };
   const par=(n,text)=>'<div class="agr-par"><span class="agr-parn">'+n+'</span>　'+text+'</div>';
 
   // ===== 第1条 被相続人の表示 =====
@@ -7200,25 +7245,32 @@ function buildAgreementBody(){
   const kubuns=heldByCat('building').filter(a=>a.kubun);
   const lands=heldByCat('land').filter(a=>!a.kubunId), blds=heldByCat('building').filter(a=>!a.kubun);
   if(lands.length||blds.length||kubuns.length){
-    const mochibunNote=(a)=>{ const n=num(a.ownNum||1), de=num(a.ownDen||1); return (de>0&&de!==n)?'<div class="muted-s">（被相続人持分 '+de+'分の'+n+'）</div>':''; };
-    const takerCell=(a)=>{ const tk=takersOf(a); if(!tk.length) return ['',''];
-      if(tk.length===1) return ['<div>'+esc(tk[0].h.name)+'</div>','<div class="c">全部</div>'];
+    // 持分の注記（被相続人が共有だった場合）は所在の行に小さく添える
+    const mochibunInline=(a)=>{ const n=num(a.ownNum||1), de=num(a.ownDen||1); return (de>0&&de!==n)?'　<span class="muted-s">（被相続人持分 '+de+'分の'+n+'）</span>':''; };
+    // 取得者は「氏名（持分）」を並べた1行にする
+    const takerLine=(a)=>{ const tk=takersOf(a); if(!tk.length) return '';
+      if(tk.length===1) return '取得者　'+esc(tk[0].h.name)+'（全部）';
       const sh=niceShares(tk);
-      if(sh) return [sh.map(x=>'<div>'+esc(x.h.name)+'</div>').join(''), sh.map(x=>'<div class="c">'+shareLabel(x.p,x.d)+'</div>').join('')];
-      return [tk.map(x=>'<div>'+esc(x.h.name)+'</div>').join(''), tk.map(x=>'<div class="c" style="white-space:nowrap;">'+yenN(x.amt)+'</div>').join('')]; };
+      if(sh) return '取得者　'+sh.map(x=>esc(x.h.name)+'（'+shareLabel(x.p,x.d)+'）').join('、');
+      return '取得者　'+tk.map(x=>esc(x.h.name)+'（'+yenN(x.amt)+'）').join('、'); };
     let inner=(lands.length||blds.length)?'<p class="agr-lead">共同相続人は、次の不動産を、それぞれ次に掲げる持分の割合により取得する。</p>':'';
-    if(lands.length){
-      inner+='<table class="agr-tbl"><thead><tr><th style="width:38px;">番号</th><th>所　在</th><th style="width:70px;">地　番</th><th style="width:58px;">地　目</th><th style="width:80px;">地　積</th><th style="width:105px;">取得者</th><th style="width:80px;">持　分</th></tr></thead><tbody>';
-      lands.forEach((a,i)=>{ const area=num(a.tokiChiseki)||num(a.kazeiChiseki)||num(a.quantity); const [tc,sc]=takerCell(a);
-        inner+='<tr><td class="c">'+(i+1)+'</td><td>'+esc(a.location||'')+mochibunNote(a)+'</td><td class="c">'+esc(a.chiban||'')+'</td><td class="c">'+esc(a.tokiChimoku||a.kazeiChimoku||a.subcategory||'')+'</td><td class="r">'+(area?area.toLocaleString('ja-JP')+'㎡':'')+'</td><td>'+tc+'</td><td>'+sc+'</td></tr>'; });
-      inner+='</tbody></table>';
-    }
-    if(blds.length){
-      inner+='<table class="agr-tbl"><thead><tr><th style="width:38px;">番号</th><th>所　在</th><th style="width:76px;">家屋番号</th><th style="width:76px;">種　類</th><th style="width:110px;">構　造</th><th style="width:80px;">床面積</th><th style="width:105px;">取得者</th><th style="width:80px;">持　分</th></tr></thead><tbody>';
-      blds.forEach((a,i)=>{ const area=num(a.tokiYuka)||num(a.quantity); const [tc,sc]=takerCell(a);
-        inner+='<tr><td class="c">'+(lands.length+i+1)+'</td><td>'+esc(a.location||a.chiban||'')+mochibunNote(a)+'</td><td class="c">'+esc(a.kaokuNo||'')+'</td><td class="c">'+esc(a.subcategory||'')+'</td><td class="c">'+esc(a.kozo||'')+'</td><td class="r">'+(area?area.toLocaleString('ja-JP')+'㎡':'')+'</td><td>'+tc+'</td><td>'+sc+'</td></tr>'; });
-      inner+='</tbody></table>';
-    }
+    lands.forEach((a,i)=>{
+      const area=num(a.tokiChiseki)||num(a.kazeiChiseki)||num(a.quantity);
+      inner+=estCard(i+1,'土　地',
+        estRow('所　在',esc(a.location||'')+mochibunInline(a))
+        +estRow('地　番',esc(a.chiban||''),'地　目',esc(a.tokiChimoku||a.kazeiChimoku||a.subcategory||''))
+        +estRow('地　積',estArea(area)),
+        takerLine(a));
+    });
+    blds.forEach((a,i)=>{
+      const area=num(a.tokiYuka)||num(a.quantity);
+      inner+=estCard(lands.length+i+1,'建　物',
+        estRow('所　在',esc(bldLocationText(a.location||a.chiban||''))+mochibunInline(a))
+        +estRow('家屋番号',esc(a.kaokuNo||''),'種　類',esc(a.subcategory||''))
+        +estRow('構　造',esc(a.kozo||''))
+        +estRow('床面積',estArea(area)),
+        takerLine(a));
+    });
     // ===== 区分所有建物（マンション等）: 登記事項どおりの区分建物ブロックで表示 =====
     kubuns.forEach(b=>{
       const k=b.kubun;
@@ -7268,7 +7320,7 @@ function buildAgreementBody(){
         pnR++; inner+=par(pnR,'前項により承継した賃貸物件について、'+toWarekiDate(nd.toISOString().slice(0,10))+'以降に生じた賃料その他の収益及びこれに係る必要経費は、第1項の持分の割合に応じて各取得者に帰属する。'); }
     }
     if(deathY && anyShared){ pnR++; inner+=par(pnR,'第1項の不動産に係る'+(deathY.getFullYear()>=2019?'令和'+(deathY.getFullYear()-2018):deathY.getFullYear())+'年度の固定資産税及び都市計画税は、第1項の持分の割合に応じて各取得者が負担する。'); }
-    sec('不動産',inner);
+    sec('不動産',inner,'long');
   }
 
   // ===== 預貯金 =====
@@ -7974,7 +8026,8 @@ function buildSendaiAgreement(id){
   const heirNames=namesJoin(heirs.map(h=>esc(h.name)));
 
   let cn=0; let sections='';
-  const sec=(title,inner)=>{ cn++; sections+='<div class="agr-sec"><div class="agr-sec-title">第'+cn+'条（'+title+'）</div>'+inner+'</div>'; return cn; };
+  // cls に 'long' を渡すと、その条だけ途中改ページを許す（不動産のように物件数で長くなる条で使う）
+  const sec=(title,inner,cls)=>{ cn++; sections+='<div class="agr-sec'+(cls?' '+cls:'')+'"><div class="agr-sec-title">第'+cn+'条（'+title+'）</div>'+inner+'</div>'; return cn; };
 
   // ===== 第1条 被相続人（先代）の表示 =====
   sec('被相続人の表示',
@@ -7995,19 +8048,25 @@ function buildSendaiAgreement(id){
     +'</tbody></table>');
 
   // ===== 第3条 不動産 =====
-  const takerCell=(r)=>'<td>'+esc(r.taker||'')+'</td><td class="c">'+esc(r.share||'全部')+'</td>';
+  // 本体の協議書と同じく、1物件＝1ブロックの物件カードで表示する
+  const takerLine=(r)=>{ const t=String(r.taker||'').trim(); if(!t) return ''; return '取得者　'+esc(t)+'（'+esc(String(r.share||'全部').trim()||'全部')+'）'; };
   let inner='<p class="agr-lead">本協議に参加した者は、被相続人名義の次の不動産を、それぞれ次に掲げる者が取得する。</p>';
-  if(lands.length){
-    inner+='<table class="agr-tbl"><thead><tr><th style="width:38px;">番号</th><th>所　在</th><th style="width:80px;">地　番</th><th style="width:58px;">地　目</th><th style="width:88px;">地　積</th><th style="width:105px;">取得者</th><th style="width:80px;">持　分</th></tr></thead><tbody>'
-      +lands.map((r,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+esc(r.location)+'</td><td>'+esc(r.chiban)+'</td><td class="c">'+esc(r.chimoku)+'</td><td class="r">'+esc(r.chiseki)+'</td>'+takerCell(r)+'</tr>').join('')
-      +'</tbody></table>';
-  }
-  if(builds.length){
-    inner+='<table class="agr-tbl"><thead><tr><th style="width:30px;">番号</th><th>所　在</th><th style="width:66px;">家屋番号</th><th style="width:44px;">種　類</th><th style="width:96px;">構　造</th><th style="width:92px;">床面積</th><th style="width:84px;">取得者</th><th style="width:58px;">持　分</th></tr></thead><tbody>'
-      +builds.map((r,i)=>'<tr><td class="c">'+(i+1)+'</td><td>'+esc(r.location)+'</td><td>'+esc(r.kaokuNo)+'</td><td class="c">'+esc(r.kind)+'</td><td>'+esc(r.structure)+'</td><td class="r">'+esc(r.floor)+'</td>'+takerCell(r)+'</tr>').join('')
-      +'</tbody></table>';
-  }
-  sec('不動産', inner);
+  lands.forEach((r,i)=>{
+    inner+=estCard(i+1,'土　地',
+      estRow('所　在',esc(r.location||''))
+      +estRow('地　番',esc(r.chiban||''),'地　目',esc(r.chimoku||''))
+      +estRow('地　積',estArea(r.chiseki)),
+      takerLine(r));
+  });
+  builds.forEach((r,i)=>{
+    inner+=estCard(lands.length+i+1,'建　物',
+      estRow('所　在',esc(bldLocationText(r.location||'')))
+      +estRow('家屋番号',esc(r.kaokuNo||''),'種　類',esc(r.kind||''))
+      +estRow('構　造',esc(r.structure||''))
+      +estRow('床面積',estArea(r.floor)),
+      takerLine(r));
+  });
+  sec('不動産', inner, 'long');
 
   // ===== 後日判明した財産 =====
   sec('後日判明した財産',
