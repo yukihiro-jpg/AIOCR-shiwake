@@ -831,12 +831,26 @@ function extractTransactions(
     return row.cells[colIdx] || ''
   }
 
+  // 「合計」行が出たら、そのページの以降の行は取り込まない。
+  // 合計欄は「合計／お支払金額／お預り金額／件数」が数ピクセルずつ上下にずれて印字されることがあり
+  // （常陽銀行の照合表など）、行としては 合計 を含む行と含まない行に割れる。含まない側が
+  // 直前の日付を引き継いで取引として取り込まれ、合計額が明細に混ざって残高不一致になっていた。
+  // 合計より下は注記・発行元しかないので、まとめて対象外にするのが確実。
+  let totalsReached = false
   for (const row of rows) {
     // 合計行スキップ: いずれかのセルに「合計」「計」等が含まれていればスキップ
-    if (row.cells.some((c) => {
+    const totalCell = row.cells.find((c) => {
       const cl = (c || '').replace(/[\s　]/g, '')
-      return cl === '合計' || cl === '計' || cl === '小計' || cl === '総計'
-    })) continue
+      return cl === '合計' || cl === '計' || cl === '小計' || cl === '総計' || cl === '総合計' || cl === '繰越合計'
+    })
+    if (totalCell) {
+      // 「小計」は途中に出て明細が続く様式もあるので、その行だけ飛ばす。
+      // 「合計」「総計」は最終行なので、以降を打ち切る
+      const cl = totalCell.replace(/[\s　]/g, '')
+      if (cl === '合計' || cl === '総計' || cl === '総合計' || cl === '繰越合計') totalsReached = true
+      continue
+    }
+    if (totalsReached) continue
     let date: string | null = null
     if (hasSplitDate) {
       // 年・月・日が別セル。各成分を読み、空欄は直前の値を引き継いで組み立てる
@@ -865,6 +879,8 @@ function extractTransactions(
       if (!date && lastDate && row.cells.some((c, i) => i !== mapping.dateColumn && c && c.trim())) {
         // 日付が空でも他の列にデータがある → 直前の日付を引き継ぐ
         if (row.cells.some((c) => /合計|小計|総計/.test(c || ''))) continue
+        // 「19件」のような件数欄だけの行は合計欄の一部。日付を引き継いで取引にしない
+        if (row.cells.some((c) => /^\s*\d+\s*件\s*$/.test(c || ''))) continue
         date = lastDate
       }
     }
@@ -927,7 +943,10 @@ function extractTransactions(
       }
       if (balance === null) continue
 
-      // 非数値テキストを摘要に追加（振込先カタカナ・摘要列等）
+      // 非数値テキストを摘要に追加（振込先カタカナ・摘要列等）。
+      // ここは全セルを走査するので、摘要列・取引区分列の文字（description に入れた分）まで
+      // もう一度拾ってしまい「社会保険料 社会保険料 ｼﾔｶｲﾎｹﾝﾘﾖｳ」のように二重になっていた。
+      // 既に摘要へ入っている語は足さない。
       const dateX2 = headerXPos[mapping.dateColumn] ?? 0
       let extraDesc = ''
       for (let j = 0; j < row.cells.length; j++) {
@@ -937,6 +956,8 @@ function extractTransactions(
         if (!cell) continue
         const textPart = cell.replace(/^[-\d,.\s]+/, '').trim()
         if (textPart && !/^[-\d,]+$/.test(textPart)) {
+          const already = `${description} ${extraDesc}`
+          if (already.includes(textPart)) continue
           extraDesc += (extraDesc ? ' ' : '') + textPart
         }
       }
