@@ -7074,15 +7074,19 @@ function allocAmt(a,h){ const al=(a.allocations||[]).find(x=>x.heirId===h.id); r
 function agreementStyles(){ return DOC_STYLE_BASE+`
     h1{font-size:17pt;letter-spacing:10px;text-align:center;border:none;margin:6px 0 16px;}
     .intro{text-indent:1em;margin-bottom:14px;line-height:1.9;}
-    .agr-sec{margin:15px 0;page-break-inside:avoid;break-inside:avoid;}
+    /* 条は途中改ページを許す（1枚に収まらない条があると、その条ごと次ページへ送られて
+       前のページが大きく空いてしまうため）。代わりに、見出し・リード文・表の行・
+       物件ブロック・各項の単位では切れないようにして読みづらさを防ぐ */
+    .agr-sec{margin:15px 0;}
     .agr-sec-title{background:#ececec;border-left:5px solid #444;padding:5px 10px;font-weight:700;font-size:11.5pt;margin-bottom:8px;page-break-after:avoid;}
     .agr-lead{margin:6px 0;line-height:1.9;page-break-after:avoid;}
-    .agr-par{margin:8px 0;line-height:1.85;}
+    .agr-par{margin:8px 0;line-height:1.85;page-break-inside:avoid;break-inside:avoid;}
     .agr-parn{font-weight:700;}
     .agr-tbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:9.5pt;}
     .agr-tbl th{background:#f4f4f4;border:1px solid #999;padding:5px 6px;font-weight:600;text-align:center;}
     .agr-tbl td{border:1px solid #999;padding:5px 6px;vertical-align:middle;}
     .agr-tbl .r{text-align:right;} .agr-tbl .c{text-align:center;}
+    .agr-tbl .nw1{white-space:nowrap;}
     .muted-s{font-size:8.5pt;color:#555;}
     /* 不動産は1物件＝1ブロック（登記事項証明書と同じ並び）で表示する。
        表形式は列幅の取り合いで「所在」が縦に間延びし、土地か建物かも判別しづらかったため。
@@ -7094,16 +7098,14 @@ function agreementStyles(){ return DOC_STYLE_BASE+`
     .est-tbl{width:100%;border-collapse:collapse;}
     .est-tbl td{border-top:1px solid #ccc;padding:3px 10px;vertical-align:middle;}
     .est-tbl tr:first-child td{border-top:none;}
-    .est-tbl td.k{width:76px;background:#fafafa;}
-    .est-tbl td.k2{width:76px;background:#fafafa;border-left:1px solid #ccc;}
+    /* 見出し語（所在・地番・家屋番号…）は少し小さめ＋折り返し禁止。
+       「家屋番号」は4文字あり、本文と同じ大きさだと76mm幅の見出し列で2行に折れるため */
+    .est-tbl td.k,.est-tbl td.k2{width:76px;background:#fafafa;font-size:8.8pt;white-space:nowrap;}
+    .est-tbl td.k2{border-left:1px solid #ccc;}
     .est-get{border-top:1px solid #999;background:#fbfbfb;padding:4px 10px;}
-    /* 物件が多いと .agr-sec の page-break-inside:avoid が効いて条ごと次ページへ送られ、
-       前のページが丸ごと空いてしまう。不動産の条だけ途中改ページを許し、
-       代わりに物件ブロック（.est）と表の行が途中で切れないようにする */
-    .agr-sec.long{page-break-inside:auto;break-inside:auto;}
     .agr-tbl tr{page-break-inside:avoid;break-inside:avoid;}
     .agr-tbl thead{display:table-header-group;}
-    .dec-info{margin:4px 0 4px 1em;}
+    .dec-info{margin:4px 0 4px 1em;page-break-inside:avoid;break-inside:avoid;}
     .dec-info div{display:flex;padding:3px 0;}
     .dec-info .k{width:120px;}
     .closing{text-indent:1em;margin:20px 0 8px;line-height:1.9;}
@@ -7320,7 +7322,7 @@ function buildAgreementBody(){
         pnR++; inner+=par(pnR,'前項により承継した賃貸物件について、'+toWarekiDate(nd.toISOString().slice(0,10))+'以降に生じた賃料その他の収益及びこれに係る必要経費は、第1項の持分の割合に応じて各取得者に帰属する。'); }
     }
     if(deathY && anyShared){ pnR++; inner+=par(pnR,'第1項の不動産に係る'+(deathY.getFullYear()>=2019?'令和'+(deathY.getFullYear()-2018):deathY.getFullYear())+'年度の固定資産税及び都市計画税は、第1項の持分の割合に応じて各取得者が負担する。'); }
-    sec('不動産',inner,'long');
+    sec('不動産',inner);
   }
 
   // ===== 預貯金 =====
@@ -7331,10 +7333,11 @@ function buildAgreementBody(){
     const sigOf=(a)=>{ const tk=takersOf(a); const tot=tk.reduce((s,x)=>s+Math.abs(x.amt),0)||1; return tk.map(x=>x.h.id+':'+(Math.abs(x.amt)/tot).toFixed(3)).sort().join('|'); };
     const groups=new Map();
     yokin.forEach(a=>{ const k=sigOf(a); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(a); });
-    const tbl=(items)=>'<table class="agr-tbl"><thead><tr><th>金融機関</th><th style="width:86px;">支　店</th><th style="width:76px;">種　別</th><th style="width:110px;">口座番号</th><th style="width:96px;">名　義</th><th style="width:110px;">相続開始日残高</th></tr></thead><tbody>'
+    // 名義は被相続人で全件同じになるため列を置かない（その分の幅を金融機関名と口座番号に回し、1明細＝1行に収める）
+    const tbl=(items)=>'<table class="agr-tbl"><thead><tr><th>金融機関</th><th style="width:96px;">支　店</th><th style="width:82px;">種　別</th><th style="width:126px;">口座番号</th><th style="width:118px;">相続開始日残高</th></tr></thead><tbody>'
       // 相続開始日残高は「既経過利息を含めない」通帳残高そのもの（assetVal は残高＋既経過利息のため使わない）。
       // 利息は本条の「相続開始後に生じた利息…を分割の対象とする」で読み込むため、表には載せない。
-      +items.map(a=>'<tr><td>'+esc(a.name||'')+'</td><td class="c">'+esc(a.branch||'―')+'</td><td class="c">'+esc(a.subcategory||'')+'</td><td class="c">'+esc(a.accountNo||'')+'</td><td class="c">'+esc(a.nominee||'')+'</td><td class="r">'+yenN(num(a.value))+'</td></tr>').join('')+'</tbody></table>';
+      +items.map(a=>'<tr><td>'+esc(a.name||'')+'</td><td class="c nw1">'+esc(a.branch||'―')+'</td><td class="c nw1">'+esc(a.subcategory||'')+'</td><td class="c nw1">'+esc(a.accountNo||'')+'</td><td class="r nw1">'+yenN(num(a.value))+'</td></tr>').join('')+'</tbody></table>';
     let inner=''; let gi=0; let pn=1; let fracNotes=[];
     groups.forEach(items=>{ gi++;
       const tk=takersOf(items[0]);
@@ -8066,7 +8069,7 @@ function buildSendaiAgreement(id){
       +estRow('床面積',estArea(r.floor)),
       takerLine(r));
   });
-  sec('不動産', inner, 'long');
+  sec('不動産', inner);
 
   // ===== 後日判明した財産 =====
   sec('後日判明した財産',
