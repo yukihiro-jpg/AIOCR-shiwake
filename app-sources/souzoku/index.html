@@ -756,6 +756,14 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
             <div class="muted" style="font-size:11px;margin-top:4px;line-height:1.5;">※ 代償金条項の支払期限（未設定なら「令和　年　月　日」の空欄になります）</div>
           </div>
         </div>
+        <div class="field" style="margin-top:14px;"><label>署名欄の住所・氏名</label>
+          <select id="ag_sigPrint" onchange="onAgreementInput()" style="max-width:420px;">
+            <option value="blank_sample">空欄（自署用）＋記入見本を付ける</option>
+            <option value="blank">空欄のみ（自署用）</option>
+            <option value="filled">住所・氏名を印字する</option>
+          </select>
+          <div class="muted" style="font-size:11px;margin-top:4px;line-height:1.5;">※ 「印字する」は住所・氏名が入った状態で出力します（押印だけをいただく場合や、記入見本として渡す場合に使用）。住所は基本情報の相続人に登録したものを使います</div>
+        </div>
         <div class="field" style="margin-top:14px;"><label>記載項目</label>
           <label style="display:inline-flex;align-items:center;gap:6px;font-weight:400;cursor:pointer;"><input type="checkbox" id="ag_includeDebt" onchange="onAgreementInput()" checked>債務および葬式費用の承継条項を記載する</label>
         </div>
@@ -1669,6 +1677,8 @@ function ensureCaseShape(c){
   if(typeof c.agreement.compDueDate!=='string') c.agreement.compDueDate=''; // 代償金の支払期日
   if(typeof c.agreement.bankRepId!=='string') c.agreement.bankRepId='';
   if(c.agreement.includeDebt===undefined) c.agreement.includeDebt=true;
+  // 署名欄の住所・氏名の出し方（blank_sample=空欄＋記入見本 / blank=空欄のみ / filled=印字）
+  if(['blank_sample','blank','filled'].indexOf(c.agreement.sigPrint)<0) c.agreement.sigPrint='blank_sample';
   if(!c.progress||typeof c.progress!=='object') c.progress={};
   if(!c.secondary||typeof c.secondary!=='object') c.secondary={spouseOwn:'',consume:'',years:'',nChildren:'',ownCash:'',insPremium:'',insCount:'',gGenAmt:'',gGenPpl:'',gGenYrs:'',gSpcAmt:'',gSpcPpl:'',gSpcYrs:'',optYears:'',existIns:'',spouseWants:[]};
   if(typeof c.secondary.usePatternId!=='string') c.secondary.usePatternId=''; // 二次相続シミュで使う分割パターン
@@ -2273,6 +2283,7 @@ function syncUIToCase(){
   currentCase.agreement.extraHeirId=$('ag_extraHeir').value;
   if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked;
   if($('ag_compDue')) currentCase.agreement.compDueDate=$('ag_compDue').value;
+  if($('ag_sigPrint')) currentCase.agreement.sigPrint=$('ag_sigPrint').value;
 }
 // 変更があるたびに共有ストアへ反映＋ローカル保存＋Firebaseへ同期（デバウンス）
 function updateSaveStatus(state){
@@ -2312,6 +2323,7 @@ function loadCaseIntoUI(){
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
   if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
+  if($('ag_sigPrint')) $('ag_sigPrint').value=currentCase.agreement.sigPrint||'blank_sample';
   if($('ag_compDue')) $('ag_compDue').value=currentCase.agreement.compDueDate||'';
   calcDeadlines();
   renderHeirs();
@@ -3890,7 +3902,7 @@ function calcTax(){
 // ============================================================
 //  Agreement (遺産分割協議書)
 // ============================================================
-function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked; if($('ag_copies')) currentCase.agreement.copies=$('ag_copies').value; if($('ag_bankRep')) currentCase.agreement.bankRepId=$('ag_bankRep').value; if($('ag_compDue')) currentCase.agreement.compDueDate=$('ag_compDue').value; renderHeirTotals(); cacheCurrentCase(); }
+function onAgreementInput(){ if(!currentCase) return; currentCase.agreement.date=$('ag_date').value; currentCase.agreement.notes=$('ag_notes').value; currentCase.agreement.extraHeirId=$('ag_extraHeir').value; if($('ag_includeDebt')) currentCase.agreement.includeDebt=$('ag_includeDebt').checked; if($('ag_sigPrint')) currentCase.agreement.sigPrint=$('ag_sigPrint').value; if($('ag_copies')) currentCase.agreement.copies=$('ag_copies').value; if($('ag_bankRep')) currentCase.agreement.bankRepId=$('ag_bankRep').value; if($('ag_compDue')) currentCase.agreement.compDueDate=$('ag_compDue').value; renderHeirTotals(); cacheCurrentCase(); }
 function refreshAcquirerSelects(){ if(document.getElementById('view-agreement').classList.contains('active')) renderAgreement(); }
 function heirSelectHtml(currentId){
   let opts='<option value="">未定 / 共有</option>';
@@ -3972,6 +3984,7 @@ function renderAgreement(){
   $('ag_date').value=currentCase.agreement.date||'';
   $('ag_notes').value=currentCase.agreement.notes||'';
   if($('ag_includeDebt')) $('ag_includeDebt').checked=currentCase.agreement.includeDebt!==false;
+  if($('ag_sigPrint')) $('ag_sigPrint').value=currentCase.agreement.sigPrint||'blank_sample';
   if($('ag_compDue')) $('ag_compDue').value=currentCase.agreement.compDueDate||'';
   renderHeirTotals();
 }
@@ -7499,6 +7512,19 @@ function buildAgreementBody(){
       +'</div></div>';
   })();
 
+  // 署名欄の住所・氏名（協議書の設定で選択）
+  //   blank_sample（既定）… 空欄の自署用ページ＋住所・氏名を印字した記入見本ページ
+  //   blank           … 空欄の自署用ページのみ
+  //   filled          … 住所・氏名を印字したページのみ（押印だけをいただく場合など）
+  const sigMode=currentCase.agreement.sigPrint||'blank_sample';
+  const sigPages=(sigMode==='filled')
+    ? lastPage(true,'')
+    : (sigMode==='blank')
+      ? lastPage(false,'')
+      : lastPage(false,'')
+        +'<div class="pgbreak"></div>'
+        +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。');
+
   const inner=cover
     +'<h1>遺 産 分 割 協 議 書</h1>'
     +'<p class="intro">被相続人 '+esc(d.name)+' の死亡により開始した相続について、共同相続人全員は、その相続財産の分割につき次のとおり協議し、これを確定した。</p>'
@@ -7506,9 +7532,7 @@ function buildAgreementBody(){
     // 結び（上記のとおり〜）＋署名押印欄は必ず新しいページから開始する
     // （条文の途中位置から始まると、印刷時に自署押印欄が相続人の途中で分断されるため）
     +'<div class="pgbreak"></div>'
-    +lastPage(false,'')
-    +'<div class="pgbreak"></div>'
-    +lastPage(true,'【記入見本】本ページは、相続人の住所・氏名を印字した参考用の控えです。実際の署名・押印は前ページ（住所・氏名欄が空欄のページ）に各相続人がご自身で行ってください。本ページは記入の見本として相続人へお渡しください。')
+    +sigPages
     +'<div class="pgbreak"></div>'
     +sealSample;
   // 全ページの上下余白を thead/tfoot スペーサーで確保するため、本文をフレーム表で包む
