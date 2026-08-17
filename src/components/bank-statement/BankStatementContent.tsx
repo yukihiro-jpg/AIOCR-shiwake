@@ -1159,12 +1159,9 @@ export default function BankStatementContent() {
           ? mapping.descriptionColumns
           : (mapping.descriptionColumn >= 0 ? [mapping.descriptionColumn] : [])
 
-        const parseDate = (raw: string): string => {
-          const s = String(raw || '').trim()
-          let m = s.match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/)
-          if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
-          return ''
-        }
+        // 日付の形は自動解析と同じ判定を使う（20260202 の8桁やExcelのシリアル値も受ける）
+        const { parseCcDate } = await import('@/lib/bank-statement/credit-card-mapper')
+        const parseDate = parseCcDate
         const parseAmt = (raw: string): number => {
           const c = String(raw || '').replace(/[,¥￥\s　]/g, '').replace(/[△▲]/g, '-')
           const n = parseInt(c, 10)

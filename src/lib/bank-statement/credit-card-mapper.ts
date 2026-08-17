@@ -145,6 +145,40 @@ function stripDateFromDescription(desc: string): string {
 const EXCLUDE_KEYWORDS = ['前回分口座振替金額', '口座振替', '繰越残高', '前回請求額', 'ご利用可能額']
 
 /**
+ * 明細の日付セルを YYYY-MM-DD にする。カード会社・表計算ソフトによって形がまちまちなので、
+ * 実務で出てくる形をひととおり受ける（読めなければ空文字＝その行は取り込まない）。
+ *   2026/2/2・2026-02-02・2026.2.2・2026年2月2日   区切りあり
+ *   20260202                                      8桁の数値（Excelで「数値」のまま作った表）
+ *   46055                                         Excelの日付シリアル値（書式が消えて数値になった表）
+ *   Date オブジェクト / ISO文字列                  cellDates:true で読んだセル
+ */
+export function parseCcDate(raw: unknown): string {
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return `${raw.getFullYear()}-${String(raw.getMonth() + 1).padStart(2, '0')}-${String(raw.getDate()).padStart(2, '0')}`
+  }
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  const m = s.match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  // 区切りのない8桁（yyyymmdd）。月日が実在する組み合わせのときだけ日付とみなす
+  const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (m8) {
+    const y = Number(m8[1]), mo = Number(m8[2]), d = Number(m8[3])
+    if (y >= 1990 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${m8[1]}-${m8[2]}-${m8[3]}`
+  }
+  // Excelの日付シリアル値（1900年基準。1990-01-01=32874 〜 2100-12-31=73415 の範囲だけ受ける。
+  // 金額など普通の数値を日付と誤認しないように範囲を絞っている）
+  if (/^\d{5}$/.test(s)) {
+    const n = Number(s)
+    if (n >= 32874 && n <= 73415) {
+      const dt = new Date(Date.UTC(1899, 11, 30) + n * 86400000)
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+    }
+  }
+  return ''
+}
+
+/**
  * クレジットカード CSV/Excel をパースして CreditCardData に変換
  */
 export async function parseCreditCardCsv(file: File): Promise<CreditCardData | null> {
@@ -208,10 +242,9 @@ export async function parseCreditCardCsv(file: File): Promise<CreditCardData | n
     const dateText = (r[dateCol] || '').trim()
     if (!dateText) continue
 
-    // 日付パース: 2025/4/17 → 2025-04-17
-    const dm = dateText.match(/(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})/)
-    if (!dm) continue
-    const date = `${dm[1]}-${String(dm[2]).padStart(2, '0')}-${String(dm[3]).padStart(2, '0')}`
+    // 日付パース: 2025/4/17・20250417・シリアル値 → 2025-04-17
+    const date = parseCcDate(dateText)
+    if (!date) continue
 
     const desc = descCol >= 0 ? (r[descCol] || '').trim() : ''
     const amtText = (r[amountCol] || '').replace(/[¥￥,、\s]/g, '')
