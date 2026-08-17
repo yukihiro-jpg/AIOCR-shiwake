@@ -2704,7 +2704,11 @@ function removeAsset(id){
     currentCase.assets=currentCase.assets.filter(x=>x.id!==id);
   }
   renderAssetDetail(); renderAssetNav(); renderSummary(); cacheCurrentCase(); }
-function updAsset(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; a[field]=val; refreshAssetRow(a); }
+function updAsset(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; a[field]=val;
+  // 受取人を変えたら、その相続人の取得として分割へ即座に反映する（保険金・退職手当金は受取人固有の財産）
+  // 受取人を空にした・相続人以外にしたときは割当を白紙に戻す（前の受取人の割当が残らないように）
+  if(field==='nominee' && NOMINEE_CATS.indexOf(a.category)>=0){ if(!applyNomineeAlloc(a)) a.allocations=[]; }
+  refreshAssetRow(a); }
 function updAssetBool(id,field,checked){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; a[field]=checked; if(field==='autoCalc'){ renderAssetDetail(); } refreshAssetRow(a); }
 function updKobo(id,field,val){ const a=currentCase.assets.find(x=>x.id===id); if(!a) return; if(!a.kobo) a.kobo={type:'none',area:''}; a.kobo[field]=val; const k=computeKobo(); const el=$('kobored-'+id); if(el) el.textContent='減額 '+yen(k.byAsset[id]||0); renderSummary(); cacheCurrentCase(); }
 function refreshAssetRow(a){
@@ -3774,6 +3778,7 @@ function applyTransferCredit(heirs,ph,field,label){
     if(remT>0) rem.forEach(h=>{ const p=ph[h.id]; const give=Math.min(p.afterStd,pool*(p.afterStd/remT)); if(give>0){ p.detail.push({k:label+'(扶養義務者へ移転)',v:give}); p.afterStd-=give; } }); }
 }
 function calcTax(){
+  syncNomineeAllocs(); // 受取人を登録した保険金・退職手当金は、分割画面を開く前でも受取人の取得として計算する
   const heirs=currentCase.heirs;
   const stat=buildStatutory(heirs);
   const n=stat.count||1;
@@ -3896,8 +3901,34 @@ function heirSelectHtml(currentId){
 function amtOf(a,hid){ const e=(a.allocations||[]).find(x=>x.heirId===hid); return e?num(e.amount):0; }
 function signOf(cat){ return ASSET_BY_KEY[cat].sign<0?-1:1; }
 function fmtAlloc(v){ return Math.round(v).toLocaleString('ja-JP'); }
+// 死亡保険金・退職手当金は「受取人固有の財産」で遺産分割協議の対象外。
+// 財産一覧で受取人（nominee）に相続人を登録したら、その人が取得したものとして分割へ反映する。
+// nominee は氏名の文字列（財産一覧のセレクトが被相続人＋相続人の氏名から作る）なので、氏名で相続人を引く。
+const NOMINEE_CATS=['insurance','retirement'];
+function normName(s){ return String(s==null?'':s).replace(/[\s　]/g,''); }
+function nomineeHeirId(a){
+  if(!a || NOMINEE_CATS.indexOf(a.category)<0) return '';
+  const n=normName(a.nominee); if(!n) return '';
+  if(!currentCase || !currentCase.heirs) return '';
+  const h=currentCase.heirs.find(x=>normName(x.name)===n);
+  return h?h.id:''; // 相続人以外（例：孫・法人）が受取人のときは空＝手入力に任せる
+}
+/** 受取人の相続人へ全額を割り当てる（他の相続人は0） */
+function applyNomineeAlloc(a){
+  const hid=nomineeHeirId(a); if(!hid) return false;
+  const ids=currentCase.heirs.map(h=>h.id);
+  a.allocations=ids.map(id=>({heirId:id,amount:id===hid?assetVal(a):0}));
+  return true;
+}
+/** 受取人を登録した保険金・退職手当金をまとめて割り当て直す。
+ *  何度呼んでも結果は同じ（受取人と金額から毎回作り直す）。 */
+function syncNomineeAllocs(){
+  if(!currentCase || !currentCase.assets || !currentCase.heirs) return;
+  currentCase.assets.forEach(a=>{ if(NOMINEE_CATS.indexOf(a.category)>=0) applyNomineeAlloc(a); });
+}
 function ensureAllocs(a){
   const ids=currentCase.heirs.map(h=>h.id);
+  if(applyNomineeAlloc(a)) return; // 受取人が登録済みなら、その相続人の取得で固定する
   const m={}; (a.allocations||[]).forEach(al=>{ m[al.heirId]=num(al.amount); });
   const hadAny=ids.some(id=>m[id]);
   a.allocations=ids.map(id=>({heirId:id,amount:m[id]||0}));
@@ -4191,9 +4222,14 @@ function renderAllocations(){
     body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:'+t.color+'"></i>'+t.name+'</td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
     items.forEach(a=>{
       const label=[a.subcategory,a.name,a.location].filter(Boolean).join('／')||t.name;
-      let row='<tr><td class="l" style="padding-left:26px;">'+esc(label)+'</td><td class="evalcol">'+(t.sign<0?'−':'')+yen(assetVal(a))+'</td>';
+      // 受取人が相続人として登録されている死亡保険金・退職手当金は、その人の取得で固定（受取人固有の財産）
+      const nomHid=nomineeHeirId(a);
+      let row='<tr><td class="l" style="padding-left:26px;">'+esc(label)
+        +(nomHid?'<span class="muted" style="font-size:11px;margin-left:8px;padding:1px 6px;background:#eef4ff;border:1px solid #d5e2fb;border-radius:10px;" title="財産一覧の受取人に登録された相続人の取得として自動で割り当てています（受取人固有の財産のため分割対象外）。変更するときは財産一覧の受取人を直してください">受取人 '+esc(a.nominee)+'</span>':'')
+        +'</td><td class="evalcol">'+(t.sign<0?'−':'')+yen(assetVal(a))+'</td>';
       heirs.forEach((h,i)=>{ const amt=amtOf(a,h.id);
-        if(i===0) row+='<td><input class="auto" readonly id="al-'+a.id+'-'+h.id+'" value="'+fmtAlloc(amt)+'"></td>';
+        if(nomHid) row+='<td><input class="auto" readonly id="al-'+a.id+'-'+h.id+'" value="'+fmtAlloc(amt)+'" title="受取人の登録にもとづく自動割当"></td>';
+        else if(i===0) row+='<td><input class="auto" readonly id="al-'+a.id+'-'+h.id+'" value="'+fmtAlloc(amt)+'"></td>';
         else row+='<td><input id="al-'+a.id+'-'+h.id+'" value="'+(amt?fmtAlloc(amt):'')+'" placeholder="0" oninput="setAllocAmount(\''+a.id+'\',\''+h.id+'\',this.value)" onblur="this.value=(num(this.value)?fmtAlloc(num(this.value)):\'\')"></td>';
       });
       body+=row+'</tr>';
