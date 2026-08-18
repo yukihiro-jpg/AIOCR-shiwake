@@ -15,7 +15,8 @@ import {
 } from '@/lib/rosenka-map/types'
 import { loadManifest, loadIndex, matchAddress, matchAddressBest, normalizeTown } from '@/lib/rosenka-map/index-store'
 import { geocode, geocodeTownCached, reverseGeocode, type GeocodeHit } from '@/lib/rosenka-map/gsi'
-import { muniName } from '@/lib/rosenka-map/muni'
+import { muniName, findMuniInText } from '@/lib/rosenka-map/muni'
+import { locateSheets, getCachedFit, sheetCenter } from '@/lib/rosenka-map/sheet-locator'
 import { loadToshiData, lookupToshi, type ToshiHit } from '@/lib/rosenka-map/toshi'
 import { ibarakiDigitalMapUrl, cityToshiUrl } from '@/lib/rosenka-map/toshi-links'
 import type { ToshiData } from '@/lib/rosenka-map/types'
@@ -45,8 +46,14 @@ export default function RosenkaMapContent() {
   const [hits, setHits] = useState<GeocodeHit[]>([])
   const [matches, setMatches] = useState<TownMatch[]>([])
   const [cityFound, setCityFound] = useState(false) // 照合で市区町村まで特定できたか（倍率地域と県外/表記不備の案内を分けるため）
+  // 索引に無い県内市町村（＝全域が倍率地域）。「県外・表記不備」と誤案内しないための判定結果
+  const [noMapCity, setNoMapCity] = useState<string | null>(null)
   const [selTown, setSelTown] = useState('')
   const [selSheet, setSelSheet] = useState('')
+  // ピンに近い順に並べた候補図（sheet-locator による推定。town はどの町丁向けの並びかの目印）
+  const [sheetOrder, setSheetOrder] = useState<{ town: string; sheets: string[] } | null>(null)
+  const locSeq = useRef(0) // 図の自動選択の競合ガード（検索連打・年切替で古い結果を捨てる）
+  const manualSheetPick = useRef(false) // ユーザーが図ボタンを押した後は自動選択で上書きしない
   const [indexLoading, setIndexLoading] = useState(true)
   const [extentNote, setExtentNote] = useState('')
   const [toshi, setToshi] = useState<ToshiData | null | undefined>(undefined)
@@ -121,20 +128,42 @@ export default function RosenkaMapContent() {
     if (!index) {
       // 索引を読み込めなかった年へ切り替えた場合、旧年の候補・図番号を残さない
       // （残すと「表示中の年ラベル」と無関係な町丁チップ・図ボタンが並び続ける）
-      setMatches([]); setCityFound(false); setSelTown(''); setSelSheet('')
+      setMatches([]); setCityFound(false); setNoMapCity(null); setSelTown(''); setSelSheet(''); setSheetOrder(null)
       return
     }
     if (!point) return
     const m = matchAddress(index, point.title)
     setMatches(m.matches)
     setCityFound(!!m.city)
+    setNoMapCity(m.city ? null : findMuniInText([point.title]))
     const prevNorm = normalizeTown(selTown)
     const keep = m.matches.find((x) => normalizeTown(x.town) === prevNorm) || m.matches[0] || null
     setSelTown(keep?.town || '')
     // ユーザーが選んでいた図が新しい年にもそのまま在るなら維持する（年次比較で選択を勝手に先頭へ戻さない）
-    setSelSheet(keep && selSheet && keep.sheets.includes(selSheet) ? selSheet : keep?.sheets[0] || '')
+    const kept = keep && selSheet && keep.sheets.includes(selSheet)
+    setSelSheet(kept ? selSheet : keep?.sheets[0] || '')
+    setSheetOrder(null)
+    // 図番号は年により変わるため、新しい年の索引で最寄り図を推定し直す（手動選択が生きていれば上書きしない）
+    manualSheetPick.current = !!kept && manualSheetPick.current
+    if (keep) refineSheet(keep.town, keep.sheets, { lng: point.lng, lat: point.lat })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index])
+
+  // ピンに最も近い図を推定して自動選択する（格子座標＋アンカー数点のアフィン推定・キャッシュ付き）。
+  // 推定できるまでの間は従来どおり先頭の図を表示しておき、結果が出たら差し替える。
+  const refineSheet = useCallback((town: string, sheets: string[], pin: { lng: number; lat: number }) => {
+    const idx = indexRef.current
+    if (!idx || sheets.length < 2) { setSheetOrder(null); return }
+    const seq = ++locSeq.current
+    void (async () => {
+      try {
+        const ordered = await locateSheets(idx, sheets, pin, geocodeTownCached)
+        if (!ordered || seq !== locSeq.current) return
+        setSheetOrder({ town, sheets: ordered })
+        if (!manualSheetPick.current) setSelSheet(ordered[0])
+      } catch { /* 推定失敗時は従来の並びのまま */ }
+    })()
+  }, [])
 
   // ---- 検索 ----
   const selectHit = useCallback((hit: GeocodeHit, opts?: { pan?: boolean; queryText?: string }) => {
@@ -156,19 +185,24 @@ export default function RosenkaMapContent() {
     // ジオコーダの正規化名と入力文字列の両方で照合し、町丁をより具体的に特定できた方を採る
     // （地番「大字○○字△△1234番1」はジオコーダが町丁を落とすことがあるため）
     const idx = indexRef.current
+    manualSheetPick.current = false
+    setSheetOrder(null)
     if (idx) {
       const m = matchAddressBest(idx, [hit.title, opts?.queryText])
       setMatches(m.matches)
       setCityFound(!!m.city)
+      // 市を特定できなかったとき、県内の倍率地域（索引に無い市町村）かどうかを判定して案内を分ける
+      setNoMapCity(m.city ? null : findMuniInText([hit.title, opts?.queryText]))
       setSelTown(m.matches[0]?.town || '')
       setSelSheet(m.matches[0]?.sheets[0] || '')
+      if (m.matches[0]) refineSheet(m.matches[0].town, m.matches[0].sheets, { lng: hit.lng, lat: hit.lat })
     } else {
-      setMatches([]); setCityFound(false); setSelTown(''); setSelSheet('')
+      setMatches([]); setCityFound(false); setNoMapCity(null); setSelTown(''); setSelSheet('')
     }
     // 都市計画区分
     if (toshi) setToshiHit(lookupToshi(toshi, hit.lng, hit.lat))
     else setToshiHit(null)
-  }, [toshi])
+  }, [toshi, refineSheet])
 
   /** ジオコーダで地点を出せなかったときの保険: 入力文字列だけを索引と照合して路線価図を出す。
    *  地番（登記簿の表記）はジオコーダが解決できないことがあるが、路線価図は町丁単位なので
@@ -180,8 +214,11 @@ export default function RosenkaMapContent() {
     if (!m.matches.length) return false
     setPoint(null)
     if (markerRef.current) { markerRef.current.remove(); markerRef.current = null }
+    manualSheetPick.current = false
+    setSheetOrder(null)
     setMatches(m.matches)
     setCityFound(!!m.city)
+    setNoMapCity(null)
     setSelTown(m.matches[0].town)
     setSelSheet(m.matches[0].sheets[0] || '')
     setToshiHit(null)
@@ -200,7 +237,10 @@ export default function RosenkaMapContent() {
       if (!results.length) {
         // 地番などジオコーダが解釈できない表記でも、索引で町丁が取れれば路線価図は出す
         if (!matchTextOnly(text, '地図上の地点は特定できませんでしたが、')) {
-          setErr('住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
+          const bc = findMuniInText([text])
+          setErr(bc
+            ? `${bc}には路線価図がありません（全域が倍率地域）。土地の評価は評価倍率表を使います（右上の年分リンクまたは下の出典から開けます）。`
+            : '住所が見つかりませんでした。表記を変えてお試しください（例: 茨城県水戸市姫子2丁目）')
         } else {
           pushHistory(text)
           setHistory(loadHistory())
@@ -251,6 +291,22 @@ export default function RosenkaMapContent() {
     if (!index || !selSheet || !selTown) return
     const city = matches.find((m) => m.town === selTown)?.city
     if (!city) return
+    // 格子座標＋推定済みアフィン変換があれば、図郭そのものを直接描ける（ジオコーダ追加呼び出し不要）
+    const g = index.sheetGrid?.[selSheet]
+    const fit = g ? getCachedFit(index, g[2]) : null
+    if (g && fit) {
+      ;(async () => {
+        const [clng, clat] = sheetCenter(fit, g[0], g[1])
+        const { default: L } = await import('leaflet')
+        if (extentSeq.current !== seq || !mapRef.current) return
+        rectRef.current = L.rectangle(
+          [[clat - fit.d / 2, clng - fit.b / 2], [clat + fit.d / 2, clng + fit.b / 2]],
+          { color: '#b45309', weight: 2, dashArray: '6 4', fillOpacity: 0.04 },
+        ).addTo(mapRef.current)
+        setExtentNote(`橙の枠 = 図${selSheet}の推定図郭（隣接関係と町丁座標から算出した概算です）`)
+      })()
+      return
+    }
     const towns = Object.keys(city.towns).filter((t) => (city.towns[t] || []).includes(selSheet)).slice(0, 12)
     if (towns.length < 2) return // 1町丁だけでは範囲を推定しない（誤解を招くため）
     ;(async () => {
@@ -388,10 +444,16 @@ export default function RosenkaMapContent() {
               )}
               {index && !curMatch && matches.length === 0 && (cityFound ? (
                 <span className="text-amber-700">
-                  この住所は町丁名索引と自動照合できませんでした。
-                  路線価図が無い市町村（<b>倍率地域</b>）の可能性があります —
+                  この市には路線価図がありますが、この町丁は町丁名索引に載っていません。
+                  この町丁は<b>倍率地域</b>（路線価によらない地域）の可能性があります —
                   <a className="underline mx-1" href={rosenkaRatiosUrl(index)} target="_blank" rel="noreferrer">評価倍率表を開く ↗</a>／
                   <a className="underline ml-1" href={rosenkaYearTopUrl(index.year)} target="_blank" rel="noreferrer">町丁名索引 ↗</a>
+                </span>
+              ) : noMapCity ? (
+                <span className="text-amber-700">
+                  <b>{noMapCity}</b>には路線価図がありません（<b>全域が倍率地域</b>のため、探し方の問題ではありません）。
+                  土地の評価は評価倍率表を使います —
+                  <a className="underline mx-1" href={rosenkaRatiosUrl(index)} target="_blank" rel="noreferrer">評価倍率表を開く ↗</a>
                 </span>
               ) : (
                 <span className="text-amber-700">
@@ -407,24 +469,36 @@ export default function RosenkaMapContent() {
             <span className="flex items-center gap-1 flex-wrap">
               {matches.slice(0, 8).map((m) => (
                 <button key={m.town}
-                  onClick={() => { setSelTown(m.town); setSelSheet(m.sheets[0] || '') }}
+                  onClick={() => {
+                    setSelTown(m.town)
+                    setSelSheet(m.sheets[0] || '')
+                    manualSheetPick.current = false
+                    setSheetOrder(null)
+                    if (point) refineSheet(m.town, m.sheets, { lng: point.lng, lat: point.lat })
+                  }}
                   className={`px-2 py-0.5 rounded border text-[11px] ${m.town === selTown ? 'bg-[#1F3A5F] text-white border-[#1F3A5F]' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
                   {m.town}
                 </button>
               ))}
             </span>
           )}
-          {curMatch && curMatch.sheets.length > 0 && (
-            <span className="flex items-center gap-1 flex-wrap">
-              <span className="text-gray-500">図:</span>
-              {curMatch.sheets.map((s) => (
-                <button key={s} onClick={() => setSelSheet(s)}
-                  className={`px-2 py-0.5 rounded border font-mono text-[11px] ${s === selSheet ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
-                  {s}
-                </button>
-              ))}
-            </span>
-          )}
+          {curMatch && curMatch.sheets.length > 0 && (() => {
+            // 最寄り図の推定が済んでいれば、その並び（近い順）でボタンを出す
+            const ordered = sheetOrder && sheetOrder.town === curMatch.town ? sheetOrder.sheets : curMatch.sheets
+            const located = !!(sheetOrder && sheetOrder.town === curMatch.town && point)
+            return (
+              <span className="flex items-center gap-1 flex-wrap">
+                <span className="text-gray-500">図{located ? '（ピンに近い順）' : ''}:</span>
+                {ordered.map((s, i) => (
+                  <button key={s} onClick={() => { manualSheetPick.current = true; setSelSheet(s) }}
+                    title={located && i === 0 ? 'ピン位置に最も近いと推定した図' : undefined}
+                    className={`px-2 py-0.5 rounded border font-mono text-[11px] ${s === selSheet ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:border-blue-400'}`}>
+                    {located && i === 0 ? '📍' : ''}{s}
+                  </button>
+                ))}
+              </span>
+            )
+          })()}
           {hits.length > 0 && (
             <span className="flex items-center gap-1 flex-wrap">
               <span className="text-gray-500">他の候補:</span>

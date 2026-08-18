@@ -15,6 +15,9 @@ export interface RosenkaIndex {
   cities: RosenkaCity[]
   /** 隣接図面（東西南北ナビ）: 図番号 → {n:北, s:南, e:東, w:西} の図番号 */
   adj?: Record<string, { n?: string; s?: string; e?: string; w?: string }>
+  /** 図面の格子座標（adjから復元・列=東+1/行=北+1）: 図番号 → [列, 行, 連結成分ID]。
+   *  最寄り図の自動選択（sheet-locator.ts）と図郭の推定に使う */
+  sheetGrid?: Record<string, [number, number, number]>
 }
 
 export interface RosenkaCity {

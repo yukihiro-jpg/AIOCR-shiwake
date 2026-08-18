@@ -194,6 +194,61 @@ async function fetchAdjacency(year, pref, sheets, debugFirst = false) {
   return adj
 }
 
+/** 隣接データ（東西南北リンク）から各図面の格子座標を復元する（純関数）。
+ *  路線価図は等間隔の図割りなので、隣接リンクをBFSで辿ると図面群は整然とした格子になる
+ *  （茨城3年分で矛盾0を実測済み）。戻り値は 図番号 → [列, 行, 連結成分ID]。
+ *  列は東へ+1、行は北へ+1。連結成分はおおむね市単位（飛び地は別成分）。
+ *  アプリ側はこの格子に数点の町丁座標（ジオコーダ）を当ててアフィン変換を推定し、
+ *  検索地点に最も近い図面を自動選択する（sheet-locator.ts）。 */
+export function computeSheetGrid(adj) {
+  const DIRS = { e: [1, 0], w: [-1, 0], n: [0, 1], s: [0, -1] }
+  const OPP = { e: 'w', w: 'e', n: 's', s: 'n' }
+  // 双方向グラフ（aの東がbなら、bの西はa）。同一ペアで矛盾する向きが観測されたら無効化
+  const edges = new Map()
+  const addEdge = (a, b, dir) => {
+    if (!edges.has(a)) edges.set(a, new Map())
+    const m = edges.get(a)
+    const v = DIRS[dir]
+    if (m.has(b)) {
+      const p = m.get(b)
+      if (p && (p[0] !== v[0] || p[1] !== v[1])) m.set(b, null)
+    } else m.set(b, v)
+  }
+  for (const [s, dirs] of Object.entries(adj || {})) {
+    for (const [dir, t] of Object.entries(dirs)) {
+      if (!t || !DIRS[dir]) continue
+      addEdge(s, t, dir)
+      addEdge(t, s, OPP[dir])
+    }
+  }
+  const grid = {}
+  let compN = 0
+  let conflicts = 0
+  for (const start of edges.keys()) {
+    if (grid[start]) continue
+    const cid = compN++
+    grid[start] = [0, 0, cid]
+    const q = [start]
+    while (q.length) {
+      const cur = q.shift()
+      const [cc, cr] = grid[cur]
+      for (const [nb, v] of edges.get(cur) || []) {
+        if (v === null) continue
+        const nc = [cc + v[0], cr + v[1], cid]
+        const prev = grid[nb]
+        if (prev) {
+          if (prev[0] !== nc[0] || prev[1] !== nc[1]) conflicts++
+        } else {
+          grid[nb] = nc
+          q.push(nb)
+        }
+      }
+    }
+  }
+  if (conflicts) console.warn(`  格子復元: 座標の矛盾が${conflicts}件（該当図の位置推定は不正確になり得ます）`)
+  return grid
+}
+
 /** 隣接データを「町丁由来の図番号 ∪ 隣接図として参照される図番号」の閉包まで補完する。
  *  既存分は再利用し、不足図面だけ fetchBatch で取得（純ロジック・テスト用に fetch を注入可能）。
  *  隣接図としてのみ登場する図面に adj が無いと、東西南北ナビでそこへ入った瞬間に
@@ -318,6 +373,7 @@ async function main() {
         generatedAt: new Date().toISOString(),
         cities: outCities,
         adj,
+        sheetGrid: computeSheetGrid(adj), // 図面の格子座標（最寄り図の自動選択・図郭推定に使用）
       }
       writeFileSync(outPath, JSON.stringify(idx))
       console.log(`書き出し: ${outPath}（${townTotal}町丁）`)

@@ -53,3 +53,21 @@ export function muniName(cd: string): { pref: string; city: string } | null {
   const key = cd.trim().padStart(5, '0')
   return MUNI[key] || null
 }
+
+// 名前の長い順（「ひたちなか市」を「那珂市」より先に試す等）。ヶ/ヵ→ケで字体差を吸収
+const MUNI_NAMES = Array.from(new Set(Object.values(MUNI).map((m) => m.city)))
+  .sort((a, b) => b.length - a.length)
+const foldKe = (s: string) => s.replace(/[ヶヵ]/g, 'ケ')
+
+/** 文字列群から県内の市区町村名を探す（最初に見つかったもの）。
+ *  路線価索引に無い市町村（＝全域が倍率地域）を「県外・表記不備」と誤案内しないための判定用 */
+export function findMuniInText(texts: Array<string | null | undefined>): string | null {
+  for (const t of texts) {
+    if (!t) continue
+    const f = foldKe(t)
+    for (const name of MUNI_NAMES) {
+      if (f.includes(foldKe(name))) return name
+    }
+  }
+  return null
+}
