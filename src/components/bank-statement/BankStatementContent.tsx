@@ -73,9 +73,6 @@ export default function BankStatementContent() {
   // 顧問先選択
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [showClientSelector, setShowClientSelector] = useState(true)
-  // アプリ終了処理
-  const [exitingApp, setExitingApp] = useState(false)
-
   const [pages, setPages] = useState<StatementPage[]>([])
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([])
   const [accountMaster, setAccountMaster] = useState<AccountItem[]>([])
@@ -237,22 +234,10 @@ export default function BankStatementContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleClientSelect])
 
-  const handleExitApp = useCallback(async () => {
-    if (!window.confirm('アプリを終了してブラウザのタブを閉じます。よろしいですか？\n（データはFirebaseとこのPCに保存済みです）')) return
-    setExitingApp(true)
-    // デバウンス待機中のFirebase push（一時保存クリア等）を送り切ってから閉じる。
-    // これを待たずに閉じるとRTDBに旧データが残り、次回起動時に復活してしまう。
-    try {
-      const { flushPendingPushes } = await import('@/lib/bank-statement/firebase-sync')
-      await flushPendingPushes()
-    } catch { /* firebase 未設定なら無視 */ }
-    window.close()
-    // window.close() が効かない環境用の代替メッセージ
-    setTimeout(() => {
-      setExitingApp(false)
-      alert('このブラウザタブを閉じてください。')
-    }, 500)
-  }, [])
+  // 「アプリ終了」ボタンは廃止した。window.close() はスクリプトで開いたウインドウしか閉じられず、
+  // 通常のタブでは何も起きずに「このブラウザタブを閉じてください」と出るだけだった。
+  // 唯一の実質的な役割だった「デバウンス待機中のFirebase pushを送り切る」処理は、
+  // firebase-sync 側の pagehide / visibilitychange で自動的に行う（タブを×で閉じても同じ）。
 
   // 表示中のページだけを削除（そのページから作成された仕訳も一緒に削除。他ページは残す）
   const handleDeleteCurrentPage = useCallback(() => {
@@ -1502,6 +1487,19 @@ export default function BankStatementContent() {
     }
   }, [journalEntries, selectedEntryIds, accountMaster])
 
+  // Ctrl+S（Macは⌘S）で一時保存。手をキーボードから離さずに保存できるようにする
+  // （ブラウザの「ページを保存」ダイアログは抑止する）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 's') return
+      e.preventDefault()
+      if (journalEntries.length === 0) return
+      handleTempSave()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handleTempSave, journalEntries.length])
+
   // 一時保存データをまとめてCSV出力
   const handleTempExport = useCallback(() => {
     const tempEntries = getTempEntries()
@@ -1737,10 +1735,6 @@ export default function BankStatementContent() {
                   日付一括変更
                 </button>
               )}
-              <button onClick={handleTempSave}
-                className="fbtn fbtn-amber">
-                {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '一時保存'}
-              </button>
               <CsvExportButton entries={journalEntries}
                 dateFrom={dateFrom} dateTo={dateTo}
                 onDateFromChange={setDateFrom} onDateToChange={setDateTo}
@@ -1778,12 +1772,19 @@ export default function BankStatementContent() {
               </button>
             </div>
           )}
-          {/* スペースを空けてアプリ終了ボタン */}
+          {/* 一時保存はヘッダーの右端に固定する。
+              ボタンの並びの途中に置くと、書類の種類（クレジットカードのときだけ出る「日付一括変更」）や
+              一時保存件数の有無で位置が動き、押し間違えるため。
+              右端＝ヘッダーの右余白に接する位置なので、左側に何が増減しても動かない。
+              仕訳が無い間もグレーで出しておき（押すと理由を表示）、位置そのものを固定する。 */}
           {selectedClient && (
-            <button onClick={handleExitApp} disabled={exitingApp}
-              title="ブラウザのタブを閉じます（データは保存済み）"
-              className="fbtn fbtn-red ml-3">
-              {exitingApp ? '終了中...' : 'アプリ終了'}
+            <button onClick={handleTempSave}
+              disabled={journalEntries.length === 0}
+              title={journalEntries.length === 0
+                ? '一時保存する仕訳がありません（ファイルを取り込むと押せます）'
+                : '表示中の仕訳を一時保存します（Ctrl+S / ⌘S でも保存できます）'}
+              className="fbtn fbtn-amber ml-3 min-w-[150px] justify-center">
+              {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '💾 一時保存'}
             </button>
           )}
         </div>

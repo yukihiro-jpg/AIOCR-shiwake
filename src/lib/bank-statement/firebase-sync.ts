@@ -87,9 +87,18 @@ export async function flushPendingPushes(): Promise<void> {
   )
 }
 
-// タブが閉じられる/隠れる際の保険（ベストエフォート。確実に届けたい場面では明示的に flush を await する）
+// タブが閉じられる/隠れる際の保険。
+// 以前は「アプリ終了」ボタンで明示的に flush してから閉じてもらう想定だったが、
+// window.close() は通常のタブでは効かず（スクリプトで開いたウインドウのみ）実質機能していなかったため
+// ボタンを廃止した。ブラウザの×で閉じても取りこぼさないよう、ここで確実に送り切る。
+//   pagehide       … タブを閉じる・別ページへ移動する直前
+//   visibilitychange(hidden) … 別タブへ切替・最小化。閉じる直前に pagehide が発火しない環境の保険で、
+//                    ここで送っておけば「閉じる時点で待機中のpushが無い」状態にできる
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => { void flushPendingPushes() })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') void flushPendingPushes()
+  })
 }
 
 export async function pushNow(clientId: string, key: string, data: unknown): Promise<void> {
