@@ -44,9 +44,12 @@ export default function CsvExportButton({ entries, dateFrom, dateTo, onDateFromC
 
   return (
     <div className="relative">
+      {/* 右端の緑「CSV出力」（一時保存した分をまとめて出す）と役割が違うので名前で区別する。
+          こちらは一時保存を経由せず、いま画面に出ている仕訳だけを期間指定で出力する（一時保存は消えない）。 */}
       <button onClick={() => setShowPanel(!showPanel)}
+        title="いま画面に表示している仕訳だけを、期間を指定してCSV出力します（一時保存したデータは対象外・一時保存は消えません）"
         className="fbtn fbtn-blue">
-        CSV出力
+        表示中をCSV出力
       </button>
 
       {showPanel && (

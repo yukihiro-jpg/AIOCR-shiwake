@@ -1570,18 +1570,20 @@ export default function BankStatementContent() {
       <GlobalNav currentKey="aiocr-shiwake" />
       {/* ヘッダー */}
       <header className="fusion-bar px-5 py-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="fusion-logo">会</div>
-          <h1 className="text-base font-semibold text-gray-800 whitespace-nowrap">会計大将インポートデータ変換</h1>
+        {/* 右端に固定したボタン（CSV出力・一時保存）が画面外へ押し出されないよう、
+            幅が足りないときはこちら（タイトル・顧問先名）が先に縮む。min-w-0 + truncate の対で効かせる */}
+        <div className="flex items-center gap-3 min-w-0 shrink">
+          <div className="fusion-logo shrink-0">会</div>
+          <h1 className="text-base font-semibold text-gray-800 truncate min-w-0">会計大将インポートデータ変換</h1>
           {selectedClient && (
-            <span className="fusion-chip text-xs">{selectedClient.name}</span>
+            <span className="fusion-chip text-xs truncate min-w-0 max-w-[240px]">{selectedClient.name}</span>
           )}
           <button onClick={handleBackToClientList}
             className="fusion-link text-xs whitespace-nowrap">
             顧問先一覧
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* 会計入力中に顧問先へ確認・依頼をメモ（顧問先情報の「確認・依頼」に集約） */}
           {selectedClient && <KakuninQuickAdd clientId={selectedClient.id} clientName={selectedClient.name} />}
           {/* バックアップ（全データZIP出力・復元）＋前回バックアップ日 */}
@@ -1758,10 +1760,6 @@ export default function BankStatementContent() {
                 className="fbtn fbtn-gray">
                 一時保存確認 ({tempCount}件)
               </button>
-              <button onClick={handleTempExport}
-                className="fbtn fbtn-green">
-                一括CSV出力
-              </button>
               <button onClick={handleQuestionList}
                 className="fbtn fbtn-purple">
                 仮払金質問リスト
@@ -1772,20 +1770,31 @@ export default function BankStatementContent() {
               </button>
             </div>
           )}
-          {/* 一時保存はヘッダーの右端に固定する。
+          {/* 「一時保存 → CSV出力」の2つは、日々の作業で最も使う組なのでヘッダーの右端に固定する。
               ボタンの並びの途中に置くと、書類の種類（クレジットカードのときだけ出る「日付一括変更」）や
               一時保存件数の有無で位置が動き、押し間違えるため。
               右端＝ヘッダーの右余白に接する位置なので、左側に何が増減しても動かない。
-              仕訳が無い間もグレーで出しておき（押すと理由を表示）、位置そのものを固定する。 */}
+              押せない状態でもグレーで出しておき（押せない理由はツールチップ）、位置そのものを固定する。
+              並びは作業の順序どおり「CSV出力（貯めた分を出す）｜一時保存（貯める）」。 */}
           {selectedClient && (
-            <button onClick={handleTempSave}
-              disabled={journalEntries.length === 0}
-              title={journalEntries.length === 0
-                ? '一時保存する仕訳がありません（ファイルを取り込むと押せます）'
-                : '表示中の仕訳を一時保存します（Ctrl+S / ⌘S でも保存できます）'}
-              className="fbtn fbtn-amber ml-3 min-w-[150px] justify-center">
-              {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '💾 一時保存'}
-            </button>
+            <div className="flex items-center gap-2 ml-3 shrink-0">
+              <button onClick={handleTempExport}
+                disabled={tempCount === 0}
+                title={tempCount === 0
+                  ? '一時保存されたデータがありません（一時保存すると押せます）'
+                  : `一時保存した${tempCount}件をまとめてCSVで出力します（出力後、一時保存はクリアされます）`}
+                className="fbtn fbtn-green w-[152px] justify-center">
+                {tempCount > 0 ? `📥 CSV出力 (${tempCount}件)` : '📥 CSV出力'}
+              </button>
+              <button onClick={handleTempSave}
+                disabled={journalEntries.length === 0}
+                title={journalEntries.length === 0
+                  ? '一時保存する仕訳がありません（ファイルを取り込むと押せます）'
+                  : '表示中の仕訳を一時保存します（Ctrl+S / ⌘S でも保存できます）'}
+                className="fbtn fbtn-amber w-[180px] justify-center">
+                {selectedEntryIds.size > 0 ? `選択分を一時保存 (${selectedEntryIds.size}件)` : '💾 一時保存'}
+              </button>
+            </div>
           )}
         </div>
       </header>
