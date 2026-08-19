@@ -14,7 +14,6 @@ import JournalEntryTable from '@/components/bank-statement/JournalEntryTable'
 import ColumnMappingDialog from '@/components/bank-statement/ColumnMappingDialog'
 import InvoiceColumnMappingDialog, { type InvoiceColumnMapping } from '@/components/bank-statement/InvoiceColumnMappingDialog'
 import ReceiptColumnMappingDialog, { type ReceiptColumnMapping } from '@/components/bank-statement/ReceiptColumnMappingDialog'
-import CsvExportButton from '@/components/bank-statement/CsvExportButton'
 import { appendTempEntries, getTempEntryCount, clearTempEntries, getTempEntries } from '@/lib/bank-statement/temp-store'
 import { addQuestionItems } from '@/lib/bank-statement/question-store'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
@@ -88,8 +87,6 @@ export default function BankStatementContent() {
   const uploadConfigRef = useRef<UploadConfig | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
   const [lastPeriodFrom, setLastPeriodFrom] = useState('')
   const [lastPeriodTo, setLastPeriodTo] = useState('')
   const [showPatternList, setShowPatternList] = useState(false)
@@ -1508,7 +1505,7 @@ export default function BankStatementContent() {
       return
     }
     // 科目名補完（仮払金一括登録等で名前が空の場合）
-    const completed = tempEntries.map((e) => {
+    const named = tempEntries.map((e) => {
       const u = { ...e }
       if (u.debitCode && !u.debitName) {
         const acc = accountMaster.find((a) => a.code === u.debitCode)
@@ -1520,6 +1517,10 @@ export default function BankStatementContent() {
       }
       return u
     })
+    // 複合仕訳（諸口997）の最終行の金額を自動計算して反映してから出力する。
+    // 以前は「表示中をCSV出力」側だけがこの処理をしていたため、そちらを廃止した際に
+    // 複合仕訳の最終行が0円のまま出力される穴が残らないよう、こちらへ引き継いだ。
+    const completed = applyCompoundAutoAmounts(named)
     downloadCsv(completed, undefined, selectedClient?.taxType)
     if (selectedClient) recordCsvExport(selectedClient.id)
     // 仮払金の質問対象を蓄積ストアへ追記（CSV出力でtempはクリアされるため、ここで退避）
@@ -1728,31 +1729,12 @@ export default function BankStatementContent() {
               },
             ]}
           />
-          {journalEntries.length > 0 && (
-            <>
-              {uploadConfig?.documentType === 'credit-card' && (
-                <button onClick={() => setShowBulkDateDialog(true)}
-                  title="全仕訳の日付をまとめて変更"
-                  className="fbtn fbtn-indigo">
-                  日付一括変更
-                </button>
-              )}
-              <CsvExportButton entries={journalEntries}
-                dateFrom={dateFrom} dateTo={dateTo}
-                onDateFromChange={setDateFrom} onDateToChange={setDateTo}
-                onExported={(exported) => {
-                  if (selectedClient) recordCsvExport(selectedClient.id)
-                  // 一時保存を経由しない直接CSV出力でも進捗管理表へ解析日を反映する
-                  const cfgAccountCode = uploadConfigRef.current?.accountCode
-                  if (cfgAccountCode) {
-                    const dates = exported.map((e) => (e.date || '').replace(/\D/g, '')).filter((d) => d.length === 8)
-                    if (dates.length > 0) {
-                      updateProcessingStatus(cfgAccountCode, uploadConfigRef.current?.accountName || '', dates, exported.length)
-                      setProcessingStatusVersion((v) => v + 1)
-                    }
-                  }
-                }} />
-            </>
+          {journalEntries.length > 0 && uploadConfig?.documentType === 'credit-card' && (
+            <button onClick={() => setShowBulkDateDialog(true)}
+              title="全仕訳の日付をまとめて変更"
+              className="fbtn fbtn-indigo">
+              日付一括変更
+            </button>
           )}
           {tempCount > 0 && (
             <div className="flex items-center gap-1.5">
