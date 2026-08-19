@@ -122,6 +122,10 @@ export function classifyPages(pages: Page[]): ClassifiedPage[] {
     else if (/租税公課の納付状況等に関する/.test(txt)) kind = 'beppyo52'
     else if (/所得税額の控除に関する明細書/.test(txt)) kind = 'beppyo61'
     else if (/交際費等の損金算入に関する/.test(txt)) kind = 'beppyo15'
+    // 別表十六(七)（少額減価償却資産）は「償却額の計算に関する明細書」に一致しないため個別に判定する
+    // 表題は縦書きの様式番号が割り込んで1本につながらないので、2つの語で判定する
+    else if (/少額減価償却資産の取得価額/.test(txt) && /損金算入の特例/.test(txt))
+      kind = 'beppyo16-7'
     else if (/償却額の計算に関する明細書/.test(txt)) kind = 'beppyo16'
     else if (/この申告書による消費税の税額の計算/.test(txt)) kind = 'shohizei-1'
     else if (/法人事業概況説明書/.test(txt) || /売上\(収入\)金額|売上（収入）金額/.test(txt)) kind = 'gaikyo'
@@ -372,6 +376,34 @@ function extractBeppyo16(pages: ClassifiedPage[]): Beppyo16 {
     currentDep: found ? currentDep : null,
     pagesUsed,
   }
+}
+
+// 別表十六(七): 少額減価償却資産（30万円未満・取得時に全額損金算入）の損金算入額。
+// 様式は1ページに3ブロック・1ブロックに資産5列で、合計欄が無いため全ブロック・全ページを合算する。
+// 帳簿価額には残らない（取得時全額償却）ので、PL減価償却費との突合だけに使う。
+function extractBeppyo16_7(pages: ClassifiedPage[]): { amount: number | null } {
+  let total = 0
+  let found = false
+  for (const p of pages) {
+    if (p.kind !== 'beppyo16-7') continue
+    for (const l of p.lines) {
+      const t = normText(l)
+      // 「差引改定取得価額(5)-(6)」＝実際に損金算入する額。行番号と金額は
+      // ラベル行の直下に来ることがあるので下側に広めの帯を取る
+      if (!/差引改定取得価額/.test(t)) continue
+      let amts = amountsInBand(p, l.y - 4, l.y + 18, 170, 9999, true)
+      if (!amts.length) {
+        // 圧縮記帳等が無ければ (5) 取得価額そのまま。念のためのフォールバック
+        const alt = p.lines.find(
+          (x) => x.y < l.y && x.y > l.y - 70 && /取得価額又は製作価額/.test(normText(x)),
+        )
+        if (alt) amts = amountsInBand(p, alt.y - 4, alt.y + 18, 170, 9999, true)
+      }
+      for (const a of amts) total += parseAmount(a.s)
+      found = true
+    }
+  }
+  return { amount: found ? total : null }
 }
 
 // ---------- 勘定科目内訳明細書の抽出 ----------
@@ -1328,6 +1360,7 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
     beppyo61: '法人税 別表六(一)',
     beppyo15: '法人税 別表十五',
     beppyo16: '法人税 別表十六',
+    'beppyo16-7': '法人税 別表十六(七)（少額減価償却資産）',
     'shohizei-1': '消費税申告書 第一表',
     gaikyo: '法人事業概況説明書',
     'shohizei-fuhyo': '消費税 付表（税率別計算表）',
@@ -1435,6 +1468,7 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
   // 別表十六 ⇔ BS帳簿価額・PL減価償却費
   {
     const b16 = extractBeppyo16(pages)
+    const b167 = extractBeppyo16_7(pages)
     const DEPRECIABLES = [
       '建物',
       '建物附属設備',
@@ -1482,15 +1516,28 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
         },
       ),
     )
+    // 少額減価償却資産（別表十六(七)）は取得時に全額損金算入するのでPLの減価償却費には
+    // 含まれるが別表十六(一)(二)の当期償却額には出てこない。添付があれば右辺へ加算する
+    const depRight =
+      b16.currentDep == null
+        ? b167.amount
+        : b16.currentDep + (b167.amount ?? 0)
     checks.push(
       mk(
         G1,
         '減価償却費',
         'PL 減価償却費（製造原価分含む）',
         fsSum(pool, ['減価償却費']),
-        '別表十六 当期償却額 合計',
-        b16.currentDep,
-        { note: '一括償却資産の損金算入額・長期前払費用償却は別表十六(一)(二)に含まれません。' },
+        b167.amount != null
+          ? '別表十六 当期償却額＋少額減価償却資産 合計'
+          : '別表十六 当期償却額 合計',
+        depRight,
+        {
+          note:
+            (b167.amount != null
+              ? `少額減価償却資産（別表十六(七)）${b167.amount.toLocaleString('ja-JP')}円を加算しています。`
+              : '') + '一括償却資産の損金算入額・長期前払費用償却は別表十六(一)(二)に含まれません。',
+        },
       ),
     )
   }
