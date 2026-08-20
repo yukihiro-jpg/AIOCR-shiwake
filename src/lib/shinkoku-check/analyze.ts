@@ -200,6 +200,29 @@ export function fsGet(pool: FsPool, ...labels: string[]): number | null {
   return null
 }
 
+/** BS上の借入金の科目名。内訳書（借入金及び支払利子の内訳書）は借入先を問わず全件載るので、
+ *  役員・株主・従業員からの借入を別科目で表示している決算書でも合算して比べる。 */
+export const LOAN_ACCOUNTS = [
+  '短期借入金',
+  '長期借入金',
+  '借入金',
+  '役員借入金',
+  '代表者借入金',
+  '関係会社借入金',
+  '1年内返済予定長期借入金',
+  '一年内返済予定長期借入金',
+  '株主、役員又は従業員からの短期借入金',
+  '株主、役員又は従業員からの長期借入金',
+  '株主、役員又は従業員からの借入金',
+  '株主役員又は従業員からの短期借入金',
+  '株主役員又は従業員からの長期借入金',
+]
+
+/** 決算書に実際にあった借入金科目名（ラベル表示用。何を足したかが画面で分かるように） */
+function loanLabels(pool: FsPool): string[] {
+  return LOAN_ACCOUNTS.filter((lab) => pool.entries.has(lab))
+}
+
 // 該当ラベル群の全出現値を合算（1つも無ければnull）
 export function fsSum(pool: FsPool, labels: string[]): number | null {
   let sum = 0
@@ -1793,8 +1816,8 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
           '借入金',
           '内訳書 借入金合計',
           uchiwakeTotal(pages, '借入金'),
-          'BS 短期借入金＋長期借入金',
-          fsSum(pool, ['短期借入金', '長期借入金', '借入金', '役員借入金', '1年内返済予定長期借入金', '一年内返済予定長期借入金']),
+          'BS ' + (loanLabels(pool).join('＋') || '短期借入金＋長期借入金'),
+          fsSum(pool, LOAN_ACCOUNTS),
         ),
       )
     }
@@ -2004,7 +2027,12 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
       const sonota = gk.has('その他借入金') ? gk.get('その他借入金')! : null
       const kojin = gk.has('個人借入金') ? gk.get('個人借入金')! : null
       if (sonota != null || kojin != null) gk.set('その他借入金＋個人借入金', (sonota || 0) + (kojin || 0))
-      gkCheck('借入金', 'その他借入金＋個人借入金', '短期借入金＋長期借入金', fsSum(pool, ['短期借入金', '長期借入金', '借入金']))
+      gkCheck(
+        '借入金',
+        'その他借入金＋個人借入金',
+        loanLabels(pool).join('＋') || '短期借入金＋長期借入金',
+        fsSum(pool, LOAN_ACCOUNTS),
+      )
     }
   }
 
