@@ -5,7 +5,7 @@
 // データ取得はすべてブラウザ内（ジオコーダはCORS許可の地理院API・PDFは国税庁への直リンク/iframe）。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
+import GlobalNav from '@/core/ui/GlobalNav'
 import 'leaflet/dist/leaflet.css'
 import type { Map as LeafletMap, Rectangle, CircleMarker } from 'leaflet'
 import {
@@ -402,8 +402,8 @@ export default function RosenkaMapContent() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
+      <GlobalNav currentKey="rosenka-map" />
       <header className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 flex-wrap">
-        <Link href="/" className="text-sm text-blue-600 hover:underline shrink-0">← ホーム</Link>
         <h1 className="text-lg font-bold text-gray-800 shrink-0">🗺 路線価マップ</h1>
         <div className="flex items-center gap-2 flex-1 min-w-[280px]">
           <input

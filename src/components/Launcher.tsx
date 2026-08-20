@@ -2,15 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import { MODULES } from '@/core/registry'
-
-// 別ウィンドウで起動するモジュール（地図とPDFの並列表示など広い画面が要るもの）。
-// 同じウィンドウ名を使うため、既に開いていれば再利用（フォーカス）される。
-function openModuleWindow(key: string, path: string): void {
-  const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
-  const w = window.open(`${base}${path}/`, `suite-${key}`, 'width=1600,height=920')
-  if (w) w.focus()
-}
+import { MODULES, openModuleWindow } from '@/core/registry'
+import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom } from '@/core/room'
 import {
   exportSuiteBackup, readSuiteBackupFile, restoreSuiteBackup, getSuiteLastBackupAt,
@@ -320,9 +313,7 @@ function Tiles({ todo }: { todo: Todo }) {
   )
 }
 
-const NAV_ICONS: Record<string, string> = { home: '🏠' }
-
-// 総合アプリのランチャー（ホーム）。左サイドバー＋要対応ダッシュボード＋機能カード。
+// 総合アプリのランチャー（ホーム）。他のアプリと同じトップナビ＋要対応ダッシュボード＋機能カード。
 export default function Launcher() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [todo, setTodo] = useState<Todo>({ kessanPending: 0, checkPending: 0, clients: 0, hasData: false })
@@ -336,54 +327,16 @@ export default function Launcher() {
   }, [])
 
   return (
-    <div className="min-h-screen bank-statement-app fusion flex">
-      {/* 左サイドバー */}
-      <aside className="w-60 shrink-0 flex flex-col text-slate-300" style={{ background: '#0f2740', minHeight: '100vh' }}>
-        <div className="px-5 py-5 border-b border-slate-700/60">
-          <div className="text-slate-50 font-bold text-[15px] leading-tight">業務総合アプリ</div>
-          <div className="text-slate-400 text-[11px] mt-1">{OFFICE_NAME}</div>
-        </div>
-        <nav className="flex-1 px-2.5 py-3 space-y-0.5">
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] font-medium text-white" style={{ background: '#0ea5e9' }}>
-            <span className="w-5 text-center text-base">{NAV_ICONS.home}</span>ホーム
-          </div>
-          {MODULES.map((m) => {
-            const ready = m.status === 'ready'
-            const cls = 'flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] hover:bg-slate-700/60'
-            const inner = (
-              <>
-                <span className="w-5 text-center text-base">{m.icon}</span>
-                <span className={ready ? '' : 'opacity-50'}>{m.label}</span>
-              </>
-            )
-            return ready ? (
-              m.newWindow ? (
-                <a key={m.key} href={m.path}
-                  onClick={(e) => { e.preventDefault(); openModuleWindow(m.key, m.path) }}
-                  className={cls}>{inner}</a>
-              ) : (
-                <Link key={m.key} href={m.path} className={cls}>{inner}</Link>
-              )
-            ) : (
-              <div key={m.key} className={cls + ' opacity-60 cursor-default'} title="準備中">{inner}</div>
-            )
-          })}
-        </nav>
-        <div className="border-t border-slate-700/60 px-2.5 py-3">
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] text-slate-300 hover:bg-slate-700/60"
-          >
-            <span className="w-5 text-center text-base">⚙️</span>共通設定
-          </button>
-        </div>
-      </aside>
+    <div className="min-h-screen bank-statement-app fusion flex flex-col">
+      <GlobalNav currentKey="home" />
 
       {/* メイン */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-gray-200 h-14 px-6 flex items-center">
-          <div className="text-sm text-gray-500"><b className="text-gray-800">ホーム</b></div>
+        <header className="bg-white border-b border-gray-200 h-14 px-6 flex items-center gap-3">
+          <div className="leading-tight">
+            <div className="text-[15px] font-bold text-gray-800">業務総合アプリ</div>
+            <div className="text-[11px] text-gray-500">{OFFICE_NAME}</div>
+          </div>
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}

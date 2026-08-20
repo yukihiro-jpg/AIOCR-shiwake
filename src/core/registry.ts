@@ -17,6 +17,14 @@ export interface ModuleDef {
   newWindow?: boolean
 }
 
+/** 別ウィンドウで起動するモジュール（地図とPDFの並列表示など広い画面が要るもの）を開く。
+ *  同じウィンドウ名を使うので、既に開いていれば再利用（フォーカス）される。 */
+export function openModuleWindow(key: string, path: string): void {
+  const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
+  const w = window.open(`${base}${path}/`, `suite-${key}`, 'width=1600,height=920')
+  if (w) w.focus()
+}
+
 export const MODULES: ModuleDef[] = [
   {
     key: 'komon',

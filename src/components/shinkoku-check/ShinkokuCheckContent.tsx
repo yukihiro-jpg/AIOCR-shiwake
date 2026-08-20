@@ -5,7 +5,7 @@
 //  ② 会計監査 … 総勘定元帳CSVを取り込み、過去実績・消費税マスタと突合して要確認取引を抽出する
 // すべてブラウザ内で処理（AIやサーバーへの送信なし・API不使用）
 import { useCallback, useRef, useState } from 'react'
-import Link from 'next/link'
+import GlobalNav from '@/core/ui/GlobalNav'
 import { groupDocHeaders, type AnalyzeResult, type CheckResult } from '@/lib/shinkoku-check/types'
 import LedgerAuditTab from './LedgerAuditTab'
 
@@ -106,11 +106,9 @@ export default function ShinkokuCheckContent() {
   const okCount = result ? result.checks.filter((c) => c.status === 'ok').length : 0
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      <GlobalNav currentKey="shinkoku-check" />
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
-        <Link href="/" className="text-sm text-blue-600 hover:underline shrink-0">
-          ← ホーム
-        </Link>
         <h1 className="text-lg font-bold text-gray-800">🧾 税務チェック</h1>
         <span className="text-xs text-gray-500 hidden sm:inline">
           申告書PDFの書類間突合・総勘定元帳の会計監査をブラウザ内で実行（外部送信なし）
