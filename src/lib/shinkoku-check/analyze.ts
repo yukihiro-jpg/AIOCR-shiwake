@@ -148,17 +148,35 @@ export function classifyPages(pages: Page[]): ClassifiedPage[] {
 
 // ---------- 決算書（PL/BS）の科目→金額プール ----------
 
+/** 決算書のどの計算書に載っていた科目か。「賞与」「地代家賃」のように販管費と製造原価の
+ *  両方に同名で出る科目を区別するために持つ（合算すると人件費の照合が二重計上になる） */
+export type FsSection = 'pl' | 'genka' | 'bs'
+
 export interface FsPool {
   // label(正規化) → 金額の配列（同名科目が販管費と製造原価などに複数回出るケース）
   entries: Map<string, number[]>
+  // 'section|label' → 金額の配列
+  bySection: Map<string, number[]>
 }
 
 export function buildFsPool(pages: ClassifiedPage[]): FsPool {
   const entries = new Map<string, number[]>()
+  const bySection = new Map<string, number[]>()
   const seen = new Set<string>() // label|value の重複除去（要約と明細の二重計上防止）
+  let sec: FsSection = 'pl'
   for (const p of pages) {
     if (p.kind !== 'pl' && p.kind !== 'bs' && p.kind !== 'fs-cont') continue
+    // 続きページ（fs-cont）は直前ページの区分を引き継ぐ
+    if (p.kind === 'pl') sec = 'pl'
+    else if (p.kind === 'bs') sec = 'bs'
     for (const l of p.lines) {
+      // 表題行で区分を切り替える。製造原価明細書は損益計算書と別ページのことも
+      // 同一ページのこともあるので、ページ種別ではなく表題で判定する
+      const lt = normText(l)
+      if (/製造原価(明細書|報告書)/.test(lt)) sec = 'genka'
+      else if (/損益計算書/.test(lt)) sec = 'pl'
+      else if (/貸借対照表/.test(lt)) sec = 'bs'
+      else if (/販売費及び一般管理費(の)?(明細|内訳)/.test(lt)) sec = 'pl'
       // トークンを左→右に走査し、「ラベル文字列＋金額」の組を拾う（BSの左右2カラムにも対応）
       let label = ''
       let prevX: number | null = null
@@ -179,6 +197,10 @@ export function buildFsPool(pages: ClassifiedPage[]): FsPool {
               const arr = entries.get(lab) || []
               arr.push(v)
               entries.set(lab, arr)
+              const sk = sec + '|' + lab
+              const arr2 = bySection.get(sk) || []
+              arr2.push(v)
+              bySection.set(sk, arr2)
             }
           }
           label = ''
@@ -188,7 +210,21 @@ export function buildFsPool(pages: ClassifiedPage[]): FsPool {
       }
     }
   }
-  return { entries }
+  return { entries, bySection }
+}
+
+/** 指定の計算書（販管費／製造原価）に載っている科目だけを合算（1つも無ければnull） */
+export function fsSumSec(pool: FsPool, sec: FsSection, labels: string[]): number | null {
+  let sum = 0
+  let found = false
+  for (const lab of labels) {
+    const arr = pool.bySection.get(sec + '|' + lab)
+    if (arr) {
+      found = true
+      for (const v of arr) sum += v
+    }
+  }
+  return found ? sum : null
 }
 
 // 完全一致で最初の値
@@ -1080,17 +1116,53 @@ function jinkenhiUchiwake(pages: ClassifiedPage[]): JinkenhiUchiwake {
 }
 
 // ===== 雑益・雑損失内訳書: 雑益の合計（1つ目）と雑損失等の合計（2つ目）、源泉所得税還付行 =====
+/** 雑益、雑損失等の内訳書の「雑益等」（上段）と「雑損失等」（下段）の境界Y。
+ *  左端の縦書きラベル（雑／益／等・雑／損／失／等）の位置から求める。見つからなければ null */
+function zatsuBoundaryY(p: ClassifiedPage): number | null {
+  const marks: { y: number; s: string }[] = []
+  for (const l of p.lines) {
+    for (const t of l.toks) {
+      if (t.x > 100) continue
+      const s = t.s.replace(/\s+/g, '')
+      if (/^[雑益損失等]$/.test(s)) marks.push({ y: l.y, s })
+    }
+  }
+  marks.sort((a, b) => a.y - b.y)
+  const i = marks.findIndex((m) => m.s === '損')
+  // 「損」の直前の「雑」が下段ラベルの先頭。その1つ上が上段ラベルの末尾
+  if (i < 1 || marks[i - 1].s !== '雑') return null
+  const lowerTop = marks[i - 1].y
+  const upperEnd = i >= 2 ? marks[i - 2].y : null
+  if (upperEnd == null) return null
+  return (upperEnd + lowerTop) / 2
+}
+
 function zatsuTotals(pages: ClassifiedPage[]): { eki: number | null; son: number | null } {
   const grp = pages.filter((p) => p.kind === 'uchiwake' && p.subType === '雑益雑損失')
-  const totals: number[] = []
+  // 様式は1ページが上下2段（上＝雑益等・下＝雑損失等）で、段ごとに複数ページへ続く。
+  // 「合計」は各段の最終ページにしか出ないので、段ごとに最後の合計を採る
+  const upper: number[] = []
+  const lower: number[] = []
+  const flat: number[] = []
   for (const p of grp) {
+    const bound = zatsuBoundaryY(p)
     for (const l of p.lines) {
       if (!/^合計/.test(normText(l))) continue
       const amts = amountsInBand(p, l.y - 10, l.y + 12, 490, 9999, true)
-      if (amts.length) totals.push(parseAmount(amts[amts.length - 1].s))
+      if (!amts.length) continue
+      const v = parseAmount(amts[amts.length - 1].s)
+      flat.push(v)
+      if (bound != null) (l.y < bound ? upper : lower).push(v)
     }
   }
-  return { eki: totals.length ? totals[0] : null, son: totals.length >= 2 ? totals[1] : null }
+  if (upper.length || lower.length) {
+    return {
+      eki: upper.length ? upper[upper.length - 1] : null,
+      son: lower.length ? lower[lower.length - 1] : null,
+    }
+  }
+  // 縦書きラベルを読めなかった様式は、従来どおり出現順で1つ目＝雑益・2つ目＝雑損失とみなす
+  return { eki: flat.length ? flat[0] : null, son: flat.length >= 2 ? flat[1] : null }
 }
 
 // 雑益内訳書のうち「源泉所得税還付」「控除所得税還付」等の行の金額合計（別表四の還付金額行と突合）
@@ -1857,26 +1929,47 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
     const j = jinkenhiUchiwake(pages)
     if (j.yakuin != null || j.kyuyo != null || j.kei != null) {
       const plYak = fsSum(pool, ['役員報酬', '役員給与'])
-      const plKyu = fsSum(pool, ['給料手当', '給与手当', '給料', '給与', '雑給', '賞与', '給料及び手当'])
+      // 様式の注記どおり、「給与手当」欄＝販管費に含まれる従業員の給料・賞与等、
+      // 「賃金手当」欄＝製造原価（売上原価）に算入される賃金・賞与等。
+      // 「賞与」「雑給」は販管費と製造原価の両方に同名で出るので、必ず区分ごとに集計する
+      const KYUYO = ['給料手当', '給与手当', '給料', '給与', '雑給', '賞与', '賞与手当', '従業員賞与', '給料及び手当']
+      const CHINGIN = ['賃金', '賃金手当', '賃金給料', '雑給', '賞与', '賞与手当', '従業員賞与']
+      const plKyu = fsSumSec(pool, 'pl', KYUYO) ?? fsSum(pool, KYUYO)
       // 賃金: 製造原価報告書の「労務費」は賃金・法定福利費・福利厚生費等の小計のため、
       // 明細の賃金系科目があればそちらを使う（労務費と合算すると二重計上になる）。
       // 明細が無く「労務費」1本で計上している決算書のみ労務費を使う。
-      const chinDetail = fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
+      const chinDetail =
+        fsSumSec(pool, 'genka', CHINGIN) ?? fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
       const romuhi = fsGet(pool, '労務費')
       const plChin = chinDetail != null ? chinDetail : romuhi
-      const chinLabel = chinDetail != null ? 'PL 賃金（製造原価分含む）' : 'PL 労務費'
+      const chinLabel = chinDetail != null ? 'PL 製造原価の賃金・賞与等' : 'PL 労務費'
       const chinNote = chinDetail != null && romuhi != null
-        ? '製造原価報告書の「労務費」は賃金・法定福利費等の小計のため、明細の「賃金」と照合しています。'
+        ? '製造原価報告書の「労務費」は賃金・法定福利費等の小計のため、明細の「賃金」「賞与」と照合しています（退職金は除く）。'
         : undefined
       if (j.yakuin != null) {
         checks.push(mk(G2, '人件費の内訳「役員給与」', '内訳書 人件費の内訳 役員給与', j.yakuin, 'PL 役員報酬', plYak, {
           note: '使用人兼務役員の使用人職務分は「給与手当」側に含まれる様式です。',
         }))
       }
-      if (j.kyuyo != null) checks.push(mk(G2, '人件費の内訳「給与手当」', '内訳書 人件費の内訳 給与手当', j.kyuyo, 'PL 給料手当等', plKyu))
+      if (j.kyuyo != null)
+        checks.push(
+          mk(G2, '人件費の内訳「給与手当」', '内訳書 人件費の内訳 給与手当', j.kyuyo, 'PL 販管費の給料手当・賞与等', plKyu, {
+            note: '様式の注記どおり、販管費に含まれる従業員分（給料手当・賞与・雑給）と照合しています。退職金・法定福利費は含めません。',
+          }),
+        )
       if (j.chingin != null) checks.push(mk(G2, '人件費の内訳「賃金手当」', '内訳書 人件費の内訳 賃金手当', j.chingin, chinLabel, plChin, { note: chinNote }))
       if (j.kei != null && (plYak != null || plKyu != null || plChin != null)) {
-        checks.push(mk(G2, '人件費の内訳「計」', '内訳書 人件費の内訳 計', j.kei, 'PL 役員報酬＋給料手当等＋賃金', (plYak || 0) + (plKyu || 0) + (plChin || 0), { note: chinNote }))
+        checks.push(
+          mk(
+            G2,
+            '人件費の内訳「計」',
+            '内訳書 人件費の内訳 計',
+            j.kei,
+            'PL 役員報酬＋販管費の給料手当等＋製造原価の賃金等',
+            (plYak || 0) + (plKyu || 0) + (plChin || 0),
+            { note: chinNote },
+          ),
+        )
       }
     }
   }
@@ -1995,8 +2088,12 @@ export function analyze(rawPages: Page[], denki?: DenkiWorkbook | null): Analyze
     // 製造業で誤検知になるため、販管費の給料のみを基本とし、一致しない場合に賃金との合算も試す
     {
       const g = gk.has('従業員給料') ? gk.get('従業員給料')! : null
-      const base = fsSum(pool, ['給料手当', '給与手当', '給料', '給与', '賞与', '雑給', '給料及び手当', '従業員給料'])
-      const chinDetail = fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
+      const KYUYO_G = ['給料手当', '給与手当', '給料', '給与', '賞与', '賞与手当', '従業員賞与', '雑給', '給料及び手当', '従業員給料']
+      // 「賞与」「雑給」は製造原価にも同名で出るため販管費側だけを集計する
+      const base = fsSumSec(pool, 'pl', KYUYO_G) ?? fsSum(pool, KYUYO_G)
+      const chinDetail =
+        fsSumSec(pool, 'genka', ['賃金', '賃金手当', '賃金給料', '賞与', '賞与手当', '雑給']) ??
+        fsSum(pool, ['賃金', '賃金手当', '賃金給料'])
       const romu = fsGet(pool, '労務費')
       let right = base
       let label = '販管費の給料手当等'
