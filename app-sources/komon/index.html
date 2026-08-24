@@ -1515,6 +1515,18 @@ function nofuPageFromToks(toks){
   const rowsArr=[];
   toks.forEach(t=>{ const last=rowsArr[rowsArr.length-1];
     if(last&&Math.abs(last.y-t.y)<=2.5) last.toks.push(t); else rowsArr.push({y:t.y,toks:[t]}); });
+  // 「消費税計」「法人税等計」のように、税目名だけがやや上に印字され金額が真下の行に
+  // 落ちる様式がある。金額だけの行が直上の見出し行のすぐ下にあるときは同じ行として扱う
+  // （これをしないと消費税計の予定・中間納付額が拾えない）
+  const isNum=t=>/^-?[0-9][0-9,]*$/.test(nofuNorm(t.s));
+  for(let i=rowsArr.length-1;i>=1;i--){
+    const cur=rowsArr[i], prev=rowsArr[i-1];
+    if(cur.y-prev.y>8) continue;
+    if(!cur.toks.every(isNum)) continue;      // 金額だけの行
+    if(!prev.toks.some(t=>!isNum(t))) continue; // 直上は見出しを含む行
+    prev.toks=prev.toks.concat(cur.toks);
+    rowsArr.splice(i,1);
+  }
   const lines=rowsArr.map(rw=>{ rw.toks.sort((a,b)=>a.x-b.x);
     const labels=[],cells=[]; let tAll='',tLabel='';
     rw.toks.forEach(t=>{ const sN=nofuNorm(t.s); if(!sN)return; tAll+=sN;
