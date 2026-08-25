@@ -547,6 +547,14 @@
       <div class="field"><label>当期中間納付済（法人税等の合計）<span class="hint" style="font-weight:400">※決算確認書（案内PDF）用</span></label><input id="tx_midCorp" class="amt" inputmode="numeric" placeholder="円"></div>
       <div class="field"><label>当期中間納付済（消費税等の合計）<span class="hint" style="font-weight:400">※決算確認書（案内PDF）用</span></label><input id="tx_midCons" class="amt" inputmode="numeric" placeholder="円"></div>
     </div>
+    <h4 style="margin:14px 0 6px;font-weight:500">今回の納付額・還付額（納付税額確認書の「申告納付額」）<span class="hint" style="font-weight:400">※空欄なら「年税額 − 中間納付済」で自動計算します</span></h4>
+    <div class="form-grid">
+      <div class="field"><label>今回納付額（法人税等）</label><input id="tx_payCorp" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>今回還付額（法人税等）</label><input id="tx_refundCorp" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>今回納付額（消費税等）</label><input id="tx_payCons" class="amt" inputmode="numeric" placeholder="円"></div>
+      <div class="field"><label>今回還付額（消費税等）</label><input id="tx_refundCons" class="amt" inputmode="numeric" placeholder="円"></div>
+    </div>
+    <div class="hint" style="margin-top:2px">※ 法人税は還付・均等割は納付、のように税目ごとに納付と還付が同時に生じる場合、確認書の「申告納付額」は二段で記載されます（相殺されず、納付と還付が別々に行われます）。分けて入力すると、決算確認書（案内PDF）にも納付額と還付額を分けて記載します。</div>
     <div class="row-flex" style="justify-content:space-between;margin-top:16px"><b style="font-size:13px">都道府県（県民税法人税割・均等割／事業税／特別法人事業税）</b><button class="sm" onclick="addPrefRow()">＋ 県を追加</button></div>
     <div class="multi-rows pref"><div class="mr"><span class="h">都道府県名</span><span class="h">県民税(法人税割)</span><span class="h">県民税(均等割)</span><span class="h">事業税</span><span class="h">うち収入割<br>(電気供給業等)</span><span class="h">特別法人事業税</span><span></span></div></div>
     <div class="multi-rows pref" id="tx_pref"></div>
@@ -1421,8 +1429,17 @@ function exportFilingMonth(){ const M=filingMonth; const cs=clientsByFiscal(M); 
    どちらも同じ「行の並び」構造に変換してから nofuParsePages（純関数）で解釈する。
    行 = { tAll:全文字, tLabel:数値以外の文字, labels:[{s,r}], cells:[{v,r}] }（r=列位置） */
 function nofuNorm(t){ return String(t||'').replace(/[\s　]+/g,''); }
+/* 金額トークンの判定。マイナス（還付）は様式では△で印字されるが、JDLのPDFはこの記号の
+   ToUnicodeが ';' になっている。'-'・全角ダッシュ類も含めてマイナス扱いにする。
+   （これをしないと△の付いた金額が「文字」として税目名に混ざり、行の判定が壊れる） */
+const NOFU_MINUS='[;△▲−–—‐-]';
+function nofuIsNum(s){ return new RegExp('^'+NOFU_MINUS+'?[0-9][0-9,]*$').test(s); }
+function nofuNumVal(s){ if(!nofuIsNum(s)) return null;
+  const v=Number(s.replace(/[^0-9]/g,'')); if(isNaN(v)) return null;
+  return new RegExp('^'+NOFU_MINUS).test(s)?-v:v; }
 function nofuParsePages(pages){
-  const out={months:null,corp:null,localCorp:null,cons:null,localCons:null,midCorp:null,midCons:null,pref:[],city:[],sum:{}};
+  const out={months:null,corp:null,localCorp:null,cons:null,localCons:null,midCorp:null,midCons:null,
+    payCorp:null,refundCorp:null,payCons:null,refundCons:null,pref:[],city:[],sum:{}};
   const NAME_RE=/^(\d{1,5})([一-龠々ヶぁ-んァ-ン].*)$/;
   pages.forEach(pg=>{
     const all=pg.lines.map(l=>l.tAll).join('');
@@ -1430,15 +1447,21 @@ function nofuParsePages(pages){
       :(/地方税納付税額明細書（市町村）|地方税納付税額明細書\(市町村\)/.test(all)?'city'
       :(/納付税額確認書|納付税額書/.test(all)?'summary':null));
     if(!kind) return;
-    // 列位置（年間税額・予定/中間納付額）をヘッダ行から特定
-    let colA=null,colM=null;
+    // 列位置（年間税額・予定/中間納付額・申告納付額）をヘッダ行から特定
+    let colA=null,colM=null,colP=null;
     pg.lines.forEach(l=>{ if(colA!=null) return;
       const hasA=l.labels.find(x=>nofuNorm(x.s).indexOf('年間税額')>=0);
       const hasM=l.labels.find(x=>nofuNorm(x.s).indexOf('予定・中間納付額')>=0||nofuNorm(x.s).indexOf('中間納付額')>=0);
-      if(hasA&&hasM){ colA=hasA.r; colM=hasM.r; } });
+      if(hasA&&hasM){ colA=hasA.r; colM=hasM.r;
+        const hasP=l.labels.find(x=>nofuNorm(x.s).indexOf('申告納付額')>=0);
+        colP=hasP?hasP.r:null; } });
     const at=(l,col)=>{ if(col==null||!l.cells.length) return null;
       let best=null; l.cells.forEach(c=>{ const d=Math.abs(c.r-col); if(best==null||d<best.d)best={d,v:c.v}; });
       return (best&&best.d<=pg.tol)?best.v:null; };
+    // 二段記載（納付と還付が同時に生じる）に備え、同じ列にある金額をすべて拾う
+    const allAt=(l,col)=>(col==null?[]:l.cells.filter(c=>Math.abs(c.r-col)<=pg.tol).map(c=>c.v));
+    const payRef=l=>{ const vs=allAt(l,colP); if(!vs.length) return null;
+      let pay=0,ref=0; vs.forEach(v=>{ if(v<0) ref+=-v; else pay+=v; }); return {pay,ref}; };
     const first=l=>l.cells.length?l.cells[0].v:null;
     if(kind==='summary'){
       let pending=null;
@@ -1450,8 +1473,10 @@ function nofuParsePages(pages){
         else if(t==='地方法人税') out.localCorp=first(l);
         else if(t==='消費税') out.cons=first(l);
         else if(t==='地方消費税') out.localCons=first(l);
-        else if(t==='小計'){ out.midCorp=at(l,colM); }
-        else if(t==='消費税計'){ out.midCons=at(l,colM); }
+        else if(t==='小計'){ out.midCorp=at(l,colM);
+          const pr=payRef(l); if(pr){ out.payCorp=pr.pay; out.refundCorp=pr.ref; } }
+        else if(t==='消費税計'){ out.midCons=at(l,colM);
+          const pr=payRef(l); if(pr){ out.payCons=pr.pay; out.refundCons=pr.ref; } }
         // 明細ページが無い場合に備えた集約値（都道府県民税/市町村民税の直前の割額ペアを対応付ける）
         else if(t==='法人税割額') pending={kt:first(l)||0};
         else if(t==='均等割額'){ if(pending)pending.kk=first(l)||0; }
@@ -1515,22 +1540,30 @@ function nofuPageFromToks(toks){
   const rowsArr=[];
   toks.forEach(t=>{ const last=rowsArr[rowsArr.length-1];
     if(last&&Math.abs(last.y-t.y)<=2.5) last.toks.push(t); else rowsArr.push({y:t.y,toks:[t]}); });
-  // 「消費税計」「法人税等計」のように、税目名だけがやや上に印字され金額が真下の行に
-  // 落ちる様式がある。金額だけの行が直上の見出し行のすぐ下にあるときは同じ行として扱う
-  // （これをしないと消費税計の予定・中間納付額が拾えない）
-  const isNum=t=>/^-?[0-9][0-9,]*$/.test(nofuNorm(t.s));
-  for(let i=rowsArr.length-1;i>=1;i--){
-    const cur=rowsArr[i], prev=rowsArr[i-1];
-    if(cur.y-prev.y>8) continue;
-    if(!cur.toks.every(isNum)) continue;      // 金額だけの行
-    if(!prev.toks.some(t=>!isNum(t))) continue; // 直上は見出しを含む行
-    prev.toks=prev.toks.concat(cur.toks);
-    rowsArr.splice(i,1);
+  // この様式は1つの欄が二段になることがあるので、金額だけの行を見出し行へ寄せる。
+  //  ・金額がすべてマイナス（△）の行 … 二段記載の上段。すぐ下の見出し行に属する
+  //    （例：小計の申告納付額が「△792,689」と「36,000」の二段＝792,689は還付・36,000は納付）
+  //  ・金額がプラスだけの行 … 「消費税計」「法人税等計」のように税目名だけが一段上に
+  //    印字された行の続き。すぐ上の見出し行に属する
+  const isNum=t=>nofuIsNum(nofuNorm(t.s));
+  const hasLabel=rw=>rw.toks.some(t=>!isNum(t));
+  for(let i=rowsArr.length-1;i>=0;i--){
+    const cur=rowsArr[i];
+    if(hasLabel(cur)) continue;
+    const allNeg=cur.toks.every(t=>(nofuNumVal(nofuNorm(t.s))||0)<0);
+    const nx=rowsArr[i+1], pv=rowsArr[i-1];
+    if(allNeg && nx && nx.y-cur.y<=16 && hasLabel(nx)){
+      nx.toks=nx.toks.concat(cur.toks); rowsArr.splice(i,1); continue;
+    }
+    if(pv && cur.y-pv.y<=8 && hasLabel(pv)){
+      pv.toks=pv.toks.concat(cur.toks); rowsArr.splice(i,1);
+    }
   }
   const lines=rowsArr.map(rw=>{ rw.toks.sort((a,b)=>a.x-b.x);
     const labels=[],cells=[]; let tAll='',tLabel='';
     rw.toks.forEach(t=>{ const sN=nofuNorm(t.s); if(!sN)return; tAll+=sN;
-      if(/^-?[0-9][0-9,]*$/.test(sN)){ const v=Number(sN.replace(/,/g,'')); if(!isNaN(v)) cells.push({v:v,r:t.x+(t.w||0)}); }
+      const v=nofuNumVal(sN);
+      if(v!=null){ cells.push({v:v,r:t.x+(t.w||0)}); }
       else { tLabel+=sN; labels.push({s:sN,r:t.x+(t.w||0)}); } });
     return {tAll,tLabel,labels,cells};
   }).filter(l=>l.tAll);
@@ -1573,6 +1606,8 @@ function applyNofu(r){
   setA('tx_corp',r.corp); setA('tx_localCorp',r.localCorp);
   setA('tx_cons',r.cons); setA('tx_localCons',r.localCons);
   setA('tx_midCorp',r.midCorp); setA('tx_midCons',r.midCons);
+  setA('tx_payCorp',r.payCorp); setA('tx_refundCorp',r.refundCorp);
+  setA('tx_payCons',r.payCons); setA('tx_refundCons',r.refundCons);
   document.getElementById('tx_pref').innerHTML=''; document.getElementById('tx_city').innerHTML='';
   (r.pref.length?r.pref:[{}]).forEach(p=>addPrefRow(p));
   (r.city.length?r.city:[{}]).forEach(p=>addCityRow(p));
@@ -1602,6 +1637,8 @@ function openTax(cid){ const c=clientById(cid); const M=fiscalMonthNum(c.fiscal)
   document.getElementById('tx_fyInfo').innerHTML=M?`決算月：<b>${M}月</b>。法人税・地方税・消費税(年1回)の6月中間は <b>${((M-1+8)%12)+1}月</b>が申告納付期限の目安です。`:'この顧問先の決算月が未設定です。顧問先情報で決算月を設定してください。';
   setVal('tx_months',tx.months||12); setAmt('tx_corp',tx.corp); setAmt('tx_localCorp',tx.localCorp); setAmt('tx_cons',tx.consumption);
   setAmt('tx_localCons',tx.localCons); setAmt('tx_midCorp',tx.midCorp); setAmt('tx_midCons',tx.midCons);
+  setAmt('tx_payCorp',tx.payCorp); setAmt('tx_refundCorp',tx.refundCorp);
+  setAmt('tx_payCons',tx.payCons); setAmt('tx_refundCons',tx.refundCons);
   document.getElementById('tx_memo').value=tx.memo||'';
   document.getElementById('tx_pref').innerHTML=''; document.getElementById('tx_city').innerHTML='';
   (tx.pref&&tx.pref.length?tx.pref:[{}]).forEach(p=>addPrefRow(p)); (tx.city&&tx.city.length?tx.city:[{}]).forEach(p=>addCityRow(p));
@@ -1617,6 +1654,8 @@ function gatherTax(){ const months=num(val('tx_months'))||12;
   const city=[...document.querySelectorAll('#tx_city .mr')].map(d=>({name:d.querySelector('.ci_name').value.trim(),shiTax:numC(d.querySelector('.ci_st').value),shiKinto:numC(d.querySelector('.ci_sk').value)})).filter(p=>p.name||p.shiTax||p.shiKinto);
   return { months, corp:numC(val('tx_corp')), localCorp:numC(val('tx_localCorp')), consumption:numC(val('tx_cons')),
     localCons:numC(val('tx_localCons')), midCorp:numC(val('tx_midCorp')), midCons:numC(val('tx_midCons')),
+    payCorp:numC(val('tx_payCorp')), refundCorp:numC(val('tx_refundCorp')),
+    payCons:numC(val('tx_payCons')), refundCons:numC(val('tx_refundCons')),
     memo:(document.getElementById('tx_memo')?document.getElementById('tx_memo').value:'').trim(), pref, city }; }
 function calcAndRender(){ const c=clientById(val('tx_clientId')); const M=c?fiscalMonthNum(c.fiscal):0; const r=calcInterim(gatherTax());
   const dueMonth=M?(((M-1+8)%12)+1):null;
@@ -1699,6 +1738,18 @@ function printKessanGuide(cid){
   const midCorp=num(tx.midCorp), midCons=num(tx.midCons);
   const dCorp=corpTot-midCorp, dCons=consTot-midCons;
   const yenS=v=>v<0?('△'+yen(-v)+'（還付）'):yen(v);
+  // 税目ごとに納付と還付が同時に生じる場合（法人税は還付・均等割は納付など）、確認書の
+  // 「申告納付額」は二段記載になる。相殺されず別々に納付・還付されるので、そのまま両方載せる。
+  // 入力が無いときは従来どおり「年税額 − 中間納付済」で表示する。
+  const payCorp=num(tx.payCorp), refCorp=num(tx.refundCorp);
+  const payCons=num(tx.payCons), refCons=num(tx.refundCons);
+  const hasSplit=(payCorp+refCorp+payCons+refCons)>0;
+  const splitCell=(pay,ref,fallback)=>{
+    if(pay<=0&&ref<=0) return '<b>'+yenS(fallback)+'</b>';
+    if(ref<=0) return '<b>'+yen(pay)+'</b>';
+    if(pay<=0) return '<b>'+yenS(-ref)+'</b>';
+    return '<b>'+yen(pay)+'</b><br><span class="sub">還付 △'+yen(ref)+'</span>';
+  };
   // ② 翌期の中間納税予定（前期実績基準・interimEvents を再利用）
   const evs=interimEvents(tx,M,filingYear).filter(e=>e.total>0).sort((a,b)=>a.absIdx-b.absIdx);
   let rows2='';
@@ -1747,11 +1798,14 @@ function printKessanGuide(cid){
     +'<h2>１．当期の確定税額</h2>'
     +'<table><colgroup><col style="width:28%"><col style="width:24%"><col style="width:24%"><col style="width:24%"></colgroup>'
     +'<thead><tr><th>税目</th><th>年税額</th><th>中間納付済税額</th><th>差引 確定税額<br>（今回納付）</th></tr></thead><tbody>'
-    +'<tr><td>法人税等<br><span class="sub">（法人税・住民税・事業税等）</span></td><td class="yen">'+yen(corpTot)+'</td><td class="yen">'+yen(midCorp)+'</td><td class="yen"><b>'+yenS(dCorp)+'</b></td></tr>'
-    +'<tr><td>消費税等<br><span class="sub">（地方消費税を含む）</span></td><td class="yen">'+yen(consTot)+'</td><td class="yen">'+yen(midCons)+'</td><td class="yen"><b>'+yenS(dCons)+'</b></td></tr>'
-    +'<tr class="total"><td>合計</td><td class="yen">'+yen(corpTot+consTot)+'</td><td class="yen">'+yen(midCorp+midCons)+'</td><td class="yen">'+yenS(dCorp+dCons)+'</td></tr>'
+    +'<tr><td>法人税等<br><span class="sub">（法人税・住民税・事業税等）</span></td><td class="yen">'+yen(corpTot)+'</td><td class="yen">'+yen(midCorp)+'</td><td class="yen">'+splitCell(payCorp,refCorp,dCorp)+'</td></tr>'
+    +'<tr><td>消費税等<br><span class="sub">（地方消費税を含む）</span></td><td class="yen">'+yen(consTot)+'</td><td class="yen">'+yen(midCons)+'</td><td class="yen">'+splitCell(payCons,refCons,dCons)+'</td></tr>'
+    +'<tr class="total"><td>合計</td><td class="yen">'+yen(corpTot+consTot)+'</td><td class="yen">'+yen(midCorp+midCons)+'</td><td class="yen">'
+      +(hasSplit?splitCell(payCorp+payCons,refCorp+refCons,dCorp+dCons):('<b>'+yenS(dCorp+dCons)+'</b>'))+'</td></tr>'
     +'</tbody></table>'
-    +'<div class="note">※ 中間納付済税額が年税額を上回る場合、差引はマイナス（還付）となります。</div>'
+    +'<div class="note">※ 中間納付済税額が年税額を上回る場合、差引はマイナス（還付）となります。'
+    +((refCorp>0||refCons>0)?'<br>※ 納付と還付は相殺されません。上記の納付額をお納めいただき、還付額は後日、指定口座へ振り込まれます。':'')
+    +'</div>'
     +'<h2>２．翌事業年度（'+nextPeriod+'）の中間納税の予定</h2>'
     +(rows2
       ?('<table><colgroup><col style="width:24%"><col><col style="width:22%"></colgroup><thead><tr><th>納期限</th><th>税目</th><th>納税額（概算）</th></tr></thead><tbody>'+rows2+'</tbody></table>'
