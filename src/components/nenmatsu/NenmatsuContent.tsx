@@ -332,12 +332,82 @@ export default function NenmatsuContent() {
     )
   }
 
+  // 1行ぶんの部品。スマホのカード表示とPCの表で同じものを使う
+  const rowParts = (r: Row) => {
+    const { client, company, submitted } = r
+    const eff = company.deadline || defaultDeadline
+    const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - submitted)
+    const dd = daysToDeadline(eff)
+    const check = (
+      <input
+        type="checkbox"
+        checked={selected.has(client.id)}
+        onChange={() => toggleSelect(client.id)}
+        title="案内PDFの一括作成に含める"
+        className="w-4 h-4 accent-emerald-600 align-middle"
+      />
+    )
+    const stats = (
+      <>
+        従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
+        <span className="font-semibold text-blue-700">{submitted == null ? '…' : submitted}</span>名
+        {remain > 0 && (company.employeeCount ?? 0) > 0 && (
+          <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${dd != null && dd < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
+            未提出 {remain}名
+          </span>
+        )}
+      </>
+    )
+    const deadlineEditor = (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <input
+          type="date"
+          value={company.deadline || ''}
+          placeholder={defaultDeadline}
+          title={company.deadline ? 'この会社だけの期限（空にすると既定に戻ります）' : defaultDeadline ? `既定（${defaultDeadline}）を使用中。変更するとこの会社だけ上書きします` : '期限を設定'}
+          onChange={async (e) => {
+            const v = e.target.value
+            try {
+              await setCompanyDeadline(yearId, client.id, v)
+              setRows((prev) => prev.map((x) => x.client.id === client.id ? { ...x, company: { ...x.company, deadline: v || undefined } } : x))
+            } catch { setMsg('期限の保存に失敗しました。') }
+          }}
+          className={`px-2 py-1 text-xs border rounded ${company.deadline ? 'border-blue-400 text-blue-800' : 'border-gray-200 text-gray-500'}`}
+        />
+        <DeadlineBadge deadline={eff} />
+      </div>
+    )
+    const actions = (
+      <>
+        <label className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer whitespace-nowrap">
+          CSV取込
+          <input
+            type="file"
+            accept=".csv,.txt"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onCsv(client.id, f)
+              e.target.value = ''
+            }}
+          />
+        </label>
+        <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">URLコピー</button>
+        <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
+        <button onClick={() => setGuide({ company })} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
+        <button onClick={() => setImportCheck({ company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
+        <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
+      </>
+    )
+    return { check, stats, deadlineEditor, actions }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="nenmatsu" />
-      <div className="flex-1 p-6 max-w-[1500px] w-full mx-auto">
+      <div className="flex-1 p-3 md:p-6 max-w-[1500px] w-full mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <h1 className="text-xl font-bold text-gray-800">年調データ受信 — 控除証明書・申告データの回収</h1>
+          <h1 className="text-base md:text-xl font-bold text-gray-800">年調データ受信 — 控除証明書・申告データの回収</h1>
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-500">年度</label>
             <select
@@ -436,7 +506,28 @@ export default function NenmatsuContent() {
             {bulkMsg && (
               <div className="px-4 py-2 text-xs bg-emerald-50 border-b border-emerald-100 text-emerald-800">{bulkMsg}</div>
             )}
-            <table className="w-full text-sm">
+            {/* スマホ：6列の表は操作ボタンが縦に積まれて行が異常に高くなるのでカード表示にする */}
+            <ul className="md:hidden divide-y divide-gray-100">
+              {rows.map((r) => {
+                const p = rowParts(r)
+                return (
+                  <li key={r.client.id} className={`p-3 flex gap-2.5 ${selected.has(r.client.id) ? 'bg-emerald-50/40' : ''}`}>
+                    <span className="pt-0.5 shrink-0">{p.check}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-gray-800 break-words">
+                        <span className="text-gray-400 font-normal mr-1.5">{r.client.code || '—'}</span>
+                        {r.client.name}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1">{p.stats}</div>
+                      <div className="mt-1.5">{p.deadlineEditor}</div>
+                      <div className="flex flex-wrap gap-1.5 mt-2">{p.actions}</div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+
+            <table className="hidden md:table w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="px-3 py-2 w-10">
@@ -456,97 +547,17 @@ export default function NenmatsuContent() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ client, company, submitted }) => {
-                  const eff = company.deadline || defaultDeadline
-                  const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - submitted)
-                  const dd = daysToDeadline(eff)
+                {rows.map((r) => {
+                  const p = rowParts(r)
                   return (
-                  <tr key={client.id} className={`border-t border-gray-100 ${selected.has(client.id) ? 'bg-emerald-50/40' : ''}`}>
-                    <td className="px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(client.id)}
-                        onChange={() => toggleSelect(client.id)}
-                        title="案内PDFの一括作成に含める"
-                        className="w-4 h-4 accent-emerald-600 align-middle"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{client.code || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{client.name}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                      従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
-                      <span className="font-semibold text-blue-700">{submitted == null ? '…' : submitted}</span>名
-                      {remain > 0 && (company.employeeCount ?? 0) > 0 && (
-                        <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${dd != null && dd < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
-                          未提出 {remain}名
-                        </span>
-                      )}
-                    </td>
+                  <tr key={r.client.id} className={`border-t border-gray-100 ${selected.has(r.client.id) ? 'bg-emerald-50/40' : ''}`}>
+                    <td className="px-3 py-3">{p.check}</td>
+                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{r.client.code || '—'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{r.client.name}</td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.stats}</td>
+                    <td className="px-4 py-3">{p.deadlineEditor}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <input
-                          type="date"
-                          value={company.deadline || ''}
-                          placeholder={defaultDeadline}
-                          title={company.deadline ? 'この会社だけの期限（空にすると既定に戻ります）' : defaultDeadline ? `既定（${defaultDeadline}）を使用中。変更するとこの会社だけ上書きします` : '期限を設定'}
-                          onChange={async (e) => {
-                            const v = e.target.value
-                            try {
-                              await setCompanyDeadline(yearId, client.id, v)
-                              setRows((prev) => prev.map((r) => r.client.id === client.id ? { ...r, company: { ...r.company, deadline: v || undefined } } : r))
-                            } catch { setMsg('期限の保存に失敗しました。') }
-                          }}
-                          className={`px-2 py-1 text-xs border rounded ${company.deadline ? 'border-blue-400 text-blue-800' : 'border-gray-200 text-gray-500'}`}
-                        />
-                        <DeadlineBadge deadline={eff} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 justify-end flex-wrap">
-                        <label className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer">
-                          CSV取込
-                          <input
-                            type="file"
-                            accept=".csv,.txt"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0]
-                              if (f) onCsv(client.id, f)
-                              e.target.value = ''
-                            }}
-                          />
-                        </label>
-                        <button
-                          onClick={() => copyUrl(company)}
-                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                        >
-                          URLコピー
-                        </button>
-                        <button
-                          onClick={() => showQr(company)}
-                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                        >
-                          QR表示
-                        </button>
-                        <button
-                          onClick={() => setGuide({ company })}
-                          className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50"
-                        >
-                          案内PDF
-                        </button>
-                        <button
-                          onClick={() => setImportCheck({ company })}
-                          className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
-                        >
-                          取込内容確認
-                        </button>
-                        <button
-                          onClick={() => setDetail({ company })}
-                          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                          提出状況・閲覧
-                        </button>
-                      </div>
+                      <div className="flex items-center gap-2 justify-end flex-wrap">{p.actions}</div>
                     </td>
                   </tr>
                 )})}
@@ -793,7 +804,8 @@ function ImportCheck({
           従業員が未取込です。CSVを取り込んでください。
         </p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px] md:min-w-0">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
               <th className="text-left px-3 py-2">氏名</th>
@@ -880,6 +892,7 @@ function ImportCheck({
             })}
           </tbody>
         </table>
+        </div>
       )}
       <p className="text-[11px] text-gray-400 mt-3">
         ※ 扶養親族の郵便番号・住所はJDLのCSVに含まれないため、続柄・氏名・生年月日のみ表示します。
@@ -1193,7 +1206,8 @@ function CompanyDetail({
           従業員が未取込です。CSVを取り込んでください。
         </p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px] md:min-w-0">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-100 text-gray-500">
               <th className="text-left px-3 py-2 bg-gray-100">氏名</th>
@@ -1282,6 +1296,7 @@ function CompanyDetail({
             })}
           </tbody>
         </table>
+        </div>
       )}
 
       {files && (
