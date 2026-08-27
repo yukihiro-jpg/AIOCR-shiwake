@@ -1728,11 +1728,11 @@ function RecentUploads({
           {labelToClient} {Math.round(SCAN_INBOX_RETENTION_DAYS / 365)}年・
           {labelToOffice} {Math.round(SCAN_FILE_RETENTION_DAYS / 365)}年
         </span>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="w-full md:w-auto md:ml-auto flex items-center gap-1.5 flex-wrap">
           <button
             onClick={dlSelectedZip}
             disabled={busy === 'zip' || picked.length === 0}
-            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 mr-1"
+            className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 md:mr-1"
           >
             {busy === 'zip' ? 'まとめています…' : `選択したファイルを一括DL（ZIP）${picked.length ? `　${picked.length}件` : ''}`}
           </button>
@@ -1761,7 +1761,74 @@ function RecentUploads({
         <p className="text-sm text-gray-500 py-10 text-center">アップロードされたファイルはまだありません。</p>
       ) : (
         <>
-          <table className="w-full text-sm">
+          {/* スマホ：8列の表は1列あたり数文字になって縦書きのように潰れるのでカード表示にする */}
+          <div className="md:hidden">
+            <label className="flex items-center gap-2 text-xs text-gray-600 px-1 pb-2">
+              <input
+                type="checkbox"
+                checked={allChecked}
+                ref={(el) => { if (el) el.indeterminate = picked.length > 0 && !allChecked }}
+                onChange={toggleAll}
+              />
+              すべて選択
+            </label>
+            <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+              {rows.slice(0, limit).map((r) => (
+                <li key={r.key} className={`p-3 flex gap-2 ${selected.has(r.key) ? 'bg-blue-50' : 'bg-white'}`}>
+                  <input
+                    type="checkbox"
+                    className="mt-1 w-4 h-4 shrink-0"
+                    checked={selected.has(r.key)}
+                    onChange={() => toggleOne(r.key)}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-gray-800 break-all">
+                      {r.name}
+                      <span className="text-[11px] text-gray-400 ml-1.5 whitespace-nowrap">{fmtSize(r.size)}</span>
+                      {r.isNew && <span className="ml-1.5 text-[10px] font-bold text-white bg-red-500 rounded px-1.5 py-0.5 whitespace-nowrap">未受取</span>}
+                    </div>
+                    {r.note && <div className="text-[11px] text-gray-500 mt-0.5 break-all">{r.note}</div>}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white whitespace-nowrap"
+                        style={{ background: r.root === 'toOffice' ? '#16a34a' : '#2563eb' }}
+                      >
+                        {r.root === 'toOffice' ? '顧問先 → 税理士' : '税理士 → 顧問先'}
+                      </span>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">{fmtAt(r.at)}</span>
+                      <span className="text-[11px] text-gray-500 break-all">👤{r.uploader}</span>
+                    </div>
+                    <button
+                      onClick={() => onNavigate(r.root, r.folderId)}
+                      className="block text-left text-[11px] text-blue-600 mt-1 break-all"
+                      title="このフォルダを開く"
+                    >
+                      📁 {folderPath(r.root, r.folderId)}
+                    </button>
+                    <div className="mt-0.5"><ExpiryNote at={r.at} root={r.root} compact /></div>
+                    <div className="flex gap-1.5 mt-2">
+                      <button
+                        onClick={() => openPreview(r)}
+                        disabled={busy === r.key}
+                        className="px-2.5 py-1 text-xs border border-gray-300 rounded disabled:opacity-50"
+                      >
+                        {busy === r.key ? '取得中…' : '👁 表示'}
+                      </button>
+                      <button
+                        onClick={() => dl(r)}
+                        disabled={busy === r.key}
+                        className="px-2.5 py-1 text-xs border border-gray-300 rounded disabled:opacity-50"
+                      >
+                        {busy === r.key ? '取得中…' : '⬇ DL'}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <table className="hidden md:table w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="px-2 py-2 w-8 text-center">
@@ -2679,7 +2746,8 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
   return (
     <div className="mt-5 border-t border-gray-200 pt-3">
       <h4 className="text-sm font-semibold text-gray-700 mb-2">📤 送信済み（事務所→顧問先）<span className="text-xs font-normal text-gray-400 ml-1">全{rows.length}件</span></h4>
-      <table className="w-full text-xs">
+      <div className="overflow-x-auto">
+      <table className="w-full text-xs min-w-[560px] md:min-w-0">
         <thead>
           <tr className="bg-gray-50 text-gray-500">
             <th className="text-left px-3 py-1.5">宛先</th>
@@ -2723,6 +2791,7 @@ function SentFilesSection({ company, refresh }: { company: ScanCompany; refresh:
           })}
         </tbody>
       </table>
+      </div>
       {rows.length > 3 && (
         <div className="text-center mt-2">
           <button
