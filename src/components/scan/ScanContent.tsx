@@ -67,7 +67,7 @@ import {
 import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
-import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState, ExpiryNote } from '@/components/scan/FolderBrowser'
+import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState, ExpiryNote, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
 import FolderTree from '@/components/scan/FolderTree'
 import { askFilesQuestion } from '@/lib/bank-statement/gemini-client'
 import { openScanGuidePrint, buildScanMailText } from '@/lib/scan/guide'
@@ -639,31 +639,50 @@ export function InboxModal({
 
   return (
     <div
-      className={fullPage ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4'}
+      className={fullPage ? 'fixed inset-0 bg-white z-50 flex flex-col' : 'fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-0 md:p-4'}
       onMouseDown={(e) => { if (e.target === e.currentTarget && !fullPage) onClose() }}
     >
+      {/* スマホでは画面いっぱいに広げる（余白と角丸で表示領域が削られないように） */}
       <div
-        className={fullPage ? 'bg-white w-full h-full flex flex-col overflow-hidden' : 'bg-white rounded-2xl w-full max-w-6xl h-[92vh] flex flex-col overflow-hidden'}
+        className={fullPage ? 'bg-white w-full h-full flex flex-col overflow-hidden' : 'bg-white rounded-none md:rounded-2xl w-full max-w-6xl h-full md:h-[92vh] flex flex-col overflow-hidden'}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ヘッダー（Taxsys風ネイビー） */}
-        <header className="px-5 py-3 flex items-center justify-between text-white shrink-0" style={{ background: '#0f2740' }}>
-          <div>
+        {/* ヘッダー（Taxsys風ネイビー）。スマホで折り返さないよう会社名は1行に詰め、チェック欄は短縮する */}
+        <header className="px-3 md:px-5 py-2.5 md:py-3 flex items-center justify-between gap-2 text-white shrink-0" style={{ background: '#0f2740' }}>
+          <div className="min-w-0">
             <div className="text-[11px] text-slate-300">書類スキャン受信</div>
-            <div className="font-bold text-lg">{client.name}</div>
+            <div className="font-bold text-base md:text-lg truncate">{client.name}</div>
           </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-slate-200">
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            <label className="flex items-center gap-1.5 text-xs text-slate-200 whitespace-nowrap">
               <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
-              処理済みも表示
+              <span className="hidden md:inline">処理済みも表示</span>
+              <span className="md:hidden">処理済み</span>
             </label>
             <button onClick={onClose} className="text-slate-200 hover:text-white text-2xl leading-none px-1" aria-label="閉じる">×</button>
           </div>
         </header>
 
-        <div className="flex-1 flex min-h-0">
-          {/* 左サイドバー（顧問先版と同じ構成） */}
-          <aside className="w-64 shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-3 space-y-1.5">
+        <div className="flex-1 flex flex-col md:flex-row min-h-0">
+          {/* スマホ：上部の3ボタン（PCは下の左サイドバー。狭い画面でサイドバーに幅を取られないため） */}
+          <div className="md:hidden grid grid-cols-3 gap-2 p-3 border-b border-gray-200 bg-gray-50 shrink-0">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                onClick={() => setView(n.key)}
+                className={`relative py-2 rounded-xl border ${view === n.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+              >
+                <div className="text-xl leading-none">{n.icon}</div>
+                <div className="text-[11px] font-semibold mt-1 leading-tight">{n.label}</div>
+                {n.badge > 0 && (
+                  <span className="absolute top-1 right-1 text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[16px] px-1">{n.badge}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* 左サイドバー（顧問先版と同じ構成・PCのみ） */}
+          <aside className="hidden md:block w-64 shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-3 space-y-1.5">
             {NAV.map((n) => (
               <button
                 key={n.key}
@@ -709,7 +728,7 @@ export function InboxModal({
           </aside>
 
           {/* 右コンテンツ */}
-          <div className="flex-1 min-w-0 overflow-auto p-5">
+          <div className="flex-1 min-w-0 overflow-auto p-3 md:p-5">
             {err && <div className="text-sm bg-red-50 border border-red-200 text-red-700 rounded px-3 py-2 mb-3">{err}</div>}
 
             {loading ? (
@@ -726,6 +745,7 @@ export function InboxModal({
                 folderId={folderId}
                 setFolderId={setFolderId}
                 onNavigate={selectFolder}
+                onRoot={(r) => { setBrowseRoot(r); setFolderId(null) }}
                 onChanged={async () => {
                   await reloadFolderData()
                   onChanged()
@@ -735,7 +755,8 @@ export function InboxModal({
               batchList.length === 0 ? (
                 <p className="text-sm text-gray-500 py-6 text-center">バッチがありません。</p>
               ) : (
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px] md:min-w-0">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500">
                       <th className="text-left px-3 py-2">日時</th>
@@ -820,6 +841,7 @@ export function InboxModal({
                     ))}
                   </tbody>
                 </table>
+                </div>
               )
             ) : cashList.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center">現金の登録がありません。</p>
@@ -830,7 +852,8 @@ export function InboxModal({
                     CSV出力
                   </button>
                 </div>
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px] md:min-w-0">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500">
                       <th className="text-left px-3 py-2">日付</th>
@@ -870,6 +893,7 @@ export function InboxModal({
                     ))}
                   </tbody>
                 </table>
+                </div>
               </>
             )}
           </div>
@@ -1837,6 +1861,7 @@ function FilesPanel({
   folderId,
   setFolderId,
   onNavigate,
+  onRoot,
   onChanged,
 }: {
   client: SharedClient
@@ -1849,6 +1874,8 @@ function FilesPanel({
   folderId: string | null
   setFolderId: (id: string | null) => void
   onNavigate: (root: 'toClient' | 'toOffice', id: string | null) => void
+  /** スマホ用（PCは左サイドバーのツリーで選ぶ）: 最新一覧／フォルダ選択へ戻る */
+  onRoot: (root: 'select' | 'recent') => void
   onChanged: () => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
@@ -1998,17 +2025,63 @@ function FilesPanel({
     }
   }
 
+  const newUploadCount = list.filter(isNew).length
+  // スマホ用のフォルダ選択カード（PCは左サイドバーのツリーで選ぶ）
+  const mobileRootCards = (
+    <div className="md:hidden space-y-2.5">
+      <button
+        onClick={() => onRoot('recent')}
+        className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 bg-white text-left"
+      >
+        <span className="text-2xl leading-none">🕒</span>
+        <span className="flex-1 min-w-0 text-sm font-semibold text-gray-800">最新アップロードファイル</span>
+        {newUploadCount > 0 && (
+          <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{newUploadCount}</span>
+        )}
+      </button>
+      <button
+        onClick={() => onNavigate('toClient', null)}
+        className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 bg-white text-left"
+        style={{ borderColor: FOLDER_COLOR.toClient }}
+      >
+        <span className="text-2xl leading-none">📁</span>
+        <span className="flex-1 min-w-0 text-sm font-semibold text-gray-800 break-words">{labelToClient}</span>
+      </button>
+      <button
+        onClick={() => onNavigate('toOffice', null)}
+        className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 bg-white text-left"
+        style={{ borderColor: FOLDER_COLOR.toOffice }}
+      >
+        <span className="text-2xl leading-none">📁</span>
+        <span className="flex-1 min-w-0 text-sm font-semibold text-gray-800 break-words">{labelToOffice}</span>
+        {newUploadCount > 0 && (
+          <span className="text-[10px] font-bold text-white bg-red-500 rounded-full min-w-[18px] text-center px-1">{newUploadCount}</span>
+        )}
+      </button>
+    </div>
+  )
+  const mobileBack = (
+    <button onClick={() => onRoot('select')} className="md:hidden mb-2 text-sm text-blue-600 font-semibold">
+      ← フォルダ選択に戻る
+    </button>
+  )
+
   if (browseRoot === 'select') {
     return (
-      <div className="text-center text-gray-400 py-24 text-sm">
-        ← 左の「フォルダ」から<br />
-        <span className="text-blue-600 font-semibold">{labelToClient}</span>／<span className="text-green-600 font-semibold">{labelToOffice}</span> を選択してください
+      <div>
+        {mobileRootCards}
+        <div className="hidden md:block text-center text-gray-400 py-24 text-sm">
+          ← 左の「フォルダ」から<br />
+          <span className="text-blue-600 font-semibold">{labelToClient}</span>／<span className="text-green-600 font-semibold">{labelToOffice}</span> を選択してください
+        </div>
       </div>
     )
   }
 
   if (browseRoot === 'recent') {
     return (
+      <div>
+      {mobileBack}
       <RecentUploads
         cn={cn}
         labelToOffice={labelToOffice}
@@ -2021,11 +2094,13 @@ function FilesPanel({
         onNavigate={onNavigate}
         onChanged={onChanged}
       />
+      </div>
     )
   }
 
   return (
     <div>
+      {mobileBack}
       {/* C-1：顧問先→税理士の送信者フィルタ */}
       {browseRoot === 'toOffice' && senders.length > 1 && (
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
