@@ -1211,13 +1211,18 @@ export default function BankStatementContent() {
         // 借方勘定科目の列。科目マスタ（この顧問先で取り込んだ科目チェックリスト）に
         // 一致したものだけ入れ、無い科目は空欄のままにする（あとで個別に直してもらう）
         const norm = (s: string) => String(s || '').replace(/[\s　]/g, '')
+        // 同じ科目名が製造原価用（500番台）と販管費用（600番台）の両方にあるとき、
+        // レシート・領収書は販管費に立てるのが通常なので600番台を優先する
+        const pick = (cands: AccountItem[]) =>
+          cands.find((a) => { const n = parseInt(a.code, 10); return n >= 600 && n < 700 }) || cands[0] || null
         const findAccount = (raw: string) => {
           const v = norm(raw)
           if (!v) return null
+          const byCode = accountMaster.find((a) => a.code === v)
+          if (byCode) return byCode // コード直指定はそのまま使う
           return (
-            accountMaster.find((a) => a.code === v) ||
-            accountMaster.find((a) => norm(a.name) === v) ||
-            accountMaster.find((a) => norm(a.shortName) === v) ||
+            pick(accountMaster.filter((a) => norm(a.name) === v)) ||
+            pick(accountMaster.filter((a) => norm(a.shortName) === v)) ||
             null
           )
         }
