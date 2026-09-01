@@ -138,6 +138,20 @@ function normalizeDate(raw: string): string {
     const y = 2018 + parseInt(m2[1])
     return `${y}-${m2[2].padStart(2, '0')}-${m2[3].padStart(2, '0')}`
   }
+  // 区切りのない8桁（20260731）。月日が実在する組み合わせのときだけ日付とみなす
+  const m3 = s.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (m3) {
+    const y = Number(m3[1]), mo = Number(m3[2]), d = Number(m3[3])
+    if (y >= 1990 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${m3[1]}-${m3[2]}-${m3[3]}`
+  }
+  // Excelの日付シリアル値（1990-01-01=32874 〜 2100-12-31=73415 の範囲だけ受ける）
+  if (/^\d{5}$/.test(s)) {
+    const n = Number(s)
+    if (n >= 32874 && n <= 73415) {
+      const dt = new Date(Date.UTC(1899, 11, 30) + n * 86400000)
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+    }
+  }
   return s
 }
 

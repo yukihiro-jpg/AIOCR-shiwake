@@ -1198,13 +1198,10 @@ export default function BankStatementContent() {
       setShowReceiptColumnMapping(false)
       setIsLoading(true)
       try {
-        const parseDate = (raw: string): string => {
-          const s = String(raw || '').trim()
-          // Excel パーサが YYYY-MM-DD に変換済み
-          const m = s.match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/)
-          if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
-          return ''
-        }
+        // 日付はカード明細と同じ解釈にそろえる（区切りなしの8桁 20260731・Excelの
+        // 日付シリアル値にも対応。区切りありだけを見ていたため、日付を数値で持つExcelは
+        // 全行が読み飛ばされて「有効なレシート行が見つかりません」になっていた）
+        const { parseCcDate: parseDate } = await import('@/lib/bank-statement/credit-card-mapper')
         const parseAmt = (raw: string): number => {
           const c = String(raw || '').replace(/[,¥￥\s　]/g, '').replace(/[△▲]/g, '-')
           const n = parseInt(c, 10)
