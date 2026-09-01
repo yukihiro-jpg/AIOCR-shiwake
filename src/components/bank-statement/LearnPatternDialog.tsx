@@ -78,12 +78,14 @@ export default function LearnPatternDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-        <div className="px-5 py-4 border-b border-gray-200">
+      {/* 学習する仕訳の表（借方・貸方・摘要）が詰まって読みにくいので広めに取る。
+          縦は画面をはみ出すことがあるので、本文だけスクロールさせてボタンを常に出す */}
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+        <div className="px-5 py-4 border-b border-gray-200 shrink-0">
           <h2 className="text-lg font-bold text-gray-800">パターン学習</h2>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
           {/* 学習内容プレビュー */}
           <div className="p-3 bg-gray-50 rounded-lg text-sm">
             <div className="text-xs text-gray-500 mb-1">通帳摘要（元）</div>
@@ -91,22 +93,26 @@ export default function LearnPatternDialog({
             <div className="text-xs text-gray-500 mb-1">学習する仕訳</div>
             <table className="w-full text-xs border-collapse mb-1">
               <thead>
-                <tr className="text-gray-500">
-                  <th className="text-left py-0.5 pr-2">借方CD</th>
-                  <th className="text-left py-0.5 pr-2">借方科目</th>
-                  <th className="text-left py-0.5 pr-2">貸方CD</th>
-                  <th className="text-left py-0.5 pr-2">貸方科目</th>
-                  <th className="text-left py-0.5">摘要</th>
+                <tr className="text-gray-500 border-b border-gray-200">
+                  <th className="text-left py-1 pr-2 w-14 whitespace-nowrap">借方CD</th>
+                  <th className="text-left py-1 pr-4 w-28 whitespace-nowrap">借方科目</th>
+                  <th className="text-left py-1 pr-2 w-14 whitespace-nowrap">貸方CD</th>
+                  <th className="text-left py-1 pr-4 w-28 whitespace-nowrap">貸方科目</th>
+                  <th className="text-right py-1 pr-4 w-24 whitespace-nowrap">金額</th>
+                  <th className="text-left py-1">摘要</th>
                 </tr>
               </thead>
               <tbody>
                 {relatedEntries.map((e, i) => (
-                  <tr key={i}>
-                    <td className="py-0.5 pr-2 font-bold text-gray-800">{e.debitCode}</td>
-                    <td className="py-0.5 pr-2 text-gray-700">{e.debitName}</td>
-                    <td className="py-0.5 pr-2 font-bold text-gray-800">{e.creditCode}</td>
-                    <td className="py-0.5 pr-2 text-gray-700">{e.creditName}</td>
-                    <td className="py-0.5 text-gray-500">{e.description}</td>
+                  <tr key={i} className="border-b border-gray-100 last:border-0">
+                    <td className="py-1 pr-2 font-bold text-gray-800">{e.debitCode}</td>
+                    <td className="py-1 pr-4 text-gray-700">{e.debitName}</td>
+                    <td className="py-1 pr-2 font-bold text-gray-800">{e.creditCode}</td>
+                    <td className="py-1 pr-4 text-gray-700">{e.creditName}</td>
+                    <td className="py-1 pr-4 text-right text-gray-700 tabular-nums whitespace-nowrap">
+                      {(e.debitAmount || e.creditAmount || 0).toLocaleString('ja-JP')}
+                    </td>
+                    <td className="py-1 text-gray-600 break-all">{e.description}</td>
                   </tr>
                 ))}
               </tbody>
@@ -239,7 +245,7 @@ export default function LearnPatternDialog({
           </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-gray-200 flex gap-2">
+        <div className="px-5 py-4 border-t border-gray-200 flex gap-2 shrink-0">
           <button onClick={onCancel}
             className="flex-1 py-2 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200">
             キャンセル
