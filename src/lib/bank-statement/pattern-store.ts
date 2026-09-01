@@ -120,6 +120,16 @@ function sideCompatible(a: PatternSide | null, b: PatternSide | null): boolean {
   return !a || !b || a === b
 }
 
+/** 画面で摘要を直した行があるか（＝行ごとの摘要をそのまま覚えるべきか）。
+ *  複合仕訳で行ごとに摘要が違うケースを、追加の設定なしで学習できるようにする。 */
+function shouldUseLineDescriptions(lines: PatternLine[], originalDescription: string): boolean {
+  const orig = (originalDescription || '').trim()
+  return lines.some((l) => {
+    const d = (l.description || '').trim()
+    return !!d && d !== orig
+  })
+}
+
 /**
  * 摘要と金額からパターンを検索
  */
@@ -227,9 +237,12 @@ export function learnFromEntriesWithRange(
       sideCompatible(getPatternSide(p, accountCode), groupSide),
   )
 
+  const useLineDescriptions = shouldUseLineDescriptions(lines, originalDescription)
+
   if (existing) {
     existing.useCount++
     existing.lines = lines
+    existing.useLineDescriptions = useLineDescriptions
     savePatterns(patterns)
     return existing.id
   } else {
@@ -241,6 +254,7 @@ export function learnFromEntriesWithRange(
       amountMax,
       accountCode: accountCode || undefined,
       lines,
+      useLineDescriptions,
       useCount: 1,
     })
     savePatterns(patterns)
@@ -361,6 +375,7 @@ export function learnAllFromEntries(entries: JournalEntry[], accountCode?: strin
         }
         // 内容が変わっている → 上書き
         existingPattern.lines = lines
+        existingPattern.useLineDescriptions = shouldUseLineDescriptions(lines, originalDesc)
         existingPattern.useCount++
         learnedCount++
         continue
@@ -378,6 +393,7 @@ export function learnAllFromEntries(entries: JournalEntry[], accountCode?: strin
     )
     if (existing) {
       existing.lines = lines
+      existing.useLineDescriptions = shouldUseLineDescriptions(lines, originalDesc)
       existing.useCount++
     } else {
       patterns.push({
@@ -387,6 +403,7 @@ export function learnAllFromEntries(entries: JournalEntry[], accountCode?: strin
         amountMax: null,
         accountCode: accountCode || undefined,
         lines,
+        useLineDescriptions: shouldUseLineDescriptions(lines, originalDesc),
         useCount: 1,
       })
     }

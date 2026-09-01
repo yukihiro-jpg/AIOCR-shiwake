@@ -151,6 +151,10 @@ export interface PatternEntry {
   matchType?: 'exact' | 'partial'  // 完全一致 or 部分一致（デフォルト: partial）
   matchText?: string               // 一致判定用テキスト（未設定時はkeywordを使用）
   replaceEntireDescription?: boolean  // true なら部分一致でも変換後摘要で摘要全体を置換
+  /** 学習時に画面で直した各行の摘要（lines[].description）をそのまま再現する。
+   *  複合仕訳で行ごとに摘要が違うケース（親=みらい協同組合／子=…監理費／…不課税）用。
+   *  学習時に「元の通帳摘要と違う摘要の行がある」と自動で true になる */
+  useLineDescriptions?: boolean
   amountMin: number | null
   amountMax: number | null
   accountCode?: string

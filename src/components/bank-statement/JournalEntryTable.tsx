@@ -136,7 +136,7 @@ export default function JournalEntryTable({
   const [applyTargetEntries, setApplyTargetEntries] = useState<JournalEntry[]>([])
   const [applyPatternLines, setApplyPatternLines] = useState<PatternLine[]>([])
   // 反映対象パターンのメタ情報（摘要変換を確実に適用するため getPatterns 再検索に頼らない）
-  const [applyPatternMeta, setApplyPatternMeta] = useState<{ id: string; matchType?: 'exact' | 'partial'; matchText?: string; convertedDescription?: string; replaceEntireDescription?: boolean } | null>(null)
+  const [applyPatternMeta, setApplyPatternMeta] = useState<{ id: string; matchType?: 'exact' | 'partial'; matchText?: string; convertedDescription?: string; replaceEntireDescription?: boolean; useLineDescriptions?: boolean } | null>(null)
   const [applyAmountRange, setApplyAmountRange] = useState<{ min: number | null; max: number | null } | null>(null)
   const [showApplyDialog, setShowApplyDialog] = useState(false)
   // パターン詳細ダイアログ
@@ -152,6 +152,8 @@ export default function JournalEntryTable({
       if (!originalDesc) { setLearnDialogEntry(null); return }
 
       const patternId = learnFromEntriesWithRange(originalDesc, learnRelatedEntries, amountMin, amountMax, bankAccountCode)
+      // 画面で行ごとに直した摘要をそのまま覚えているか（複合仕訳の行別摘要用）
+      let useLineDesc = false
       if (patternId) {
         const patterns = getPatterns()
         const pat = patterns.find((p: PatternEntry) => p.id === patternId)
@@ -160,9 +162,11 @@ export default function JournalEntryTable({
           if (matchText) pat.matchText = matchText
           if (convertedDesc !== undefined) pat.convertedDescription = convertedDesc
           pat.replaceEntireDescription = !!replaceEntireDescription
+          useLineDesc = !!pat.useLineDescriptions
           savePatterns(patterns)
         }
       }
+      const learnedLines = learnRelatedEntries.map((e) => e.description)
       const learnedIds = new Set(learnRelatedEntries.map((e) => e.id))
       const effectiveMatchTextRaw = matchText || originalDesc
       const isExactMatch = matchType === 'exact'
@@ -205,10 +209,11 @@ export default function JournalEntryTable({
           if (convertedDesc) updated.description = groupDesc
           return updated
         }
-        if (applyToAll && convertedDesc && matchesPattern(e)) {
+        if (applyToAll && (convertedDesc || useLineDesc) && matchesPattern(e)) {
           // 別パターン適用済みは override 時のみ上書き
           if (e.patternId && e.patternId !== patternId && !overrideExisting) return e
-          return { ...e, patternId, description: computeDesc(e) }
+          // 行ごとの摘要を覚えているときは1行目の摘要をそのまま当てる
+          return { ...e, patternId, description: (!convertedDesc && useLineDesc) ? (learnedLines[0] || e.description) : computeDesc(e) }
         }
         return e
       })
@@ -226,7 +231,7 @@ export default function JournalEntryTable({
 
         setApplyTargetEntries(targets)
         setApplyPatternLines(pat.lines)
-        setApplyPatternMeta({ id: pat.id, matchType: pat.matchType, matchText: pat.matchText || pat.keyword, convertedDescription: pat.convertedDescription, replaceEntireDescription: pat.replaceEntireDescription })
+        setApplyPatternMeta({ id: pat.id, matchType: pat.matchType, matchText: pat.matchText || pat.keyword, convertedDescription: pat.convertedDescription, replaceEntireDescription: pat.replaceEntireDescription, useLineDescriptions: pat.useLineDescriptions })
         setApplyAmountRange({ min: amountMin, max: amountMax })
         setShowApplyDialog(true)
         onEntriesChange(updatedEntries)
@@ -314,7 +319,10 @@ export default function JournalEntryTable({
       if (meta) {
         updatedEntry.patternId = meta.id
         const converted = meta.convertedDescription
-        if (converted) {
+        if (!converted && meta.useLineDescriptions && firstLine.description) {
+          // 学習時に画面で直した摘要をそのまま再現する
+          updatedEntry.description = firstLine.description
+        } else if (converted) {
           if (meta.matchType === 'exact' || meta.replaceEntireDescription) {
             // 完全一致 or 全体置換指定: 摘要全体を変換後テキストに置換
             updatedEntry.description = converted
@@ -351,8 +359,11 @@ export default function JournalEntryTable({
           compoundEntry.debitTaxType = line.taxCategory
           if (line.taxRate) compoundEntry.debitTaxRate = line.taxRate
           compoundEntry.debitBusinessType = line.businessType
-          // 複合仕訳の各行も、1行目（変換後摘要を適用済み）と同じ摘要にそろえる
-          compoundEntry.description = updatedEntry.description
+          // 行ごとの摘要を学習しているときは各行の摘要を使う。
+          // そうでなければ従来どおり1行目（変換後摘要を適用済み）と同じ摘要にそろえる
+          compoundEntry.description = (applyPatternMeta?.useLineDescriptions && line.description)
+            ? line.description
+            : updatedEntry.description
           compoundEntry.originalDescription = e.originalDescription
           // パターンの学習時金額を復元（997自動計算対象の最終行以外）
           compoundEntry.debitAmount = line.amount || 0

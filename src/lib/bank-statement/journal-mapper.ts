@@ -166,6 +166,9 @@ export function mapTransactionsToJournalEntries(
             const mt = pattern.matchText || pattern.keyword
             entry.description = tx.description.replace(mt, pattern.convertedDescription)
           }
+        } else if (pattern.useLineDescriptions && pLine?.description) {
+          // 学習時に画面で直した摘要をそのまま再現する（行ごとに摘要が違う複合仕訳用）
+          entry.description = pLine.description
         } else if (pattern.matchType === 'exact' && pattern.lines?.[0]?.description) {
           // 完全一致で変換後摘要なし → パターンの摘要を使用
           entry.description = pattern.lines[0].description
@@ -200,8 +203,11 @@ export function mapTransactionsToJournalEntries(
           compoundEntry.debitTaxType = line.taxCategory
           if (line.taxRate) compoundEntry.debitTaxRate = line.taxRate
           compoundEntry.debitBusinessType = line.businessType
-          // 複合仕訳の各行も、1行目（変換後摘要を適用済み）と同じ摘要にそろえる
-          compoundEntry.description = entry.description
+          // 行ごとの摘要を学習しているときは各行の摘要を使う。
+          // そうでなければ従来どおり1行目（変換後摘要を適用済み）と同じ摘要にそろえる
+          compoundEntry.description = (pattern.useLineDescriptions && line.description)
+            ? line.description
+            : entry.description
           compoundEntry.originalDescription = tx.description
           // パターンの学習時金額を復元
           compoundEntry.debitAmount = line.amount || 0

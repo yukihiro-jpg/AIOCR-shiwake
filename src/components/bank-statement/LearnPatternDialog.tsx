@@ -58,6 +58,9 @@ export default function LearnPatternDialog({
   const previewWhole = cd || originalDesc
   // 部分置換：一致部分(mt)のみ変換後摘要に置換（最初の1か所）。mt未指定/空欄なら元のまま
   const previewPartial = cd ? (mt ? originalDesc.replace(mt, cd) : cd) : originalDesc
+  // 画面で摘要を直してあるか（＝行ごとの摘要をそのまま覚える動きになる）
+  const lineDescs = relatedEntries.map((e) => (e.description || '').trim())
+  const keepsLineDescs = lineDescs.some((d) => d && d !== originalDesc.trim())
 
   const handleRegisterOnly = () => {
     const min = amountMin ? parseInt(amountMin.replace(/[^0-9]/g, '')) : null
@@ -112,6 +115,17 @@ export default function LearnPatternDialog({
               <span className="text-xs text-violet-600 font-medium">（複合仕訳 {relatedEntries.length}行）</span>
             )}
           </div>
+
+          {/* 行ごとの摘要をそのまま覚える案内（複合仕訳で行ごとに摘要が違うケース） */}
+          {keepsLineDescs && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-800">
+              上の表の<b>摘要を行ごとにそのまま覚えます</b>。次に同じ通帳摘要が出てきたら、
+              仕訳の形（借方・貸方・消費税）と摘要がこのまま再現されます。
+              <span className="block text-emerald-700 mt-1">
+                下の「変換後の摘要」は<b>空欄のままで大丈夫</b>です（入力すると全行がその摘要に統一されます）。
+              </span>
+            </div>
+          )}
 
           {/* 一致方式設定 */}
           <div>
@@ -168,7 +182,9 @@ export default function LearnPatternDialog({
                 </div>
               ) : !cd ? (
                 <div className="mt-1 text-gray-500">
-                  変換後の摘要が空欄のため、どちらの設定でも<b>元の摘要のまま</b>になります。
+                  {keepsLineDescs
+                    ? <>変換後の摘要が空欄なので、<b>上の表の行ごとの摘要</b>がそのまま使われます。</>
+                    : <>変換後の摘要が空欄のため、どちらの設定でも<b>元の摘要のまま</b>になります。</>}
                 </div>
               ) : (
                 <div className="mt-1 space-y-1">
