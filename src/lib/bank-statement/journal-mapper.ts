@@ -357,6 +357,7 @@ export function createCompoundEntry(parentEntry: JournalEntry): JournalEntry {
     ...createBlankEntry(),
     transactionId: parentEntry.transactionId,
     date: parentEntry.date,
+    naibuMonth: parentEntry.naibuMonth, // 決算月の複合仕訳は子行も同じ内部月にする
     description: parentEntry.description,
     isCompound: true,
     parentId: parentEntry.id,

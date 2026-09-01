@@ -77,7 +77,20 @@ export interface JournalEntry {
   parentId: string | null
   taxLocked?: boolean           // レシート等で読み取った消費税率を固定（科目別消費税マスタ・科目名デフォルトで上書きしない）
   sourcePageId?: string         // この仕訳の解析元ページ(StatementPage.id)。行クリックで左ペインに表示、行削除で画像も削除
+  naibuMonth?: string           // 会計大将の内部月。決算月に入れる仕訳だけ設定する（通常月は空欄）。NAIBU_MONTHS 参照
 }
+
+/** 会計大将の「内部月」。決算月・中間決算月へCSVインポートするときだけ設定する。
+ *  通常月は空欄（伝票日付から会計大将が判断する）。JDLの資料の対応表どおり。 */
+export const NAIBU_MONTHS: { value: string; label: string }[] = [
+  { value: '', label: '通常月' },
+  { value: '35', label: '91月' },
+  { value: '36', label: '92月' },
+  { value: '37', label: '93月' },
+  { value: '15', label: '中間決算81月' },
+  { value: '16', label: '中間決算82月' },
+  { value: '17', label: '中間決算83月' },
+]
 
 // 科目マスタ
 export interface AccountItem {

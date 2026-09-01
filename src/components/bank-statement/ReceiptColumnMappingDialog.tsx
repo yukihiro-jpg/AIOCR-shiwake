@@ -13,6 +13,7 @@ export interface ReceiptColumnMapping {
   amountExemptColumn: number      // 対象外金額（任意）
   invoiceNumberColumn: number     // インボイス番号（任意）
   memoColumn: number              // 備考（任意）
+  debitAccountColumn: number      // 借方勘定科目（任意）。科目マスタに一致したものだけ取り込む
   headerRowIndex: number          // 0 始まり。データ開始行 = headerRowIndex + 1
 }
 
@@ -40,6 +41,7 @@ const ROLES: RoleDef[] = [
   { key: 'amountExemptColumn', label: '対象外金額', color: 'bg-rose-100 border-rose-400', required: false, multi: false },
   { key: 'invoiceNumberColumn', label: 'インボイス番号', color: 'bg-purple-100 border-purple-400', required: false, multi: false },
   { key: 'memoColumn', label: '備考', color: 'bg-slate-100 border-slate-400', required: false, multi: false },
+  { key: 'debitAccountColumn', label: '借方勘定科目', color: 'bg-teal-100 border-teal-400', required: false, multi: false },
 ]
 
 export default function ReceiptColumnMappingDialog({ rows, onConfirm, onCancel }: Props) {
@@ -52,6 +54,7 @@ export default function ReceiptColumnMappingDialog({ rows, onConfirm, onCancel }
     amountExemptColumn: -1,
     invoiceNumberColumn: -1,
     memoColumn: -1,
+    debitAccountColumn: -1,
   })
   const [mainContentColumns, setMainContentColumns] = useState<number[]>([])
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(0)
@@ -75,6 +78,7 @@ export default function ReceiptColumnMappingDialog({ rows, onConfirm, onCancel }
       amountExemptColumn: ['対象外', '非課税', '不課税'],
       invoiceNumberColumn: ['インボイス', '登録番号'],
       memoColumn: ['備考', 'メモ'],
+      debitAccountColumn: ['勘定科目', '借方科目', '科目'],
     }
     for (let i = 0; i < headerRow.cells.length; i++) {
       const c = headerRow.cells[i].replace(/[\s　]/g, '')
@@ -142,6 +146,7 @@ export default function ReceiptColumnMappingDialog({ rows, onConfirm, onCancel }
       amountExemptColumn: mapping.amountExemptColumn,
       invoiceNumberColumn: mapping.invoiceNumberColumn,
       memoColumn: mapping.memoColumn,
+      debitAccountColumn: mapping.debitAccountColumn,
       headerRowIndex,
     })
   }
@@ -154,6 +159,9 @@ export default function ReceiptColumnMappingDialog({ rows, onConfirm, onCancel }
           <p className="text-sm text-gray-500 mt-1">
             各列の役割を指定してください。<span className="text-red-500 font-bold">日付・相手先名称・支払総額</span>は必須です。
             税率別の対象額（10%/軽減8%/対象外）が指定されていれば、複数税率の複合仕訳として変換します。
+            <br />
+            <span className="text-teal-700">借方勘定科目</span>を指定すると、その列の科目名（またはコード）を科目マスタと照合して借方に入れます。
+            マスタに無い科目は空欄のまま取り込むので、あとから個別に直してください。
           </p>
         </div>
 

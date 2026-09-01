@@ -10,6 +10,10 @@ interface ReceiptData {
   receiptDate: string
   mainContent: string
   invoiceNumber?: string
+  /** 列マッピングで「借方勘定科目」を指定したとき、科目マスタに一致した科目。
+   *  一致しなかった行は未設定（空欄のまま取り込み、あとで個別に直してもらう） */
+  debitCode?: string
+  debitName?: string
   taxLines: { taxRate: string; netAmount: number; taxAmount: number; totalAmount: number }[]
   pageIndex: number
 }
@@ -39,7 +43,7 @@ export function receiptToEntries(
     if (rcp.taxLines.length <= 1) {
       const line = rcp.taxLines[0]
       const entry = makeEntry({
-        date, debitCode: '', debitName: '', creditCode, creditName,
+        date, debitCode: rcp.debitCode || '', debitName: rcp.debitName || '', creditCode, creditName,
         creditSubCode, creditSubName,
         amount: totalAmount,
         taxType: line ? getTaxCategory(line.taxRate, hasInvoice) : '',
@@ -65,7 +69,7 @@ export function receiptToEntries(
 
       for (const line of rcp.taxLines) {
         const childEntry = makeEntry({
-          date, debitCode: '', debitName: '',
+          date, debitCode: rcp.debitCode || '', debitName: rcp.debitName || '',
           creditCode: '997', creditName: '諸口',
           amount: line.totalAmount,
           taxType: getTaxCategory(line.taxRate, hasInvoice),

@@ -1,26 +1,27 @@
 import type { JournalEntry } from './types'
 
 const CSV_HEADERS = [
-  '伝票日付',                    // 1
-  '(借方)勘定科目コード',          // 2
-  '(借方)勘定科目名称',           // 3
-  '(借方)科目別補助コード',        // 4
-  '(借方)科目別補助名称',         // 5
-  '(借方)消費税売上/仕入区分',     // 6
-  '(借方)業種コード',             // 7
-  '(借方)税込/税抜区分',          // 8
-  '(貸方)勘定科目コード',          // 9
-  '(貸方)勘定科目名称',           // 10
-  '(貸方)科目別補助コード',        // 11
-  '(貸方)科目別補助名称',         // 12
-  '(貸方)消費税売上/仕入区分',     // 13
-  '(貸方)業種コード',             // 14
-  '(貸方)税込/税抜区分',          // 15
-  '消費税コード',                 // 16
-  '消費税率',                    // 17
-  '事業者取引区分',               // 18
-  '金額(入力金額)',               // 19
-  '摘要',                       // 20
+  '伝票日付',                      // 1
+  '内部月',                        // 2
+  '(借方)勘定科目コード',        // 3
+  '(借方)勘定科目名称',          // 4
+  '(借方)科目別補助コード',      // 5
+  '(借方)科目別補助名称',        // 6
+  '(借方)消費税売上/仕入区分',  // 7
+  '(借方)業種コード',            // 8
+  '(借方)税込/税抜区分',        // 9
+  '(貸方)勘定科目コード',        // 10
+  '(貸方)勘定科目名称',          // 11
+  '(貸方)科目別補助コード',      // 12
+  '(貸方)科目別補助名称',        // 13
+  '(貸方)消費税売上/仕入区分',  // 14
+  '(貸方)業種コード',            // 15
+  '(貸方)税込/税抜区分',        // 16
+  '消費税コード',                  // 17
+  '消費税率',                      // 18
+  '事業者取引区分',                // 19
+  '金額(入力金額)',              // 20
+  '摘要',                          // 21
 ]
 
 // 消費税売上/仕入区分を数値に変換 (0:なし, 1:売上, 2:仕入)
@@ -53,25 +54,26 @@ function entryToRow(entry: JournalEntry, clientTaxType?: string): string[] {
 
   return [
     entry.date,                                           // 1 伝票日付
-    entry.debitCode,                                      // 2 借方勘定科目コード
-    entry.debitName,                                      // 3 借方勘定科目名称
-    entry.debitSubCode,                                   // 4 借方科目別補助コード
-    entry.debitSubName,                                   // 5 借方科目別補助名称
-    debitTaxCat,                                          // 6 借方消費税売上/仕入区分（数値）
-    debitIndustry,                                        // 7 借方業種コード（数値）
-    debitTaxInclude,                                      // 8 借方税込/税抜区分
-    entry.creditCode,                                     // 9 貸方勘定科目コード
-    entry.creditName,                                     // 10 貸方勘定科目名称
-    entry.creditSubCode,                                  // 11 貸方科目別補助コード
-    entry.creditSubName,                                  // 12 貸方科目別補助名称
-    creditTaxCat,                                         // 13 貸方消費税売上/仕入区分（数値）
-    creditIndustry,                                       // 14 貸方業種コード（数値）
-    creditTaxInclude,                                     // 15 貸方税込/税抜区分
-    entry.debitTaxCode || '0',                             // 16 消費税コード
-    entry.debitTaxRate || '0',                             // 17 消費税率（数値）
-    entry.debitBusinessType || '0',                        // 18 事業者取引区分
-    entry.debitAmount ? String(entry.debitAmount) : '',     // 19 金額
-    entry.description,                                     // 20 摘要
+    entry.naibuMonth || '',                               // 2 内部月（決算月のみ。通常月は空欄）
+    entry.debitCode,                                      // 3 借方勘定科目コード
+    entry.debitName,                                      // 4 借方勘定科目名称
+    entry.debitSubCode,                                   // 5 借方科目別補助コード
+    entry.debitSubName,                                   // 6 借方科目別補助名称
+    debitTaxCat,                                          // 7 借方消費税売上/仕入区分（数値）
+    debitIndustry,                                        // 8 借方業種コード（数値）
+    debitTaxInclude,                                      // 9 借方税込/税抜区分
+    entry.creditCode,                                     // 10 貸方勘定科目コード
+    entry.creditName,                                     // 11 貸方勘定科目名称
+    entry.creditSubCode,                                  // 12 貸方科目別補助コード
+    entry.creditSubName,                                  // 13 貸方科目別補助名称
+    creditTaxCat,                                         // 14 貸方消費税売上/仕入区分（数値）
+    creditIndustry,                                       // 15 貸方業種コード（数値）
+    creditTaxInclude,                                     // 16 貸方税込/税抜区分
+    entry.debitTaxCode || '0',                             // 17 消費税コード
+    entry.debitTaxRate || '0',                             // 18 消費税率（数値）
+    entry.debitBusinessType || '0',                        // 19 事業者取引区分
+    entry.debitAmount ? String(entry.debitAmount) : '',     // 20 金額
+    entry.description,                                     // 21 摘要
   ]
 }
 

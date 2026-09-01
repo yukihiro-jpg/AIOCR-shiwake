@@ -14,7 +14,7 @@ import {
 } from '@/lib/bank-statement/journal-mapper'
 import { learnFromEntriesWithRange, getPatterns, savePatterns, getEntrySide } from '@/lib/bank-statement/pattern-store'
 import { getAccountUsage } from '@/lib/bank-statement/account-usage'
-import type { PatternEntry } from '@/lib/bank-statement/types'
+import { NAIBU_MONTHS, type PatternEntry } from '@/lib/bank-statement/types'
 import { saveSubAccountMaster, loadAccountTaxMaster, resolveAccountTax } from '@/lib/bank-statement/account-master'
 import { isBS } from '@/lib/bank-statement/tax-codes'
 import JournalEntryRow from './JournalEntryRow'
@@ -576,6 +576,7 @@ export default function JournalEntryTable({
   }, [onSelect])
 
   const applyBulkEdit = useCallback(() => {
+    // 内部月は「通常月＝空欄」に戻す操作もあるので、値が空でも適用する
     if (!bulkField || selectedRange.size === 0) return
     const acc = accountMaster.find((a) => a.code === bulkValue)
     onEntriesChange(
@@ -670,6 +671,33 @@ export default function JournalEntryTable({
       }))
     },
     [onEntriesChange],
+  )
+
+  // 内部月は複合仕訳のグループ全体（親＋子）に同じ値を入れる。
+  // 1行だけ決算月に入ると貸借が別の月に分かれてしまうため
+  const handleNaibuMonthChange = useCallback(
+    (id: string, value: string) => {
+      const cur = entriesRef.current
+      const target = cur.find((e) => e.id === id)
+      if (!target) return
+      const groupKey = target.parentId || target.id
+      const isGroup = cur.some((e) => e.parentId === groupKey)
+      onEntriesChange(
+        cur.map((e) => {
+          const inGroup = isGroup ? (e.id === groupKey || e.parentId === groupKey) : e.id === id
+          return inGroup ? { ...e, naibuMonth: value } : e
+        }),
+      )
+    },
+    [onEntriesChange],
+  )
+
+  const handleRowChange = useCallback(
+    (id: string, field: keyof JournalEntry, value: string | number | boolean) => {
+      if (field === 'naibuMonth') { handleNaibuMonthChange(id, String(value)); return }
+      handleEntryChange(id, field, value)
+    },
+    [handleEntryChange, handleNaibuMonthChange],
   )
 
   const handleAddCompoundRow = useCallback(
@@ -1040,9 +1068,19 @@ export default function JournalEntryTable({
                 <option value="debitTaxCode">消費税CD</option>
                 <option value="debitTaxType">税区分</option>
                 <option value="description">摘要</option>
+                <option value="naibuMonth">内部月</option>
               </select>
-              <input type="text" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
-                placeholder="値" className="px-1.5 py-0.5 text-xs border border-blue-300 rounded w-24" />
+              {bulkField === 'naibuMonth' ? (
+                <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                  className="px-1.5 py-0.5 text-xs border border-blue-300 rounded bg-white w-28">
+                  {NAIBU_MONTHS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.value ? `${m.label}(${m.value})` : '通常月（空欄）'}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type="text" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                  placeholder="値" className="px-1.5 py-0.5 text-xs border border-blue-300 rounded w-24" />
+              )}
               <button onClick={applyBulkEdit} disabled={!bulkField}
                 className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40">適用</button>
               <button onClick={handleDeleteSelected}
@@ -1204,6 +1242,13 @@ export default function JournalEntryTable({
               </th>
               <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>学習</th>
               <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>日付</th>
+              <th
+                className="px-1 py-2 text-center w-24 font-medium"
+                style={{ borderRight: '1px solid #e5e7eb' }}
+                title="会計大将の内部月。決算月（91〜93月）・中間決算月へ入れる仕訳だけ選びます。通常月は空欄のままにしてください"
+              >
+                内部月
+              </th>
               <th className="px-2 py-2 text-center w-44 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>
                 <div className="flex items-center justify-center gap-1">
                   <span>借方科目</span>
@@ -1285,7 +1330,7 @@ export default function JournalEntryTable({
                   isChecked={selectedRange.has(entry.id)}
                   onCheckToggle={handleCheckToggle}
                   onSelect={handleRowSelect}
-                  onChange={handleEntryChange}
+                  onChange={handleRowChange}
                   onLearn={handleLearnRequest}
                   onAddBlank={handleAddBlankAfter}
                   onAddCompound={handleAddCompoundRow}

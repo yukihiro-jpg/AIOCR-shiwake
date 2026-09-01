@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
-import type { JournalEntry, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
+import { NAIBU_MONTHS, type JournalEntry, type AccountItem, type SubAccountItem } from '@/lib/bank-statement/types'
 import { getTaxCodesForEntry, isBS, isPL, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
 import { recordAccountUse } from '@/lib/bank-statement/account-usage'
 
@@ -96,7 +96,7 @@ function JournalEntryRowInner({
     <>
       {isPageBoundary && (
         <tr className="bg-teal-600">
-          <td colSpan={12} className="px-3 py-1 text-xs font-bold text-white">{pageLabel} ページ</td>
+          <td colSpan={13} className="px-3 py-1 text-xs font-bold text-white">{pageLabel} ページ</td>
         </tr>
       )}
       <tr
@@ -148,6 +148,21 @@ function JournalEntryRowInner({
         {/* 日付 */}
         <td style={CB}>
           <CellInput value={entry.date} onChange={(v) => onChange(entry.id, 'date', v)} placeholder="YYYYMMDD" halfWidth />
+        </td>
+
+        {/* 内部月（決算月へ入れる仕訳だけ選ぶ。通常月は空欄） */}
+        <td style={CB} className="text-center">
+          <select
+            value={entry.naibuMonth || ''}
+            onChange={(e) => onChange(entry.id, 'naibuMonth', e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full px-1 py-0.5 text-xs border rounded bg-white ${entry.naibuMonth ? 'border-amber-400 text-amber-700 font-semibold' : 'border-transparent text-gray-400'}`}
+            title="決算月（91〜93月）・中間決算月へ入れる仕訳だけ選びます"
+          >
+            {NAIBU_MONTHS.map((m) => (
+              <option key={m.value} value={m.value}>{m.value ? `${m.label}(${m.value})` : '—'}</option>
+            ))}
+          </select>
         </td>
 
         {/* 借方科目 */}

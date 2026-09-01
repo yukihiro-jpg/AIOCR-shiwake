@@ -1208,12 +1208,30 @@ export default function BankStatementContent() {
           return isNaN(n) ? 0 : n
         }
 
+        // 借方勘定科目の列。科目マスタ（この顧問先で取り込んだ科目チェックリスト）に
+        // 一致したものだけ入れ、無い科目は空欄のままにする（あとで個別に直してもらう）
+        const norm = (s: string) => String(s || '').replace(/[\s　]/g, '')
+        const findAccount = (raw: string) => {
+          const v = norm(raw)
+          if (!v) return null
+          return (
+            accountMaster.find((a) => a.code === v) ||
+            accountMaster.find((a) => norm(a.name) === v) ||
+            accountMaster.find((a) => norm(a.shortName) === v) ||
+            null
+          )
+        }
+        let acctHit = 0
+        const acctMiss = new Set<string>()
+
         interface ReceiptRow {
           receiptIndex: number
           storeName: string
           receiptDate: string
           mainContent: string
           invoiceNumber?: string
+          debitCode?: string
+          debitName?: string
           taxLines: { taxRate: string; netAmount: number; taxAmount: number; totalAmount: number }[]
           pageIndex: number
         }
@@ -1253,12 +1271,23 @@ export default function BankStatementContent() {
             taxLines.push({ taxRate: '10%', netAmount: 0, taxAmount: 0, totalAmount: total })
           }
 
+          let debitCode = ''
+          let debitName = ''
+          if (mapping.debitAccountColumn >= 0) {
+            const raw = (row.cells[mapping.debitAccountColumn] || '').trim()
+            const acc = findAccount(raw)
+            if (acc) { debitCode = acc.code; debitName = acc.name; acctHit++ }
+            else if (raw) acctMiss.add(raw)
+          }
+
           receipts.push({
             receiptIndex: i,
             storeName,
             receiptDate: date,
             mainContent: memo ? `${mainContent}${mainContent ? ' ' : ''}(${memo})` : mainContent,
             invoiceNumber: invoiceNumber || undefined,
+            debitCode: debitCode || undefined,
+            debitName: debitName || undefined,
             taxLines,
             pageIndex: i,
           })
@@ -1299,7 +1328,28 @@ export default function BankStatementContent() {
         }
         setPages((prev) => [...prev, previewPage])
         setJournalEntries((prev) => [...prev, ...entries])
-        setInfo(`${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`)
+        // 借方科目を列から入れた行は、画面で科目を選んだときと同じように
+        // 消費税コードを科目別消費税マスタから補う（税率・税区分はExcelの税率列を優先）
+        if (mapping.debitAccountColumn >= 0) {
+          const { loadAccountTaxMaster, resolveAccountTax } = await import('@/lib/bank-statement/account-master')
+          const taxMaster = loadAccountTaxMaster()
+          for (const e of entries) {
+            if (!e.debitCode || e.debitTaxCode) continue
+            const acc = accountMaster.find((a) => a.code === e.debitCode)
+            const tax = acc ? resolveAccountTax(acc, taxMaster) : null
+            if (tax) e.debitTaxCode = tax.taxCode
+          }
+        }
+
+        let msg = `${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`
+        if (mapping.debitAccountColumn >= 0) {
+          msg += `／借方科目 ${acctHit}件を科目マスタから設定`
+          if (acctMiss.size > 0) {
+            const list = Array.from(acctMiss).slice(0, 8).join('・')
+            msg += `（マスタに無い科目は空欄: ${list}${acctMiss.size > 8 ? ` ほか${acctMiss.size - 8}件` : ''}）`
+          }
+        }
+        setInfo(msg)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'レシートの取り込みに失敗しました')
       } finally {
@@ -1307,7 +1357,7 @@ export default function BankStatementContent() {
         setReceiptRawRows(null)
       }
     },
-    [receiptRawRows, uploadConfig],
+    [receiptRawRows, uploadConfig, accountMaster],
   )
 
   const handleInvoiceColumnMappingConfirm = useCallback(
