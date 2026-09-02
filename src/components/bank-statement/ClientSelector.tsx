@@ -53,16 +53,16 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
     setShowAdd(false)
   }
 
-  const handleDelete = (id: string, name: string) => {
-    const msg =
-      `⚠️ 本当に「${name}」を削除しますか？\n\n` +
-      `この操作は取り消せません。\n` +
-      `・この顧問先の 科目マスタ／補助科目／パターン学習／処理状況／一時保存データ がすべて削除されます。\n` +
-      `・共有中のすべての端末（他のユーザーの画面）からも完全に削除され、元に戻せません。\n\n` +
-      `削除してよろしければ「OK」を押してください。`
-    if (!confirm(msg)) return
-    deleteClient(id)
+  // 削除は名前を打たせて確認する（confirm 1回だと誤クリックで全端末から消える・戻せない）
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null)
+  const [deleteTyped, setDeleteTyped] = useState('')
+  const deleteMatch = deleteTarget != null && deleteTyped.trim() !== '' && deleteTyped.trim() === deleteTarget.name.trim()
+  const handleDelete = () => {
+    if (!deleteTarget || !deleteMatch) return
+    deleteClient(deleteTarget.id)
     setClients(getClients())
+    setDeleteTarget(null)
+    setDeleteTyped('')
   }
 
   const handleSelect = (client: Client) => {
@@ -145,7 +145,7 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
             </div>
           )}
 
-          {/* 顧問先カードグリッド（4列）*/}
+          {/* 顧問先リスト（1行＝1顧問先・コード順）*/}
           {filtered.length === 0 ? (
             <div className="p-10 text-center text-gray-400 bg-white rounded-2xl border border-gray-200">
               {clients.length === 0
@@ -153,24 +153,27 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                 : '検索結果がありません'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {/* 見出し行（スマホでは非表示） */}
+              <div className="hidden sm:grid grid-cols-[64px_1fr_116px_120px_64px] items-center gap-3 px-4 h-9 text-[11px] tracking-wider text-gray-400 bg-gray-50/70">
+                <span>コード</span><span>顧問先</span><span>消費税</span><span>直前の処理</span><span></span>
+              </div>
               {filtered.map((client) => {
                 const last = fmtDate(client.lastCsvExportAt)
                 return (
                   <div key={client.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleSelect(client)}
-                    className="group bg-white rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all p-4 flex flex-col gap-3"
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSelect(client) }}
+                    className="group border-t border-gray-100 cursor-pointer hover:bg-blue-50/60 focus:outline-none focus-visible:bg-blue-50
+                               grid grid-cols-[1fr_auto] sm:grid-cols-[64px_1fr_116px_120px_64px] items-center gap-x-3 gap-y-0.5 px-4 py-2 sm:py-0 sm:h-[52px]"
                   >
-                    {/* 顧問先コード＋顧問先名 */}
-                    <div className="font-semibold text-gray-800 group-hover:text-blue-700 leading-snug min-h-[2.6em]">
-                      {client.code ? (
-                        <span className="text-gray-400 font-normal mr-2 tabular-nums">{client.code}</span>
-                      ) : null}
-                      {client.name}
-                    </div>
+                    {/* コード */}
+                    <span className="text-[11px] sm:text-[13px] text-gray-400 tabular-nums col-start-1 row-start-1">{client.code || '—'}</span>
 
-                    {/* 消費税方式 */}
-                    <div>
+                    {/* 消費税方式（スマホでは右上） */}
+                    <div className="col-start-2 row-start-1 sm:col-start-3 sm:row-start-1 justify-self-end sm:justify-self-start">
                       <select value={client.taxType || 'standard'}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
@@ -184,18 +187,23 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
                       </select>
                     </div>
 
-                    {/* 直前のCSV出力日 + 削除ボタン */}
-                    <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
-                      <div className="text-xs min-w-0">
-                        <span className="text-gray-400">直前の処理</span>
-                        <span className={`ml-1.5 font-medium ${last ? 'text-gray-700' : 'text-gray-300'}`}>
-                          {last || '未処理'}
-                        </span>
-                      </div>
+                    {/* 顧問先名 */}
+                    <span className="col-start-1 row-start-2 sm:col-start-2 sm:row-start-1 font-semibold text-[15px] text-gray-800 group-hover:text-blue-700 leading-snug sm:truncate">
+                      {client.name}
+                    </span>
+
+                    {/* 直前のCSV出力日 */}
+                    <span className={`col-start-2 row-start-2 sm:col-start-4 sm:row-start-1 justify-self-end sm:justify-self-start text-xs sm:text-[13px] tabular-nums ${last ? 'text-gray-700' : 'text-gray-300'}`}>
+                      <span className="sm:hidden text-gray-400 mr-1">直前</span>{last || '未処理'}
+                    </span>
+
+                    {/* 削除（PCのみ・行にマウスを乗せたときだけ表示） */}
+                    <div className="hidden sm:flex justify-end sm:col-start-5 sm:row-start-1">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(client.id, client.name) }}
-                        title="この顧問先を削除（取り消せません）"
-                        className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-red-600 border border-red-300 rounded-md px-2 py-1 hover:bg-red-600 hover:text-white transition-colors"
+                        onClick={(e) => { e.stopPropagation(); setDeleteTyped(''); setDeleteTarget(client) }}
+                        title="この顧問先を削除（名前の入力で確認します）"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 border border-red-300 rounded-md px-2 py-1
+                                   opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-red-600 hover:text-white transition-all"
                       >
                         <span aria-hidden>🗑</span>削除
                       </button>
@@ -206,8 +214,45 @@ export default function ClientSelector({ onSelect, refreshSignal }: Props) {
             </div>
           )}
 
+          {/* 削除確認ダイアログ（名前を正確に入力しないと削除できない） */}
+          {deleteTarget && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              onClick={() => { setDeleteTarget(null); setDeleteTyped('') }}>
+              <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-base font-bold text-red-700">顧問先を削除します（取り消せません）</h2>
+                <p className="mt-3 text-sm text-gray-700 leading-relaxed">
+                  <span className="font-semibold">{deleteTarget.code ? `${deleteTarget.code}　` : ''}{deleteTarget.name}</span> の
+                  科目マスタ・補助科目・パターン学習・処理状況・一時保存データがすべて消え、
+                  共有中の<b>すべての端末</b>からも削除されます。
+                </p>
+                <p className="mt-4 text-xs text-gray-500">確認のため、顧問先名を正確に入力してください（コードは不要）</p>
+                <input
+                  type="text"
+                  value={deleteTyped}
+                  onChange={(e) => setDeleteTyped(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && deleteMatch) handleDelete(); if (e.key === 'Escape') { setDeleteTarget(null); setDeleteTyped('') } }}
+                  placeholder={deleteTarget.name}
+                  autoFocus
+                  className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-red-400 focus:outline-none"
+                />
+                {deleteTyped.trim() !== '' && !deleteMatch && (
+                  <p className="mt-1 text-xs text-red-500">名前が一致しません</p>
+                )}
+                <div className="mt-5 flex justify-end gap-2">
+                  <button onClick={() => { setDeleteTarget(null); setDeleteTyped('') }}
+                    className="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">キャンセル</button>
+                  <button onClick={handleDelete} disabled={!deleteMatch}
+                    className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                    削除する
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <p className="mt-4 text-xs text-gray-400">
-            {clients.length}件の顧問先が登録されています（直前の処理＝最も直近に仕訳CSVを出力した日）
+            {clients.length}件の顧問先が登録されています（直前の処理＝最も直近に仕訳CSVを出力した日）。
+            削除は行にマウスを乗せると右端に出ます
           </p>
         </div>
       </div>
