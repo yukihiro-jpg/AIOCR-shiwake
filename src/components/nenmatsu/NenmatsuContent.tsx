@@ -328,6 +328,26 @@ export default function NenmatsuContent() {
     setBusy(false)
   }
 
+  /** 1社ぶんの提出状況チェック表を開く（行の「チェック表」ボタン） */
+  async function printCheckSheet(client: SharedClient, company: NenmatsuCompany) {
+    try {
+      const employees = await loadEmployees(yearId, company.clientId)
+      const ok = openCheckSheetPrint({
+        companyName: company.name || client.name,
+        yearLabel: FY_BY_ID[yearId]?.label || yearId,
+        deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
+        employees,
+      })
+      setMsg(
+        !ok ? 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。'
+        : employees.length === 0 ? '従業員名簿が未取込のため、空欄だけのチェック表を開きました。「CSV取込」のあとに作ると氏名入りになります。'
+        : 'チェック表を別ウインドウで開きました。印刷ダイアログで「PDFに保存」を選ぶとPDFになります。',
+      )
+    } catch (e) {
+      setMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
   async function copyUrl(company: NenmatsuCompany) {
     const url = await buildUploadUrl(yearId, company)
     try {
@@ -430,6 +450,7 @@ export default function NenmatsuContent() {
         <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">URLコピー</button>
         <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
         <button onClick={() => setGuide({ company })} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
+        <button onClick={() => printCheckSheet(client, company)} title="経理担当者用の提出状況チェック表（取込済み従業員＋手書き追加欄）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">チェック表</button>
         <button onClick={() => setImportCheck({ company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
         <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
       </>
