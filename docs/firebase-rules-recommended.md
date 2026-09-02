@@ -55,17 +55,24 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // 共有フォルダ・スマホ撮影（会社／メンバーごとの128bit乱数トークン配下）
     match /scan-public/{token}/{allPaths=**} {
-      allow read, write: if request.auth != null
+      allow get, list: if request.auth != null;
+      allow write: if request.auth != null
         && (request.resource == null || request.resource.size < 50 * 1024 * 1024);
     }
+    // 年調の提出画像（会社トークン配下）
     match /nenmatsu-public/{token}/{allPaths=**} {
-      allow read, write: if request.auth != null
+      allow get, list: if request.auth != null;
+      allow write: if request.auth != null
         && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
     }
+    // 旧形式の年調画像（合言葉の部屋の配下・読み取りのみ残す）
     match /nenmatsu/{roomKey}/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow get, list: if request.auth != null;
+      allow write: if false;
     }
+    // それ以外（バケット直下・scan-public 直下の一覧を含む）はすべて拒否
     match /{allPaths=**} {
       allow read, write: if false;
     }
@@ -74,13 +81,19 @@ service firebase.storage {
 ```
 
 ポイント:
+- **`match /{allPaths=**} { allow read, write: if request.auth != null; }` だけのルールにしないこと。**
+  匿名認証は誰でも通るので、これは「全世界に公開・全員が削除可」と同じ。バケット直下の一覧
+  （list）が通るため、トークンを知らなくても全ファイルを列挙・取得・削除・上書きできてしまう
+  （2026-09 の監査でこの状態だったのを修正した）
+- 一覧（`list`）はトークン配下でだけ許す。バケット直下や `scan-public/` 直下の一覧は末尾の
+  `if false` で拒否されるので、トークンを知らない第三者はファイル名を探索できない
 - **括弧を忘れないこと。** `A && B || C` は `(A && B) || C` と解釈されるため、括弧が無いと
-  「サイズが上限未満なら認証なしでも書き込める」ルールになってしまう（過去にこの文書自体が
-  括弧なしで書かれていた。コンソールの実ルールに括弧が無ければ直すこと）
+  「サイズが上限未満なら認証なしでも書き込める」ルールになる
 - サイズ上限をルールでも強制（アプリ側の `assertUploadSizes` はUI保護であり、改造クライアントは
   ルールでしか止められない）
-- 列挙（list）は Storage ルールでは既定で `list` 権限に含まれるため、`allow read` を
-  `allow get` に絞るとより堅い（トークンを知らない第三者のファイル名探索を防ぐ）
+- 変更後は「ルール プレイグラウンド」で次の2つを試して確認する:
+  1. 種類 `list`・場所 `/scan-public`・認証済み ON → **拒否** になること
+  2. 種類 `get`・場所 `/scan-public/abc/x.jpg`・認証済み OFF → **拒否** になること
 
 ## 運用メモ
 
