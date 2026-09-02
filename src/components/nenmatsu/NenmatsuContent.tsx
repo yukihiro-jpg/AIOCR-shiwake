@@ -31,7 +31,7 @@ import {
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint, openQrSheetPrint } from '@/lib/nenmatsu/guide'
-import { openCheckSheetPrint } from '@/lib/nenmatsu/check-sheet'
+import { openCheckSheetPrint, openPrintWindowNow } from '@/lib/nenmatsu/check-sheet'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
@@ -262,6 +262,8 @@ export default function NenmatsuContent() {
   async function printSelectedGuides() {
     const targets = rows.filter((r) => selected.has(r.client.id))
     if (!targets.length) return
+    // ボタンを押した直後（await の前）にウインドウを開く。スマホのSafariはここでしか開けない
+    const pw = openPrintWindowNow('案内を作成しています…')
     setBusy(true)
     setBulkMsg(`案内を作成しています…（0 / ${targets.length}社）`)
     try {
@@ -282,13 +284,14 @@ export default function NenmatsuContent() {
         })
         setBulkMsg(`案内を作成しています…（${i + 1} / ${targets.length}社）`)
       }
-      const ok = openGuidePrint(pages)
+      const ok = openGuidePrint(pages, pw)
       setBulkMsg(
         ok
           ? `${targets.length}社ぶんの案内（${targets.length}ページ）を別ウインドウで開きました。印刷ダイアログで「PDFに保存」を選ぶと1つのPDFになります。`
           : 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。',
       )
     } catch (e) {
+      pw?.close()
       setBulkMsg('案内の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
     setBusy(false)
@@ -298,6 +301,7 @@ export default function NenmatsuContent() {
   async function printSelectedCheckSheets() {
     const targets = rows.filter((r) => selected.has(r.client.id))
     if (!targets.length) return
+    const pw = openPrintWindowNow('チェック表を作成しています…')
     setBusy(true)
     setBulkMsg(`チェック表を作成しています…（0 / ${targets.length}社）`)
     try {
@@ -315,7 +319,7 @@ export default function NenmatsuContent() {
         setBulkMsg(`チェック表を作成しています…（${i + 1} / ${targets.length}社）`)
       }
       const noRoster = sheets.filter((s) => s.employees.length === 0).map((s) => s.companyName)
-      const ok = openCheckSheetPrint(sheets)
+      const ok = openCheckSheetPrint(sheets, pw)
       setBulkMsg(
         ok
           ? `${targets.length}社ぶんのチェック表を別ウインドウで開きました。` +
@@ -323,6 +327,7 @@ export default function NenmatsuContent() {
           : 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。',
       )
     } catch (e) {
+      pw?.close()
       setBulkMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
     setBusy(false)
@@ -330,6 +335,7 @@ export default function NenmatsuContent() {
 
   /** 1社ぶんの提出状況チェック表を開く（行の「チェック表」ボタン） */
   async function printCheckSheet(client: SharedClient, company: NenmatsuCompany) {
+    const pw = openPrintWindowNow('チェック表を作成しています…')
     try {
       const employees = await loadEmployees(yearId, company.clientId)
       const ok = openCheckSheetPrint({
@@ -337,13 +343,14 @@ export default function NenmatsuContent() {
         yearLabel: FY_BY_ID[yearId]?.label || yearId,
         deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
         employees,
-      })
+      }, pw)
       setMsg(
         !ok ? 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。'
         : employees.length === 0 ? '従業員名簿が未取込のため、空欄だけのチェック表を開きました。「CSV取込」のあとに作ると氏名入りになります。'
         : 'チェック表を別ウインドウで開きました。印刷ダイアログで「PDFに保存」を選ぶとPDFになります。',
       )
     } catch (e) {
+      pw?.close()
       setMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
     }
   }
@@ -646,6 +653,7 @@ export default function NenmatsuContent() {
           <button
             onClick={async () => {
               // 掲示用に大きいQRを作り直してから印刷する（画面表示用の280pxのまま刷ると粗くなる）
+              const pw = openPrintWindowNow('QRコードを作成しています…')
               const QRCode = (await import('qrcode')).default
               const big = await QRCode.toDataURL(qr.url, { width: 1024, margin: 1 })
               const ok = openQrSheetPrint({
@@ -655,7 +663,7 @@ export default function NenmatsuContent() {
                 qrDataUrl: big,
                 deadlineText: fmtDeadlineJa(qr.deadline),
                 fyGregorian: FY_BY_ID[yearId]?.gregorian,
-              })
+              }, pw)
               if (!ok) setMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。')
             }}
             className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
@@ -754,6 +762,7 @@ function GuideModal({
 
   /** 経理担当者用の提出状況チェック表（取込済みの従業員名簿＋手書き追加欄） */
   async function makeCheckSheet() {
+    const pw = openPrintWindowNow('チェック表を作成しています…')
     setSheetBusy(true)
     setSheetMsg('')
     try {
@@ -763,13 +772,14 @@ function GuideModal({
         yearLabel: fy?.label || `${gregorian}年`,
         deadlineText: fmtDeadline(deadline),
         employees,
-      })
+      }, pw)
       if (!ok) {
         setSheetMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。')
       } else if (employees.length === 0) {
         setSheetMsg('従業員名簿が未取込のため、空欄だけの表を開きました。「CSV取込」のあとに作ると氏名入りになります。')
       }
     } catch (e) {
+      pw?.close()
       setSheetMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
     } finally {
       setSheetBusy(false)

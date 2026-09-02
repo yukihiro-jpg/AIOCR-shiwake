@@ -251,12 +251,14 @@ ${list.map(guideSheet).join('\n')}
 }
 
 /** 案内PDFを印刷用の別ウインドウで開く。配列を渡すと1社1枚でまとめて刷る。 */
-export function openGuidePrint(o: GuideOptions | GuideOptions[]): boolean {
-  const w = window.open('', '_blank', 'width=820,height=1040')
-  if (!w) return false
-  w.document.open()
-  w.document.write(buildGuideHtml(o))
-  w.document.close()
+export function openGuidePrint(o: GuideOptions | GuideOptions[], w?: Window | null): boolean {
+  // w: クリック直後に openPrintWindowNow（check-sheet.ts）で開いておいたウインドウ。
+  // QR生成（await）のあとに window.open するとスマホのSafariでポップアップブロックになるため
+  const win = w ?? window.open('', '_blank', 'width=820,height=1040')
+  if (!win) return false
+  win.document.open()
+  win.document.write(buildGuideHtml(o))
+  win.document.close()
   return true
 }
 
@@ -379,11 +381,11 @@ export function buildQrSheetHtml(o: QrSheetOptions): string {
 </html>`
 }
 
-export function openQrSheetPrint(o: QrSheetOptions): boolean {
-  const w = window.open('', '_blank', 'width=820,height=1040')
-  if (!w) return false
-  w.document.open()
-  w.document.write(buildQrSheetHtml(o))
-  w.document.close()
+export function openQrSheetPrint(o: QrSheetOptions, w?: Window | null): boolean {
+  const win = w ?? window.open('', '_blank', 'width=820,height=1040')
+  if (!win) return false
+  win.document.open()
+  win.document.write(buildQrSheetHtml(o))
+  win.document.close()
   return true
 }

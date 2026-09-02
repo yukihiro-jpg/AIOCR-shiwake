@@ -188,12 +188,38 @@ ${list.map(sheet).join('\n')}
 </html>`
 }
 
-/** チェック表を印刷用の別ウインドウで開く。配列を渡すと会社ごとに改ページしてまとめて刷る。 */
-export function openCheckSheetPrint(o: CheckSheetOptions | CheckSheetOptions[]): boolean {
+/**
+ * 印刷用の別ウインドウを「ボタンを押した瞬間」に開く。
+ * iPhone の Safari などは、クリック直後の同期処理でしか window.open を許可しない。
+ * 名簿の読み込みや QR 生成（await）のあとに開くとポップアップブロックになるため、
+ * 先に空のウインドウを開いておき、データが揃ってから writePrintWindow で中身を流し込む。
+ */
+export function openPrintWindowNow(label = '作成中…'): Window | null {
   const w = window.open('', '_blank', 'width=820,height=1040')
-  if (!w) return false
+  if (!w) return null
+  try {
+    w.document.open()
+    w.document.write(
+      `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(label)}</title></head>` +
+        `<body style="font-family:sans-serif;color:#6b7280;padding:40px;text-align:center">${esc(label)}</body></html>`,
+    )
+    w.document.close()
+  } catch { /* 表示できなくても中身は後で書き直す */ }
+  return w
+}
+
+/** openPrintWindowNow で開いたウインドウに印刷用HTMLを書き込む */
+export function writePrintWindow(w: Window, html: string): void {
   w.document.open()
-  w.document.write(buildCheckSheetHtml(o))
+  w.document.write(html)
   w.document.close()
+}
+
+/** チェック表を印刷用の別ウインドウで開く。配列を渡すと会社ごとに改ページしてまとめて刷る。
+ *  `w` に openPrintWindowNow で先に開いたウインドウを渡せる（スマホのポップアップブロック対策）。 */
+export function openCheckSheetPrint(o: CheckSheetOptions | CheckSheetOptions[], w?: Window | null): boolean {
+  const win = w ?? window.open('', '_blank', 'width=820,height=1040')
+  if (!win) return false
+  writePrintWindow(win, buildCheckSheetHtml(o))
   return true
 }
