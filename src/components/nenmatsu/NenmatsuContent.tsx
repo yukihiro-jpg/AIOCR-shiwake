@@ -31,6 +31,7 @@ import {
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint, openQrSheetPrint } from '@/lib/nenmatsu/guide'
+import { openCheckSheetPrint } from '@/lib/nenmatsu/check-sheet'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
@@ -293,6 +294,40 @@ export default function NenmatsuContent() {
     setBusy(false)
   }
 
+  /** 選択した会社の提出状況チェック表（経理担当者用）を、会社ごとに改ページした1つの印刷ジョブにする */
+  async function printSelectedCheckSheets() {
+    const targets = rows.filter((r) => selected.has(r.client.id))
+    if (!targets.length) return
+    setBusy(true)
+    setBulkMsg(`チェック表を作成しています…（0 / ${targets.length}社）`)
+    try {
+      const yearLabel = FY_BY_ID[yearId]?.label || yearId
+      const sheets = []
+      for (let i = 0; i < targets.length; i++) {
+        const { client, company } = targets[i]
+        const employees = await loadEmployees(yearId, company.clientId)
+        sheets.push({
+          companyName: company.name || client.name,
+          yearLabel,
+          deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
+          employees,
+        })
+        setBulkMsg(`チェック表を作成しています…（${i + 1} / ${targets.length}社）`)
+      }
+      const noRoster = sheets.filter((s) => s.employees.length === 0).map((s) => s.companyName)
+      const ok = openCheckSheetPrint(sheets)
+      setBulkMsg(
+        ok
+          ? `${targets.length}社ぶんのチェック表を別ウインドウで開きました。` +
+            (noRoster.length ? `（従業員名簿が未取込のため空欄だけの表：${noRoster.join('・')}）` : '')
+          : 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。',
+      )
+    } catch (e) {
+      setBulkMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+    setBusy(false)
+  }
+
   async function copyUrl(company: NenmatsuCompany) {
     const url = await buildUploadUrl(yearId, company)
     try {
@@ -494,6 +529,14 @@ export default function NenmatsuContent() {
               >
                 📄 選択した会社の案内PDFをまとめて作成（1社1枚）
               </button>
+              <button
+                onClick={printSelectedCheckSheets}
+                disabled={busy || selected.size === 0}
+                title="顧問先の経理担当者が提出状況を手書きで管理するための表（取込済みの従業員名簿＋手書き追加欄）"
+                className="px-3 py-1.5 text-xs border border-emerald-600 text-emerald-800 bg-white rounded font-semibold hover:bg-emerald-50 disabled:opacity-40"
+              >
+                ✅ 提出状況チェック表をまとめて作成（経理担当者用）
+              </button>
               {selected.size > 0 && (
                 <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-white">
                   選択解除
@@ -685,6 +728,32 @@ function GuideModal({
   }, [yearId, company])
 
   const fmtDeadline = fmtDeadlineJa
+  const [sheetBusy, setSheetBusy] = useState(false)
+  const [sheetMsg, setSheetMsg] = useState('')
+
+  /** 経理担当者用の提出状況チェック表（取込済みの従業員名簿＋手書き追加欄） */
+  async function makeCheckSheet() {
+    setSheetBusy(true)
+    setSheetMsg('')
+    try {
+      const employees = await loadEmployees(yearId, company.clientId)
+      const ok = openCheckSheetPrint({
+        companyName: company.name,
+        yearLabel: fy?.label || `${gregorian}年`,
+        deadlineText: fmtDeadline(deadline),
+        employees,
+      })
+      if (!ok) {
+        setSheetMsg('ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。')
+      } else if (employees.length === 0) {
+        setSheetMsg('従業員名簿が未取込のため、空欄だけの表を開きました。「CSV取込」のあとに作ると氏名入りになります。')
+      }
+    } catch (e) {
+      setSheetMsg('チェック表の作成に失敗しました：' + (e instanceof Error ? e.message : ''))
+    } finally {
+      setSheetBusy(false)
+    }
+  }
 
   function make() {
     if (!qr || !url) return
@@ -747,6 +816,22 @@ function GuideModal({
             📄 案内PDFを作成（印刷 / PDF保存）
           </button>
         </div>
+      </div>
+
+      <div className="border-t border-gray-200 pt-3 mb-3">
+        <div className="text-sm font-medium text-gray-700 mb-1">経理ご担当者用：提出状況チェック表</div>
+        <p className="text-xs text-gray-500 mb-2">
+          取り込んだ従業員名簿を社員コード順に並べ、スマホ提出・マイナンバー受領・前職源泉徴収票などを
+          手書きでチェックできるA4の表です。名簿に無い方（本年入社など）を書き足す空欄も付きます。案内PDFと一緒にお渡しください。
+        </p>
+        <button
+          onClick={makeCheckSheet}
+          disabled={sheetBusy}
+          className="px-4 py-2 text-sm border border-emerald-600 text-emerald-800 bg-white rounded font-semibold hover:bg-emerald-50 disabled:opacity-50"
+        >
+          {sheetBusy ? '作成中…' : '✅ チェック表を作成（印刷 / PDF保存）'}
+        </button>
+        {sheetMsg && <p className="mt-2 text-xs text-amber-700">{sheetMsg}</p>}
       </div>
 
       <p className="text-[11px] text-gray-400">
