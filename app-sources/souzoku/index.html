@@ -74,6 +74,41 @@ input,select,textarea{font-family:inherit;font-size:15px;color:var(--ink);}
 .app.sb-collapsed .nav-section,.app.sb-collapsed .nav-sub,.app.sb-collapsed .sidebar-foot{display:none;}
 .app.sb-collapsed .sb-toggle{margin:0 auto;}
 .app.sb-collapsed .brand .sb-toggle{position:static;}
+/* ---- スマホ（760px以下）: サイドバーを引き出し式にし、余白と文字を詰める。PCは従来どおり ---- */
+.sb-open,.sb-backdrop{display:none;}
+@media(max-width:760px){
+  .app,.app.sb-collapsed{grid-template-columns:1fr;grid-template-areas:"topbar" "main";height:100dvh;}
+  .app .sidebar{position:fixed;top:0;left:0;bottom:0;width:min(300px,84vw);z-index:200;padding:18px 12px;transform:translateX(-105%);transition:transform .22s ease;box-shadow:none;background:#fafafc;}
+  .app.nav-open .sidebar{transform:none;box-shadow:0 0 40px rgba(0,0,0,.25);}
+  .app.sb-collapsed .sidebar{padding:18px 12px;}
+  .app.sb-collapsed .brand{justify-content:flex-start;padding:6px 10px 18px;}
+  .app.sb-collapsed .brand .title,.app.sb-collapsed .brand .subtitle{display:block;}
+  .app.sb-collapsed .nav-item{font-size:14px;justify-content:flex-start;padding:9px 12px;}
+  .app.sb-collapsed .nav-item .step-no{display:block;}
+  .app.sb-collapsed .nav-section,.app.sb-collapsed .nav-sub,.app.sb-collapsed .sidebar-foot{display:block;}
+  .nav-item{padding:11px 12px;font-size:15px;}
+  .sb-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:190;}
+  .app.nav-open .sb-backdrop{display:block;}
+  .sb-open{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);cursor:pointer;flex-shrink:0;padding:0;}
+  .topbar{padding:0 10px;height:52px;gap:8px;}
+  .topbar-left{gap:8px;flex:1;}
+  .case-chip{max-width:none;min-width:0;flex:1;padding:6px 12px;font-size:12.5px;}
+  .drive-status span:last-child{display:none;}
+  .topbar-right{gap:8px;}
+  .main{padding:16px 14px 80px;}
+  .view-head{margin-bottom:14px;}
+  .view-head h1{font-size:22px;}
+  .view-head p{font-size:13px;}
+  .cases-toolbar{gap:10px;margin-bottom:12px;}
+  .cases-toolbar .btn-row{display:none;}   /* JSON取込はPCのみ */
+  .case-card{padding:14px 16px;gap:12px;}
+  .case-card .cc-left{flex:1 1 100%;min-width:0;}
+  .case-card .cc-name{font-size:16px;padding-right:30px;}
+  .case-card .cc-prog{flex:1 1 100%;min-width:0;}
+  .cc-deadline{gap:14px;}
+  .cc-deadline .val{font-size:16px;}
+  .card{padding:14px;}
+}
 /* progress management */
 .prog-head{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:18px;}
 .prog-ring{--p:0;width:84px;height:84px;border-radius:50%;flex-shrink:0;background:conic-gradient(var(--green) calc(var(--p)*1%), var(--line) 0);display:flex;align-items:center;justify-content:center;}
@@ -536,10 +571,12 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
     </nav>
     <div class="sidebar-foot">データは事務所共通の合言葉で<br>全端末にリアルタイム同期されます。</div>
   </aside>
+  <div class="sb-backdrop" onclick="closeMobileNav()"></div>
 
   <!-- Topbar -->
   <header class="topbar">
     <div class="topbar-left">
+      <button class="sb-open" onclick="openMobileNav()" aria-label="メニュー" title="メニュー"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <div class="case-chip" id="caseChip"><span class="dot"></span><span class="nm">案件が選択されていません</span></div>
       <span class="alloc-warn" id="allocWarn" style="display:none;"></span>
     </div>
@@ -2133,7 +2170,12 @@ function switchView(view){
   if(view==='cases'){ renderCasesList(); }
   if(view==='basic'){ /* already rendered */ }
 }
+// スマホ幅ではサイドバーを引き出し（ドロワー）にする。☰ で開き、背景タップ・項目選択・‹ で閉じる
+const isMobileNav=()=>window.matchMedia('(max-width:760px)').matches;
+function openMobileNav(){ document.querySelector('.app').classList.add('nav-open'); }
+function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
 function toggleSidebar(){
+  if(isMobileNav()){ closeMobileNav(); return; }
   const app=document.querySelector('.app'); const col=app.classList.toggle('sb-collapsed');
   const b=$('sbToggle'); if(b) b.textContent=col?'›':'‹';
   try{ localStorage.setItem('sb_collapsed', col?'1':'0'); }catch(e){}
@@ -2145,6 +2187,7 @@ function restoreSidebar(){
 document.querySelectorAll('.nav-item').forEach(b=>{
   b.addEventListener('click',()=>{
     const v=b.dataset.view;
+    closeMobileNav();
     if(b.classList.contains('needs-case') && !currentCase){ toast('先に案件を作成または選択してください', true); switchView('cases'); return; }
     switchView(v);
   });
