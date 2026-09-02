@@ -3,7 +3,7 @@
 // 顧問先（スマホ）側は scan-public/{token}/... のみを読み書きする（roomKey は一切渡さない）。
 // パターンは src/lib/nenmatsu/store.ts を踏襲。
 
-import { getDb } from '@/core/firebase'
+import { getDb, serverNow } from '@/core/firebase'
 import { modulePath, hasRoom } from '@/core/room'
 
 export const SCAN_KEY = 'scan'
@@ -921,7 +921,11 @@ export async function getBatchImageBlobs(
  *  事務所側の画面表示時に呼ばれる（顧問先側からは呼ばない） */
 export const SCAN_RETENTION_DAYS = 365
 export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_RETENTION_DAYS): Promise<number> {
-  const cutoff = Date.now() - maxAgeDays * 24 * 3600 * 1000
+  // 基準はサーバー時刻。端末の時計が狂っていても期限内のデータを消さない。
+  // サーバー時刻が取れない（オフライン等）ときは削除しない＝安全側に倒す
+  const now = await serverNow()
+  if (now == null) return 0
+  const cutoff = now - maxAgeDays * 24 * 3600 * 1000
   let removed = 0
   // 4つのノードは互いに独立なので同時に読む（1社あたり4往復の直列待ちをなくす）
   const [batches, cash, files, inbox] = await Promise.all([
@@ -944,7 +948,7 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
     }
   }
   // 顧問先→税理士のファイル便は送信から1年で削除（顧問先の元ファイルには影響しない）
-  const fileCutoff = Date.now() - SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000
+  const fileCutoff = now - SCAN_FILE_RETENTION_DAYS * 24 * 3600 * 1000
   for (const f of Object.values(files)) {
     const t = Date.parse(f.submittedAt || '')
     if (t && t < fileCutoff) {
@@ -952,7 +956,7 @@ export async function sweepOldScanData(token: string, maxAgeDays: number = SCAN_
     }
   }
   // 税理士→顧問先のファイル（inbox）は送信から4年で削除
-  const inboxCutoff = Date.now() - SCAN_INBOX_RETENTION_DAYS * 24 * 3600 * 1000
+  const inboxCutoff = now - SCAN_INBOX_RETENTION_DAYS * 24 * 3600 * 1000
   for (const f of Object.values(inbox)) {
     const t = Date.parse(f.sentAt || '')
     if (t && t < inboxCutoff) {

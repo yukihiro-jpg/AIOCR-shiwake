@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node tools/check-invariants.mjs && next build",
+    "build": "node tools/copy-vendor.mjs && node tools/check-invariants.mjs && next build",
     "start": "next start",
     "lint": "next lint",
-    "check": "node tools/check-invariants.mjs"
+    "check": "node tools/check-invariants.mjs",
+    "vendor": "node tools/copy-vendor.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -18,9 +19,12 @@
     "encoding-japanese": "^2.2.0",
     "exceljs": "^4.4.0",
     "fflate": "^0.3.11",
+    "file-saver": "2.0.5",
     "firebase": "^12.15.0",
     "googleapis": "^144.0.0",
+    "html2canvas": "1.4.1",
     "idb": "^8.0.3",
+    "jspdf": "2.5.1",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "next": "^14.2.0",

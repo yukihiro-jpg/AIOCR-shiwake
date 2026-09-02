@@ -2,7 +2,7 @@
 // すべて rooms/{roomKey}/nenmatsu/{yearId}/... 配下に保存（合言葉ルームでスコープ）。
 // 顧問先（会社）は仕訳作成と共有の顧問先リスト（aiocr-shiwake/_global/clients_v2）を参照して紐づける。
 
-import { getDb } from '@/core/firebase'
+import { getDb, serverNow } from '@/core/firebase'
 import { roomKey, modulePath } from '@/core/room'
 import { normalizeBirth } from './jdl-csv'
 
@@ -522,7 +522,11 @@ export async function sweepOldSubmissions(
   clientId: string,
   maxAgeDays: number = NENMATSU_RETENTION_DAYS,
 ): Promise<number> {
-  const cutoff = Date.now() - maxAgeDays * 24 * 3600 * 1000
+  // 基準はサーバー時刻。端末の時計が狂っていても期限内の提出を消さない。
+  // サーバー時刻が取れないときは削除しない＝安全側に倒す
+  const now = await serverNow()
+  if (now == null) return 0
+  const cutoff = now - maxAgeDays * 24 * 3600 * 1000
   const subs = await loadSubmissions(yearId, clientId)
   const old = Object.values(subs).filter((r) => {
     const t = Date.parse(r.submittedAt || '')
@@ -666,6 +670,8 @@ export async function cleanupOrphanImages(
   // 提出も名簿も無い会社は Storage に何も置かれていないので、listAll を投げない
   // （100社×4年で400回の Storage 走査になり、これが清掃のいちばんの重さだった）
   if (!empIds.size) return 0
+  const now = await serverNow()
+  if (now == null) return 0 // 時刻の基準が無いときは削除しない
   const { st, ref: sref, listAll, deleteObject, getMetadata } = await storageFns()
   let removed = 0
   for (const empId of Array.from(empIds)) {
@@ -676,7 +682,7 @@ export async function cleanupOrphanImages(
       try {
         const meta = await getMetadata(item)
         const t = Date.parse(meta.timeCreated || '')
-        if (!t || Date.now() - t < ORPHAN_MIN_AGE_MS) continue
+        if (!t || now - t < ORPHAN_MIN_AGE_MS) continue
         await deleteObject(item)
         removed++
       } catch { /* 次回に再試行 */ }

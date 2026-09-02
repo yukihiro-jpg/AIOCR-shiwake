@@ -119,7 +119,7 @@ export default function KomonApp({ view }: { view?: KomonView } = {}) {
       <iframe
         ref={iframeRef}
         title="顧問先管理"
-        srcDoc={KOMON_HTML}
+        srcDoc={KOMON_HTML.split('__BASE_PATH__').join(process.env.NEXT_PUBLIC_BASE_PATH || '')}
         style={{ border: 'none', flex: 1, width: '100%' }}
       />
     </div>

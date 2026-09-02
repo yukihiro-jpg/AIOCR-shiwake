@@ -1,4 +1,5 @@
 import { createWorker } from 'tesseract.js'
+import { tesseractPaths } from '@/lib/vendor-path'
 import type { RawTableRow } from './types'
 
 interface OcrPageResult {
@@ -12,6 +13,7 @@ export async function parsePdfWithOcr(
   onProgress?: (page: number, total: number, status: string) => void,
 ): Promise<OcrPageResult[]> {
   const worker = await createWorker('jpn', undefined, {
+    ...tesseractPaths(),
     logger: (m: { status: string; progress: number }) => {
       if (onProgress && m.status === 'recognizing text') {
         // progress callback handled per page below

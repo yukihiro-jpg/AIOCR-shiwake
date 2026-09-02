@@ -18,7 +18,21 @@ export function getTempEntries(): JournalEntry[] {
 
 export function saveTempEntries(entries: JournalEntry[]): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(getTempKey(), JSON.stringify(entries))
+  try {
+    localStorage.setItem(getTempKey(), JSON.stringify(entries))
+  } catch (e) {
+    // ブラウザの保存容量（約5MB）超過。同期先（Firebase）へはこのあと送るので仕訳自体は失われないが、
+    // 端末の控えが古いままになる。無言で失敗させず、CSV出力で一時保存を空にするよう促す
+    console.warn('[temp-store] localStorage save failed', e)
+    if (!(window as unknown as { __bsTempWarned?: boolean }).__bsTempWarned) {
+      ;(window as unknown as { __bsTempWarned?: boolean }).__bsTempWarned = true
+      alert(
+        '一時保存がこの端末の保存領域（約5MB）を超えました。\n' +
+        '仕訳は同期先（合言葉の部屋）には保存されていますが、この端末の控えは更新できていません。\n' +
+        '「CSV出力」で一時保存分を書き出して空にするか、ブラウザのサイトデータを整理してください。',
+      )
+    }
+  }
   const cid = getSelectedClientId()
   if (cid) {
     import('./firebase-sync')

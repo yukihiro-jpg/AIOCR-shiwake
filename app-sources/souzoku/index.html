@@ -7,12 +7,11 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>相続管理 — 相続税申告サポート</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<!-- exceljs / FileSaver は npm で版固定したものを自前配信（__BASE_PATH__ はホストが実URLへ置換）。
+     Firebase compat SDK は総合アプリではホスト共通コア経由で同期するため読み込まない -->
+<script src="__BASE_PATH__/vendor/exceljs.min.js"></script>
+<script src="__BASE_PATH__/vendor/FileSaver.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 :root{
   --bg:#f5f5f7;
@@ -2223,7 +2222,11 @@ function openCase(caseId){
   switchView('basic'); renderCasesList();
 }
 function deleteCase(caseId,nm){
-  if(!confirm('この案件を削除しますか？\n'+nm+'\n\n※すべての端末から削除され、元に戻せません。')) return;
+  // 全端末から消えて元に戻せないので、案件名（被相続人名）をそのまま打ってもらう
+  const typed=prompt('この案件を削除します。\n'+nm+'\n\n※すべての端末から削除され、元に戻せません。\n削除するには、この案件の名前をそのまま入力してください：');
+  if(typed===null) return;
+  const _n=v=>String(v||'').replace(/[\s　]/g,'');
+  if(_n(typed)!==_n(nm)){ alert('入力された名前が一致しないため削除しませんでした'); return; }
   // クチコミ依頼リンク（公開ノード）も一緒に実削除する（案件だけ消して公開データが残らないように）
   try{ const rv=cloud.cases[caseId]&&cloud.cases[caseId].review; if(rv&&rv.token) reviewDbSet(rv.token,null).catch(()=>{}); }catch(e){}
   if(!cloud.tomb) cloud.tomb={}; cloud.tomb[caseId]=true; delete cloud.cases[caseId];

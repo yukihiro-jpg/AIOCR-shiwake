@@ -22,3 +22,37 @@ export async function getDb(): Promise<DbType> {
   })()
   return appPromise
 }
+
+// ---- サーバー時刻 ----
+// 保存期限による自動削除（共有フォルダ1年/4年・年調1年6か月）の基準時刻に使う。
+// 端末の時計だけを信じると、日付が未来にずれたPCで開いた瞬間に期限内のデータまで
+// 削除されてしまうため、Firebase のサーバー時刻とのずれ（.info/serverTimeOffset）で補正する。
+let serverOffsetMs: number | null = null
+
+/** サーバー時刻（ms）。取得できなければ null（＝削除処理は見送るべき） */
+export async function serverNow(): Promise<number | null> {
+  if (typeof window === 'undefined') return null
+  if (serverOffsetMs == null) {
+    try {
+      const db = await getDb()
+      const { ref, onValue } = await import('firebase/database')
+      serverOffsetMs = await new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => { off(); reject(new Error('timeout')) }, 8000)
+        const off = onValue(
+          ref(db, '.info/serverTimeOffset'),
+          (snap) => { clearTimeout(timer); off(); resolve(Number(snap.val()) || 0) },
+          (err) => { clearTimeout(timer); reject(err) },
+        )
+      })
+    } catch {
+      return null
+    }
+  }
+  return Date.now() + serverOffsetMs
+}
+
+/** 端末の時計がサーバーと1日以上ずれているか（表示の注意喚起などに使う） */
+export async function clockSkewMs(): Promise<number | null> {
+  const now = await serverNow()
+  return now == null ? null : now - Date.now()
+}

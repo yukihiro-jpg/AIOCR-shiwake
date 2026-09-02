@@ -102,7 +102,7 @@ export default function SouzokuApp() {
       <iframe
         ref={iframeRef}
         title="相続管理"
-        srcDoc={SOUZOKU_HTML}
+        srcDoc={SOUZOKU_HTML.split('__BASE_PATH__').join(process.env.NEXT_PUBLIC_BASE_PATH || '')}
         // 自前コードのため same-origin を許可（localStorage / ダウンロード / 確認ダイアログ等のため）
         sandbox="allow-scripts allow-same-origin allow-downloads allow-modals allow-forms allow-popups"
         style={frame}

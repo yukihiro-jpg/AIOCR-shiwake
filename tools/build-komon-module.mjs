@@ -23,7 +23,7 @@ function must(s, anchor) { if (s.indexOf(anchor) < 0) throw new Error('置換対
   '<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>\n',
   '<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>\n',
   '<script src="https://accounts.google.com/gsi/client" async defer></script>\n',
-].forEach(tag => { html = must(html, tag); html = html.replace(tag, ''); });
+].forEach(tag => { html = html.replace(tag, ''); }); // 元HTMLから既に外してあれば何もしない
 
 // ---- T1: Realtime IIFE を KomonStore（ホスト共通コア経由）に置換 ----
 const KOMON_STORE_CODE = String.raw`/* ===== ホスト共通コア経由の同期（Firebase Realtime Database / iframe隔離） ===== */
@@ -92,7 +92,11 @@ html = rangeReplace(html,
   'function manualSyncAll(){ if(data.settings.fbConfig&&data.settings.fbRoom)Realtime.manualSync(); else DriveSync.manualSync(); }',
   'setTimeout(()=>DriveSync.saveToDrive(),1500); } }',
   `function manualSyncAll(){ KomonStore.manualSync(); }
-function saveLocal(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }catch(e){console.warn(e);} }
+function saveLocal(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }
+  catch(e){ console.warn(e);
+    // ブラウザの保存容量（約5MB）超過など。同期先（Firebase）には保存されるが端末の控えが更新できない。
+    // 無言だと「保存できていないのに気づかない」ので、1回だけ知らせる
+    if(!window.__komonSaveWarned){ window.__komonSaveWarned=true; try{ toast('この端末の保存領域がいっぱいです（同期先には保存されています）。ブラウザのサイトデータを整理してください','err'); }catch(_){ } } } }
 function persist(){ saveLocal(); KomonStore.push(); }`);
 
 // ---- T3: DriveSync IIFE をスタブに置換（残存ボタン対策） ----

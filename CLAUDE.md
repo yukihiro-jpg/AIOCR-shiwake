@@ -65,6 +65,16 @@
 5. **公開トークン配下のデータ**には保存期限（sweep）と削除経路（purgeキュー）を必ず両方用意する
 6. Firebaseコンソールのルールは `docs/firebase-rules-recommended.md` と一致させる（変更時に見比べる）
 7. 確認・依頼メモ（kakunin）の更新は `runTransaction` の配列変換のみ（丸ごと `set` 禁止・同時編集で消える）
+8. **外部CDNから `<script>`／ワーカー／WASMを読まない。** ライブラリは npm で版固定し、
+   `tools/copy-vendor.mjs`（`npm run build` の先頭で自動実行）で `public/vendor/` へ複製して自前配信する。
+   React側は `src/lib/vendor-path.ts`（`vendorUrl` / `pdfjsDocOptions` / `tesseractPaths`）、
+   単一HTMLモジュールは `__BASE_PATH__/vendor/...`（KomonApp / SouzokuApp が srcDoc 生成時に実URLへ置換）。
+   例外は SheetJS（npm 未配布・`cdn.sheetjs.com` から 0.20.3。ネットのある環境で
+   `npm i https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` を行えば自動で自前配信に切り替わる）と
+   Google GSI（Google 直配信）だけ。理由: CDN改ざん＝アプリ内コード実行＝合言葉・APIキー・全データ流出
+9. **保存期限による自動削除の基準時刻は `serverNow()`（`src/core/firebase.ts`）**。`Date.now()` を使わない。
+   端末の時計が未来にずれていると期限内のデータまで消えるため。サーバー時刻が取れないときは削除しない
+10. 顧問先削除・相続案件削除のように**全端末から消えて戻せない操作は、名前を打たせて確認する**（`confirm` 1回にしない）
 
 ### 設計メモ（意図した仕様）
 - 共有フォルダの「顧問先→税理士」側は、顧問先自身がアップロードしたファイルを顧問先画面から削除できる

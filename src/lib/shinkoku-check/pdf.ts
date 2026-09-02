@@ -1,19 +1,17 @@
 // 申告書チェック: pdfjs-distでPDFを座標付き行データへ変換（ブラウザ内・API不使用）
 import type { Tok, Line, Page } from './types'
 
+import { pdfjsDocOptions, pdfjsWorkerUrl } from '@/lib/vendor-path'
+
 async function getPdfjsLib() {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
   if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl()
   }
   return pdfjsLib
 }
 
-const PDF_DOC_OPTIONS = {
-  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
-  cMapPacked: true,
-  standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
-}
+const PDF_DOC_OPTIONS = pdfjsDocOptions()
 
 interface RawTextItem {
   str: string

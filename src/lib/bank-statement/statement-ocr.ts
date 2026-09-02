@@ -8,19 +8,17 @@
 import type { LayoutRow, StatementLayout } from './statement-layout-parser'
 import { looksMojibake } from './statement-layout-parser'
 
+import { pdfjsDocOptions, pdfjsWorkerUrl, tesseractPaths } from '@/lib/vendor-path'
+
 async function getPdfjsLib() {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
   if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl()
   }
   return pdfjsLib
 }
 
-const PDF_DOC_OPTIONS = {
-  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
-  cMapPacked: true,
-  standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
-}
+const PDF_DOC_OPTIONS = pdfjsDocOptions()
 
 // 300dpi 相当。これ以下だと日本語の細部（ー と 一 など）が潰れる
 const SCALE = 300 / 72
@@ -34,9 +32,9 @@ const TESS_BEST_INT = 'https://tessdata.projectnaptha.com/4.0.0_best_int'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function createJpnWorker(createWorker: any): Promise<any> {
   try {
-    return await createWorker('jpn', 1, { langPath: TESS_BEST_INT })
+    return await createWorker('jpn', 1, { ...tesseractPaths(), langPath: TESS_BEST_INT })
   } catch {
-    return await createWorker('jpn')
+    return await createWorker('jpn', 1, tesseractPaths())
   }
 }
 

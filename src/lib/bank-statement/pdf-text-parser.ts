@@ -1,20 +1,18 @@
 import type { RawTableRow } from './types'
 
 // pdfjs-distは動的インポートで読み込む（webpack互換性のため）
+import { pdfjsDocOptions, pdfjsWorkerUrl } from '@/lib/vendor-path'
+
 async function getPdfjsLib() {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf')
   if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl()
   }
   return pdfjsLib
 }
 
 // 日本語CIDフォント(常陽銀行等)の解読に必要なCMap/標準フォント（CDNから取得）
-const PDF_DOC_OPTIONS = {
-  cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
-  cMapPacked: true,
-  standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
-}
+const PDF_DOC_OPTIONS = pdfjsDocOptions()
 
 interface TextItem {
   str: string

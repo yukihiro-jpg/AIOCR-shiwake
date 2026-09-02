@@ -5,12 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>顧問先管理ツール</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- html2canvas / jsPDF は npm で版固定したものを自前配信（__BASE_PATH__ はホストが実URLへ置換）。
+     Firebase compat SDK は総合アプリではホスト共通コア経由で同期するため読み込まない -->
+<script src="__BASE_PATH__/vendor/html2canvas.min.js"></script>
+<script src="__BASE_PATH__/vendor/jspdf.umd.min.js"></script>
 <style>
   :root{
     --blue:#1a73e8; --blue-dark:#1558b0; --blue-soft:#e8f0fe;
@@ -1196,7 +1194,12 @@ function removeRewardRow(i){ _rewardEdit.splice(i,1); saveRewardYearFromForm(); 
 function updateRewardRow(i,f,v){ if(_rewardEdit[i]){ _rewardEdit[i][f]=v; saveRewardYearFromForm(); } }
 let _deletingClient=false;
 async function deleteClient(id){ if(_deletingClient) return; const c=clientById(id); if(!c) return;
-  if(!confirm(`「${c.name}」を削除しますか？\n関連する申告・資料・議事録も削除されます。`))return;
+  // 全モジュール（進捗・議事録・仕訳・相続・共有フォルダ・年調の画像実体まで）が全端末から消え、
+  // 元に戻せない。誤クリックで消えないよう、顧問先名をそのまま打ってもらう
+  const typed=prompt(`「${c.name}」を削除します。\n関連する申告・資料・議事録・共有フォルダ・年調データもすべての端末から削除され、元に戻せません。\n\n削除するには、この顧問先の名前をそのまま入力してください：`);
+  if(typed===null) return;
+  const norm=v=>String(v||'').replace(/[\s　]/g,'');
+  if(norm(typed)!==norm(c.name)){ toast('入力された名前が一致しないため削除しませんでした','err'); return; }
   _deletingClient=true; try{ await _deleteClientInner(c,id); } finally { _deletingClient=false; } }
 async function _deleteClientInner(c,id){
   // 各モジュール（月次・共有フォルダ・年調・仕訳作成・相続）の実体まで確実に削除する。
@@ -1634,8 +1637,8 @@ function loadPdfjs(){
   if(_pdfjsLoading) return _pdfjsLoading;
   _pdfjsLoading=new Promise((res,rej)=>{
     const sc=document.createElement('script');
-    sc.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    sc.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(window.pdfjsLib); }catch(e){ rej(e); } };
+    sc.src='__BASE_PATH__/vendor/pdfjs/pdf.min.js'; // 自前配信（CDN不使用）
+    sc.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc='__BASE_PATH__/vendor/pdfjs/pdf.worker.min.js'; res(window.pdfjsLib); }catch(e){ rej(e); } };
     sc.onerror=()=>{ _pdfjsLoading=null; rej(new Error('PDF読み取りライブラリの読み込みに失敗しました（通信環境をご確認ください）')); };
     document.head.appendChild(sc);
   });

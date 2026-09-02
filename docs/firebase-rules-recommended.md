@@ -57,11 +57,11 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /scan-public/{token}/{allPaths=**} {
       allow read, write: if request.auth != null
-        && request.resource == null || request.resource.size < 50 * 1024 * 1024;
+        && (request.resource == null || request.resource.size < 50 * 1024 * 1024);
     }
     match /nenmatsu-public/{token}/{allPaths=**} {
       allow read, write: if request.auth != null
-        && request.resource == null || request.resource.size < 20 * 1024 * 1024;
+        && (request.resource == null || request.resource.size < 20 * 1024 * 1024);
     }
     match /nenmatsu/{roomKey}/{allPaths=**} {
       allow read, write: if request.auth != null;
@@ -74,6 +74,9 @@ service firebase.storage {
 ```
 
 ポイント:
+- **括弧を忘れないこと。** `A && B || C` は `(A && B) || C` と解釈されるため、括弧が無いと
+  「サイズが上限未満なら認証なしでも書き込める」ルールになってしまう（過去にこの文書自体が
+  括弧なしで書かれていた。コンソールの実ルールに括弧が無ければ直すこと）
 - サイズ上限をルールでも強制（アプリ側の `assertUploadSizes` はUI保護であり、改造クライアントは
   ルールでしか止められない）
 - 列挙（list）は Storage ルールでは既定で `list` 権限に含まれるため、`allow read` を
