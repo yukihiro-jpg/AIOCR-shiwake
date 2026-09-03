@@ -104,12 +104,22 @@ export default function BankStatementContent() {
     })
   }, [])
 
-  /** 仕訳を追加する共通口。処理対象期間で必ず絞ってから足す。戻り値は期間外で除外した件数。 */
+  /** 仕訳を追加する共通口。処理対象期間で必ず絞ってから足す。戻り値は期間外で除外した件数。
+   *  複合仕訳の子行は親の判定に従う（親だけ落ちて子が残ると貸借が合わなくなるため）。 */
   const appendEntries = useCallback((list: JournalEntry[]): number => {
     const kept = clipToPeriod(list)
-    setJournalEntries((prev) => [...prev, ...kept])
-    return list.length - kept.length
+    const keptIds = new Set(kept.map((e) => e.id))
+    const final = kept.filter((e) => !e.parentId || keptIds.has(e.parentId))
+    setJournalEntries((prev) => [...prev, ...final])
+    return list.length - final.length
   }, [clipToPeriod])
+
+  /** CSV/Excelから作る「解析元データ」の一覧を期間で絞る。
+   *  左の一覧と右の仕訳で件数が食い違うと、取り込めていないのか消えたのか分からないため。
+   *  （PDF・画像から読んだページは紙面そのものなので絞らない） */
+  const clipRows = useCallback(<T extends { usageDate?: string; receiptDate?: string }>(rows: T[]): T[] =>
+    clipToPeriod(rows.map((r) => ({ ...r, date: r.usageDate ?? r.receiptDate ?? '' })))
+      .map(({ date: _drop, ...rest }) => rest as unknown as T), [clipToPeriod])
 
   /** 期間外を除いた旨の但し書き（取り込み件数が合わないときに理由が分かるように） */
   const periodNote = useCallback((dropped: number): string => {
@@ -557,7 +567,7 @@ export default function BankStatementContent() {
             // 左側表示用に仮想ページを生成（元データの一覧表示）
             const ccPages: StatementPage[] = [{
               pageIndex: 0,
-              transactions: ccData.transactions.map((t, i) => ({
+              transactions: clipRows(ccData.transactions).map((t, i) => ({
                 id: `cc-tx-${Date.now()}-${i}`,
                 pageIndex: 0,
                 rowIndex: i,
@@ -575,8 +585,8 @@ export default function BankStatementContent() {
             setPages((prev) => [...prev, ...ccPages])
             // accountCode にカード科目をセット（残高計算用）
             setUploadConfig({ ...config, accountCode: config.creditCode || '', accountName: config.creditName || '' })
-            appendEntries(entries)
-            setInfo(`クレジットカードCSV: ${entries.length}件の取引を検出（引落総額: ¥${ccData.totalAmount.toLocaleString()}）`)
+            const ccDropped = appendEntries(entries)
+            setInfo(`クレジットカードCSV: ${entries.length - ccDropped}件の取引を検出（引落総額: ¥${ccData.totalAmount.toLocaleString()}）${periodNote(ccDropped)}`)
             clearInterval(progressTimer)
             setLoadingProgress(100)
             setIsLoading(false)
@@ -1202,7 +1212,7 @@ export default function BankStatementContent() {
         const entries = creditCardToEntries(ccData, uploadConfig.creditCode!, uploadConfig.creditName!, uploadConfig.creditSubCode, uploadConfig.creditSubName)
         const ccPages: StatementPage[] = [{
           pageIndex: 0,
-          transactions: ccData.transactions.map((t, i) => ({
+          transactions: clipRows(ccData.transactions).map((t, i) => ({
             id: `cc-tx-${Date.now()}-${i}`, pageIndex: 0, rowIndex: i,
             date: t.usageDate, description: t.storeName,
             deposit: t.amount > 0 ? t.amount : null,
@@ -1213,8 +1223,8 @@ export default function BankStatementContent() {
         }]
         setPages((prev) => [...prev, ...ccPages])
         setUploadConfig({ ...uploadConfig, accountCode: uploadConfig.creditCode || '', accountName: uploadConfig.creditName || '' })
-        appendEntries(entries)
-        setInfo(`クレジットカード（列マッピング）: ${entries.length}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）`)
+        const ccmDropped = appendEntries(entries)
+        setInfo(`クレジットカード（列マッピング）: ${entries.length - ccmDropped}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）${periodNote(ccmDropped)}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'クレジットカードの取り込みに失敗しました')
       } finally {
