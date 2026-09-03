@@ -40,6 +40,8 @@ const want = [
   ['html2canvas/dist/html2canvas.min.js', 'html2canvas.min.js'],
   ['jspdf/dist/jspdf.umd.min.js', 'jspdf.umd.min.js'],
   ['file-saver/dist/FileSaver.min.js', 'FileSaver.min.js'],
+  // 資料回収の一括PDF（1社1ファイル）をZIPにまとめて1回のダウンロードで渡すため
+  ['jszip/dist/jszip.min.js', 'jszip.min.js'],
 ]
 
 // SheetJS は 0.20 系のときだけ自前配信へ切り替える（0.18 系には既知の脆弱性があるため、

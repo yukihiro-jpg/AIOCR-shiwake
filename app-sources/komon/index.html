@@ -1707,6 +1707,20 @@ function nofuPageFromToks(toks){
 /* 日本語（CIDフォント）のPDFは、CMapと標準フォントの場所を渡さないと文字を取り出せない
    （指定しないと本文が空になり「読み取れません」になる）。自前配信のものを使う。 */
 const PDFJS_DOC_OPTS={cMapUrl:'__BASE_PATH__/vendor/pdfjs/cmaps/',cMapPacked:true,standardFontDataUrl:'__BASE_PATH__/vendor/pdfjs/standard_fonts/'};
+let _jszipLoading=null;
+/* ZIPは資料回収の一括PDFでしか使わないので、押されたときに読み込む（自前配信・CDN不使用） */
+function loadJsZip(){
+  if(window.JSZip) return Promise.resolve(window.JSZip);
+  if(_jszipLoading) return _jszipLoading;
+  _jszipLoading=new Promise((res,rej)=>{
+    const sc=document.createElement('script');
+    sc.src='__BASE_PATH__/vendor/jszip.min.js';
+    sc.onload=()=>res(window.JSZip);
+    sc.onerror=()=>{ _jszipLoading=null; rej(new Error('ZIP作成ライブラリの読み込みに失敗しました')); };
+    document.head.appendChild(sc);
+  });
+  return _jszipLoading;
+}
 let _pdfjsLoading=null;
 function loadPdfjs(){
   if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
@@ -2613,7 +2627,7 @@ function toggleDocStatus(id,cid,encName){ const name=decodeURIComponent(encName)
 function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress('docs',t);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('docs')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFを読み取って、顧問先ごとの資料項目として取り込みます">📥 PDFから取込</button><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="docsExpAll('${t.id}',true)" title="すべての顧問先の資料項目を開く">▾ すべて開く</button><button onclick="docsExpAll('${t.id}',false)" title="すべて畳んで一覧に戻す">▴ すべて閉じる</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
+    <div class="toolbar"><button onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFを読み取って、顧問先ごとの資料項目として取り込みます">📥 PDFから取込</button><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="docsExpAll('${t.id}',true)" title="すべての顧問先の資料項目を開く">▾ すべて開く</button><button onclick="docsExpAll('${t.id}',false)" title="すべて畳んで一覧に戻す">▴ すべて閉じる</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; setViewHtml('docsView',html); return; }
   const indiv=cs.filter(c=>hasOwnDocCols(t,c.id)).length;
@@ -2651,8 +2665,6 @@ function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs
     <b>「📋 個別リスト」でその顧問先だけの資料項目を作成できます</b>（作成すると「個別」と表示され、その顧問先のPDF・回収状況は個別リストで作られます）。
     ${indiv?`現在 ${indiv}社が個別リストです。`:''}所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します（一部の顧問先だけ作成したい場合は「個別PDF」）。</div>`;
   setViewHtml('docsView',html);
-  // 一括登録は共通リストの項目に対して行う（個別リストの顧問先は自分の項目名が一致するものだけ反映）
-  setBulk('docs',{colWord:'資料項目',valueType:'docstatus',cols:cols.map(col=>({name:col.name})),cids:cs.map(c=>c.id),get:cid=>{ const r=cRow(t,cid); if(!r.status)r.status={}; return r.status; },render:()=>renderDocsDetail()});
   enhanceGrid(document.querySelector('#docsView table.grid'),'docs_'+t.id);
 }
 /* 資料項目の並び替え（行をつかんで上下へ）。入力欄の中では文字選択を邪魔しないよう、
@@ -2987,18 +2999,38 @@ function docsPickAll(on){ document.querySelectorAll('.docsPickC').forEach(i=>{ i
 function runDocsPickPdf(){ const ids=[...document.querySelectorAll('.docsPickC:checked')].map(i=>i.value);
   if(!ids.length){ toast('顧問先にチェックを付けてください','err'); return; }
   closeModal('docsPickModal'); generateDocsPDFs(docsPickTableId,ids); }
-/* cids を渡すとその顧問先だけ（個別PDF）、省略時はリスト全社（一括PDF） */
+/* cids を渡すとその顧問先だけ（個別PDF）、省略時はリスト全社（一括PDF）。
+   2社以上のときは1社1ファイルのPDFをZIPにまとめ、1回のダウンロードで渡す
+   （社数ぶんのダウンロードが連続すると、ブラウザに止められたり保存先が散らかるため）。 */
 async function generateDocsPDFs(id,cids){ const t=cTable('docs',id); let cs=resolveSel(t.sel);
   if(Array.isArray(cids)&&cids.length)cs=cs.filter(c=>cids.includes(c.id));
   if(!cs.length){ toast('対象顧問先がありません','err'); return; }
   if(!window.html2canvas||!(window.jspdf&&window.jspdf.jsPDF)){ toast('PDFライブラリの読込中です。少し待って再実行してください','err'); return; }
-  toast('PDFを作成しています…'); const { jsPDF }=window.jspdf;
-  try{ for(const c of cs){ const el=buildDocHtml(t,c); document.body.appendChild(el);
-      const canvas=await html2canvas(el,{scale:2,backgroundColor:'#ffffff',windowWidth:794}); document.body.removeChild(el);
-      const img=canvas.toDataURL('image/jpeg',0.92); const pdf=new jsPDF('p','mm','a4'); const pw=210, ph=297; const iw=pw, ih=canvas.height*pw/canvas.width;
-      if(ih<=ph){ pdf.addImage(img,'JPEG',0,0,iw,ih); } else { let pos=0,rem=ih; while(rem>0){ pdf.addImage(img,'JPEG',0,pos,iw,ih); rem-=ph; if(rem>0){ pdf.addPage(); pos-=ph; } } }
-      pdf.save(`${(c.code?c.code+'_':'')}${(c.name||'顧問先').replace(/[\\/:*?"<>|]/g,'_')}_資料回収.pdf`); await new Promise(r=>setTimeout(r,350)); }
-    toast(`${cs.length}社分のPDFを作成しました`,'ok'); }catch(e){ console.error(e); toast('PDF作成エラー: '+e.message,'err'); } }
+  const { jsPDF }=window.jspdf;
+  const safe=v=>String(v||'').replace(/[\\/:*?"<>|]/g,'_');
+  const fileOf=c=>`${(c.code?c.code+'_':'')}${safe(c.name||'顧問先')}_資料回収.pdf`;
+  const makePdf=async c=>{ const el=buildDocHtml(t,c); document.body.appendChild(el);
+    const canvas=await html2canvas(el,{scale:2,backgroundColor:'#ffffff',windowWidth:794}); document.body.removeChild(el);
+    const img=canvas.toDataURL('image/jpeg',0.92); const pdf=new jsPDF('p','mm','a4'); const pw=210, ph=297; const iw=pw, ih=canvas.height*pw/canvas.width;
+    if(ih<=ph){ pdf.addImage(img,'JPEG',0,0,iw,ih); } else { let pos=0,rem=ih; while(rem>0){ pdf.addImage(img,'JPEG',0,pos,iw,ih); rem-=ph; if(rem>0){ pdf.addPage(); pos-=ph; } } }
+    return pdf; };
+  try{
+    if(cs.length===1){ toast('PDFを作成しています…');
+      (await makePdf(cs[0])).save(fileOf(cs[0])); toast('PDFを作成しました','ok'); return; }
+    toast(`PDFを作成しています…（0 / ${cs.length}社）`);
+    const JSZipLib=await loadJsZip(); const zip=new JSZipLib();
+    for(let i=0;i<cs.length;i++){ const pdf=await makePdf(cs[i]);
+      zip.file(fileOf(cs[i]), pdf.output('blob'));
+      toast(`PDFを作成しています…（${i+1} / ${cs.length}社）`); }
+    const blob=await zip.generateAsync({type:'blob'});
+    // アンカーは一度DOMに入れてから押す。iframe内で切り離したままだと
+    // ファイル名（download属性）が無視されて「download」という名前で保存されてしまう
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`${safe(t.title||'資料回収')}_${todayStr()}.zip`;
+    a.style.display='none'; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000);
+    toast(`${cs.length}社分のPDFをZIPにまとめました`,'ok');
+  }catch(e){ console.error(e); toast('PDF作成エラー: '+e.message,'err'); } }
 
 /* ===== 議事録 ===== */
 function minuteText(m){ return [m.tax?'【税務論点】'+m.tax:'',m.chat?'【世間話】'+m.chat:'',m.todo?'【TODO】'+m.todo:'',(!m.tax&&!m.chat&&!m.todo&&m.content)?m.content:''].filter(Boolean).join('　'); }
