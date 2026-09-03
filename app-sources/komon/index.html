@@ -105,6 +105,20 @@
   .item-tbl input{width:100%;min-width:0;}
   .item-tbl col.c-cat{width:15%;} .item-tbl col.c-name{width:24%;} .item-tbl col.c-detail{width:27%;}
   .item-tbl col.c-due{width:150px;} .item-tbl col.c-memo{width:auto;} .item-tbl col.c-del{width:42px;}
+  /* 資料回収の一覧：分類ごとの集計チップと、展開したときの資料項目 */
+  .catchip{display:inline-block;font-size:11.5px;border-radius:6px;padding:2px 9px;margin:2px 5px 2px 0;
+    background:var(--bg);border:1px solid var(--line);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .catchip b{color:var(--text);font-weight:700;}
+  .catchip.ok{background:#e6f4ea;border-color:transparent;color:#137333;} .catchip.ok b{color:#137333;}
+  .dgrp{display:grid;grid-template-columns:104px 1fr;gap:10px;align-items:start;padding:7px 0;}
+  .dgrp + .dgrp{border-top:1px solid var(--line);}
+  .dgrp .dgl{font-size:11.5px;font-weight:700;color:var(--muted);padding-top:4px;}
+  .docs-exp{margin-top:8px;padding-top:2px;border-top:1px dashed var(--border);}
+  .dchip{display:inline-block;font-size:12px;border-radius:999px;padding:3px 10px;margin:2px 5px 2px 0;
+    border:1px solid var(--border);background:#fff;color:var(--text);cursor:pointer;white-space:normal;}
+  .dchip:hover{border-color:var(--blue);}
+  .dchip.done{background:#e6f4ea;border-color:transparent;color:#137333;font-weight:500;}
+  .dchip .st{font-weight:700;margin-left:6px;font-size:11px;}
   /* 資料回収PDF取込の「取込前／取込後」比較 */
   .di-tbl{width:100%;border-collapse:collapse;table-layout:fixed;}
   .di-tbl th{background:#f1f3f4;font-size:12px;font-weight:600;padding:5px 8px;text-align:left;border:1px solid var(--border);}
@@ -2564,13 +2578,32 @@ function saveCustomTable(){ const kind=val('cm_kind'); const title=val('cm_title
   persist(); closeModal('customModal'); renderCustom(kind); toast('保存しました','ok'); }
 
 /* ===== 資料回収：詳細（回収状況トグル）・案内文・PDF ===== */
+/* 一覧は「分類ごとに何件済んだか」だけを出し、詳しく見たい顧問先の行だけ開く。
+   顧問先ごとに資料が4〜12件あり名前も長いので、全項目を横に並べると横スクロールになり読めないため。
+   開いた状態は端末ローカルに覚えておく（表示の好みなので同期しない）。 */
+let docsExpanded=new Set();
+function docsExpKey(tid){ return 'komon_docs_expanded_'+tid; }
+function loadDocsExpanded(tid){ try{ const v=JSON.parse(localStorage.getItem(docsExpKey(tid))||'[]');
+    docsExpanded=new Set(Array.isArray(v)?v:[]); }catch(_){ docsExpanded=new Set(); } }
+function saveDocsExpanded(tid){ try{ localStorage.setItem(docsExpKey(tid),JSON.stringify([...docsExpanded])); }catch(_){ } }
+function toggleDocsExp(tid,cid){ if(docsExpanded.has(cid))docsExpanded.delete(cid); else docsExpanded.add(cid);
+  saveDocsExpanded(tid); renderDocsDetail(); }
+function docsExpAll(tid,on){ const t=cTable('docs',tid); if(!t)return;
+  docsExpanded=on?new Set(resolveSel(t.sel).map(c=>c.id)):new Set(); saveDocsExpanded(tid); renderDocsDetail(); }
+/** その顧問先の資料項目を分類ごとにまとめる（分類が空のものは「分類なし」） */
+function docCatGroups(t,cid){
+  const map=new Map();
+  docCols(t,cid).forEach(it=>{ const k=(it.cat||'').trim()||'分類なし';
+    if(!map.has(k))map.set(k,[]); map.get(k).push(it); });
+  return [...map.entries()].map(([cat,items])=>({cat,items,done:items.filter(it=>docStatus(t,cid,it.name)).length}));
+}
 function docStatus(t,cid,name){ const r=t.rows&&t.rows[cid]; return !!(r&&r.status&&r.status[name]); }
 function toggleDocStatus(id,cid,encName){ const name=decodeURIComponent(encName); const t=cTable('docs',id); const r=cRow(t,cid); if(!r.status)r.status={};
   if(r.status[name])delete r.status[name]; else r.status[name]=todayISO(); persist(); renderDocsDetail(); }
 function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress('docs',t);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('docs')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFを読み取って、顧問先ごとの資料項目として取り込みます">📥 PDFから取込</button><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
+    <div class="toolbar"><button onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFを読み取って、顧問先ごとの資料項目として取り込みます">📥 PDFから取込</button><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="docsExpAll('${t.id}',true)" title="すべての顧問先の資料項目を開く">▾ すべて開く</button><button onclick="docsExpAll('${t.id}',false)" title="すべて畳んで一覧に戻す">▴ すべて閉じる</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; setViewHtml('docsView',html); return; }
   const indiv=cs.filter(c=>hasOwnDocCols(t,c.id)).length;
@@ -2580,21 +2613,31 @@ function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs
     <table style="margin-top:8px"><thead><tr><th>分類</th><th>資料名</th><th>詳細</th><th>期限</th><th>所内メモ</th></tr></thead><tbody>`+
     (cols.length?cols.map(it=>`<tr><td class="muted">${esc(it.cat||'')}</td><td>${esc(it.name)}</td><td>${esc(it.detail||'')}</td><td>${it.due?esc(fmtMD(it.due)):''}</td><td class="muted">${esc(it.memo||'')}</td></tr>`).join('')
       :`<tr><td colspan="5" class="muted">共通の資料項目は未設定です（顧問先ごとに個別リストを作成してください）</td></tr>`)+`</tbody></table></div>`;
-  // 顧問先ごとの回収状況。資料項目は顧問先ごとに異なりうるため、1社1行＋項目チップで表示する
-  let body=cs.map(c=>{ const ccols=docCols(t,c.id); let done=0;
-    const chips=ccols.map(it=>{ const ok=docStatus(t,c.id,it.name); if(ok)done++;
-      const tip=esc((it.detail||'')+(it.due?' / 期限'+fmtMD(it.due):''));
-      return `<span class="cell ${ok?'done':'todo'}" style="cursor:pointer;display:inline-block;margin:2px 4px 2px 0;padding:3px 9px" title="${tip}"
-        onclick="toggleDocStatus('${t.id}','${c.id}','${encodeURIComponent(it.name)}')">${esc(it.name)}<b style="margin-left:6px;font-size:11px">${ok?'済':'未'}</b></span>`; }).join('');
+  // 顧問先ごとの回収状況。資料項目は顧問先ごとに異なりうるので、ふだんは分類ごとの集計だけを出し、
+  // 「▾ 開く」を押した顧問先だけ資料項目を折り返して並べる（横スクロールをなくすため）
+  loadDocsExpanded(t.id);
+  let body=cs.map(c=>{ const ccols=docCols(t,c.id); const groups=docCatGroups(t,c.id);
+    const done=groups.reduce((n,g)=>n+g.done,0);
     const pct=ccols.length?Math.round(done/ccols.length*100):0;
-    const own=hasOwnDocCols(t,c.id);
+    const own=hasOwnDocCols(t,c.id); const open=docsExpanded.has(c.id);
+    const sum=ccols.length
+      ? groups.map(g=>`<span class="catchip${g.done===g.items.length?' ok':''}">${esc(g.cat)} <b>${g.done}</b>/${g.items.length}</span>`).join('')
+      : '<span class="muted">資料項目がありません</span>';
+    const detail=open&&ccols.length?`<div class="docs-exp">`+groups.map(g=>`<div class="dgrp"><div class="dgl">${esc(g.cat)}</div><div>`+
+      g.items.map(it=>{ const ok=docStatus(t,c.id,it.name);
+        const tip=esc((it.detail||'')+(it.due?' / 期限'+fmtMD(it.due):''));
+        return `<span class="dchip${ok?' done':''}" title="${tip}"
+          onclick="toggleDocStatus('${t.id}','${c.id}','${encodeURIComponent(it.name)}')">${esc(it.name)}<span class="st">${ok?'済':'未'}</span></span>`; }).join('')+
+      `</div></div>`).join('')+`</div>`:'';
     return `<tr><td class="name" style="white-space:nowrap;vertical-align:top">${clientLink(c)}${own?' <span class="chip blue" style="margin-left:4px">個別</span>':''}</td>
-      <td style="vertical-align:top">${chips||'<span class="muted">資料項目がありません</span>'}</td>
+      <td style="vertical-align:top;text-align:left">${sum}${detail}</td>
       <td style="white-space:nowrap;vertical-align:top">${done}/${ccols.length}<div class="pbar" style="width:110px"><span style="width:${pct}%"></span></div> ${pct}%</td>
-      <td style="white-space:nowrap;vertical-align:top"><button class="text sm" onclick="openDocClientCols('${t.id}','${c.id}')" title="この顧問先だけの資料項目を作成・編集">📋 個別リスト</button></td></tr>`; }).join('');
+      <td style="white-space:nowrap;vertical-align:top">
+        ${ccols.length?`<button class="text sm" onclick="toggleDocsExp('${t.id}','${c.id}')" title="この顧問先の資料項目を${open?'畳む':'開く'}">${open?'▴ 閉じる':'▾ 開く'}</button>`:''}
+        <button class="text sm" onclick="openDocClientCols('${t.id}','${c.id}')" title="この顧問先だけの資料項目を作成・編集">📋 個別リスト</button></td></tr>`; }).join('');
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>
-      <tr><th class="name">顧問先</th><th>資料項目（クリックで回収済／未回収）</th><th>回収率</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
-    <div class="hint" style="margin-top:12px">※ 資料項目のチップをクリックで「回収済／未回収」を切替（進捗バーに反映）。
+      <tr><th class="name">顧問先</th><th style="text-align:left">分類ごとの回収</th><th>回収率</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="hint" style="margin-top:12px">※ 「▾ 開く」で資料項目が出ます。<b>項目をクリックすると「回収済／未回収」が切り替わります</b>（進捗バーに反映）。開いた状態はこの端末に記憶します。
     <b>「📋 個別リスト」でその顧問先だけの資料項目を作成できます</b>（作成すると「個別」と表示され、その顧問先のPDF・回収状況は個別リストで作られます）。
     ${indiv?`現在 ${indiv}社が個別リストです。`:''}所内メモはPDFには出力されません。「一括PDF作成」で顧問先1社につき1ファイルのPDFを作成します（一部の顧問先だけ作成したい場合は「個別PDF」）。</div>`;
   setViewHtml('docsView',html);
