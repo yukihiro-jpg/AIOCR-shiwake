@@ -103,8 +103,12 @@
   .item-tbl th{font-size:12px;}
   .item-tbl td{padding:4px 5px;}
   .item-tbl input{width:100%;min-width:0;}
-  .item-tbl col.c-cat{width:15%;} .item-tbl col.c-name{width:24%;} .item-tbl col.c-detail{width:27%;}
+  .item-tbl col.c-drag{width:30px;} .item-tbl col.c-cat{width:14%;} .item-tbl col.c-name{width:23%;} .item-tbl col.c-detail{width:26%;}
   .item-tbl col.c-due{width:150px;} .item-tbl col.c-memo{width:auto;} .item-tbl col.c-del{width:42px;}
+  .item-tbl td.dragh{cursor:grab;color:#9aa0a6;text-align:center;user-select:none;font-size:15px;line-height:1;padding:4px 0;}
+  .item-tbl td.dragh:active{cursor:grabbing;}
+  .item-tbl tr.dragging td{background:var(--blue-soft)!important;opacity:.6;}
+  .item-tbl tr.drop-mark td{box-shadow:inset 0 2px 0 var(--blue);}
   /* 資料回収の一覧：分類ごとの集計チップと、展開したときの資料項目 */
   .catchip{display:inline-block;font-size:11.5px;border-radius:6px;padding:2px 9px;margin:2px 5px 2px 0;
     background:var(--bg);border:1px solid var(--line);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}
@@ -651,8 +655,10 @@
       <b style="font-size:13px">資料項目</b>
       <span><button class="sm" onclick="openDocsImport(val('dc_tid'),val('dc_cid'))" title="既存の回収リストPDFからこの顧問先の資料項目を読み込みます">📥 PDFから取込</button> <button class="sm" onclick="dcLoadCommon()" title="共通リストの内容を読み込みます（現在の内容は置き換わります）">共通リストを読込</button> <button class="sm" onclick="addDocClientRow()">＋ 追加</button></span>
     </div>
-    <table class="item-tbl"><colgroup><col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del"></colgroup>
-      <thead><tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
+    <table class="item-tbl"><colgroup><col class="c-drag"><col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del"></colgroup>
+      <thead><tr><th title="行をつかんで上下にドラッグすると並び替えできます"></th><th style="text-align:left">分類</th><th style="text-align:left">資料名</th>
+        <th style="text-align:left">詳細 <button class="sm" style="margin-left:6px" onclick="shiftItemDetailYears('dc_cols')" title="詳細に入っている年（R8.9.1～R9.8.31、R8.9.30残高、2025年10月 など）をまとめて1年進めます">1年更新</button></th>
+        <th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
   </div>
   <div class="modal-foot">
     <button class="text" onclick="resetDocClientCols()" title="この顧問先を共通リストに戻します">共通リストに戻す</button>
@@ -2542,13 +2548,17 @@ function openCustomCreate(kind,id){ const def=CUSTOM_DEFS[kind]; const t=id?cTab
   setVal('cm_kind',kind); setVal('cm_id',id||''); document.getElementById('cm_title').textContent=(id?'編集':'新規作成')+'（'+def.label+'）';
   document.getElementById('cm_colWord').textContent=def.colWord; document.getElementById('cm_titleInput').placeholder=def.titlePh;
   document.getElementById('cm_colGroup').innerHTML=def.items
-    ?'<col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del">'
-    :'<col class="c-name"><col class="c-due"><col class="c-del">';
-  document.getElementById('cm_colHead').innerHTML=def.items?`<tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr>`:`<tr><th style="text-align:left">名称</th><th style="text-align:left">期限（任意）</th><th></th></tr>`;
+    ?'<col class="c-drag"><col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del">'
+    :'<col class="c-drag"><col class="c-name"><col class="c-due"><col class="c-del">';
+  document.getElementById('cm_colHead').innerHTML=def.items
+    ?`<tr><th title="行をつかんで上下にドラッグすると並び替えできます"></th><th style="text-align:left">分類</th><th style="text-align:left">資料名</th>
+       <th style="text-align:left">詳細 <button class="sm" style="margin-left:6px" onclick="shiftItemDetailYears('cm_cols')" title="詳細に入っている年（R8.9.1～R9.8.31、R8.9.30残高、2025年10月 など）をまとめて1年進めます">1年更新</button></th>
+       <th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr>`
+    :`<tr><th title="行をつかんで上下にドラッグすると並び替えできます"></th><th style="text-align:left">名称</th><th style="text-align:left">期限（任意）</th><th></th></tr>`;
   setVal('cm_titleInput',t?t.title:''); setVal('cm_selType',(t&&t.sel&&t.sel.type)||'all');
   customSel=t&&t.sel?JSON.parse(JSON.stringify(t.sel)):{type:'all'}; renderSelSub();
   document.getElementById('cm_cols').innerHTML=''; (t&&t.cols&&t.cols.length?t.cols:def.def.map(n=>({name:n}))).forEach(c=>addCustomColRow(c));
-  openModal('customModal'); }
+  initItemDrag('cm_cols'); openModal('customModal'); }
 let customSel={type:'all'};
 function renderSelSub(){ const type=val('cm_selType'); const box=document.getElementById('cm_selSub'); customSel.type=type;
   if(type==='fiscal'){ box.innerHTML=`<div class="pill-set">`+MONTHS.map((m,i)=>`<label style="display:inline-flex;align-items:center;gap:4px;margin-right:6px"><input type="checkbox" style="width:auto" class="selM" value="${i+1}" ${(customSel.months||[]).includes(i+1)?'checked':''}> ${m}</label>`).join('')+`</div>`; }
@@ -2565,9 +2575,9 @@ function gatherSel(){ const type=val('cm_selType'); const s={type};
   else if(type==='manual')s.ids=[...document.querySelectorAll('.selC:checked')].map(i=>i.value);
   return s; }
 function addCustomColRow(c={}){ const tb=document.getElementById('cm_cols'); const tr=document.createElement('tr'); const docs=val('cm_kind')==='docs';
-  tr.innerHTML=docs
+  tr.innerHTML=`<td class="dragh" title="ドラッグで並び替え">⠿</td>`+(docs
     ?`<td><input class="cc_cat" value="${esc(c.cat||'')}" placeholder="決算資料 等"></td><td><input class="cc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="cc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="cc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`
-    :`<td><input class="cc_name" value="${esc(c.name||'')}" placeholder="名称"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
+    :`<td><input class="cc_name" value="${esc(c.name||'')}" placeholder="名称"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`);
   tb.appendChild(tr); }
 function saveCustomTable(){ const kind=val('cm_kind'); const title=val('cm_titleInput'); if(!title){ toast('タイトルを入力してください','err'); return; } const docs=kind==='docs';
   const cols=[...document.querySelectorAll('#cm_cols tr')].map(tr=>{ const o={name:tr.querySelector('.cc_name').value.trim(),due:tr.querySelector('.cc_due').value}; if(docs){ o.cat=tr.querySelector('.cc_cat').value.trim(); o.detail=tr.querySelector('.cc_detail').value.trim(); o.memo=tr.querySelector('.cc_memo').value.trim(); } return o; }).filter(c=>c.name);
@@ -2645,15 +2655,56 @@ function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs
   setBulk('docs',{colWord:'資料項目',valueType:'docstatus',cols:cols.map(col=>({name:col.name})),cids:cs.map(c=>c.id),get:cid=>{ const r=cRow(t,cid); if(!r.status)r.status={}; return r.status; },render:()=>renderDocsDetail()});
   enhanceGrid(document.querySelector('#docsView table.grid'),'docs_'+t.id);
 }
+/* 資料項目の並び替え（行をつかんで上下へ）。入力欄の中では文字選択を邪魔しないよう、
+   フォーム部品を押したときはドラッグを始めない。保存時はDOMの並び順をそのまま読むので、
+   並べ替えた結果がそのまま保存される。 */
+function initItemDrag(tbodyId){
+  const tb=document.getElementById(tbodyId); if(!tb||tb.dataset.dragInit)return; tb.dataset.dragInit='1';
+  let src=null;
+  tb.addEventListener('mousedown',e=>{ const tr=e.target.closest('tr'); if(!tr)return;
+    tr.draggable=!e.target.closest('input,select,textarea,button,option'); });
+  tb.addEventListener('dragstart',e=>{ const tr=e.target.closest('tr'); if(!tr||!tr.draggable){ e.preventDefault(); return; }
+    src=tr; tr.classList.add('dragging');
+    try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain','row'); }catch(_){ } });
+  tb.addEventListener('dragover',e=>{ if(!src)return; e.preventDefault();
+    try{ e.dataTransfer.dropEffect='move'; }catch(_){ }
+    const tr=e.target.closest('tr'); if(!tr||tr===src||tr.parentNode!==tb)return;
+    const r=tr.getBoundingClientRect();
+    tb.insertBefore(src,(e.clientY-r.top)>r.height/2?tr.nextSibling:tr); });
+  tb.addEventListener('drop',e=>{ e.preventDefault(); });
+  tb.addEventListener('dragend',()=>{ if(src){ src.classList.remove('dragging'); src.draggable=false; src=null; } });
+}
+/** 「R8.9.1～R9.8.31」「R8.9.30残高」「2025年10月」のような年を1年進める。
+ *  年らしい書き方（令和/R＋数字、西暦4桁＋年）だけを対象にし、「1年分」「8ケース」などの
+ *  ただの数字は触らない。英字の途中のRも対象外（car8 のような並びを誤変換しないため）。 */
+function shiftEraYears(str){
+  const z2h=v=>String(v).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  return String(str||'')
+    .replace(/(^|[^A-Za-z0-9０-９])(令和|Ｒ|R)\s*(元|[0-9０-９]{1,2})/g,(m,pre,era,n)=>{
+      const v=(n==='元')?1:parseInt(z2h(n),10);
+      return isNaN(v)?m:pre+era+(v+1); })
+    .replace(/([0-9０-９]{4})\s*年/g,(m,y)=>{ const v=parseInt(z2h(y),10);
+      return (v>=1990&&v<=2100)?(v+1)+'年':m; });
+}
+/** 詳細欄の年をまとめて1年進める（決算期が変わったときのリスト使い回し用） */
+function shiftItemDetailYears(tbodyId){
+  const tb=document.getElementById(tbodyId); if(!tb)return;
+  const inputs=[...tb.querySelectorAll('.dc_detail,.cc_detail')];
+  const changed=[];
+  inputs.forEach(el=>{ const after=shiftEraYears(el.value); if(after!==el.value){ changed.push([el.value,after]); el.value=after; } });
+  if(!changed.length){ toast('1年進められる日付が詳細欄に見つかりませんでした（例: R8.9.1～R9.8.31、R8.9.30残高、2025年10月）','err'); return; }
+  toast(`詳細の年を1年進めました（${changed.length}件）`,'ok');
+}
+
 /* 顧問先ごとの資料項目の編集 */
 function openDocClientCols(tid,cid){ const t=cTable('docs',tid); const c=data.clients.find(x=>x.id===cid); if(!t||!c)return;
   setVal('dc_tid',tid); setVal('dc_cid',cid);
   document.getElementById('dc_title').textContent=`${c.name||'顧問先'} の資料項目`;
   document.getElementById('dc_cols').innerHTML='';
   docCols(t,cid).forEach(it=>addDocClientRow(it));
-  openModal('docClientModal'); }
+  initItemDrag('dc_cols'); openModal('docClientModal'); }
 function addDocClientRow(c={}){ const tb=document.getElementById('dc_cols'); const tr=document.createElement('tr');
-  tr.innerHTML=`<td><input class="dc_cat" value="${esc(c.cat||'')}" placeholder="決算資料 等"></td><td><input class="dc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="dc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="dc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="dc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
+  tr.innerHTML=`<td class="dragh" title="ドラッグで並び替え">⠿</td><td><input class="dc_cat" value="${esc(c.cat||'')}" placeholder="決算資料 等"></td><td><input class="dc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="dc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="dc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="dc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
   tb.appendChild(tr); }
 function dcLoadCommon(){ const t=cTable('docs',val('dc_tid')); if(!t)return;
   document.getElementById('dc_cols').innerHTML=''; (t.cols||[]).forEach(it=>addDocClientRow(it)); toast('共通リストを読み込みました','ok'); }
