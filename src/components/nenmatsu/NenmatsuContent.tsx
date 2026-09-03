@@ -190,7 +190,9 @@ export default function NenmatsuContent() {
         try {
           if (typeof window !== 'undefined') {
             for (const fy of Object.keys(FY_BY_ID)) {
-              const migKey = `nenmatsu-roster-migrated-v2-${fy}`
+              // v3: 前年の申告内容の公開を追加したので、登録済みの全社ぶんを一度だけ配り直す
+              // （利用者がCSVを取り込み直さなくても、この画面を開けば従業員ページに前年分が出る）
+              const migKey = `nenmatsu-roster-migrated-v3-${fy}`
               if (!localStorage.getItem(migKey)) {
                 const ok = await republishRosters(fy)
                 if (ok) localStorage.setItem(migKey, '1')
