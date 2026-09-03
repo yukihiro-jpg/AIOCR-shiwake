@@ -312,12 +312,14 @@ export async function publishRoster(
   // CSVから作った初期表示用データを従業員ごとに公開する。
   // 【注意】名簿（roster）には住所などの平文PIIを載せない方針なので、従業員ごとの別ノードに置き、
   // 従業員ページは本人確認が済んだ自分の分だけを読む（今年の提出内容と同じ公開範囲）。
-  const pre: Record<string, ReturnType<typeof prefillFromCsv>> = {}
+  const pre: Record<string, CsvPrefill> = {}
   for (const e of employees) {
     const v = prefillFromCsv(e)
     if (v.postal || v.address || v.spouse || v.dependents.length) pre[e.id] = v
   }
-  await set(ref(db, publicPath(company.token, 'pre')), Object.keys(pre).length ? pre : null)
+  try {
+    await set(ref(db, publicPath(company.token, 'pre')), Object.keys(pre).length ? pre : null)
+  } catch (err) { console.error('[nenmatsu] 初期表示用データの公開に失敗', err) }
   // 前年の申告内容も一緒に公開する（従業員ページで前年と見比べられるように）
   try { await publishPrevDeclarations(yearId, company) } catch { /* 失敗しても名簿の公開は成立させる */ }
 }
@@ -326,22 +328,28 @@ export async function publishRoster(
  *  JDLには前年に提出された扶養控除等申告書の内容（住所・扶養親族）が入っているので、
  *  アプリでの提出実績がない初年度でも、従業員は空欄から入力せずに確認・修正だけで済む。
  *  続柄が妻・夫・配偶者のものは配偶者欄に振り分ける（申告書の様式に合わせるため）。 */
-export function prefillFromCsv(e: NenmatsuEmployee): {
-  postal: string; address: string
+export interface CsvPrefill {
+  postal: string
+  address: string
   spouse?: { name: string; kana: string; birth: string; income: string }
   dependents: { name: string; kana: string; relation: string; birth: string; income: string }[]
-} {
-  const postal = extractPostal(e.rawCells)
+}
+export function prefillFromCsv(e: NenmatsuEmployee): CsvPrefill {
   const deps = extractDependents(e.rawCells)
   const isSpouse = (r: string) => /妻|夫|配偶/.test(r || '')
   const sp = deps.find((d) => isSpouse(d.relation))
-  return {
-    postal,
-    address: e.address || '',
-    spouse: sp ? { name: sp.name, kana: sp.kana, birth: sp.birth, income: sp.income } : undefined,
-    dependents: deps.filter((d) => !isSpouse(d.relation))
-      .map((d) => ({ name: d.name, kana: d.kana, relation: d.relation, birth: d.birth, income: d.income })),
+  const str = (v: unknown) => String(v ?? '')
+  // 【重要】Firebase は undefined を含む値の保存を拒否する（1人でも該当すると
+  // その会社の公開処理ごと失敗する）。空文字に寄せ、配偶者が無いときはキー自体を作らない。
+  const out: CsvPrefill = {
+    postal: str(extractPostal(e.rawCells)),
+    address: str(e.address),
+    dependents: deps.filter((d) => !isSpouse(d.relation)).map((d) => ({
+      name: str(d.name), kana: str(d.kana), relation: str(d.relation), birth: str(d.birth), income: str(d.income),
+    })),
   }
+  if (sp) out.spouse = { name: str(sp.name), kana: str(sp.kana), birth: str(sp.birth), income: str(sp.income) }
+  return out
 }
 
 /** 前年度のID（'R9' → 'R8'）。年度が1つ前に無い場合は null */
@@ -395,11 +403,11 @@ function randomToken(): string {
 export async function loadPrefillPublic(
   token: string,
   empId: string,
-): Promise<ReturnType<typeof prefillFromCsv> | null> {
+): Promise<CsvPrefill | null> {
   if (!token || !empId) return null
   try {
     const { db, ref, get } = await dbfns()
-    const v = (await get(ref(db, publicPath(token, 'pre', empId)))).val() as ReturnType<typeof prefillFromCsv> | null
+    const v = (await get(ref(db, publicPath(token, 'pre', empId)))).val() as CsvPrefill | null
     return v && (v.postal || v.address || v.spouse || (v.dependents || []).length) ? v : null
   } catch { return null }
 }
