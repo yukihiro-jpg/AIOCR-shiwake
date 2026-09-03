@@ -85,6 +85,39 @@ export default function BankStatementContent() {
   const [parseElapsed, setParseElapsed] = useState<string | null>(null)
   const pdfFileRef = useRef<File | null>(null)
   const uploadConfigRef = useRef<UploadConfig | null>(null)
+
+  /** 処理対象期間の外にある仕訳を落とす。
+   *  期間欄はどの書類種別（通帳・カード・レシート・請求書…）でも表示されるので、
+   *  通帳だけに効いていると、レシート等で期間外の行まで取り込まれてしまう。
+   *  日付を持たない仕訳は判定できないので残す。日付は YYYYMMDD / YYYY-MM-DD の両方を受ける。 */
+  const clipToPeriod = useCallback(<T extends { date?: string }>(list: T[]): T[] => {
+    const cfg = uploadConfigRef.current
+    const from = (cfg?.periodFrom || '').replace(/-/g, '')
+    const to = (cfg?.periodTo || '').replace(/-/g, '')
+    if (!from && !to) return list
+    return list.filter((e) => {
+      const d = (e.date || '').replace(/-/g, '')
+      if (!d) return true
+      if (from && d < from) return false
+      if (to && d > to) return false
+      return true
+    })
+  }, [])
+
+  /** 仕訳を追加する共通口。処理対象期間で必ず絞ってから足す。戻り値は期間外で除外した件数。 */
+  const appendEntries = useCallback((list: JournalEntry[]): number => {
+    const kept = clipToPeriod(list)
+    setJournalEntries((prev) => [...prev, ...kept])
+    return list.length - kept.length
+  }, [clipToPeriod])
+
+  /** 期間外を除いた旨の但し書き（取り込み件数が合わないときに理由が分かるように） */
+  const periodNote = useCallback((dropped: number): string => {
+    if (dropped <= 0) return ''
+    const cfg = uploadConfigRef.current
+    const f = cfg?.periodFrom || '', t = cfg?.periodTo || ''
+    return `／処理対象期間（${f || '指定なし'}〜${t || '指定なし'}）外の${dropped}件は取り込みませんでした`
+  }, [])
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [lastPeriodFrom, setLastPeriodFrom] = useState('')
@@ -419,7 +452,7 @@ export default function BankStatementContent() {
         })
       }
 
-      setJournalEntries((prev) => [...prev, ...filtered])
+      appendEntries(filtered)
 
       // 取引はあるが仕訳が0件の場合に警告
       const totalTx = result.pages.reduce((s, p) => s + p.transactions.length, 0)
@@ -475,7 +508,7 @@ export default function BankStatementContent() {
             result.pages, config.accountCode, config.accountName, patterns, accountMaster,
             config.accountSubCode, config.accountSubName,
           )
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(`ゆうちょ受払通知票から${result.pages.length}件の取引を抽出しました（${elapsedSec}秒）`)
           setIsLoading(false)
           setLoadingProgress(0)
@@ -542,7 +575,7 @@ export default function BankStatementContent() {
             setPages((prev) => [...prev, ...ccPages])
             // accountCode にカード科目をセット（残高計算用）
             setUploadConfig({ ...config, accountCode: config.creditCode || '', accountName: config.creditName || '' })
-            setJournalEntries((prev) => [...prev, ...entries])
+            appendEntries(entries)
             setInfo(`クレジットカードCSV: ${entries.length}件の取引を検出（引落総額: ¥${ccData.totalAmount.toLocaleString()}）`)
             clearInterval(progressTimer)
             setLoadingProgress(100)
@@ -590,7 +623,7 @@ export default function BankStatementContent() {
                   sourceId: uid,
                 }))
               setPages((prev) => [...prev, ...mkPages()])
-              setJournalEntries((prev) => [...prev, ...entries])
+              appendEntries(entries)
               const memo = local.useCount > 1
                 ? `記憶済みフォーマット「${local.formatLabel}」で解析（${local.useCount}回目）`
                 : `フォーマット「${local.formatLabel}」を新しく記憶しました`
@@ -696,7 +729,7 @@ export default function BankStatementContent() {
           }))
           setPages((prev) => [...prev, ...dummyPages])
 
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(`クレジットカード明細: ${entries.length}件の取引を検出（引落日: ${ccData.paymentDate}、引落総額: ¥${(ccData.totalAmount || 0).toLocaleString()}）`)
           clearInterval(progressTimer)
           setLoadingProgress(100)
@@ -764,7 +797,7 @@ export default function BankStatementContent() {
                 pageIndex: r.pageIndex,
               })), config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName, undefined,
               (rcp) => idPages[rcp.pageIndex]?.id)
-              setJournalEntries((prev) => [...prev, ...entries])
+              appendEntries(entries)
               setInfo(`${textResult.receipts.length}件のレシートをテキスト解析しました（${elapsedSec}秒）`)
               setIsLoading(false)
               setLoadingProgress(0)
@@ -830,8 +863,8 @@ export default function BankStatementContent() {
             // レシートのページ番号→解析元ページIDを紐付け（行クリックで左に表示／行削除で画像も削除）
             (rcp) => statementPages[rcp.pageIndex]?.id,
           )
-          setJournalEntries((prev) => [...prev, ...entries])
-          setInfo(`${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`)
+          const rcptDropped = appendEntries(entries)
+          setInfo(`${receipts.length}件のレシートから${entries.length - rcptDropped}件の仕訳を生成しました${periodNote(rcptDropped)}`)
           setIsLoading(false)
           setLoadingProgress(0)
           return
@@ -945,7 +978,7 @@ export default function BankStatementContent() {
           // 学習パターンを適用（請求先名_内容 + 金額でマッチ）
           const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
           const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns())
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
           setIsLoading(false)
           setLoadingProgress(0)
@@ -1180,7 +1213,7 @@ export default function BankStatementContent() {
         }]
         setPages((prev) => [...prev, ...ccPages])
         setUploadConfig({ ...uploadConfig, accountCode: uploadConfig.creditCode || '', accountName: uploadConfig.creditName || '' })
-        setJournalEntries((prev) => [...prev, ...entries])
+        appendEntries(entries)
         setInfo(`クレジットカード（列マッピング）: ${entries.length}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'クレジットカードの取り込みに失敗しました')
@@ -1300,6 +1333,16 @@ export default function BankStatementContent() {
 
         if (receipts.length === 0) throw new Error('有効なレシート行が見つかりませんでした（日付・相手先・支払総額を確認してください）')
 
+        // 処理対象期間の外は取り込まない。左の解析元プレビューも同じ行数にそろえる
+        const inPeriod = clipToPeriod(receipts.map((r) => ({ ...r, date: r.receiptDate })))
+        const outOfPeriod = receipts.length - inPeriod.length
+        if (inPeriod.length === 0) {
+          const cfg = uploadConfigRef.current
+          throw new Error(`${receipts.length}件の明細がありますが、処理対象期間（${cfg?.periodFrom || '指定なし'}〜${cfg?.periodTo || '指定なし'}）に入る行がありません。期間の設定をご確認ください。`)
+        }
+        receipts.length = 0
+        receipts.push(...inPeriod)
+
         const previewPageId = genPageId(0)
         const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
         const entries = receiptToEntries(
@@ -1332,7 +1375,7 @@ export default function BankStatementContent() {
           balanceDifference: 0,
         }
         setPages((prev) => [...prev, previewPage])
-        setJournalEntries((prev) => [...prev, ...entries])
+        appendEntries(entries)
         // 借方科目を列から入れた行は、画面で科目を選んだときと同じように
         // 消費税コードを科目別消費税マスタから補う（税率・税区分はExcelの税率列を優先）
         if (mapping.debitAccountColumn >= 0) {
@@ -1346,7 +1389,7 @@ export default function BankStatementContent() {
           }
         }
 
-        let msg = `${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました`
+        let msg = `${receipts.length}件のレシートから${entries.length}件の仕訳を生成しました${periodNote(outOfPeriod)}`
         if (mapping.debitAccountColumn >= 0) {
           msg += `／借方科目 ${acctHit}件を科目マスタから設定`
           if (acctMiss.size > 0) {
@@ -1390,7 +1433,7 @@ export default function BankStatementContent() {
         // 学習パターンを適用（請求先名_内容 + 金額でマッチ）
         const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
         const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns())
-        setJournalEntries((prev) => [...prev, ...entries])
+        appendEntries(entries)
         setInfo(`${invoices.length}件の請求書から${entries.length}件の仕訳を生成しました`)
       } catch (err) {
         setError(err instanceof Error ? err.message : '請求書取り込みに失敗しました')
@@ -2104,11 +2147,11 @@ export default function BankStatementContent() {
         onGenerate={async (data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName, options) => {
           const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
           const entries = payrollToEntries(data, bankCode, bankName, deductAccounts, bankSubCode, bankSubName, accountTaxMaster, options)
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(`${data.period} 賃金台帳から${entries.length}件の仕訳を生成しました（${data.employees.length}名）`)
         }}
         onGenerateEntries={(entries, info) => {
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(info)
         }}
       />
@@ -2120,7 +2163,7 @@ export default function BankStatementContent() {
         accountMaster={accountMaster}
         subAccountMaster={subAccountMaster}
         onGenerateEntries={(entries, info) => {
-          setJournalEntries((prev) => [...prev, ...entries])
+          appendEntries(entries)
           setInfo(info)
         }}
       />
