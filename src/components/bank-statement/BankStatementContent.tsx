@@ -1177,6 +1177,9 @@ export default function BankStatementContent() {
         }
 
         const transactions: { usageDate: string; storeName: string; amount: number; memo: string }[] = []
+        // 借方勘定科目の列の生の値を、取引と同じ並びで控える（あとで行番号で突き合わせる）
+        const acctCol = mapping.debitAccountColumn != null && mapping.debitAccountColumn >= 0 ? mapping.debitAccountColumn : -1
+        const acctRaw: string[] = []
         for (const row of ccRawRows) {
           const date = parseDate(row.cells[dateCol] || '')
           if (!date) continue // ヘッダー・空行スキップ
@@ -1184,6 +1187,7 @@ export default function BankStatementContent() {
           if (isNaN(amount) || amount === 0) continue
           const storeName = descCols.map((c) => (row.cells[c] || '').trim()).filter(Boolean).join(' ')
           transactions.push({ usageDate: date, storeName, amount, memo: amount < 0 ? '返品・取消' : '' })
+          acctRaw.push(acctCol >= 0 ? (row.cells[acctCol] || '').trim() : '')
         }
         if (transactions.length === 0) throw new Error('有効なクレジットカード取引が見つかりませんでした（日付・金額の列を確認してください）。')
 
@@ -1210,43 +1214,36 @@ export default function BankStatementContent() {
         // 同名が複数あるときは 600番台（販管費）を優先。マスタに無いものは空欄のままにして後から直してもらう
         let ccAcctHit = 0
         const ccAcctMiss = new Set<string>()
-        if (mapping.debitAccountColumn != null && mapping.debitAccountColumn >= 0) {
+        if (acctCol >= 0) {
           const norm = (v: string) => String(v || '').normalize('NFKC').replace(/[\s　]+/g, '')
           const pick = (cands: AccountItem[]) =>
             cands.find((a) => { const n = parseInt(a.code, 10); return n >= 600 && n < 700 }) || cands[0] || null
           const { loadAccountTaxMaster, resolveAccountTax } = await import('@/lib/bank-statement/account-master')
           const taxMaster = loadAccountTaxMaster()
-          const col = mapping.debitAccountColumn
-          const byDate = new Map<string, string[]>()
-          for (const row of ccRawRows) {
-            const d = parseDate(row.cells[dateCol] || '')
-            if (!d) continue
-            const raw = (row.cells[col] || '').trim()
-            const k = d.replace(/-/g, '')
-            if (!byDate.has(k)) byDate.set(k, [])
-            byDate.get(k)!.push(raw)
-          }
-          const used = new Map<string, number>()
-          for (const e of entries) {
-            if (e.parentId) continue
-            const list = byDate.get(e.date) || []
-            const i = used.get(e.date) || 0
-            used.set(e.date, i + 1)
-            const raw = list[i] || ''
-            if (!raw) continue
+          // creditCardToEntries は取引1件につき仕訳1件を同じ順で作るので、行番号で対応づけできる
+          entries.forEach((e, i) => {
+            const raw = acctRaw[i] || ''
+            if (!raw) return
             const v = norm(raw)
             const acc = accountMaster.find((a) => a.code === v)
               || pick(accountMaster.filter((a) => norm(a.name) === v))
               || pick(accountMaster.filter((a) => norm(a.shortName) === v))
-            if (acc) {
-              e.debitCode = acc.code; e.debitName = acc.name; ccAcctHit++
+            if (!acc) { ccAcctMiss.add(raw); return }
+            const isRefund = (transactions[i]?.amount ?? 0) < 0
+            if (isRefund) {
+              // 返品・取消は貸借が逆（借方＝カード科目）なので、費用科目は貸方側へ
+              e.creditCode = acc.code; e.creditName = acc.name
+              if (!e.creditTaxCode) { const tax = resolveAccountTax(acc, taxMaster); if (tax) e.creditTaxCode = tax.taxCode }
+            } else {
+              e.debitCode = acc.code; e.debitName = acc.name
               if (!e.debitTaxCode) { const tax = resolveAccountTax(acc, taxMaster); if (tax) e.debitTaxCode = tax.taxCode }
-            } else ccAcctMiss.add(raw)
-          }
+            }
+            ccAcctHit++
+          })
         }
         const ccmDropped = appendEntries(entries)
         let ccMsg = `クレジットカード（列マッピング）: ${entries.length - ccmDropped}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）${periodNote(ccmDropped)}`
-        if (mapping.debitAccountColumn != null && mapping.debitAccountColumn >= 0) {
+        if (acctCol >= 0) {
           ccMsg += `／借方科目 ${ccAcctHit}件を科目マスタから設定`
           if (ccAcctMiss.size > 0) {
             const list = Array.from(ccAcctMiss).slice(0, 8).join('・')
