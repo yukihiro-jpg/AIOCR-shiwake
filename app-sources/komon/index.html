@@ -98,6 +98,17 @@
   .chip.amber{background:#feefc3;color:#b06000;} .chip.green{background:#e6f4ea;color:#137333;}
   .chip.red{background:#fce8e6;color:#c5221f;}
   .chip.pink{background:#fce4ec;color:#c2185b;}
+  /* 資料回収PDF取込の「取込前／取込後」比較 */
+  .di-tbl{width:100%;border-collapse:collapse;table-layout:fixed;}
+  .di-tbl th{background:#f1f3f4;font-size:12px;font-weight:600;padding:5px 8px;text-align:left;border:1px solid var(--border);}
+  .di-tbl td{border:1px solid var(--border);padding:0;vertical-align:top;}
+  .di-cell{padding:6px 9px;font-size:13px;line-height:1.5;}
+  .di-cell .di-cat{margin-left:8px;font-size:11px;color:#5f6368;background:#f1f3f4;border-radius:4px;padding:1px 6px;}
+  .di-cell .di-det{font-size:11.5px;color:#5f6368;margin-top:2px;}
+  .di-cell.di-none{color:#bdc1c6;}
+  .di-cell.di-add{background:#e6f4ea;}
+  .di-cell.di-chg{background:#feefc3;}
+  .di-cell.di-del{background:#fce8e6;text-decoration:line-through;text-decoration-color:#c5221f;}
   .amt-wrap{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;background:#fff;overflow:hidden;vertical-align:middle;}
   .amt-wrap:focus-within{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-soft);}
   .amt-wrap .pre{padding-left:8px;color:var(--danger);font-size:13px;font-weight:600;}
@@ -617,9 +628,9 @@
     <div class="hint" style="margin-bottom:12px">この顧問先だけの資料項目です。ここで保存すると、この顧問先のPDF・回収状況はこのリストで作成されます（他の顧問先には影響しません）。</div>
     <div class="row-flex" style="justify-content:space-between;margin-bottom:8px">
       <b style="font-size:13px">資料項目</b>
-      <span><button class="sm" onclick="dcLoadCommon()" title="共通リストの内容を読み込みます（現在の内容は置き換わります）">共通リストを読込</button> <button class="sm" onclick="addDocClientRow()">＋ 追加</button></span>
+      <span><button class="sm" onclick="openDocsImport(val('dc_tid'),val('dc_cid'))" title="既存の回収リストPDFからこの顧問先の資料項目を読み込みます">📥 PDFから取込</button> <button class="sm" onclick="dcLoadCommon()" title="共通リストの内容を読み込みます（現在の内容は置き換わります）">共通リストを読込</button> <button class="sm" onclick="addDocClientRow()">＋ 追加</button></span>
     </div>
-    <table><thead><tr><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
+    <table><thead><tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
   </div>
   <div class="modal-foot">
     <button class="text" onclick="resetDocClientCols()" title="この顧問先を共通リストに戻します">共通リストに戻す</button>
@@ -658,6 +669,40 @@
     <div class="add-row-list" id="docsPickList" style="max-height:340px;overflow:auto"></div>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('docsPickModal')">キャンセル</button><button class="primary" onclick="runDocsPickPdf()">選択した顧問先のPDFを作成</button></div>
+</div></div>
+
+<!-- 資料回収 PDF取込モーダル（①ファイル → ②顧問先の対応づけ → ③取込前後の比較 → 反映） -->
+<div class="modal-bg" id="docsImpModal"><div class="modal wide">
+  <div class="modal-head"><h3 id="di_title">回収リストPDFから取込</h3><button class="icon x" onclick="closeModal('docsImpModal')">✕</button></div>
+  <div class="modal-body">
+    <div id="di_step1">
+      <div class="hint" style="margin-bottom:12px" id="di_scope"></div>
+      <div class="field full" style="margin-bottom:10px"><label>回収リストのPDF</label>
+        <input type="file" id="di_file" accept="application/pdf,.pdf" onchange="docsImpFile(this)"></div>
+      <div class="hint">「分類／資料名／詳細」のような見出しの表が入ったPDFを読み取ります（1ページ＝1顧問先）。
+        文字が埋め込まれたPDFが対象で、紙をスキャンした画像だけのPDFは読み取れません。</div>
+      <div id="di_msg" style="margin-top:10px;font-size:13px;color:#b45309"></div>
+    </div>
+    <div id="di_step2" style="display:none">
+      <div class="hint" style="margin-bottom:10px">PDFの宛名と顧問先を突き合わせました。取込先が違うときは選び直してください。</div>
+      <div id="di_map" style="max-height:44vh;overflow:auto"></div>
+      <div class="row-flex" style="margin-top:12px;gap:14px;flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>取り込む資料項目の期限（任意・全項目に設定）</label><input type="date" id="di_due"></div>
+        <div style="align-self:flex-end;font-size:13px" id="di_count"></div>
+      </div>
+    </div>
+    <div id="di_step3" style="display:none">
+      <div class="hint" style="margin-bottom:10px" id="di_diffNote"></div>
+      <div id="di_diff" style="max-height:52vh;overflow:auto"></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="text" id="di_back" style="display:none" onclick="docsImpToPrev()">← 戻る</button>
+    <span style="flex:1"></span>
+    <button class="text" onclick="closeModal('docsImpModal')">キャンセル</button>
+    <button class="primary" id="di_next" style="display:none" onclick="docsImpPreview()">取込前後を比較する</button>
+    <button class="primary" id="di_apply" style="display:none" onclick="docsImpApply()">この内容で反映</button>
+  </div>
 </div></div>
 
 <!-- 一括入力モーダル -->
@@ -1631,6 +1676,9 @@ function nofuPageFromToks(toks){
   }).filter(l=>l.tAll);
   return {tol:45,lines};
 }
+/* 日本語（CIDフォント）のPDFは、CMapと標準フォントの場所を渡さないと文字を取り出せない
+   （指定しないと本文が空になり「読み取れません」になる）。自前配信のものを使う。 */
+const PDFJS_DOC_OPTS={cMapUrl:'__BASE_PATH__/vendor/pdfjs/cmaps/',cMapPacked:true,standardFontDataUrl:'__BASE_PATH__/vendor/pdfjs/standard_fonts/'};
 let _pdfjsLoading=null;
 function loadPdfjs(){
   if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
@@ -1647,7 +1695,7 @@ function loadPdfjs(){
 async function parseNofuPdf(file){
   const lib=await loadPdfjs();
   const buf=await file.arrayBuffer();
-  const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  const doc=await lib.getDocument(Object.assign({data:new Uint8Array(buf)},PDFJS_DOC_OPTS)).promise;
   const pages=[];
   for(let i=1;i<=doc.numPages;i++){
     const page=await doc.getPage(i); const vp=page.getViewport({scale:1});
@@ -2413,7 +2461,7 @@ function renderCustomList(kind){ const def=CUSTOM_DEFS[kind]; const list=cStore(
     html+=`<div class="card"><div class="empty"><div class="big">🗂</div>${msg}</div></div>`; document.getElementById(def.view).innerHTML=html; return; }
   html+=`<div class="card"><table><thead><tr><th>タイトル</th><th>対象</th><th>対象社数</th><th>${def.colWord}数</th><th>進捗</th><th></th></tr></thead><tbody>`+
     shown.map(t=>{ const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress(kind,t);
-      const pdfBtn=isDocs?`<button class="text sm" onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
+      const pdfBtn=isDocs?`<button class="text sm" onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFから資料項目を取り込みます">📥 PDF取込</button><button class="text sm" onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button class="text sm" onclick="generateDocsPDFs('${t.id}')">📄 一括PDF</button>`:'';
       const rollBtn=(isDocs&&!t.closed)?`<button class="text sm" onclick="rolloverDocs('${t.id}')" title="このリストを踏襲した翌年度の新規リストを作成し、このリストは終了分へ移動します">🔄 翌年度更新</button>`:'';
       // 資料回収は顧問先ごとに項目が異なりうるため、個別リストの社数も併記する
       const indivN=isDocs?cs.filter(c=>hasOwnDocCols(t,c.id)).length:0;
@@ -2471,7 +2519,7 @@ function exportCustom(kind){ const def=CUSTOM_DEFS[kind]; const t=cTable(kind,cu
 function openCustomCreate(kind,id){ const def=CUSTOM_DEFS[kind]; const t=id?cTable(kind,id):null;
   setVal('cm_kind',kind); setVal('cm_id',id||''); document.getElementById('cm_title').textContent=(id?'編集':'新規作成')+'（'+def.label+'）';
   document.getElementById('cm_colWord').textContent=def.colWord; document.getElementById('cm_titleInput').placeholder=def.titlePh;
-  document.getElementById('cm_colHead').innerHTML=def.items?`<tr><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr>`:`<tr><th style="text-align:left">名称</th><th style="text-align:left">期限（任意）</th><th></th></tr>`;
+  document.getElementById('cm_colHead').innerHTML=def.items?`<tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr>`:`<tr><th style="text-align:left">名称</th><th style="text-align:left">期限（任意）</th><th></th></tr>`;
   setVal('cm_titleInput',t?t.title:''); setVal('cm_selType',(t&&t.sel&&t.sel.type)||'all');
   customSel=t&&t.sel?JSON.parse(JSON.stringify(t.sel)):{type:'all'}; renderSelSub();
   document.getElementById('cm_cols').innerHTML=''; (t&&t.cols&&t.cols.length?t.cols:def.def.map(n=>({name:n}))).forEach(c=>addCustomColRow(c));
@@ -2493,11 +2541,11 @@ function gatherSel(){ const type=val('cm_selType'); const s={type};
   return s; }
 function addCustomColRow(c={}){ const tb=document.getElementById('cm_cols'); const tr=document.createElement('tr'); const docs=val('cm_kind')==='docs';
   tr.innerHTML=docs
-    ?`<td><input class="cc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="cc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="cc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`
+    ?`<td><input class="cc_cat" value="${esc(c.cat||'')}" placeholder="決算資料 等"></td><td><input class="cc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="cc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="cc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`
     :`<td><input class="cc_name" value="${esc(c.name||'')}" placeholder="名称"></td><td><input class="cc_due" type="date" value="${esc(c.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
   tb.appendChild(tr); }
 function saveCustomTable(){ const kind=val('cm_kind'); const title=val('cm_titleInput'); if(!title){ toast('タイトルを入力してください','err'); return; } const docs=kind==='docs';
-  const cols=[...document.querySelectorAll('#cm_cols tr')].map(tr=>{ const o={name:tr.querySelector('.cc_name').value.trim(),due:tr.querySelector('.cc_due').value}; if(docs){ o.detail=tr.querySelector('.cc_detail').value.trim(); o.memo=tr.querySelector('.cc_memo').value.trim(); } return o; }).filter(c=>c.name);
+  const cols=[...document.querySelectorAll('#cm_cols tr')].map(tr=>{ const o={name:tr.querySelector('.cc_name').value.trim(),due:tr.querySelector('.cc_due').value}; if(docs){ o.cat=tr.querySelector('.cc_cat').value.trim(); o.detail=tr.querySelector('.cc_detail').value.trim(); o.memo=tr.querySelector('.cc_memo').value.trim(); } return o; }).filter(c=>c.name);
   if(!cols.length){ toast(CUSTOM_DEFS[kind].colWord+'を1つ以上設定してください','err'); return; }
   const sel=gatherSel(); const id=val('cm_id');
   if(id){ const t=cTable(kind,id); t.title=title; t.sel=sel; t.cols=cols; }
@@ -2511,16 +2559,16 @@ function toggleDocStatus(id,cid,encName){ const name=decodeURIComponent(encName)
 function renderDocsDetail(){ const t=cTable('docs',customCurrent.docs); const cs=resolveSel(t.sel); const cols=t.cols||[]; const pr=tableProgress('docs',t);
   let html=`<div class="page-head"><button class="text" onclick="backCustom('docs')">← 一覧へ戻る</button>
     <h2 style="margin-left:6px">${esc(t.title)}</h2><span class="chip blue">${esc(selSummary(t.sel))}</span>
-    <div class="toolbar"><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
+    <div class="toolbar"><button onclick="openDocsImport('${t.id}')" title="既存の回収リストPDFを読み取って、顧問先ごとの資料項目として取り込みます">📥 PDFから取込</button><button onclick="openDocsPickPdf('${t.id}')" title="チェックした顧問先だけPDFを作成">📄 個別PDF</button><button onclick="generateDocsPDFs('${t.id}')">📄 一括PDF作成</button><button onclick="openCustomCreate('docs','${t.id}')">⚙ リスト編集</button><button onclick="openBulk()">🗂 進捗状況一括登録</button><button onclick="openDocTemplate()">📝 ヘッダーフッター編集</button><button onclick="exportCustom('docs')">📤 Excel出力</button></div></div>
     <div class="row-flex" style="margin-bottom:12px"><div class="pbar" style="width:200px"><span style="width:${pr.pct}%"></span></div> 回収 ${pr.done}/${pr.total}（${pr.pct}%）</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>対象の顧問先がありません。「⚙ 編集」で対象顧問先の条件をご確認ください。</div></div>`; setViewHtml('docsView',html); return; }
   const indiv=cs.filter(c=>hasOwnDocCols(t,c.id)).length;
   // 共通の資料項目（個別リストを設定していない顧問先に適用される既定）
   html+=`<div class="card pad" style="margin-bottom:14px"><b style="font-size:13px">共通の資料項目</b>
     <span class="muted" style="font-size:12px;margin-left:8px">個別リストを設定していない顧問先に適用されます（「⚙ リスト編集」で変更）</span>
-    <table style="margin-top:8px"><thead><tr><th>資料名</th><th>詳細</th><th>期限</th><th>所内メモ</th></tr></thead><tbody>`+
-    (cols.length?cols.map(it=>`<tr><td>${esc(it.name)}</td><td>${esc(it.detail||'')}</td><td>${it.due?esc(fmtMD(it.due)):''}</td><td class="muted">${esc(it.memo||'')}</td></tr>`).join('')
-      :`<tr><td colspan="4" class="muted">共通の資料項目は未設定です（顧問先ごとに個別リストを作成してください）</td></tr>`)+`</tbody></table></div>`;
+    <table style="margin-top:8px"><thead><tr><th>分類</th><th>資料名</th><th>詳細</th><th>期限</th><th>所内メモ</th></tr></thead><tbody>`+
+    (cols.length?cols.map(it=>`<tr><td class="muted">${esc(it.cat||'')}</td><td>${esc(it.name)}</td><td>${esc(it.detail||'')}</td><td>${it.due?esc(fmtMD(it.due)):''}</td><td class="muted">${esc(it.memo||'')}</td></tr>`).join('')
+      :`<tr><td colspan="5" class="muted">共通の資料項目は未設定です（顧問先ごとに個別リストを作成してください）</td></tr>`)+`</tbody></table></div>`;
   // 顧問先ごとの回収状況。資料項目は顧問先ごとに異なりうるため、1社1行＋項目チップで表示する
   let body=cs.map(c=>{ const ccols=docCols(t,c.id); let done=0;
     const chips=ccols.map(it=>{ const ok=docStatus(t,c.id,it.name); if(ok)done++;
@@ -2551,13 +2599,13 @@ function openDocClientCols(tid,cid){ const t=cTable('docs',tid); const c=data.cl
   docCols(t,cid).forEach(it=>addDocClientRow(it));
   openModal('docClientModal'); }
 function addDocClientRow(c={}){ const tb=document.getElementById('dc_cols'); const tr=document.createElement('tr');
-  tr.innerHTML=`<td><input class="dc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="dc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="dc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="dc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
+  tr.innerHTML=`<td><input class="dc_cat" value="${esc(c.cat||'')}" placeholder="決算資料 等"></td><td><input class="dc_name" value="${esc(c.name||'')}" placeholder="資料名"></td><td><input class="dc_detail" value="${esc(c.detail||'')}" placeholder="詳細"></td><td><input class="dc_due" type="date" value="${esc(c.due||'')}"></td><td><input class="dc_memo" value="${esc(c.memo||'')}" placeholder="所内メモ(PDF非表示)"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`;
   tb.appendChild(tr); }
 function dcLoadCommon(){ const t=cTable('docs',val('dc_tid')); if(!t)return;
   document.getElementById('dc_cols').innerHTML=''; (t.cols||[]).forEach(it=>addDocClientRow(it)); toast('共通リストを読み込みました','ok'); }
 function saveDocClientCols(){ const tid=val('dc_tid'), cid=val('dc_cid'); const t=cTable('docs',tid); if(!t)return;
   const cols=[...document.querySelectorAll('#dc_cols tr')].map(tr=>({
-    name:tr.querySelector('.dc_name').value.trim(), detail:tr.querySelector('.dc_detail').value.trim(),
+    cat:tr.querySelector('.dc_cat').value.trim(), name:tr.querySelector('.dc_name').value.trim(), detail:tr.querySelector('.dc_detail').value.trim(),
     due:tr.querySelector('.dc_due').value, memo:tr.querySelector('.dc_memo').value.trim() })).filter(c=>c.name);
   if(!cols.length){ toast('資料項目を1つ以上設定してください（共通リストに戻す場合は左下のボタン）','err'); return; }
   const r=cRow(t,cid); r.cols=cols; persist(); closeModal('docClientModal'); renderDocsDetail(); toast('この顧問先の資料項目を保存しました','ok'); }
@@ -2573,6 +2621,228 @@ function exportCustomDocs(t){ const cs=resolveSel(t.sel);
       const ok=docStatus(t,c.id,n); if(ok)done++; return ok?'回収済':'未回収'; });
     aoa.push([c.code||'',c.name,own?'個別':'共通',...row,(ccols.length?Math.round(done/ccols.length*100):0)+'%']); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'資料回収'); XLSX.writeFile(wb,`${(t.title||'資料回収').replace(/[\\/:*?"<>|]/g,'_')}_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
+/* ===== 資料回収：既存の回収リストPDFから取込 =====
+   事務所で以前から使っている「必要資料一式」PDF（1ページ＝1顧問先／分類・資料名・詳細の表）を
+   読み取り、顧問先ごとの資料項目（個別リスト）として取り込む。手入力の置き換えが目的。
+
+   【壊れにくくするための決め事】
+   ・列は見出し行（資料名を含む行）のラベルのx座標で仮決めし、そのうえで各列の実データの
+     最小xを「列の左端」として確定する。1行の中でxが列の左端に近いトークンだけが新しいセルの
+     始まりで、それ以外は直前のセルの続き（同じ行の折り返し・分割トークン）とみなす。
+     （見出しは中央そろえ・データは左そろえなので、中心座標で割ると列を取り違える）
+   ・行は「分類（無ければ資料名）」のトークンをアンカーにし、上下のアンカーとの中点までを1行分とする。
+     セルが縦中央そろえのため、資料名が2行に折り返すと分類の文字が2行目と同じ高さに来るので、
+     単純な「同じ高さ＝同じ行」では行がずれる。
+   ・アンカー同士の間隔が通常の行間よりはっきり狭いものは、折り返しとみなして1行に統合する。 */
+function docsPdfNorm(s){ return String(s||'').normalize('NFKC').replace(/[\s　]+/g,''); }
+/** 顧問先名の照合キー。loose=true では法人格（株式会社など）も落として比べる */
+function docsNameKey(s,loose){
+  let t=docsPdfNorm(s).replace(/(御中|様)$/,'');
+  if(loose)t=t.replace(/(株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人|医療法人社団|医療法人|社会福祉法人|特定非営利活動法人|\(株\)|\(有\)|\(名\)|\(資\)|\(同\))/g,'');
+  return t; }
+/* 表の終わり（差出人・結びの文）とみなす行 */
+const DOCS_PDF_END=/ご不明|^〒|TEL[:：]|FAX[:：]|会計事務所|敬具|以上$/;
+/** 1ページ分のトークン（{s,x,y,w}／yは上から下）を解釈して {name,rep,zip,addr,title,items[]} にする */
+function docsPdfParsePage(toks){
+  const rows=[];
+  toks.slice().filter(t=>t.s&&t.s.trim()).sort((a,b)=>a.y-b.y||a.x-b.x).forEach(t=>{
+    const r=rows.find(r=>Math.abs(r.y-t.y)<=3);
+    if(r){ r.items.push(t); } else rows.push({y:t.y,items:[t]}); });
+  rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));
+  const txt=r=>r.items.map(i=>i.s).join('').trim();
+  const hi=rows.findIndex(r=>/資料名/.test(docsPdfNorm(txt(r))));
+  const out={name:'',rep:'',zip:'',addr:'',title:'',items:[]};
+
+  // --- 宛名（表より上の行から拾う） ---
+  const top=rows.slice(0,hi<0?rows.length:hi).map(r=>({y:r.y,t:txt(r)})).filter(r=>r.t);
+  const zi=top.findIndex(r=>/〒/.test(r.t));
+  if(zi>=0){ const m=top[zi].t.match(/〒\s*([0-9０-９]{3}\s*-?\s*[0-9０-９]{4})/); if(m)out.zip=docsPdfNorm(m[1]); }
+  const cand=top.slice(zi>=0?zi+1:0).filter(r=>!/^〒/.test(r.t));
+  const ti=cand.findIndex(r=>/必要資料|資料一式|資料回収|ご準備|お願い/.test(r.t));
+  const head=ti>=0?cand.slice(0,ti):cand;
+  const ri=head.findIndex(r=>/様$/.test(r.t.replace(/[\s　]+$/,'')));
+  const oi=head.findIndex(r=>/御中$/.test(r.t.replace(/[\s　]+$/,'')));
+  if(oi>=0){ out.name=head[oi].t.replace(/[\s　]*御中$/,'').trim(); }
+  else if(ri>0){ out.name=head[ri-1].t.trim(); }
+  else if(head.length){ out.name=head[head.length-1].t.trim(); }
+  if(ri>=0)out.rep=head[ri].t.replace(/[\s　]*様$/,'').trim();
+  // 住所＝宛名より前で、都道府県や市区町村を含む行
+  const ai=head.findIndex(r=>/[都道府県]|[市区郡町村]/.test(r.t)&&r.t!==out.name);
+  if(ai>=0&&head[ai].t!==out.rep)out.addr=head[ai].t.trim();
+  if(ti>=0)out.title=cand[ti].t.trim();
+  if(hi<0)return out;
+
+  // --- 列（見出しのxで仮決め → 実データの最小xで確定） ---
+  const hx=[]; rows[hi].items.forEach(it=>{ const l=hx[hx.length-1];
+    if(l&&it.x-(l.x+l.w)<20){ l.label+=it.s; l.w=it.x+(it.w||0)-l.x; } else hx.push({x:it.x,w:it.w||0,label:it.s}); });
+  if(!hx.length)return out;
+  const bound=hx.slice(1).map((h,i)=>(hx[i].x+h.x)/2);      // 仮の列境界
+  const colOf=x=>{ let i=0; while(i<bound.length&&x>=bound[i])i++; return i; };
+  // データ行（表より下・結びの文の手前・表より明らかに左の行は差出人なので除く）
+  const left=hx[0].x-60;
+  let body=[];
+  for(let i=hi+1;i<rows.length;i++){ const r=rows[i]; const s=txt(r); if(!s)continue;
+    if(DOCS_PDF_END.test(docsPdfNorm(s)))break;
+    if(Math.min(...r.items.map(t=>t.x))<left)break;
+    body.push(r); }
+  if(!body.length)return out;
+  const colLeft=hx.map((_,i)=>{ const xs=[]; body.forEach(r=>r.items.forEach(t=>{ if(colOf(t.x)===i)xs.push(t.x); })); return xs.length?Math.min(...xs):hx[i].x; });
+  // 行内のトークンを列へ割り当て（列の左端に近いものだけが新しいセルの始まり）
+  const cellsOf=r=>{ const c=hx.map(()=>[]); let cur=0;
+    r.items.forEach(t=>{ let hit=-1; colLeft.forEach((cx,i)=>{ if(Math.abs(t.x-cx)<=12&&(hit<0||i>hit))hit=i; });
+      if(hit>=0)cur=hit; c[cur].push(t); }); return c; };
+
+  // --- 行のアンカー（分類。無ければ資料名）と、その上下の中点で1行分を切り出す ---
+  const li=hx.findIndex(h=>/資料名|書類名|品名/.test(docsPdfNorm(h.label)));
+  const ci=hx.findIndex(h=>/分類|区分|種別/.test(docsPdfNorm(h.label)));
+  const di=hx.findIndex(h=>/詳細|備考|内容|摘要/.test(docsPdfNorm(h.label)));
+  const dueI=hx.findIndex(h=>/期限|提出日/.test(docsPdfNorm(h.label)));
+  let anchorCol=ci>=0?ci:(li>=0?li:0);
+  const anchorYs=(()=>{ const ys=[]; body.forEach(r=>{ const c=cellsOf(r); if(c[anchorCol]&&c[anchorCol].length)ys.push(r.y); });
+    return ys.sort((a,b)=>a-b); })();
+  if(!anchorYs.length){ anchorCol=li>=0?li:0; body.forEach(r=>{ const c=cellsOf(r); if(c[anchorCol]&&c[anchorCol].length)anchorYs.push(r.y); }); anchorYs.sort((a,b)=>a-b); }
+  if(!anchorYs.length)return out;
+  // 折り返しでできた近すぎるアンカーは1行に統合する
+  const gaps=anchorYs.slice(1).map((y,i)=>y-anchorYs[i]).sort((a,b)=>a-b);
+  const med=gaps.length?gaps[Math.floor(gaps.length/2)]:0;
+  const anchors=anchorYs.filter((y,i)=>i===0||med<=0||(y-anchorYs[i-1])>med*0.6);
+  const bandOf=y=>{ for(let i=anchors.length-1;i>=0;i--){ const up=i===0?-1e9:(anchors[i-1]+anchors[i])/2; if(y>up)return i; } return 0; };
+  const buf=anchors.map(()=>hx.map(()=>[]));
+  body.forEach(r=>{ const c=cellsOf(r); const b=bandOf(r.y);
+    c.forEach((list,i)=>list.forEach(t=>buf[b][i].push({y:r.y,x:t.x,s:t.s}))); });
+  const join=a=>a.sort((p,q)=>p.y-q.y||p.x-q.x).map(t=>t.s).join('').replace(/[\s　]+/g,' ').trim();
+  out.items=buf.map(b=>({ cat:ci>=0?join(b[ci]):'', name:li>=0?join(b[li]):join(b[0]),
+    detail:di>=0?join(b[di]):'', due:dueI>=0?join(b[dueI]):'' })).filter(it=>it.name);
+  return out;
+}
+/** PDFファイルを読み、ページごとの解析結果を返す */
+async function parseDocsPdf(file){
+  const lib=await loadPdfjs();
+  const buf=await file.arrayBuffer();
+  const doc=await lib.getDocument(Object.assign({data:new Uint8Array(buf)},PDFJS_DOC_OPTS)).promise;
+  const pages=[];
+  for(let i=1;i<=doc.numPages;i++){
+    const page=await doc.getPage(i); const vp=page.getViewport({scale:1});
+    const tc=await page.getTextContent();
+    const toks=tc.items.filter(it=>it.str&&it.str.trim()).map(it=>({s:it.str,x:it.transform[4],y:vp.height-it.transform[5],w:it.width||0}));
+    const r=docsPdfParsePage(toks); r.page=i; pages.push(r);
+  }
+  return pages;
+}
+
+/* --- 取込UI（①ファイル選択 → ②顧問先の対応づけ → ③取込前後の比較 → 反映） --- */
+let docsImp={tid:null,cid:null,pages:[],map:[],due:''};
+function openDocsImport(tid,cid){ const t=cTable('docs',tid); if(!t)return;
+  docsImp={tid,cid:cid||null,pages:[],map:[],due:''};
+  const c=cid?data.clients.find(x=>x.id===cid):null;
+  document.getElementById('di_title').textContent=c?`${c.name||'顧問先'} の資料項目をPDFから取込`:'回収リストPDFから取込';
+  document.getElementById('di_scope').innerHTML=c
+    ?`この顧問先の資料項目だけを取り込みます。反映すると<b>この顧問先の個別リスト</b>になります。`
+    :`PDFの1ページ＝1顧問先として読み取り、<b>宛名と顧問先名が一致するもの</b>へまとめて取り込みます。反映すると各顧問先の<b>個別リスト</b>になります。`;
+  document.getElementById('di_file').value='';
+  docsImpStep(1); openModal('docsImpModal'); }
+function docsImpStep(n){ [1,2,3].forEach(i=>{ const el=document.getElementById('di_step'+i); if(el)el.style.display=(i===n?'':'none'); });
+  document.getElementById('di_back').style.display=n===1?'none':'';
+  document.getElementById('di_next').style.display=n===2?'':'none';
+  document.getElementById('di_apply').style.display=n===3?'':'none'; }
+async function docsImpFile(input){ const f=input.files&&input.files[0]; if(!f)return;
+  const msg=document.getElementById('di_msg'); msg.textContent='PDFを読み取っています…';
+  try{
+    const pages=await parseDocsPdf(f);
+    const withItems=pages.filter(p=>p.items.length);
+    if(!withItems.length){ msg.textContent='資料の表を読み取れませんでした。「分類／資料名／詳細」のような見出しのある表が含まれるPDFをお試しください（画像だけのPDFは読み取れません）。'; return; }
+    docsImp.pages=pages; msg.textContent='';
+    docsImpBuildMap(); docsImpStep(2);
+  }catch(e){ msg.textContent='読み取りに失敗しました：'+e.message; }
+}
+/** PDFの宛名と顧問先を自動で対応づける（完全一致 → 法人格を除いた一致） */
+function docsImpMatch(pdfName){
+  if(!pdfName)return '';
+  const t=cTable('docs',docsImp.tid); const inList=resolveSel(t.sel);
+  const pools=[inList,data.clients];
+  for(const loose of [false,true]) for(const pool of pools){
+    const k=docsNameKey(pdfName,loose);
+    const hit=pool.filter(c=>docsNameKey(c.name,loose)===k);
+    if(hit.length===1)return hit[0].id;
+  }
+  return ''; }
+function docsImpBuildMap(){
+  const t=cTable('docs',docsImp.tid); const inList=resolveSel(t.sel);
+  const inIds=inList.map(c=>c.id);
+  docsImp.map=docsImp.pages.map(p=>{
+    const cid=docsImp.cid?docsImp.cid:docsImpMatch(p.name);
+    return {cid,use:!!(cid&&p.items.length)&&(docsImp.cid?p.items.length>0:inIds.includes(cid))};
+  });
+  // 1社ぶんの取込では、その顧問先に一致するページだけを既定でONにする
+  if(docsImp.cid){ const c=data.clients.find(x=>x.id===docsImp.cid);
+    let best=-1; docsImp.pages.forEach((p,i)=>{ if(best<0&&c&&docsNameKey(p.name,true)===docsNameKey(c.name,true))best=i; });
+    if(best<0)docsImp.pages.forEach((p,i)=>{ if(best<0&&p.items.length)best=i; });
+    docsImp.map.forEach((m,i)=>{ m.use=(i===best); m.cid=docsImp.cid; }); }
+  docsImpRenderMap(); }
+function docsImpRenderMap(){
+  const t=cTable('docs',docsImp.tid); const inList=resolveSel(t.sel); const inIds=inList.map(c=>c.id);
+  const opts=cid=>['<option value="">（取り込まない）</option>'].concat(
+    data.clients.map(c=>`<option value="${c.id}" ${c.id===cid?'selected':''}>${esc((c.code?c.code+' ':'')+c.name)}${inIds.includes(c.id)?'':'（リスト対象外）'}</option>`)).join('');
+  const rows=docsImp.pages.map((p,i)=>{ const m=docsImp.map[i]; const none=!p.items.length;
+    const badge=none?'<span class="chip gray">資料なし</span>'
+      :(m.cid?(inIds.includes(m.cid)?'<span class="chip green">照合OK</span>':'<span class="chip blue">リスト対象外</span>')
+      :'<span class="chip red">未照合</span>');
+    return `<tr><td style="text-align:center">${p.page}</td>
+      <td>${esc(p.name||'(宛名を読み取れません)')}${p.rep?`<div class="muted" style="font-size:11px">${esc(p.rep)} 様</div>`:''}</td>
+      <td style="text-align:center">${p.items.length}</td><td>${badge}</td>
+      <td><select ${none||docsImp.cid?'disabled':''} onchange="docsImp.map[${i}].cid=this.value;docsImp.map[${i}].use=!!this.value;docsImpRenderMap()">${opts(m.cid)}</select></td>
+      <td style="text-align:center"><input type="checkbox" style="width:auto" ${m.use?'checked':''} ${none||!m.cid?'disabled':''} onchange="docsImp.map[${i}].use=this.checked"></td></tr>`; }).join('');
+  document.getElementById('di_map').innerHTML=`<table><thead><tr><th>ページ</th><th style="text-align:left">PDFの宛名</th><th>資料</th><th>照合</th><th style="text-align:left">取込先の顧問先</th><th>取込</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const n=docsImp.map.filter(m=>m.use&&m.cid).length;
+  document.getElementById('di_count').textContent=`${n}社を取り込みます`; }
+function docsImpToPrev(){ docsImpStep(2); }
+/** 取込前後の比較を作る（資料名で突き合わせ、追加・変更・削除を色分け） */
+function docsImpDiff(oldItems,newItems){
+  const rows=[]; const oldBy={}; (oldItems||[]).forEach(it=>{ oldBy[docsPdfNorm(it.name)]=it; });
+  const used={};
+  (newItems||[]).forEach(nit=>{ const k=docsPdfNorm(nit.name); const o=oldBy[k]; if(o)used[k]=1;
+    const same=o&&docsPdfNorm(o.detail||'')===docsPdfNorm(nit.detail||'')&&docsPdfNorm(o.cat||'')===docsPdfNorm(nit.cat||'');
+    rows.push({old:o||null,neu:nit,kind:!o?'add':(same?'same':'chg')}); });
+  (oldItems||[]).forEach(it=>{ if(!used[docsPdfNorm(it.name)])rows.push({old:it,neu:null,kind:'del'}); });
+  return rows; }
+function docsImpPreview(){
+  const t=cTable('docs',docsImp.tid); const due=val('di_due')||''; docsImp.due=due;
+  const targets=docsImp.map.map((m,i)=>({m,p:docsImp.pages[i]})).filter(x=>x.m.use&&x.m.cid&&x.p.items.length);
+  if(!targets.length){ toast('取り込む顧問先を選択してください','err'); return; }
+  const cell=(it,cls)=>it?`<div class="di-cell ${cls}"><b>${esc(it.name)}</b>${it.cat?`<span class="di-cat">${esc(it.cat)}</span>`:''}${it.detail?`<div class="di-det">${esc(it.detail)}</div>`:''}</div>`:'<div class="di-cell di-none">—</div>';
+  const html=targets.map(({m,p})=>{ const c=data.clients.find(x=>x.id===m.cid); const own=hasOwnDocCols(t,m.cid);
+    const oldItems=docCols(t,m.cid); const newItems=p.items.map(it=>Object.assign({},it,{due:due||'',memo:''}));
+    const d=docsImpDiff(oldItems,newItems);
+    const cnt={add:0,chg:0,del:0,same:0}; d.forEach(r=>cnt[r.kind]++);
+    return `<div class="card pad" style="margin-bottom:14px">
+      <div class="row-flex" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <b>${esc((c&&c.code?c.code+' ':'')+((c&&c.name)||'顧問先'))}</b>
+        <span class="muted" style="font-size:12px">PDF ${p.page}ページ目／取込前は${own?'個別リスト':'共通リスト'}（${oldItems.length}項目）→ 取込後 ${newItems.length}項目
+          ${cnt.add?`<span class="chip green">追加${cnt.add}</span>`:''}${cnt.chg?`<span class="chip amber">変更${cnt.chg}</span>`:''}${cnt.del?`<span class="chip red">削除${cnt.del}</span>`:''}</span>
+      </div>
+      <table class="di-tbl" style="margin-top:8px"><thead><tr><th style="width:50%">取込前（現在）</th><th style="width:50%">取込後（PDFの内容）</th></tr></thead><tbody>`+
+      d.map(r=>`<tr class="di-${r.kind}"><td>${cell(r.old,r.kind==='del'?'di-del':'')}</td><td>${cell(r.neu,r.kind==='add'?'di-add':(r.kind==='chg'?'di-chg':''))}</td></tr>`).join('')+
+      `</tbody></table></div>`; }).join('');
+  document.getElementById('di_diff').innerHTML=html;
+  document.getElementById('di_diffNote').textContent=`${targets.length}社ぶんの比較です。この内容でよければ「この内容で反映」を押してください。`;
+  docsImpStep(3); }
+function docsImpApply(){
+  const t=cTable('docs',docsImp.tid); if(!t)return;
+  const due=docsImp.due||'';
+  const targets=docsImp.map.map((m,i)=>({m,p:docsImp.pages[i]})).filter(x=>x.m.use&&x.m.cid&&x.p.items.length);
+  if(!targets.length)return;
+  // 1社ぶんの取込（個別リストモーダルから）は、保存せず編集欄に流し込む（利用者が調整してから保存できる）
+  if(docsImp.cid){ const p=targets[0].p;
+    document.getElementById('dc_cols').innerHTML='';
+    p.items.forEach(it=>addDocClientRow({name:it.name,detail:it.detail,cat:it.cat,due:due||'',memo:''}));
+    closeModal('docsImpModal'); toast('PDFの内容を読み込みました。内容を確認して「保存」を押してください','ok'); return; }
+  targets.forEach(({m,p})=>{ const r=cRow(t,m.cid);
+    r.cols=p.items.map(it=>({name:it.name,detail:it.detail||'',cat:it.cat||'',due:due||'',memo:''}));
+    // 回収状況は、取込後も残っている資料名の分だけ引き継ぐ（消えた項目の「済」は落とす）
+    if(r.status){ const keep={}; r.cols.forEach(c=>{ if(r.status[c.name])keep[c.name]=r.status[c.name]; }); r.status=keep; } });
+  persist(); closeModal('docsImpModal'); renderDocsDetail();
+  toast(`${targets.length}社の資料項目を取り込みました`,'ok'); }
+
 /* 案内文・宛名テンプレート */
 function openDocTemplate(){ const tpl=data.docTemplate||{}; const af=tpl.addr||{zip:true,addr:true,name:true,rep:true};
   document.getElementById('dt_zip').checked=af.zip!==false; document.getElementById('dt_addr').checked=af.addr!==false; document.getElementById('dt_name').checked=af.name!==false; document.getElementById('dt_rep').checked=!!af.rep;
@@ -2589,13 +2859,16 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   if(af.name&&c.name)addr+=`<div style="font-size:21px;font-weight:700;margin-top:8px">${esc(c.name)}${showRep?'':'　御中'}</div>`;
   if(showRep)addr+=`<div style="font-size:16px;margin-top:3px">${esc(c.rep)}　様</div>`;
   // 資料項目はその顧問先のリスト（個別リストがあればそれ、無ければ共通リスト）を使う
-  const items=docCols(t,c.id).map(it=>`<tr><td style="border:1px solid #888;padding:7px 10px">${esc(it.name)}</td><td style="border:1px solid #888;padding:7px 10px">${esc(it.detail||'')}</td><td style="border:1px solid #888;padding:7px 10px;text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
+  // 分類は入力があるときだけ列を出す（従来どおりの資料名・詳細・期限だけのリストは見た目を変えない）
+  const list=docCols(t,c.id); const hasCat=list.some(it=>(it.cat||'').trim());
+  const td='border:1px solid #888;padding:7px 10px';
+  const items=list.map(it=>`<tr>${hasCat?`<td style="${td}">${esc(it.cat||'')}</td>`:''}<td style="${td}">${esc(it.name)}</td><td style="${td}">${esc(it.detail||'')}</td><td style="${td};text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
   wrap.innerHTML=`<div style="height:38mm"></div>
     <div style="padding-left:8mm;min-height:30mm">${addr}</div>
     <div style="text-align:right;font-size:13px;margin:6px 0 14px">${esc(todayJP())}</div>
     <div style="text-align:center;font-size:20px;font-weight:700;margin:6px 0 16px">資料回収のお願い</div>
     <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin:0 0 18px">${esc(tpl.header||'')}</div>
-    <table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr><th style="border:1px solid #888;padding:7px 10px;background:#eef;text-align:left;width:30%">資料名</th><th style="border:1px solid #888;padding:7px 10px;background:#eef;text-align:left">詳細</th><th style="border:1px solid #888;padding:7px 10px;background:#eef;width:90px">期限</th></tr></thead><tbody>${items}</tbody></table>
+    <table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr>${hasCat?`<th style="${td};background:#eef;text-align:left;width:18%">分類</th>`:''}<th style="${td};background:#eef;text-align:left;width:${hasCat?'27%':'30%'}">資料名</th><th style="${td};background:#eef;text-align:left">詳細</th><th style="${td};background:#eef;width:90px">期限</th></tr></thead><tbody>${items}</tbody></table>
     <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin-top:20px">${esc(tpl.footer||'')}</div>`;
   return wrap; }
 /* 個別PDF：リスト内の顧問先をチェックボックスで選び、選んだ分だけPDFを作成する */
