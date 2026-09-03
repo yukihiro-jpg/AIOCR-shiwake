@@ -4,7 +4,7 @@
 
 import { getDb, serverNow } from '@/core/firebase'
 import { roomKey, modulePath } from '@/core/room'
-import { normalizeBirth } from './jdl-csv'
+import { normalizeBirth, extractPostal, extractDependents } from './jdl-csv'
 
 export const NENMATSU_KEY = 'nenmatsu'
 
@@ -309,8 +309,39 @@ export async function publishRoster(
     deadline: deadline || null,
     employees: map,
   })
+  // CSVから作った初期表示用データを従業員ごとに公開する。
+  // 【注意】名簿（roster）には住所などの平文PIIを載せない方針なので、従業員ごとの別ノードに置き、
+  // 従業員ページは本人確認が済んだ自分の分だけを読む（今年の提出内容と同じ公開範囲）。
+  const pre: Record<string, ReturnType<typeof prefillFromCsv>> = {}
+  for (const e of employees) {
+    const v = prefillFromCsv(e)
+    if (v.postal || v.address || v.spouse || v.dependents.length) pre[e.id] = v
+  }
+  await set(ref(db, publicPath(company.token, 'pre')), Object.keys(pre).length ? pre : null)
   // 前年の申告内容も一緒に公開する（従業員ページで前年と見比べられるように）
   try { await publishPrevDeclarations(yearId, company) } catch { /* 失敗しても名簿の公開は成立させる */ }
+}
+
+/** 取り込んだCSV（JDLの年調データ）から、従業員ページの初期表示に使う内容を作る。
+ *  JDLには前年に提出された扶養控除等申告書の内容（住所・扶養親族）が入っているので、
+ *  アプリでの提出実績がない初年度でも、従業員は空欄から入力せずに確認・修正だけで済む。
+ *  続柄が妻・夫・配偶者のものは配偶者欄に振り分ける（申告書の様式に合わせるため）。 */
+export function prefillFromCsv(e: NenmatsuEmployee): {
+  postal: string; address: string
+  spouse?: { name: string; kana: string; birth: string; income: string }
+  dependents: { name: string; kana: string; relation: string; birth: string; income: string }[]
+} {
+  const postal = extractPostal(e.rawCells)
+  const deps = extractDependents(e.rawCells)
+  const isSpouse = (r: string) => /妻|夫|配偶/.test(r || '')
+  const sp = deps.find((d) => isSpouse(d.relation))
+  return {
+    postal,
+    address: e.address || '',
+    spouse: sp ? { name: sp.name, kana: sp.kana, birth: sp.birth, income: sp.income } : undefined,
+    dependents: deps.filter((d) => !isSpouse(d.relation))
+      .map((d) => ({ name: d.name, kana: d.kana, relation: d.relation, birth: d.birth, income: d.income })),
+  }
 }
 
 /** 前年度のID（'R9' → 'R8'）。年度が1つ前に無い場合は null */
@@ -359,6 +390,19 @@ function randomToken(): string {
 
 // ===== 従業員側（公開ページ）：トークンのみで nenmatsu-public/{token} を読み書きする =====
 // roomKey は受け取らない（外部に渡るURLへ載せないため）。
+
+/** 事務所に登録されている内容（CSV由来）を取得（従業員ページ用・本人の分だけ） */
+export async function loadPrefillPublic(
+  token: string,
+  empId: string,
+): Promise<ReturnType<typeof prefillFromCsv> | null> {
+  if (!token || !empId) return null
+  try {
+    const { db, ref, get } = await dbfns()
+    const v = (await get(ref(db, publicPath(token, 'pre', empId)))).val() as ReturnType<typeof prefillFromCsv> | null
+    return v && (v.postal || v.address || v.spouse || (v.dependents || []).length) ? v : null
+  } catch { return null }
+}
 
 /** 前年の申告内容を取得（従業員ページ用）。本人確認が済んだ従業員の分だけを読む */
 export async function loadPrevDeclarationPublic(

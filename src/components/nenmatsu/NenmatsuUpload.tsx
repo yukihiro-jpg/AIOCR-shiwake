@@ -6,6 +6,7 @@ import {
   submitDocsPublic,
   getSubmissionPublic,
   loadPrevDeclarationPublic,
+  loadPrefillPublic,
   sha256Hex,
   type NenmatsuEmployee,
   type PublicEmployee,
@@ -40,6 +41,8 @@ export default function NenmatsuUpload() {
   // 前年に提出した申告内容（在籍中の方のみ）。初期表示に使い、見比べ用にも残しておく
   const [prev, setPrev] = useState<{ yearLabel: string; submittedAt: string; declaration: Declaration } | null>(null)
   const [showPrev, setShowPrev] = useState(false)
+  // 初期表示が「事務所に登録されている内容（CSV由来）」だったか（前年の提出が無い初年度）
+  const [fromCsv, setFromCsv] = useState(false)
   const [noChange, setNoChange] = useState(false)
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
   // 写真ごとのOCR適性警告（キー: docKey|name|size|lastModified）
@@ -124,12 +127,28 @@ export default function NenmatsuUpload() {
     const { birthHash, ...rest } = emp
     void birthHash
     setMe({ ...rest, birth: input, birthRaw: input, address: '' })
-    // 前年に提出があればその内容を初期表示にする（毎年ゼロから入力させないため）。
-    // 氏名・カナ・生年月日は名簿と本人確認の値を正とする。
-    const p = params ? await loadPrevDeclarationPublic(params.t, emp.id) : null
+    // 初期表示は「①このアプリでの前年の提出 ②事務所に登録されている内容（JDLのCSV由来）」の順で使う。
+    // ①が無い初年度でも、②に前年の扶養控除等申告書の内容（住所・扶養親族）が入っているので、
+    // 従業員は空欄から入力せず、確認・修正だけで済む。
+    const [p, csv] = params
+      ? await Promise.all([loadPrevDeclarationPublic(params.t, emp.id), loadPrefillPublic(params.t, emp.id)])
+      : [null, null]
     setPrev(p)
     setShowPrev(false)
-    const base = p ? { ...emptyDeclaration(false), ...p.declaration } : emptyDeclaration(false)
+    let src: Declaration | null = p ? { ...emptyDeclaration(false), ...p.declaration } : null
+    if (!src && csv) {
+      src = {
+        ...emptyDeclaration(false),
+        postal: csv.postal || '',
+        address: csv.address || '',
+        spouse: csv.spouse
+          ? { exists: true, name: csv.spouse.name || '', kana: csv.spouse.kana || '', birth: csv.spouse.birth || '', income: csv.spouse.income || '' }
+          : emptySpouse(),
+        dependents: (csv.dependents || []).map((x) => ({ ...emptyDependent(), name: x.name || '', kana: x.kana || '', relation: x.relation || '', birth: x.birth || '', income: x.income || '' })),
+      }
+    }
+    setFromCsv(!p && !!csv)
+    const base = src || emptyDeclaration(false)
     const d: Declaration = {
       ...base,
       isNewHire: false,
@@ -140,10 +159,9 @@ export default function NenmatsuUpload() {
       kanaLast: emp.kanaLast,
       kanaFirst: emp.kanaFirst,
       birth: input,
-      spouse: { ...emptySpouse(), ...(p?.declaration?.spouse || {}) },
-      dependents: (p?.declaration?.dependents || []).map((x) => ({ ...emptyDependent(), ...x })),
+      spouse: { ...emptySpouse(), ...(base.spouse || {}) },
+      dependents: (base.dependents || []).map((x) => ({ ...emptyDependent(), ...x })),
     }
-    if (!p) d.address = ''
     setDecl(d)
     setNoChange(false)
     setPhase('declare')
@@ -464,7 +482,9 @@ export default function NenmatsuUpload() {
                   ? '本人・配偶者・扶養親族の情報を入力してください。紙の申告書のご提出は不要です。'
                   : prev
                     ? `${prev.yearLabel}にご提出いただいた内容を表示しています。変更があれば直してください。`
-                    : '前年のご提出がないため、空欄から入力してください。'}
+                    : fromCsv
+                      ? '会社に登録されている内容（前年の扶養控除等申告書）を表示しています。変更があれば直してください。'
+                      : '登録されている内容がないため、空欄から入力してください。'}
               </p>
 
               {/* 前年との見比べ。変更点は自動で拾って一覧にする */}
