@@ -309,6 +309,44 @@ export async function publishRoster(
     deadline: deadline || null,
     employees: map,
   })
+  // 前年の申告内容も一緒に公開する（従業員ページで前年と見比べられるように）
+  try { await publishPrevDeclarations(yearId, company) } catch { /* 失敗しても名簿の公開は成立させる */ }
+}
+
+/** 前年度のID（'R9' → 'R8'）。年度が1つ前に無い場合は null */
+export function prevYearId(yearId: string): string | null {
+  const m = /^R(\d+)$/.exec(yearId || '')
+  if (!m) return null
+  const n = Number(m[1]) - 1
+  return n >= 1 ? `R${n}` : null
+}
+
+/**
+ * 前年に提出された申告内容を、今年の公開ノードへ写す（従業員が前年と見比べられるようにするため）。
+ * 従業員IDは社員コード由来で年をまたいでも同じなので、そのままキーにできる。
+ *
+ * 【公開範囲について】写す先は今年と同じ会社トークンの配下で、
+ * すでに今年の提出内容（submissions/{empId}.declaration）が置かれている場所と同じ。
+ * 同じ会社の従業員同士は提出物が相互に見える設計上のトレードオフ（CLAUDE.md）の範囲内で、
+ * 新しい種類の公開は増やしていない。マイナンバーは元よりどこにも保存しない。
+ */
+export async function publishPrevDeclarations(
+  yearId: string,
+  company: NenmatsuCompany,
+): Promise<void> {
+  if (!company.token) return
+  const prev = prevYearId(yearId)
+  if (!prev) return
+  const { db, ref, set } = await dbfns()
+  let subs: Record<string, SubmissionRecord> = {}
+  try { subs = await loadSubmissions(prev, company.clientId) } catch { return }
+  const map: Record<string, { yearId: string; yearLabel: string; submittedAt: string; declaration: unknown }> = {}
+  const label = `令和${prev.replace(/^R/, '')}年度`
+  for (const [empId, rec] of Object.entries(subs)) {
+    if (!rec || !rec.declaration) continue
+    map[empId] = { yearId: prev, yearLabel: label, submittedAt: rec.submittedAt || '', declaration: rec.declaration }
+  }
+  await set(ref(db, publicPath(company.token, 'prev')), Object.keys(map).length ? map : null)
 }
 
 function randomToken(): string {
@@ -321,6 +359,21 @@ function randomToken(): string {
 
 // ===== 従業員側（公開ページ）：トークンのみで nenmatsu-public/{token} を読み書きする =====
 // roomKey は受け取らない（外部に渡るURLへ載せないため）。
+
+/** 前年の申告内容を取得（従業員ページ用）。本人確認が済んだ従業員の分だけを読む */
+export async function loadPrevDeclarationPublic(
+  token: string,
+  empId: string,
+): Promise<{ yearLabel: string; submittedAt: string; declaration: import('./declaration').Declaration } | null> {
+  if (!token || !empId) return null
+  try {
+    const { db, ref, get } = await dbfns()
+    const v = (await get(ref(db, publicPath(token, 'prev', empId)))).val() as
+      { yearLabel?: string; submittedAt?: string; declaration?: import('./declaration').Declaration } | null
+    if (!v || !v.declaration) return null
+    return { yearLabel: v.yearLabel || '前年', submittedAt: v.submittedAt || '', declaration: v.declaration }
+  } catch { return null }
+}
 
 /** 会社名と名簿を取得（従業員ページ用）。token が無効なら null */
 export async function loadCompanyPublic(

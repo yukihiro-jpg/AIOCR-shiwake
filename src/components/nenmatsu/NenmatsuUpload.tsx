@@ -5,6 +5,7 @@ import {
   loadCompanyPublic,
   submitDocsPublic,
   getSubmissionPublic,
+  loadPrevDeclarationPublic,
   sha256Hex,
   type NenmatsuEmployee,
   type PublicEmployee,
@@ -13,7 +14,7 @@ import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import { checkPhotoQuality } from '@/lib/nenmatsu/photo-check'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
-import { emptyDeclaration, type Declaration } from '@/lib/nenmatsu/declaration'
+import { emptyDeclaration, emptySpouse, emptyDependent, type Declaration } from '@/lib/nenmatsu/declaration'
 import DeclarationForm from './DeclarationForm'
 
 type Phase = 'loading' | 'error' | 'select' | 'verify' | 'declare' | 'docs' | 'done'
@@ -36,6 +37,9 @@ export default function NenmatsuUpload() {
   const [verifyErr, setVerifyErr] = useState('')
   const [me, setMe] = useState<NenmatsuEmployee | null>(null)
   const [decl, setDecl] = useState<Declaration | null>(null)
+  // 前年に提出した申告内容（在籍中の方のみ）。初期表示に使い、見比べ用にも残しておく
+  const [prev, setPrev] = useState<{ yearLabel: string; submittedAt: string; declaration: Declaration } | null>(null)
+  const [showPrev, setShowPrev] = useState(false)
   const [noChange, setNoChange] = useState(false)
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
   // 写真ごとのOCR適性警告（キー: docKey|name|size|lastModified）
@@ -120,17 +124,36 @@ export default function NenmatsuUpload() {
     const { birthHash, ...rest } = emp
     void birthHash
     setMe({ ...rest, birth: input, birthRaw: input, address: '' })
-    // 氏名・カナは公開名簿から、生年月日は入力値をプリセット
-    const d = emptyDeclaration(false)
-    d.lastName = emp.lastName
-    d.firstName = emp.firstName
-    d.kanaLast = emp.kanaLast
-    d.kanaFirst = emp.kanaFirst
-    d.birth = input
-    d.address = ''
+    // 前年に提出があればその内容を初期表示にする（毎年ゼロから入力させないため）。
+    // 氏名・カナ・生年月日は名簿と本人確認の値を正とする。
+    const p = params ? await loadPrevDeclarationPublic(params.t, emp.id) : null
+    setPrev(p)
+    setShowPrev(false)
+    const base = p ? { ...emptyDeclaration(false), ...p.declaration } : emptyDeclaration(false)
+    const d: Declaration = {
+      ...base,
+      isNewHire: false,
+      noChange: false,
+      confirmedAt: undefined,
+      lastName: emp.lastName,
+      firstName: emp.firstName,
+      kanaLast: emp.kanaLast,
+      kanaFirst: emp.kanaFirst,
+      birth: input,
+      spouse: { ...emptySpouse(), ...(p?.declaration?.spouse || {}) },
+      dependents: (p?.declaration?.dependents || []).map((x) => ({ ...emptyDependent(), ...x })),
+    }
+    if (!p) d.address = ''
     setDecl(d)
     setNoChange(false)
     setPhase('declare')
+  }
+
+  /** 1つ前の画面へ戻る。入力内容・撮影済みの写真はそのまま残す。 */
+  function goBack() {
+    if (phase === 'verify') { setVerifyErr(''); setPhase('select'); return }
+    if (phase === 'declare') { setPhase(decl?.isNewHire ? 'select' : 'verify'); return }
+    if (phase === 'docs') { setPhase('declare'); return }
   }
 
   function proceedToDocs() {
@@ -271,6 +294,37 @@ export default function NenmatsuUpload() {
     setProgress('')
   }
 
+  // 前年と今の入力の違いを一覧にする（見比べ用。金額・住所などは文字列で比べる）
+  const prevDiff = useMemo(() => {
+    if (!prev || !decl) return []
+    const a = prev.declaration, b = decl
+    const yen = (v: string) => (v ? `${Number(String(v).replace(/[^0-9]/g, '') || 0).toLocaleString('ja-JP')}円` : '未入力')
+    const rows: { label: string; before: string; after: string }[] = []
+    const add = (label: string, before: string, after: string) => {
+      if ((before || '') !== (after || '')) rows.push({ label, before: before || '（なし）', after: after || '（なし）' })
+    }
+    add('郵便番号', a.postal, b.postal)
+    add('住所', a.address, b.address)
+    add('世帯主', a.householder, b.householder)
+    add('続柄', a.householderRelation, b.householderRelation)
+    add('本人の障害者区分', a.selfDisability, b.selfDisability)
+    add('寡婦／ひとり親', a.widow, b.widow)
+    add('勤労学生', a.workingStudent ? '該当' : '非該当', b.workingStudent ? '該当' : '非該当')
+    add('配偶者', a.spouse?.exists ? '有' : '無', b.spouse?.exists ? '有' : '無')
+    if (a.spouse?.exists || b.spouse?.exists) {
+      add('配偶者の氏名', a.spouse?.name || '', b.spouse?.name || '')
+      add('配偶者の生年月日', a.spouse?.birth || '', b.spouse?.birth || '')
+      add('配偶者の年収', yen(a.spouse?.income || ''), yen(b.spouse?.income || ''))
+    }
+    const an = a.dependents?.length || 0, bn = b.dependents?.length || 0
+    add('扶養親族の人数', `${an}人`, `${bn}人`)
+    for (let i = 0; i < Math.max(an, bn); i++) {
+      const x = a.dependents?.[i], y = b.dependents?.[i]
+      add(`扶養${i + 1}人目`, x ? `${x.name}（${x.relation}・${yen(x.income)}）` : '', y ? `${y.name}（${y.relation}・${yen(y.income)}）` : '')
+    }
+    return rows
+  }, [prev, decl])
+
   if (phase === 'loading') return <Center>読み込み中...</Center>
   if (phase === 'error')
     return (
@@ -314,7 +368,15 @@ export default function NenmatsuUpload() {
             <span key={n} className={`flex-1 h-1.5 rounded ${n <= stepNo ? 'bg-blue-600' : 'bg-blue-100'}`} />
           ))}
         </div>
-        <div className="text-[13px] font-semibold text-gray-600 mt-1.5">ステップ {stepNo} / 4　{stepName}</div>
+        <div className="flex items-center justify-between mt-1.5">
+          <div className="text-[13px] font-semibold text-gray-600">ステップ {stepNo} / 4　{stepName}</div>
+          {(phase === 'verify' || phase === 'declare' || phase === 'docs') && (
+            <button onClick={goBack}
+              className="text-[15px] font-bold text-blue-700 border-[1.5px] border-blue-600 rounded-lg px-3 py-1 bg-white hover:bg-blue-50">
+              ← 前に戻る
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="max-w-md mx-auto p-4">
@@ -400,8 +462,64 @@ export default function NenmatsuUpload() {
               <p className="text-[14px] text-gray-500 leading-relaxed">
                 {decl.isNewHire
                   ? '本人・配偶者・扶養親族の情報を入力してください。紙の申告書のご提出は不要です。'
-                  : '前年の情報をもとに表示しています。変更があれば修正してください。'}
+                  : prev
+                    ? `${prev.yearLabel}にご提出いただいた内容を表示しています。変更があれば直してください。`
+                    : '前年のご提出がないため、空欄から入力してください。'}
               </p>
+
+              {/* 前年との見比べ。変更点は自動で拾って一覧にする */}
+              {!decl.isNewHire && prev && (
+                <div className="mt-3 border-[1.5px] border-blue-200 bg-blue-50 rounded-xl px-3.5 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[14px] font-bold text-blue-900">
+                      {prevDiff.length === 0
+                        ? `✓ ${prev.yearLabel}から変更はありません`
+                        : `${prev.yearLabel}から ${prevDiff.length}か所 変わっています`}
+                    </div>
+                    <button onClick={() => setShowPrev((v) => !v)}
+                      className="shrink-0 text-[14px] font-bold text-blue-700 border-[1.5px] border-blue-500 rounded-lg px-2.5 py-1 bg-white">
+                      {showPrev ? '閉じる' : '前年の内容を見る'}
+                    </button>
+                  </div>
+                  {prevDiff.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {prevDiff.map((r) => (
+                        <li key={r.label} className="text-[14px] leading-relaxed text-gray-800">
+                          <span className="font-semibold">{r.label}</span>：
+                          <span className="text-gray-500 line-through">{r.before}</span>
+                          <span className="mx-1">→</span>
+                          <span className="font-bold text-blue-800">{r.after}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {showPrev && (
+                    <div className="mt-3 bg-white border border-blue-200 rounded-lg px-3 py-2.5 text-[14px] leading-relaxed text-gray-800">
+                      <div className="font-bold text-gray-700 mb-1">{prev.yearLabel}のご提出内容</div>
+                      <div>住所：{prev.declaration.postal ? `〒${prev.declaration.postal} ` : ''}{prev.declaration.address || '（なし）'}</div>
+                      <div>世帯主：{prev.declaration.householder || '（なし）'}{prev.declaration.householderRelation ? `（${prev.declaration.householderRelation}）` : ''}</div>
+                      <div>本人の障害者区分：{prev.declaration.selfDisability}／寡婦・ひとり親：{prev.declaration.widow}／勤労学生：{prev.declaration.workingStudent ? '該当' : '非該当'}</div>
+                      <div className="mt-1 font-semibold">配偶者</div>
+                      <div>{prev.declaration.spouse?.exists
+                        ? `${prev.declaration.spouse.name || '（氏名なし）'}　${prev.declaration.spouse.birth || ''}　年収 ${Number(String(prev.declaration.spouse.income || '').replace(/[^0-9]/g, '') || 0).toLocaleString('ja-JP')}円`
+                        : 'なし'}</div>
+                      <div className="mt-1 font-semibold">扶養親族（{prev.declaration.dependents?.length || 0}人）</div>
+                      {(prev.declaration.dependents || []).length === 0 ? <div>なし</div> : (
+                        <ul className="list-disc pl-5">
+                          {(prev.declaration.dependents || []).map((x, i) => (
+                            <li key={i}>{x.name || '（氏名なし）'}（{x.relation || '続柄なし'}・{x.birth || '生年月日なし'}・年収 {Number(String(x.income || '').replace(/[^0-9]/g, '') || 0).toLocaleString('ja-JP')}円・{x.liveTogether ? '同居' : '別居'}）</li>
+                          ))}
+                        </ul>
+                      )}
+                      {prev.submittedAt && (
+                        <div className="text-[12px] text-gray-500 mt-2">
+                          提出日：{new Date(prev.submittedAt).toLocaleDateString('ja-JP')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {!decl.isNewHire && (
                 <label className={`flex items-center gap-3 border-[1.5px] rounded-xl px-4 py-3.5 text-[18px] font-semibold mt-3 ${noChange ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700'}`}>
                   <input type="checkbox" className="w-6 h-6 accent-blue-600" checked={noChange} onChange={(e) => setNoChange(e.target.checked)} />
