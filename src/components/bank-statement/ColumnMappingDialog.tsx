@@ -31,6 +31,7 @@ const CREDIT_CARD_ROLES = [
   { key: 'dateColumn', label: '利用日', color: 'bg-blue-100 border-blue-400', multi: false },
   { key: 'descriptionColumn', label: '利用内容（摘要）', color: 'bg-green-100 border-green-400', multi: true },
   { key: 'depositColumn', label: '利用金額', color: 'bg-yellow-100 border-yellow-400', multi: false },
+  { key: 'debitAccountColumn', label: '借方勘定科目', color: 'bg-indigo-100 border-indigo-400', multi: false },
 ] as const
 
 export default function ColumnMappingDialog({ rawPages, initialMapping, onConfirm, onCancel, mode = 'bank', accountMaster }: Props) {
@@ -46,6 +47,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
     amountColumn: initialMapping?.signedAmountColumn ?? -1,
     directionColumn: initialMapping?.directionColumn ?? -1,
     balanceColumn: initialMapping?.balanceColumn ?? -1,
+    debitAccountColumn: initialMapping?.debitAccountColumn ?? -1,
   })
   const [descColumns, setDescColumns] = useState<number[]>(
     initialMapping?.descriptionColumns || (initialMapping?.descriptionColumn != null && initialMapping.descriptionColumn >= 0 ? [initialMapping.descriptionColumn] : [])
@@ -136,6 +138,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
       signedAmountColumn: useSingleAmount ? mapping.amountColumn : undefined,
       directionColumn: useDirection ? mapping.directionColumn : undefined,
       extraColumns: validExtras.length > 0 ? validExtras : undefined,
+      debitAccountColumn: mapping.debitAccountColumn >= 0 ? mapping.debitAccountColumn : undefined,
     }, { expandAbbreviations })
   }
 

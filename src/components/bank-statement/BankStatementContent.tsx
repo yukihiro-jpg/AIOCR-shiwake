@@ -323,6 +323,8 @@ export default function BankStatementContent() {
   const [invoiceRawRows, setInvoiceRawRows] = useState<RawTableRow[] | null>(null)
   // クレジットカード（Excel/CSV）列マッピング用（自動検出失敗時のフォールバック）
   const [showCcColumnMapping, setShowCcColumnMapping] = useState(false)
+  // カード明細の列マッピングの初期値（見出しから推測したたたき台）
+  const [ccInitialMapping, setCcInitialMapping] = useState<ColumnMapping | undefined>(undefined)
   const [ccRawRows, setCcRawRows] = useState<RawTableRow[] | null>(null)
   // レシート・領収書（Excel/CSV）列マッピング用
   const [showReceiptColumnMapping, setShowReceiptColumnMapping] = useState(false)
@@ -537,58 +539,39 @@ export default function BankStatementContent() {
           const isCsvOrExcel = fName.endsWith('.csv') || fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.ods')
 
           if (isCsvOrExcel) {
-            // クレジットカード CSV/Excel 処理（コード解析、Gemini不要）
-            const { parseCreditCardCsv, creditCardToEntries } = await import('@/lib/bank-statement/credit-card-mapper')
-            const ccData = await parseCreditCardCsv(config.file)
-            if (!ccData || ccData.transactions.length === 0) {
-              // 自動検出に失敗 → 列マッピング画面で手動指定（現金出納帳と同様）
-              let rows: RawTableRow[] = []
-              if (fName.endsWith('.csv')) {
-                const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
-                const text = decodeCsvText(await config.file.arrayBuffer())
-                rows = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
-                  .map((l, i) => ({ cells: parseCsvLine(l), rowIndex: i }))
-              } else {
-                const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
-                const sheets = await parseExcel(config.file)
-                rows = sheets[0]?.rows || []
-              }
-              clearInterval(progressTimer)
-              setLoadingProgress(0)
-              if (rows.length === 0) throw new Error('クレジットカードのファイルから行を読み取れませんでした。')
-              setUploadConfig(config)
-              uploadConfigRef.current = config
-              setCcRawRows(rows)
-              setShowCcColumnMapping(true)
-              setIsLoading(false)
-              return
+            // クレジットカード CSV/Excel は必ず列マッピング画面を通す。
+            // 自動判定にまかせると、カード会社ごとに列構成が違うため（SMBCは「明細」と「摘要」が
+            // 別列で店名が「明細」側にある）、店名が空のまま取り込まれるなど静かに壊れる。
+            // 見出しから推測した内容を初期値として入れておくので、ふだんは確認して「確定」を押すだけ。
+            let rows: RawTableRow[] = []
+            if (fName.endsWith('.csv')) {
+              const { decodeCsvText } = await import('@/lib/bank-statement/transaction-extractor')
+              const text = decodeCsvText(await config.file.arrayBuffer())
+              rows = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
+                .map((l, i) => ({ cells: parseCsvLine(l), rowIndex: i }))
+            } else {
+              const { parseExcel } = await import('@/lib/bank-statement/excel-parser')
+              const sheets = await parseExcel(config.file)
+              rows = sheets[0]?.rows || []
             }
-            const entries = creditCardToEntries(ccData, config.creditCode!, config.creditName!, config.creditSubCode, config.creditSubName)
-            // 左側表示用に仮想ページを生成（元データの一覧表示）
-            const ccPages: StatementPage[] = [{
-              pageIndex: 0,
-              transactions: clipRows(ccData.transactions).map((t, i) => ({
-                id: `cc-tx-${Date.now()}-${i}`,
-                pageIndex: 0,
-                rowIndex: i,
-                date: t.usageDate,
-                description: t.storeName,
-                deposit: t.amount > 0 ? t.amount : null,
-                withdrawal: t.amount < 0 ? Math.abs(t.amount) : null,
-                balance: 0,
-              })),
-              openingBalance: 0,
-              closingBalance: ccData.totalAmount,
-              isBalanceValid: true,
-              balanceDifference: 0,
-            }]
-            setPages((prev) => [...prev, ...ccPages])
-            // accountCode にカード科目をセット（残高計算用）
-            setUploadConfig({ ...config, accountCode: config.creditCode || '', accountName: config.creditName || '' })
-            const ccDropped = appendEntries(entries)
-            setInfo(`クレジットカードCSV: ${entries.length - ccDropped}件の取引を検出（引落総額: ¥${ccData.totalAmount.toLocaleString()}）${periodNote(ccDropped)}`)
             clearInterval(progressTimer)
-            setLoadingProgress(100)
+            setLoadingProgress(0)
+            if (rows.length === 0) throw new Error('クレジットカードのファイルから行を読み取れませんでした。')
+            const { guessCreditCardColumns } = await import('@/lib/bank-statement/credit-card-mapper')
+            const g = guessCreditCardColumns(rows)
+            setCcInitialMapping(g ? {
+              dateColumn: g.dateColumn,
+              descriptionColumn: g.descriptionColumns[0] ?? -1,
+              descriptionColumns: g.descriptionColumns.length > 1 ? g.descriptionColumns : undefined,
+              depositColumn: g.depositColumn,
+              withdrawalColumn: -1,
+              balanceColumn: -1,
+              debitAccountColumn: g.debitAccountColumn,
+            } : undefined)
+            setUploadConfig(config)
+            uploadConfigRef.current = config
+            setCcRawRows(rows)
+            setShowCcColumnMapping(true)
             setIsLoading(false)
             return
           }
@@ -1223,8 +1206,54 @@ export default function BankStatementContent() {
         }]
         setPages((prev) => [...prev, ...ccPages])
         setUploadConfig({ ...uploadConfig, accountCode: uploadConfig.creditCode || '', accountName: uploadConfig.creditName || '' })
+        // 借方勘定科目の列が指定されていれば、その科目名（またはコード）を科目マスタと照合して借方に入れる。
+        // 同名が複数あるときは 600番台（販管費）を優先。マスタに無いものは空欄のままにして後から直してもらう
+        let ccAcctHit = 0
+        const ccAcctMiss = new Set<string>()
+        if (mapping.debitAccountColumn != null && mapping.debitAccountColumn >= 0) {
+          const norm = (v: string) => String(v || '').normalize('NFKC').replace(/[\s　]+/g, '')
+          const pick = (cands: AccountItem[]) =>
+            cands.find((a) => { const n = parseInt(a.code, 10); return n >= 600 && n < 700 }) || cands[0] || null
+          const { loadAccountTaxMaster, resolveAccountTax } = await import('@/lib/bank-statement/account-master')
+          const taxMaster = loadAccountTaxMaster()
+          const col = mapping.debitAccountColumn
+          const byDate = new Map<string, string[]>()
+          for (const row of ccRawRows) {
+            const d = parseDate(row.cells[dateCol] || '')
+            if (!d) continue
+            const raw = (row.cells[col] || '').trim()
+            const k = d.replace(/-/g, '')
+            if (!byDate.has(k)) byDate.set(k, [])
+            byDate.get(k)!.push(raw)
+          }
+          const used = new Map<string, number>()
+          for (const e of entries) {
+            if (e.parentId) continue
+            const list = byDate.get(e.date) || []
+            const i = used.get(e.date) || 0
+            used.set(e.date, i + 1)
+            const raw = list[i] || ''
+            if (!raw) continue
+            const v = norm(raw)
+            const acc = accountMaster.find((a) => a.code === v)
+              || pick(accountMaster.filter((a) => norm(a.name) === v))
+              || pick(accountMaster.filter((a) => norm(a.shortName) === v))
+            if (acc) {
+              e.debitCode = acc.code; e.debitName = acc.name; ccAcctHit++
+              if (!e.debitTaxCode) { const tax = resolveAccountTax(acc, taxMaster); if (tax) e.debitTaxCode = tax.taxCode }
+            } else ccAcctMiss.add(raw)
+          }
+        }
         const ccmDropped = appendEntries(entries)
-        setInfo(`クレジットカード（列マッピング）: ${entries.length - ccmDropped}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）${periodNote(ccmDropped)}`)
+        let ccMsg = `クレジットカード（列マッピング）: ${entries.length - ccmDropped}件の取引を検出（合計: ¥${totalAmount.toLocaleString()}）${periodNote(ccmDropped)}`
+        if (mapping.debitAccountColumn != null && mapping.debitAccountColumn >= 0) {
+          ccMsg += `／借方科目 ${ccAcctHit}件を科目マスタから設定`
+          if (ccAcctMiss.size > 0) {
+            const list = Array.from(ccAcctMiss).slice(0, 8).join('・')
+            ccMsg += `（マスタに無い科目は空欄: ${list}${ccAcctMiss.size > 8 ? ` ほか${ccAcctMiss.size - 8}件` : ''}）`
+          }
+        }
+        setInfo(ccMsg)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'クレジットカードの取り込みに失敗しました')
       } finally {
@@ -1232,7 +1261,7 @@ export default function BankStatementContent() {
         setCcRawRows(null)
       }
     },
-    [ccRawRows, uploadConfig],
+    [ccRawRows, uploadConfig, accountMaster, appendEntries, periodNote],
   )
 
   const handleReceiptColumnMappingConfirm = useCallback(
@@ -2064,6 +2093,7 @@ export default function BankStatementContent() {
         <ColumnMappingDialog
           mode="credit-card"
           rawPages={[ccRawRows]}
+          initialMapping={ccInitialMapping}
           accountMaster={accountMaster}
           onConfirm={handleCcColumnMappingConfirm}
           onCancel={() => {

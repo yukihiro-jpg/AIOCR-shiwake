@@ -196,6 +196,9 @@ export interface ColumnMapping {
   directionColumn?: number
   extraColumns?: { col: number; name: string; direction: 'credit' | 'debit' }[]
   memoColumn?: number
+  /** 借方勘定科目の列（クレジットカードで科目名/コードが入っている明細のとき）。
+   *  マスタに無い科目は空欄のまま取り込み、ユーザーがあとから直す */
+  debitAccountColumn?: number
   columnXPositions?: number[]
 }
 

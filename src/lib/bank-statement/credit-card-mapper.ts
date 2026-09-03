@@ -152,6 +152,42 @@ const EXCLUDE_KEYWORDS = ['前回分口座振替金額', '口座振替', '繰越
  *   46055                                         Excelの日付シリアル値（書式が消えて数値になった表）
  *   Date オブジェクト / ISO文字列                  cellDates:true で読んだセル
  */
+/**
+ * カード明細のCSV/Excelの見出しから、列マッピングの初期値を推測する。
+ * 取込前に必ずマッピング画面を出す方針にしたので、ここでは「たたき台」を作るだけ。
+ * （自動判定にまかせて画面を飛ばすと、SMBCのように「明細」と「摘要」が別列にある
+ *   明細で店名が空のまま取り込まれてしまう）
+ */
+export function guessCreditCardColumns(rows: { cells: string[] }[]): {
+  dateColumn: number; descriptionColumns: number[]; depositColumn: number; debitAccountColumn?: number
+} | null {
+  const norm = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/[\s　]+/g, '')
+  // 見出し行＝日付らしい語を含む行のうち最初のもの（先頭10行から探す）
+  let hi = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const cs = (rows[i]?.cells || []).map(norm)
+    if (cs.some((c) => /(利用日|取引日|ご利用日|使用日|日付|引落日)/.test(c))) { hi = i; break }
+  }
+  if (hi < 0) return null
+  const h = (rows[hi].cells || []).map(norm)
+  const findBy = (re: RegExp, skip?: RegExp) =>
+    h.findIndex((c) => re.test(c) && !(skip && skip.test(c)))
+  // 日付は「引落日」より「利用日・取引日」を優先（引落日は全行同じ値のことが多い）
+  const dateColumn = (() => {
+    const use = findBy(/(利用日|取引日|ご利用日|使用日)/, /引落|振替|支払日/)
+    return use >= 0 ? use : findBy(/(日付|引落日|振替日)/)
+  })()
+  const depositColumn = findBy(/(利用金額|支払金額|ご利用金額|金額|請求額)/, /税|手数料|残高/)
+  const debitAccountColumn = findBy(/(勘定科目|科目)/)
+  // 摘要は「明細・利用店名・摘要・内容」に当たる列をすべて拾って結合する
+  const descriptionColumns = h.map((c, i) => ({ c, i }))
+    .filter(({ c, i }) => i !== dateColumn && i !== depositColumn && i !== debitAccountColumn &&
+      /(明細|利用店名|ご利用先|利用先|店名|摘要|内容|備考|memo|使用者)/i.test(c))
+    .map(({ i }) => i)
+  if (dateColumn < 0 || depositColumn < 0) return null
+  return { dateColumn, descriptionColumns, depositColumn, debitAccountColumn: debitAccountColumn >= 0 ? debitAccountColumn : undefined }
+}
+
 export function parseCcDate(raw: unknown): string {
   if (raw instanceof Date && !isNaN(raw.getTime())) {
     return `${raw.getFullYear()}-${String(raw.getMonth() + 1).padStart(2, '0')}-${String(raw.getDate()).padStart(2, '0')}`
