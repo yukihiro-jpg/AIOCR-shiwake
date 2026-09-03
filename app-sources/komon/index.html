@@ -98,6 +98,13 @@
   .chip.amber{background:#feefc3;color:#b06000;} .chip.green{background:#e6f4ea;color:#137333;}
   .chip.red{background:#fce8e6;color:#c5221f;}
   .chip.pink{background:#fce4ec;color:#c2185b;}
+  /* 資料項目（分類・資料名・詳細…）の編集表。列幅を決めて入力欄いっぱいに文字を出す */
+  .item-tbl{width:100%;table-layout:fixed;}
+  .item-tbl th{font-size:12px;}
+  .item-tbl td{padding:4px 5px;}
+  .item-tbl input{width:100%;min-width:0;}
+  .item-tbl col.c-cat{width:15%;} .item-tbl col.c-name{width:24%;} .item-tbl col.c-detail{width:27%;}
+  .item-tbl col.c-due{width:150px;} .item-tbl col.c-memo{width:auto;} .item-tbl col.c-del{width:42px;}
   /* 資料回収PDF取込の「取込前／取込後」比較 */
   .di-tbl{width:100%;border-collapse:collapse;table-layout:fixed;}
   .di-tbl th{background:#f1f3f4;font-size:12px;font-weight:600;padding:5px 8px;text-align:left;border:1px solid var(--border);}
@@ -599,7 +606,7 @@
 </div></div>
 
 <!-- 任意進捗（その他・資料回収）作成モーダル -->
-<div class="modal-bg" id="customModal"><div class="modal wide">
+<div class="modal-bg" id="customModal"><div class="modal xwide">
   <div class="modal-head"><h3 id="cm_title">新規作成</h3><button class="icon x" onclick="closeModal('customModal')">✕</button></div>
   <div class="modal-body">
     <input type="hidden" id="cm_kind"><input type="hidden" id="cm_id">
@@ -615,13 +622,13 @@
     </select></div>
     <div id="cm_selSub" style="margin-bottom:16px"></div>
     <div class="row-flex" style="justify-content:space-between;margin-bottom:8px"><b style="font-size:13px" id="cm_colWord">工程</b><button class="sm" onclick="addCustomColRow()">＋ 追加</button></div>
-    <table><thead id="cm_colHead"></thead><tbody id="cm_cols"></tbody></table>
+    <table class="item-tbl" id="cm_tbl"><colgroup id="cm_colGroup"></colgroup><thead id="cm_colHead"></thead><tbody id="cm_cols"></tbody></table>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('customModal')">キャンセル</button><button class="primary" onclick="saveCustomTable()">保存</button></div>
 </div></div>
 
 <!-- 資料回収 顧問先ごとの資料項目モーダル -->
-<div class="modal-bg" id="docClientModal"><div class="modal wide">
+<div class="modal-bg" id="docClientModal"><div class="modal xwide">
   <div class="modal-head"><h3 id="dc_title">顧問先ごとの資料項目</h3><button class="icon x" onclick="closeModal('docClientModal')">✕</button></div>
   <div class="modal-body">
     <input type="hidden" id="dc_tid"><input type="hidden" id="dc_cid">
@@ -630,7 +637,8 @@
       <b style="font-size:13px">資料項目</b>
       <span><button class="sm" onclick="openDocsImport(val('dc_tid'),val('dc_cid'))" title="既存の回収リストPDFからこの顧問先の資料項目を読み込みます">📥 PDFから取込</button> <button class="sm" onclick="dcLoadCommon()" title="共通リストの内容を読み込みます（現在の内容は置き換わります）">共通リストを読込</button> <button class="sm" onclick="addDocClientRow()">＋ 追加</button></span>
     </div>
-    <table><thead><tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
+    <table class="item-tbl"><colgroup><col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del"></colgroup>
+      <thead><tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr></thead><tbody id="dc_cols"></tbody></table>
   </div>
   <div class="modal-foot">
     <button class="text" onclick="resetDocClientCols()" title="この顧問先を共通リストに戻します">共通リストに戻す</button>
@@ -2519,6 +2527,9 @@ function exportCustom(kind){ const def=CUSTOM_DEFS[kind]; const t=cTable(kind,cu
 function openCustomCreate(kind,id){ const def=CUSTOM_DEFS[kind]; const t=id?cTable(kind,id):null;
   setVal('cm_kind',kind); setVal('cm_id',id||''); document.getElementById('cm_title').textContent=(id?'編集':'新規作成')+'（'+def.label+'）';
   document.getElementById('cm_colWord').textContent=def.colWord; document.getElementById('cm_titleInput').placeholder=def.titlePh;
+  document.getElementById('cm_colGroup').innerHTML=def.items
+    ?'<col class="c-cat"><col class="c-name"><col class="c-detail"><col class="c-due"><col class="c-memo"><col class="c-del">'
+    :'<col class="c-name"><col class="c-due"><col class="c-del">';
   document.getElementById('cm_colHead').innerHTML=def.items?`<tr><th style="text-align:left">分類</th><th style="text-align:left">資料名</th><th style="text-align:left">詳細</th><th style="text-align:left">期限（任意）</th><th style="text-align:left">所内メモ</th><th></th></tr>`:`<tr><th style="text-align:left">名称</th><th style="text-align:left">期限（任意）</th><th></th></tr>`;
   setVal('cm_titleInput',t?t.title:''); setVal('cm_selType',(t&&t.sel&&t.sel.type)||'all');
   customSel=t&&t.sel?JSON.parse(JSON.stringify(t.sel)):{type:'all'}; renderSelSub();
