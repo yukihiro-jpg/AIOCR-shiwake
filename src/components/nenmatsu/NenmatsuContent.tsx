@@ -1230,7 +1230,12 @@ function CompanyDetail({
         if (pd) baseline = baselineFromDeclaration(pd, prevLabel)
         else {
           const pre = prefillFromCsv(e)
-          if (pre.postal || pre.address || pre.spouse || pre.dependents.length) baseline = baselineFromCsv(pre)
+          if (pre.postal || pre.address || pre.spouse || pre.dependents.length) {
+            baseline = baselineFromCsv(pre, '会社の登録内容', {
+              lastName: e.lastName, firstName: e.firstName,
+              kanaLast: e.kanaLast, kanaFirst: e.kanaFirst, birth: e.birth,
+            })
+          }
         }
         return {
           employeeName: `${e.lastName} ${e.firstName}`.trim(),

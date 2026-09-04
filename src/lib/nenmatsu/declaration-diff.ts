@@ -17,6 +17,11 @@ export interface Baseline {
   /** 何を基準にしたか（Excelに書く） */
   source: 'prev' | 'csv' | 'none'
   sourceLabel: string // 例: 「令和8年度の提出」「会社の登録内容」
+  lastName: string
+  firstName: string
+  kanaLast: string
+  kanaFirst: string
+  birth: string
   postal: string
   address: string
   householder: string
@@ -52,6 +57,7 @@ const yen = (v: unknown) => {
 export function emptyBaseline(): Baseline {
   return {
     source: 'none', sourceLabel: '',
+    lastName: '', firstName: '', kanaLast: '', kanaFirst: '', birth: '',
     postal: '', address: '', householder: '', householderRelation: '',
     selfDisability: '非該当', widow: '非該当', workingStudent: false,
     spouse: { exists: false, name: '', kana: '', birth: '', income: '' },
@@ -63,6 +69,8 @@ export function emptyBaseline(): Baseline {
 export function baselineFromDeclaration(d: Declaration, label: string): Baseline {
   return {
     source: 'prev', sourceLabel: label,
+    lastName: s(d.lastName), firstName: s(d.firstName),
+    kanaLast: s(d.kanaLast), kanaFirst: s(d.kanaFirst), birth: s(d.birth),
     postal: s(d.postal), address: s(d.address),
     householder: s(d.householder), householderRelation: s(d.householderRelation),
     selfDisability: s(d.selfDisability) || '非該当',
@@ -83,10 +91,14 @@ export function baselineFromDeclaration(d: Declaration, label: string): Baseline
 export function baselineFromCsv(
   pre: { postal?: string; address?: string; spouse?: { name: string; kana: string; birth: string; income: string }; dependents?: { name: string; kana: string; relation: string; birth: string; income: string }[] },
   label = '会社の登録内容',
+  /** 名簿（CSV）の本人。氏名・フリガナ・生年月日の直しも変更点として拾うために使う */
+  self?: { lastName?: string; firstName?: string; kanaLast?: string; kanaFirst?: string; birth?: string },
 ): Baseline {
   return {
     ...emptyBaseline(),
     source: 'csv', sourceLabel: label,
+    lastName: s(self?.lastName), firstName: s(self?.firstName),
+    kanaLast: s(self?.kanaLast), kanaFirst: s(self?.kanaFirst), birth: s(self?.birth),
     postal: s(pre.postal), address: s(pre.address),
     spouse: pre.spouse
       ? { exists: true, name: s(pre.spouse.name), kana: s(pre.spouse.kana), birth: s(pre.spouse.birth), income: s(pre.spouse.income) }
@@ -97,14 +109,20 @@ export function baselineFromCsv(
   }
 }
 
-/** 扶養親族の同一人物判定。氏名（表記ゆれ吸収）＋生年月日で結び付け、
- *  生年月日が入っていない登録もあるので氏名だけでも一致とみなす。 */
-function sameDependent(a: { name: string; birth: string }, b: { name: string; birth: string }): boolean {
+/** 扶養親族の同一人物判定。氏名・フリガナ・生年月日のどれかで結び付ける。
+ *  氏名だけで突き合わせると、漢字の誤りを直しただけで「削除＋新規」に見えてしまうため、
+ *  フリガナ＋生年月日、または生年月日＋続柄が一致すれば同じ人として扱う（＝氏名の修正になる）。 */
+function sameDependent(
+  a: { name: string; kana?: string; birth: string; relation?: string },
+  b: { name: string; kana?: string; birth: string; relation?: string },
+): boolean {
   const an = norm(a.name), bn = norm(b.name)
-  if (!an || !bn) return false
-  if (an !== bn) return false
   const ab = norm(a.birth), bb = norm(b.birth)
-  return !ab || !bb || ab === bb
+  const ak = norm(a.kana), bk = norm(b.kana)
+  if (an && bn && an === bn) return !ab || !bb || ab === bb   // 氏名一致（生年月日が食い違わない）
+  if (ak && bk && ak === bk && ab && bb && ab === bb) return true // フリガナ＋生年月日
+  if (ab && bb && ab === bb && norm(a.relation) && norm(a.relation) === norm(b.relation)) return true // 生年月日＋続柄
+  return false
 }
 
 function depLabel(i: number, d: { name: string; relation: string }): string {
@@ -142,6 +160,11 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
     if (!s(before)) push('added', 'self', label, '', s(after), field)
     else push('modified', 'self', label, s(before), s(after), field)
   }
+  cmp('lastName', '姓', base.lastName, s(d.lastName))
+  cmp('firstName', '名', base.firstName, s(d.firstName))
+  cmp('kanaLast', 'フリガナ（姓）', base.kanaLast, s(d.kanaLast))
+  cmp('kanaFirst', 'フリガナ（名）', base.kanaFirst, s(d.kanaFirst))
+  cmp('birth', '生年月日', base.birth, s(d.birth))
   cmp('postal', '郵便番号', base.postal, s(d.postal))
   cmp('address', '住所', base.address, s(d.address))
   cmp('householder', '世帯主', base.householder, s(d.householder))
@@ -156,6 +179,7 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   else if (bs.exists && !ds.exists) push('removed', 'spouse', '配偶者', spouseText(bs), '')
   else if (bs.exists && ds.exists) {
     if (norm(bs.name) !== norm(ds.name)) push('modified', 'spouse', '配偶者の氏名', bs.name, s(ds.name), 'name')
+    if (norm(bs.kana) !== norm(ds.kana)) push('modified', 'spouse', '配偶者のフリガナ', bs.kana, s(ds.kana), 'kana')
     if (norm(bs.birth) !== norm(ds.birth)) push('modified', 'spouse', '配偶者の生年月日', bs.birth, s(ds.birth), 'birth')
     if (norm(bs.income) !== norm(ds.income)) push('modified', 'spouse', '配偶者の年収', yen(bs.income), yen(ds.income), 'income')
   }
@@ -164,7 +188,8 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   const deps: DepInfo[] = d.dependents || []
   const usedBase = new Set<number>()
   deps.forEach((dep, i) => {
-    const bi = base.dependents.findIndex((b, k) => !usedBase.has(k) && sameDependent(b, { name: s(dep.name), birth: s(dep.birth) }))
+    const bi = base.dependents.findIndex((b, k) => !usedBase.has(k)
+      && sameDependent(b, { name: s(dep.name), kana: s(dep.kana), birth: s(dep.birth), relation: s(dep.relation) }))
     if (bi < 0) {
       if (s(dep.name) || s(dep.relation)) {
         push('added', `dep${i}`, depLabel(i, { name: s(dep.name), relation: s(dep.relation) }), '',
@@ -175,6 +200,8 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
     usedBase.add(bi)
     const b = base.dependents[bi]
     const lab = depLabel(i, { name: s(dep.name), relation: s(dep.relation) })
+    if (norm(b.name) !== norm(dep.name)) push('modified', `dep${i}`, `${lab} の氏名`, b.name, s(dep.name), 'name')
+    if (norm(b.kana) !== norm(dep.kana)) push('modified', `dep${i}`, `${lab} のフリガナ`, b.kana || '', s(dep.kana), 'kana')
     if (norm(b.relation) !== norm(dep.relation)) push('modified', `dep${i}`, `${lab} の続柄`, b.relation, s(dep.relation), 'relation')
     if (norm(b.birth) !== norm(dep.birth)) push('modified', `dep${i}`, `${lab} の生年月日`, b.birth, s(dep.birth), 'birth')
     if (norm(b.income) !== norm(dep.income)) push('modified', `dep${i}`, `${lab} の年収`, yen(b.income), yen(dep.income), 'income')

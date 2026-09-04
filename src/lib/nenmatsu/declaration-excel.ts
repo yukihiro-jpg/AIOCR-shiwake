@@ -31,6 +31,7 @@ const DEL_INK = 'FF7A828C'
 
 /** 本人行の項目名 → 列番号（1始まり）。修正されたセルだけを塗るために使う */
 const SELF_FIELD_COL: Record<string, number> = {
+  lastName: 3, firstName: 3, kanaLast: 4, kanaFirst: 4, birth: 6,
   selfDisability: 8, widow: 9, workingStudent: 10, postal: 13, address: 14,
   householder: 15, householderRelation: 15,
 }
