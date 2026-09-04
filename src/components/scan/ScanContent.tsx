@@ -64,7 +64,7 @@ import {
   type ScanCashEntry,
   type ScanStatus,
 } from '@/lib/scan/store'
-import { analyzeBatchAndSave, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
+import { analyzeBatchAndSave, analyzeOnePage, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import FolderBrowser, { type BrowserFile, FileTypeBadge, folderPathLabel, uniqueZipPath, PreviewModal, buildPreview, previewUnsupportedMessage, type PreviewState, ExpiryNote, FOLDER_COLOR } from '@/components/scan/FolderBrowser'
@@ -964,9 +964,61 @@ function BatchDetail({
   const [transferOpen, setTransferOpen] = useState(false)
   const [loadedSaved, setLoadedSaved] = useState(false) // 保存済み解析の読込完了（自動保存の暴発防止）
   const [activeImg, setActiveImg] = useState<number | null>(null)
-  const imgRefs = useRef<(HTMLImageElement | null)[]>([])
+  const imgRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [pageBusy, setPageBusy] = useState<number | null>(null)
   const [kind, setKind] = useState<ScanAnalysisKind | null>(docTypeToKind(batch.docType))
   const [meta, setMeta] = useState<ScanAnalysisMeta | undefined>(undefined)
+  // 画像ペインの幅（境目をドラッグして変更・端末ごとに記憶）
+  const [leftW, setLeftW] = useState<number>(() => {
+    if (typeof window === 'undefined') return 340
+    const v = Number(localStorage.getItem('scan-analysis-left-w'))
+    return v >= 200 && v <= 1000 ? v : 340
+  })
+  const [wide, setWide] = useState(false) // md以上（横並び）かどうか
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+  // 画像ごとの表示状態（拡大率・回転）
+  const [imgView, setImgView] = useState<Record<number, { zoom: number; rot: number }>>({})
+  const [lightbox, setLightbox] = useState<number | null>(null)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const apply = () => setWide(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+
+  // 境目のドラッグ（押している間だけ window で追う。ドラッグ中は文字選択を止める）
+  useEffect(() => {
+    function move(e: MouseEvent) {
+      const d = dragRef.current
+      if (!d) return
+      const w = Math.min(1000, Math.max(200, d.startW + (e.clientX - d.startX)))
+      setLeftW(w)
+    }
+    function up() {
+      if (!dragRef.current) return
+      dragRef.current = null
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('scan-analysis-left-w', String(leftW)) } catch { /* ignore */ }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  }, [leftW])
+
+  // 全画面ビューアは Esc で閉じる
+  useEffect(() => {
+    if (lightbox == null) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox])
+
+  function view(i: number) { return imgView[i] || { zoom: 1, rot: 0 } }
+  function setView(i: number, patch: Partial<{ zoom: number; rot: number }>) {
+    setImgView((prev) => ({ ...prev, [i]: { ...(prev[i] || { zoom: 1, rot: 0 }), ...patch } }))
+  }
 
   // 書類種類ごとの表の列定義（key=行データのフィールド、num=数値入力）
   // w は列の最小幅(px)。入力欄は w-full で列いっぱいに広がるので、
@@ -1031,6 +1083,10 @@ function BatchDetail({
     ],
   }
   const colSpecs = COLSPECS[kind || 'receipt']
+  // 列幅の合計（＋削除ボタン列48px）。各列はこの比率で伸縮する
+  const colTotalW = colSpecs.reduce((s, c) => s + c.w, 0) + 48
+  // これ以上狭くすると読めないという下限（合計の7割）。ここから先だけ横スクロールになる
+  const tableMinW = Math.round(colTotalW * 0.7)
 
   useEffect(() => {
     ;(async () => {
@@ -1090,6 +1146,34 @@ function BatchDetail({
     setProgress('')
   }
 
+  // 1枚ごとの再解析ができる書類種類（通帳・カード明細は書類全体で読むので対象外）
+  const perPageOk = kind === 'receipt' || kind === 'invoice-sales' || kind === 'invoice-purchase'
+
+  /** その画像から作られた行の数（0なら読み取れていない＝再解析か手入力が必要） */
+  function rowCountByPage(i: number): number {
+    return rows.filter((r) => r.pageIndex === i).length
+  }
+
+  /** 1枚だけ解析し直して、その画像の行だけを置き換える（他の画像の行は触らない） */
+  async function analyzeOne(i: number) {
+    setAnalyzeErr('')
+    setPageBusy(i)
+    try {
+      const fresh = await analyzeOnePage(company.token, batch, i, (m) => setProgress(m))
+      if (!fresh.length) {
+        setAnalyzeErr(`${i + 1}枚目からは読み取れませんでした。ピントや明るさを確認して撮り直すか、「行を追加」で手入力してください。`)
+      }
+      setRows((prev) => [...prev.filter((r) => r.pageIndex !== i), ...fresh].sort(
+        (a, b) => (a.pageIndex ?? 999) - (b.pageIndex ?? 999),
+      ))
+      setActiveImg(i)
+    } catch (e) {
+      setAnalyzeErr(`${i + 1}枚目の解析に失敗しました：` + (e instanceof Error ? e.message : ''))
+    }
+    setPageBusy(null)
+    setProgress('')
+  }
+
   function updateRow(idx: number, patch: Partial<ReceiptRow>) {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
@@ -1097,7 +1181,9 @@ function BatchDetail({
     setRows((prev) => prev.filter((_, i) => i !== idx))
   }
   function addRow() {
-    setRows((prev) => [...prev, { date: '', storeName: '', mainContent: '', invoiceNumber: '', taxRate: '', totalAmount: 0 }])
+    // 選択中の画像に結びつける（仕訳作成へ送ったとき、その行から元画像を開けるように）
+    const pageIndex = activeImg != null ? activeImg : (images.length === 1 ? 0 : null)
+    setRows((prev) => [...prev, { date: '', storeName: '', mainContent: '', invoiceNumber: '', taxRate: '', totalAmount: 0, pageIndex }])
   }
 
   function fileBase(): string {
@@ -1198,28 +1284,80 @@ function BatchDetail({
           />
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)] gap-4">
-          <div className="border border-gray-200 rounded-lg p-2 max-h-[70vh] overflow-auto space-y-2 bg-gray-50">
+        <div className="flex flex-col md:flex-row items-stretch gap-2">
+          <div
+            style={wide ? { width: leftW, flex: '0 0 auto' } : undefined}
+            className="border border-gray-200 rounded-lg p-2 max-h-[70vh] overflow-auto space-y-3 bg-gray-50"
+          >
             {loadingImgs ? (
               <p className="text-sm text-gray-500 text-center py-6">画像を読み込み中...</p>
             ) : images.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-6">画像がありません。</p>
             ) : (
-              images.map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={i}
-                  ref={(el) => { imgRefs.current[i] = el }}
-                  src={src}
-                  alt={`page ${i + 1}`}
-                  onClick={() => setActiveImg(i)}
-                  className={`w-full rounded border-2 transition-colors ${activeImg === i ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
-                />
-              ))
+              images.map((src, i) => {
+                const n = rowCountByPage(i)
+                return (
+                  <div key={i} ref={(el) => { imgRefs.current[i] = el }}>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${n === 0 ? 'bg-amber-100 text-amber-800 font-semibold' : 'text-gray-500'}`}>
+                        {i + 1}枚目：{n === 0 ? '解析結果なし' : `${n}行`}
+                      </span>
+                      {perPageOk && (
+                        <button
+                          onClick={() => analyzeOne(i)}
+                          disabled={analyzing || pageBusy != null}
+                          className="text-xs px-2 py-0.5 border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 shrink-0"
+                          title="この画像だけをAIで解析し直し、この画像の行を置き換えます"
+                        >
+                          {pageBusy === i ? '解析中...' : '🔍 この画像だけ再解析'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mb-1">
+                      <button onClick={() => setView(i, { zoom: Math.max(0.5, Math.round((view(i).zoom - 0.25) * 100) / 100) })}
+                        className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="縮小">➖</button>
+                      <span className="text-[11px] text-gray-500 w-10 text-center">{Math.round(view(i).zoom * 100)}%</span>
+                      <button onClick={() => setView(i, { zoom: Math.min(6, Math.round((view(i).zoom + 0.25) * 100) / 100) })}
+                        className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="拡大">➕</button>
+                      <button onClick={() => setView(i, { rot: (view(i).rot + 90) % 360 })}
+                        className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="90度回転">↻</button>
+                      <button onClick={() => setView(i, { zoom: 1, rot: 0 })}
+                        className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="元に戻す">⟲</button>
+                      <button onClick={() => { setActiveImg(i); setLightbox(i) }}
+                        className="text-xs px-1.5 py-0.5 border border-blue-300 text-blue-700 rounded bg-white hover:bg-blue-50 ml-auto" title="全画面で大きく表示">⤢ 全画面</button>
+                    </div>
+                    <div
+                      onClick={() => setActiveImg(i)}
+                      className={`rounded border-2 overflow-auto bg-white transition-colors ${activeImg === i ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={src}
+                        alt={`page ${i + 1}`}
+                        style={{ width: `${view(i).zoom * 100}%`, transform: `rotate(${view(i).rot}deg)`, maxWidth: 'none' }}
+                        className="block origin-center"
+                      />
+                    </div>
+                  </div>
+                )
+              })
             )}
           </div>
 
-          <div>
+          {/* 画像ペインと解析結果ペインの境目。左右にドラッグして幅を変えられる */}
+          <div
+            onMouseDown={(e) => {
+              dragRef.current = { startX: e.clientX, startW: leftW }
+              document.body.style.userSelect = 'none'
+            }}
+            onDoubleClick={() => setLeftW(340)}
+            title="ドラッグで画像と解析結果の幅を変えられます（ダブルクリックで既定に戻す）"
+            className="hidden md:flex items-center justify-center w-2 shrink-0 cursor-col-resize group"
+          >
+            <div className="h-16 w-1 rounded bg-gray-300 group-hover:bg-blue-400" />
+          </div>
+
+          <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <button
                 onClick={analyze}
@@ -1251,6 +1389,17 @@ function BatchDetail({
 
             {analyzeErr && <div className="text-xs text-red-600 mb-2 break-words">{analyzeErr}</div>}
 
+            {perPageOk && rows.length > 0 && images.length > 0 && (() => {
+              const missing = images.map((_, i) => i).filter((i) => rowCountByPage(i) === 0)
+              if (!missing.length) return null
+              return (
+                <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 mb-2">
+                  ⚠️ {missing.map((i) => i + 1).join('・')}枚目から仕訳が作られていません（画像{images.length}枚／{rows.length}行）。
+                  左の画像の「🔍 この画像だけ再解析」で読み直すか、「行を追加」で手入力してください。
+                </div>
+              )
+            })()}
+
             {kind === 'credit-card' && meta && (
               <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded px-3 py-2 mb-2">
                 💳 {meta.cardName ? `${meta.cardName}／` : ''}引落日 {meta.paymentDate || '不明'}／引落総額 ¥{(meta.totalAmount || 0).toLocaleString('ja-JP')}
@@ -1275,13 +1424,22 @@ function BatchDetail({
               </p>
             ) : (
               <div className="overflow-auto max-h-[60vh] border border-gray-200 rounded">
-                <table className="w-full text-xs">
+                {/* 幅の配分: 列は table-fixed ＋ 比率(%)で伸縮する。境目を動かして狭めても
+                    どれか1列だけが潰れることなく、全列がバランスよく縮む。
+                    ただし読めなくなる手前（合計の約7割）で下限を打ち、そこから先は横スクロール */}
+                <table className="text-xs table-fixed w-full" style={{ minWidth: tableMinW }}>
+                  <colgroup>
+                    {colSpecs.map((c) => (
+                      <col key={c.key} style={{ width: `${(c.w / colTotalW) * 100}%` }} />
+                    ))}
+                    <col style={{ width: `${(48 / colTotalW) * 100}%` }} />
+                  </colgroup>
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 sticky top-0">
                       {colSpecs.map((c) => (
-                        <th key={c.key} style={{ minWidth: c.w }} className={`px-2 py-1.5 whitespace-nowrap ${c.num ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                        <th key={c.key} className={`px-2 py-1.5 truncate ${c.num ? 'text-right' : 'text-left'}`}>{c.label}</th>
                       ))}
-                      <th style={{ width: 48 }}></th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1333,6 +1491,39 @@ function BatchDetail({
             閉じる
           </button>
         </div>
+
+        {/* 全画面ビューア（画像を画面いっぱいで確認する。拡大・回転はここでも操作できる） */}
+        {lightbox != null && images[lightbox] && (
+          <div className="fixed inset-0 bg-black/80 z-[75] flex flex-col" onMouseDown={(e) => { if (e.target === e.currentTarget) setLightbox(null) }}>
+            <div className="flex items-center gap-2 p-2 bg-black/60 text-white text-sm flex-wrap">
+              <span className="font-semibold">{lightbox + 1} / {images.length} 枚目</span>
+              <button onClick={() => setLightbox(Math.max(0, lightbox - 1))} disabled={lightbox === 0}
+                className="px-2 py-1 border border-white/40 rounded disabled:opacity-40">← 前</button>
+              <button onClick={() => setLightbox(Math.min(images.length - 1, lightbox + 1))} disabled={lightbox === images.length - 1}
+                className="px-2 py-1 border border-white/40 rounded disabled:opacity-40">次 →</button>
+              <span className="mx-1 w-px h-5 bg-white/30" />
+              <button onClick={() => setView(lightbox, { zoom: Math.max(0.5, Math.round((view(lightbox).zoom - 0.25) * 100) / 100) })}
+                className="px-2 py-1 border border-white/40 rounded">➖</button>
+              <span className="w-12 text-center">{Math.round(view(lightbox).zoom * 100)}%</span>
+              <button onClick={() => setView(lightbox, { zoom: Math.min(6, Math.round((view(lightbox).zoom + 0.25) * 100) / 100) })}
+                className="px-2 py-1 border border-white/40 rounded">➕</button>
+              <button onClick={() => setView(lightbox, { rot: (view(lightbox).rot + 90) % 360 })}
+                className="px-2 py-1 border border-white/40 rounded">↻ 回転</button>
+              <button onClick={() => setView(lightbox, { zoom: 1, rot: 0 })}
+                className="px-2 py-1 border border-white/40 rounded">⟲ 元に戻す</button>
+              <button onClick={() => setLightbox(null)} className="ml-auto px-3 py-1 bg-white/90 text-gray-800 rounded font-semibold">閉じる</button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={images[lightbox]}
+                alt={`page ${lightbox + 1}`}
+                style={{ width: `${view(lightbox).zoom * 100}%`, transform: `rotate(${view(lightbox).rot}deg)`, maxWidth: 'none' }}
+                className="block mx-auto"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

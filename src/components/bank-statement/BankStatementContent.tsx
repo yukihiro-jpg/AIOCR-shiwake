@@ -238,16 +238,29 @@ export default function BankStatementContent() {
       setCurrentPageIndex(0)
       // 解析行 → 仕訳（1行=1レシート扱い。貸方は転送時に選択した科目）
       const { receiptToEntries } = await import('@/lib/bank-statement/receipt-mapper')
-      const receipts = payload!.rows.map((r, i) => ({
-        receiptIndex: i,
-        storeName: r.storeName,
-        receiptDate: r.date,
-        mainContent: r.mainContent,
-        invoiceNumber: r.invoiceNumber || undefined,
-        taxLines: [{ taxRate: r.taxRate || '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
-        pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex : 0,
-      }))
-      const entries = receiptToEntries(
+      const { guessDebitAccount } = await import('@/lib/bank-statement/receipt-account-guess')
+      const { getPatterns } = await import('@/lib/bank-statement/pattern-store')
+      const { applyPatternsToInvoiceEntries } = await import('@/lib/bank-statement/invoice-mapper')
+      const { resolveAccountTax } = await import('@/lib/bank-statement/account-master')
+      const master = loadAccountMaster()
+      const taxMaster = loadAccountTaxMaster()
+      // 借方科目の下書き: 解析結果の「内容・店名」から一般的に想定される科目を当てる
+      // （顧問先の科目マスタに実在する科目にだけ割り当てる。該当なしは空欄のまま）
+      const receipts = payload!.rows.map((r, i) => {
+        const g = guessDebitAccount(r.mainContent, r.storeName, master)
+        return {
+          receiptIndex: i,
+          storeName: r.storeName,
+          receiptDate: r.date,
+          mainContent: r.mainContent,
+          invoiceNumber: r.invoiceNumber || undefined,
+          debitCode: g?.code,
+          debitName: g?.name,
+          taxLines: [{ taxRate: r.taxRate || '10%', netAmount: 0, taxAmount: 0, totalAmount: r.totalAmount }],
+          pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex : 0,
+        }
+      })
+      const rawEntries = receiptToEntries(
         receipts,
         payload!.credit.code,
         payload!.credit.name,
@@ -256,6 +269,17 @@ export default function BankStatementContent() {
         undefined,
         (rcp) => idPages[rcp.pageIndex]?.id,
       )
+      // 過去に学習したパターン（同じ店名・金額帯）があれば、そちらを優先して上書きする
+      const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns()).map((e) => {
+        if (!e.debitCode || e.debitTaxCode) return e
+        // 借方科目が決まった行は消費税CDも科目マスタから補う。
+        // 税率（debitTaxRate）はレシートの解析値を維持する（taxLocked=true のため上書きされない）
+        const acc = master.find((a) => a.code === e.debitCode)
+        if (!acc) return e
+        const tax = resolveAccountTax(acc, taxMaster)
+        return tax ? { ...e, debitTaxCode: tax.taxCode } : e
+      })
+      const guessedCount = entries.filter((e) => e.debitCode).length
       const cfg: UploadConfig = {
         documentType: 'receipt',
         accountCode: payload!.credit.code,
@@ -269,7 +293,12 @@ export default function BankStatementContent() {
       setUploadConfig(cfg)
       uploadConfigRef.current = cfg
       setJournalEntries(entries)
-      setInfo(`書類スキャン受信（${payload!.docType}・${new Date(payload!.submittedAt).toLocaleDateString('ja-JP')}受信）から ${entries.length} 件の仕訳を取り込みました。借方科目を設定してください。`)
+      setInfo(
+        `書類スキャン受信（${payload!.docType}・${new Date(payload!.submittedAt).toLocaleDateString('ja-JP')}受信）から ${entries.length} 件の仕訳を取り込みました。` +
+        (guessedCount
+          ? `うち ${guessedCount} 件は内容・学習パターンから借方科目を自動セットしています（必ずご確認ください）。`
+          : '借方科目を設定してください。'),
+      )
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleClientSelect])

@@ -225,6 +225,56 @@ export async function analyzeBatchAndSave(
   return { rows, errors, kind, meta }
 }
 
+/**
+ * 1枚だけをAI解析し直す（レシート・領収書／請求書のみ）。
+ *
+ * 1枚に複数のレシートが写っている・逆に読み取れずに行が作られなかった、というときに
+ * その画像だけを解析し直すための入口。呼び出し側で「そのページの行」を差し替える。
+ * 保存は呼び出し側の自動保存にまかせる（ここでは保存しない）。
+ */
+export async function analyzeOnePage(
+  token: string,
+  batch: ScanBatch,
+  pageIndex: number,
+  onProgress?: (msg: string) => void,
+): Promise<ScanAnalysisRow[]> {
+  const kind = docTypeToKind(batch.docType)
+  if (kind !== 'receipt' && kind !== 'invoice-sales' && kind !== 'invoice-purchase') {
+    throw new Error('1枚ごとの解析は「レシート・領収書」と「請求書」のみ対応しています（通帳・カード明細は書類全体で解析します）。')
+  }
+  onProgress?.('画像を取得しています...')
+  const dataUrls = await getBatchImageDataUrls(token, batch)
+  const url = dataUrls[pageIndex]
+  if (!url) throw new Error('その画像が見つかりませんでした。')
+  onProgress?.('AIで解析しています...')
+  if (kind === 'receipt') {
+    const res = await receiptOcrParallel([url])
+    if (res.errors.length && !res.receipts.length) throw new Error(res.errors.join('、'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return receiptsToRows(res.receipts as any[]).map((r) => ({ ...r, pageIndex }))
+  }
+  const { invoices } = await invoiceOcr([url], kind === 'invoice-purchase' ? 'purchase' : 'sales')
+  const rows: ScanAnalysisRow[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const inv of invoices as any[]) {
+    const taxLines = Array.isArray(inv.taxLines) && inv.taxLines.length
+      ? inv.taxLines
+      : [{ taxRate: '', totalAmount: Number(inv.totalAmount) || 0 }]
+    for (const tl of taxLines) {
+      rows.push({
+        date: inv.invoiceDate || '',
+        storeName: inv.counterpartName || '',
+        mainContent: inv.mainContent || '',
+        invoiceNumber: inv.invoiceNumber || '',
+        taxRate: tl.taxRate || '',
+        totalAmount: Number(tl.totalAmount) || 0,
+        pageIndex,
+      })
+    }
+  }
+  return rows
+}
+
 function hasGeminiKey(): boolean {
   try {
     return !!((localStorage.getItem('bs-gemini-api-key') || '').trim() || (localStorage.getItem('suite-gemini-api-key') || '').trim())
