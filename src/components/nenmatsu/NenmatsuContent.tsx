@@ -23,6 +23,8 @@ import {
   saveDefaultDeadline,
   setCompanyDeadline,
   deleteSubmission,
+  prevYearId,
+  prefillFromCsv,
   type SharedClient,
   type NenmatsuCompany,
   type NenmatsuEmployee,
@@ -35,6 +37,7 @@ import { openCheckSheetPrint, openPrintWindowNow } from '@/lib/nenmatsu/check-sh
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
+import { baselineFromDeclaration, baselineFromCsv, type Baseline } from '@/lib/nenmatsu/declaration-diff'
 
 interface Row {
   client: SharedClient
@@ -1216,12 +1219,27 @@ function CompanyDetail({
     setZipMsg('申告内容のExcelを作成中...')
     try {
       const fy = FY_BY_ID[yearId]
-      const entries: DeclarationExcelEntry[] = targets.map(({ e, rec }) => ({
-        employeeName: `${e.lastName} ${e.firstName}`.trim(),
-        decl: rec!.declaration!,
-        submittedAt: rec!.submittedAt,
-        isNewHire: e.isNewHire,
-      }))
+      // 変更前＝従業員がスマホで最初に見た内容。①前年の提出 ②会社の登録内容（CSV）の順で選ぶ
+      const py = prevYearId(yearId)
+      let prevSubs: Record<string, SubmissionRecord> = {}
+      if (py) { try { prevSubs = await loadSubmissions(py, company.clientId) } catch { /* 前年が無ければ比較なし */ } }
+      const prevLabel = py ? `令和${py.replace(/^R/, '')}年度の提出` : ''
+      const entries: DeclarationExcelEntry[] = targets.map(({ e, rec }) => {
+        const pd = prevSubs[e.id]?.declaration
+        let baseline: Baseline | undefined
+        if (pd) baseline = baselineFromDeclaration(pd, prevLabel)
+        else {
+          const pre = prefillFromCsv(e)
+          if (pre.postal || pre.address || pre.spouse || pre.dependents.length) baseline = baselineFromCsv(pre)
+        }
+        return {
+          employeeName: `${e.lastName} ${e.firstName}`.trim(),
+          decl: rec!.declaration!,
+          submittedAt: rec!.submittedAt,
+          isNewHire: e.isNewHire,
+          baseline,
+        }
+      })
       const blob = await buildDeclarationExcelBlob(entries, {
         companyName: company.name,
         fyLabel: fy?.label || yearId,
