@@ -969,63 +969,65 @@ function BatchDetail({
   const [meta, setMeta] = useState<ScanAnalysisMeta | undefined>(undefined)
 
   // 書類種類ごとの表の列定義（key=行データのフィールド、num=数値入力）
-  type ColSpec = { key: keyof ReceiptRow; label: string; num?: boolean; w: string }
+  // w は列の最小幅(px)。入力欄は w-full で列いっぱいに広がるので、
+  // 画面が広いときは余った幅が各列に配分され、横スクロールなしで全項目が見える
+  type ColSpec = { key: keyof ReceiptRow; label: string; num?: boolean; w: number }
   const COLSPECS: Record<ScanAnalysisKind, ColSpec[]> = {
     receipt: [
-      { key: 'date', label: '日付', w: 'w-24' },
-      { key: 'storeName', label: '店名', w: 'w-28' },
-      { key: 'mainContent', label: '内容', w: 'w-28' },
-      { key: 'invoiceNumber', label: 'インボイス番号', w: 'w-24' },
-      { key: 'taxRate', label: '税率', w: 'w-14' },
-      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+      { key: 'date', label: '日付', w: 100 },
+      { key: 'storeName', label: '店名', w: 180 },
+      { key: 'mainContent', label: '内容', w: 180 },
+      { key: 'invoiceNumber', label: 'インボイス番号', w: 150 },
+      { key: 'taxRate', label: '税率', w: 60 },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 110 },
     ],
     'invoice-sales': [
-      { key: 'date', label: '請求日', w: 'w-24' },
-      { key: 'storeName', label: '請求先（宛名）', w: 'w-32' },
-      { key: 'mainContent', label: '内容', w: 'w-28' },
-      { key: 'taxRate', label: '税率', w: 'w-14' },
-      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+      { key: 'date', label: '請求日', w: 100 },
+      { key: 'storeName', label: '請求先（宛名）', w: 200 },
+      { key: 'mainContent', label: '内容', w: 190 },
+      { key: 'taxRate', label: '税率', w: 60 },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 110 },
     ],
     'invoice-purchase': [
-      { key: 'date', label: '請求日', w: 'w-24' },
-      { key: 'storeName', label: '請求元（発行者）', w: 'w-32' },
-      { key: 'mainContent', label: '内容', w: 'w-28' },
-      { key: 'invoiceNumber', label: 'インボイス番号', w: 'w-24' },
-      { key: 'taxRate', label: '税率', w: 'w-14' },
-      { key: 'totalAmount', label: '税込金額', num: true, w: 'w-20' },
+      { key: 'date', label: '請求日', w: 100 },
+      { key: 'storeName', label: '請求元（発行者）', w: 190 },
+      { key: 'mainContent', label: '内容', w: 170 },
+      { key: 'invoiceNumber', label: 'インボイス番号', w: 150 },
+      { key: 'taxRate', label: '税率', w: 60 },
+      { key: 'totalAmount', label: '税込金額', num: true, w: 110 },
     ],
     'credit-card': [
-      { key: 'date', label: '利用日', w: 'w-24' },
-      { key: 'storeName', label: '利用店名', w: 'w-36' },
-      { key: 'mainContent', label: '備考', w: 'w-28' },
-      { key: 'totalAmount', label: '金額', num: true, w: 'w-20' },
+      { key: 'date', label: '利用日', w: 110 },
+      { key: 'storeName', label: '利用店名', w: 220 },
+      { key: 'mainContent', label: '備考', w: 180 },
+      { key: 'totalAmount', label: '金額', num: true, w: 110 },
     ],
     passbook: [
-      { key: 'date', label: '日付', w: 'w-24' },
-      { key: 'storeName', label: '摘要', w: 'w-36' },
-      { key: 'deposit', label: '入金', num: true, w: 'w-20' },
-      { key: 'withdrawal', label: '出金', num: true, w: 'w-20' },
-      { key: 'balance', label: '残高', num: true, w: 'w-24' },
+      { key: 'date', label: '日付', w: 100 },
+      { key: 'storeName', label: '摘要', w: 240 },
+      { key: 'deposit', label: '入金', num: true, w: 110 },
+      { key: 'withdrawal', label: '出金', num: true, w: 110 },
+      { key: 'balance', label: '残高', num: true, w: 120 },
     ],
     cashbook: [
-      { key: 'date', label: '日付', w: 'w-24' },
-      { key: 'storeName', label: '摘要', w: 'w-36' },
-      { key: 'deposit', label: '入金', num: true, w: 'w-20' },
-      { key: 'withdrawal', label: '出金', num: true, w: 'w-20' },
-      { key: 'balance', label: '残高', num: true, w: 'w-24' },
+      { key: 'date', label: '日付', w: 100 },
+      { key: 'storeName', label: '摘要', w: 240 },
+      { key: 'deposit', label: '入金', num: true, w: 110 },
+      { key: 'withdrawal', label: '出金', num: true, w: 110 },
+      { key: 'balance', label: '残高', num: true, w: 120 },
     ],
     loan: [
-      { key: 'date', label: '返済日', w: 'w-24' },
-      { key: 'totalAmount', label: '返済額', num: true, w: 'w-20' },
-      { key: 'deposit', label: 'うち元金', num: true, w: 'w-20' },
-      { key: 'withdrawal', label: 'うち利息', num: true, w: 'w-20' },
-      { key: 'balance', label: '返済後残高', num: true, w: 'w-24' },
+      { key: 'date', label: '返済日', w: 110 },
+      { key: 'totalAmount', label: '返済額', num: true, w: 110 },
+      { key: 'deposit', label: 'うち元金', num: true, w: 110 },
+      { key: 'withdrawal', label: 'うち利息', num: true, w: 110 },
+      { key: 'balance', label: '返済後残高', num: true, w: 120 },
     ],
     lease: [
-      { key: 'date', label: '支払日', w: 'w-24' },
-      { key: 'totalAmount', label: '支払額', num: true, w: 'w-20' },
-      { key: 'mainContent', label: '備考', w: 'w-32' },
-      { key: 'balance', label: '残額・残回数', num: true, w: 'w-24' },
+      { key: 'date', label: '支払日', w: 110 },
+      { key: 'totalAmount', label: '支払額', num: true, w: 110 },
+      { key: 'mainContent', label: '備考', w: 200 },
+      { key: 'balance', label: '残額・残回数', num: true, w: 130 },
     ],
   }
   const colSpecs = COLSPECS[kind || 'receipt']
@@ -1138,7 +1140,7 @@ function BatchDetail({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-6xl max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-4 md:p-6 w-full max-w-[1800px] max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold text-gray-800">
             {batch.docType} — {new Date(batch.submittedAt).toLocaleString('ja-JP')}（{batch.pageCount}枚）
@@ -1196,7 +1198,7 @@ function BatchDetail({
           />
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)] gap-4">
           <div className="border border-gray-200 rounded-lg p-2 max-h-[70vh] overflow-auto space-y-2 bg-gray-50">
             {loadingImgs ? (
               <p className="text-sm text-gray-500 text-center py-6">画像を読み込み中...</p>
@@ -1277,9 +1279,9 @@ function BatchDetail({
                   <thead>
                     <tr className="bg-gray-50 text-gray-500 sticky top-0">
                       {colSpecs.map((c) => (
-                        <th key={c.key} className={`px-2 py-1.5 ${c.num ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                        <th key={c.key} style={{ minWidth: c.w }} className={`px-2 py-1.5 whitespace-nowrap ${c.num ? 'text-right' : 'text-left'}`}>{c.label}</th>
                       ))}
-                      <th></th>
+                      <th style={{ width: 48 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1300,14 +1302,14 @@ function BatchDetail({
                                   const t = e.target.value.replace(/[^\d.-]/g, '')
                                   updateRow(i, { [c.key]: t === '' ? (c.key === 'totalAmount' ? 0 : null) : Number(t) } as Partial<ReceiptRow>)
                                 }}
-                                className={`${c.w} px-1 py-1 border border-gray-200 rounded text-right`}
+                                className="w-full px-1 py-1 border border-gray-200 rounded text-right"
                               />
                             ) : (
                               <input
                                 value={(r[c.key] as string) || ''}
                                 onFocus={() => focusImage(r.pageIndex)}
                                 onChange={(e) => updateRow(i, { [c.key]: e.target.value } as Partial<ReceiptRow>)}
-                                className={`${c.w} px-1 py-1 border border-gray-200 rounded`}
+                                className="w-full px-1 py-1 border border-gray-200 rounded"
                               />
                             )}
                           </td>
