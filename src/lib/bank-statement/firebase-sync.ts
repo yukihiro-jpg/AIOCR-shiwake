@@ -12,6 +12,8 @@
 
 import { APP_SUBTREE } from './firebase-config'
 import { STORAGE_KEY_MAP } from './storage-keys'
+import { mergeIncomingTempEntries } from './temp-store'
+import type { JournalEntry } from './types'
 import { getDb } from '@/core/firebase'
 import { getRoomPassphrase, setRoomPassphrase, clearRoomPassphrase, hasRoom, modulePath } from '@/core/room'
 
@@ -224,6 +226,16 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
   if (!keyFn) return false
   const storageKey = keyFn(clientId)
   if (value == null) return false
+
+  // 一時保存だけは上書きせずマージする。
+  // 手元にしか無い仕訳（まだ同期先へ送れていない分）を受信で消さないため。
+  if (key === 'temp-entries' && Array.isArray(value)) {
+    const merged = JSON.stringify(mergeIncomingTempEntries(clientId, value as JournalEntry[]))
+    if (localStorage.getItem(storageKey) === merged) return false
+    localStorage.setItem(storageKey, merged)
+    return true
+  }
+
   const cur = localStorage.getItem(storageKey)
   if (cur === incoming) return false
   localStorage.setItem(storageKey, incoming)

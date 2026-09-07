@@ -1611,8 +1611,21 @@ export default function BankStatementContent() {
     const applied = applyCompoundAutoAmounts(completed)
     learnAllFromEntries(applied, uploadConfig?.accountCode)
     // 一時保存に追記
+    // 【重要・データ保全】保存できた件数を確かめてから画面を消す。
+    // 以前は保存の成否を確かめずに件数を表示し、そのまま画面の仕訳を消していたため、
+    // 保存に失敗すると仕訳がどこにも残らず消えてしまった（実際に発生した事故）。
+    const before = getTempEntryCount()
     const totalCount = appendTempEntries(completed)
     setTempCount(totalCount)
+    if (totalCount < before + completed.length) {
+      alert(
+        `一時保存できませんでした（保存前${before}件 → 保存後${totalCount}件）。\n` +
+        '画面の仕訳はそのまま残しています。\n' +
+        '先に「CSV出力」で一時保存分を書き出して空にしてから、もう一度「一時保存」を押してください。',
+      )
+      setInfo('一時保存に失敗しました。画面の仕訳は残してあります（先にCSV出力で一時保存を空にしてからお試しください）')
+      return
+    }
 
     // 処理状況を更新: uploadConfigRef から確実に科目コードを取得
     const cfgAccountCode = uploadConfigRef.current?.accountCode

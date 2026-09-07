@@ -129,6 +129,9 @@ const REGISTRY = {
     { pre: 'keiei-settings-', post: '' },  // 同上
     { pre: 'keiei-anken-', post: '' },     // 同上（案件台帳）
     { pre: 'bs-excel-mapping-', post: '-' }, // 旧形式（科目CD付き）。読込時に新形式へ移行済み
+    { pre: 'bs-temp-pushed-', post: '' },  // 一時保存のうち「この端末が同期先へ送れた仕訳ID」。
+                                           // 端末ごとの送信状況なので同期してはいけない（同期すると
+                                           // 未送信の仕訳を消してよいかの判断が壊れる。temp-store.ts 参照）
   ]
   const files = walk(join(ROOT, 'src'), ['.ts', '.tsx'])
   for (const f of files) {
