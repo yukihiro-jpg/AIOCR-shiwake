@@ -56,6 +56,29 @@ const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const pendingPushes = new Map<string, { clientId: string; key: string; data: unknown }>()
 // 自分が直近に push した内容（受信時の自己エコー抑止用）
 const lastPushedJson = new Map<string, string>()
+// 送信中（set の完了待ち）のキー
+const inFlightPushes = new Set<string>()
+// push 直後の保護期間。この間に届いた受信は「送信前の古い値」の可能性があるので適用しない
+// （代わりに保護期間の終わりにサーバの値を1回読み直して決着させる＝下の scheduleVerify）
+const PUSH_GUARD_MS = 3000
+const guardUntil = new Map<string, number>()
+const verifyTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/**
+ * このキーは今「手元の方が新しい」状態か。
+ *
+ * 【重要・データ保全】ここを見ずに受信を適用すると、次の順番で手元の編集が消える:
+ *   ①一時保存で600件追記（手元1153件・pushは1.5秒後）
+ *   ②その待ち時間に別キーの変更で購読が発火し、スナップショットには古い553件が入っている
+ *   ③受信をそのまま適用 → localStorage が553件に巻き戻る（画面も553件に戻る）
+ *   ④1.5秒後のpushはRTDBへ1153件を書くが、自己エコー抑止で手元には戻ってこない
+ * 実際にこの巻き戻りが起きたため、送信待ち・送信中・送信直後は受信を適用しない。
+ */
+function isPushGuarded(mapKey: string): boolean {
+  if (pendingPushes.has(mapKey) || inFlightPushes.has(mapKey)) return true
+  const until = guardUntil.get(mapKey)
+  return until != null && Date.now() < until
+}
 
 export function schedulePushToFirebase(clientId: string, key: string, data: unknown): void {
   if (!hasRoom()) return
@@ -103,18 +126,47 @@ if (typeof window !== 'undefined') {
 
 export async function pushNow(clientId: string, key: string, data: unknown): Promise<void> {
   if (!hasRoom()) return
+  const mapKey = `${clientId}:${key}`
   emit({ pushing: true })
+  inFlightPushes.add(mapKey)
   try {
     const { ref, set } = await import('firebase/database')
     const db = await getDb()
     const path = await dataPath(clientId, key)
-    lastPushedJson.set(`${clientId}:${key}`, JSON.stringify(data ?? null))
+    lastPushedJson.set(mapKey, JSON.stringify(data ?? null))
     await set(ref(db, path), data ?? null)
+    guardUntil.set(mapKey, Date.now() + PUSH_GUARD_MS)
+    scheduleVerify(clientId, key)
     emit({ pushing: debounceTimers.size > 0, connected: true, lastSyncAt: new Date(), error: null })
   } catch (err) {
     emit({ pushing: debounceTimers.size > 0 })
     throw err
+  } finally {
+    inFlightPushes.delete(mapKey)
   }
+}
+
+/**
+ * push の保護期間が明けたら、サーバの値を1回だけ読み直して手元と突き合わせる。
+ * 保護期間中に「他端末の本当の変更」が来ていた場合でも、ここで取りこぼさずに反映できる。
+ * サーバの値が自分が送ったものと同じなら（＝ふつうの場合）何も起きない。
+ */
+function scheduleVerify(clientId: string, key: string): void {
+  const mapKey = `${clientId}:${key}`
+  const prev = verifyTimers.get(mapKey)
+  if (prev) clearTimeout(prev)
+  verifyTimers.set(mapKey, setTimeout(async () => {
+    verifyTimers.delete(mapKey)
+    // まだ送信予定・送信中なら、その push の完了後に改めて検証する
+    if (pendingPushes.has(mapKey) || inFlightPushes.has(mapKey)) return
+    guardUntil.delete(mapKey)
+    try {
+      const { ref, get } = await import('firebase/database')
+      const db = await getDb()
+      const snap = await get(ref(db, await dataPath(clientId, key)))
+      if (applyRemoteToLocal(clientId, key, snap.val())) dataOnChange?.([key])
+    } catch { /* 次の受信で追いつく */ }
+  }, PUSH_GUARD_MS + 200))
 }
 
 // 顧問先1件分の全データ + 顧問先一覧を Firebase へ反映（手動保存・初期移行用）
@@ -157,12 +209,16 @@ export async function pushEverythingToFirebase(
 
 let dataUnsubs: Array<() => void> = []
 let clientsUnsub: (() => void) | null = null
+// 購読中の onChange（push 後の検証読み取りからも画面更新を促すために保持する）
+let dataOnChange: ((changedKeys: string[]) => void) | null = null
 
 function applyRemoteToLocal(clientId: string, key: string, value: unknown): boolean {
   const mapKey = `${clientId}:${key}`
   const incoming = JSON.stringify(value ?? null)
   // 自分が直近 push した内容と同一ならスキップ（自己エコー）
   if (lastPushedJson.get(mapKey) === incoming) return false
+  // 手元の変更をまだ送り切っていないキーは、受信で巻き戻さない（isPushGuarded のコメント参照）
+  if (isPushGuarded(mapKey)) return false
 
   const keyFn = STORAGE_KEY_MAP[key]
   if (!keyFn) return false
@@ -315,6 +371,7 @@ export async function startFirebaseSync(
 ): Promise<void> {
   stopFirebaseSync()
   if (!hasRoom()) return
+  dataOnChange = onChange
   try {
     const { ref, onValue } = await import('firebase/database')
     const db = await getDb()
@@ -346,6 +403,7 @@ export async function startFirebaseSync(
 export function stopFirebaseSync(): void {
   dataUnsubs.forEach((u) => { try { u() } catch { /* ignore */ } })
   dataUnsubs = []
+  dataOnChange = null
 }
 
 /** 接続テスト（合言葉入力直後の検証用）。匿名サインインが通れば true。 */
