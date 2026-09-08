@@ -470,24 +470,54 @@ function formatDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
+/**
+ * セルの文字列から「先頭の数値」だけを取り出す（区切りのカンマは残したまま）。
+ *
+ * PDFのテキスト抽出はX座標の間隔で列を切っているため、列同士が近いと
+ * お支払金額と小切手・手形番号が1つのセルにつながる。実例:
+ *   セルの中身 "20,000 0129-0154" → 空白とカンマを落として 200000129（桁違い）
+ * 先頭の数値だけを見れば "20,000" が取り出せる。摘要がつながった
+ * "273,425 ｾﾞｲﾘｼﾎｳｼﾕｳ" のような行はこれまでどおり正しく読める。
+ */
+function firstNumberToken(text: string): string {
+  const m = /\d[\d,]*/.exec(text.replace(/[¥￥\s\u3000]/g, ''))
+  return m ? cutMergedGrouping(m[0]) : ''
+}
+
+/**
+ * 3桁区切りとして正しい数値までで切る（"20,0000129" → "20,000"）。
+ * 日本の帳票の金額は必ず3桁区切りで印字されるので、区切りとして成立しない
+ * 位置から先は別の列がつながったものとみなす。正しい金額には一切触れない。
+ */
+function cutMergedGrouping(token: string): string {
+  const head = /(\d{1,3}(?:,\d{3})+)(?=\d)/.exec(token)
+  return head ? token.slice(0, head.index + head[1].length) : token
+}
+
+/** 符号付きの数字文字列（parseInt に渡せる形）。数値が無ければ空文字 */
+function signedNumberText(text: string): string {
+  const t = text.replace(/[¥￥\s\u3000、]/g, '')
+  let negative = false
+  let body = t
+  if (/^\(.+\)$/.test(body)) { negative = true; body = body.slice(1, -1) }
+  if (/^[▲△\-]/.test(body)) { negative = true; body = body.replace(/^[▲△\-]+/, '') }
+  const tok = firstNumberToken(body)
+  if (!tok) return ''
+  return (negative ? '-' : '') + tok.replace(/,/g, '')
+}
+
 function parseAmount(text: string): number | null {
-  let cleaned = text.replace(/[¥￥,、\s]/g, '').replace(/▲|△|-/g, '-')
-  // 括弧表記 (1,234) を負数として処理（会計のマイナス表記）
-  if (/^\([\d]+\)$/.test(cleaned)) cleaned = cleaned.slice(1, -1)
-  if (!cleaned || cleaned === '-' || cleaned === '*') return null
-  const num = parseInt(cleaned, 10)
+  const digits = signedNumberText(text)
+  if (!digits) return null
+  const num = parseInt(digits, 10)
   return isNaN(num) ? null : Math.abs(num)
 }
 
 // 符号付き金額を取り出す（正=入金, 負=出金の単一列向け）
 function parseSignedAmount(text: string): number | null {
-  // ▲△△▼( )はすべてマイナスとして扱う
-  let cleaned = text.replace(/[¥￥,、\s\u3000]/g, '')
-  // カッコ表記 (1,000) を負数として扱う
-  if (/^\(.+\)$/.test(cleaned)) cleaned = '-' + cleaned.slice(1, -1)
-  cleaned = cleaned.replace(/[▲△]/g, '-')
-  if (!cleaned || cleaned === '-' || cleaned === '*') return null
-  const num = parseInt(cleaned, 10)
+  const digits = signedNumberText(text)
+  if (!digits) return null
+  const num = parseInt(digits, 10)
   return isNaN(num) ? null : num
 }
 
@@ -921,7 +951,8 @@ function extractTransactions(
         const val = parseAmount(row.cells[i])
         if (val === null) continue
         if (balance === null) {
-          const balCleaned = row.cells[i].replace(/[¥￥,、\s　]/g, '').replace(/[▲△]/g, '-')
+          // 残高も金額と同じ読み方（先頭の数値だけ・3桁区切りの検査つき）で取る
+          const balCleaned = signedNumberText(row.cells[i])
           const balNum = parseInt(balCleaned, 10)
           if (isNaN(balNum)) continue
           balance = balNum
@@ -969,8 +1000,7 @@ function extractTransactions(
       if (hasBalanceCol) {
         const balanceText = getCellByColumn(row, mapping.balanceColumn)
         // 残高は符号を保持（括弧表記やマイナスも対応）
-        let balCleaned = balanceText.replace(/[¥￥,、\s　]/g, '').replace(/[▲△]/g, '-')
-        if (/^\(.+\)$/.test(balCleaned)) balCleaned = '-' + balCleaned.slice(1, -1)
+        const balCleaned = signedNumberText(balanceText)
         const balNum = parseInt(balCleaned, 10)
         if (isNaN(balNum)) { balance = parseAmount(balanceText); if (balance === null) continue }
         else balance = balNum
@@ -1054,7 +1084,38 @@ function extractTransactions(
     })
   }
 
-  return transactions
+  return repairAmountsByBalance(transactions)
+}
+
+/**
+ * 通帳の「差引残高」を使って、1行ずつ金額を検算する。
+ *
+ * 残高の差（今回の残高 − 前行の残高）＝ 入金 − 出金 が成り立たない行は、金額の読み取りが
+ * おかしい。ただし残高側が誤っている可能性もあるので、**「読み取った金額の先頭または末尾に
+ * 余計な数字が付いただけ」と説明できる場合に限って**残高から求めた金額へ直す。
+ * （例: お支払金額 20,000 に小切手番号 0129 がつながり 200,000,129 になっていた実例）
+ * 説明できない不一致は直さず、これまでどおり「残高不一致」として画面に出す。
+ */
+function repairAmountsByBalance(txs: BankTransaction[]): BankTransaction[] {
+  for (let i = 1; i < txs.length; i++) {
+    const prev = txs[i - 1]
+    const cur = txs[i]
+    if (typeof prev.balance !== 'number' || typeof cur.balance !== 'number') continue
+    if (!Number.isFinite(prev.balance) || !Number.isFinite(cur.balance)) continue
+    const expected = cur.balance - prev.balance
+    const actual = (cur.deposit ?? 0) - (cur.withdrawal ?? 0)
+    if (expected === actual) continue
+    if (expected === 0) continue
+    const expDigits = String(Math.abs(expected))
+    const actDigits = String(Math.abs(actual))
+    // 「正しい金額＋余計な数字」または「余計な数字＋正しい金額」でだけ直す
+    if (actDigits.length <= expDigits.length) continue
+    if (!actDigits.startsWith(expDigits) && !actDigits.endsWith(expDigits)) continue
+    if (expected > 0) { cur.deposit = expected; cur.withdrawal = null }
+    else { cur.withdrawal = -expected; cur.deposit = null }
+    cur.amountFixedByBalance = true
+  }
+  return txs
 }
 
 /**

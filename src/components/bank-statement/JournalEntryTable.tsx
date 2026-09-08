@@ -1209,6 +1209,20 @@ export default function JournalEntryTable({
         )
       })()}
 
+      {/* 通帳の残高から金額を直した行のお知らせ（隣の列がつながって桁違いになっていた行） */}
+      {!hideBalance && (() => {
+        const fixed = pages.flatMap((p) => p.transactions.filter((t) => t.amountFixedByBalance))
+        if (fixed.length === 0) return null
+        return (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 shrink-0 text-xs text-amber-800">
+            <b>金額を自動補正しました（{fixed.length}件）</b>
+            ：読み取った金額が通帳の差引残高と合わなかった行を、残高の差から求めた金額に直しています。
+            念のためご確認ください（{fixed.slice(0, 5).map((t) => `${t.date} ${t.description}`.trim()).join('／')}
+            {fixed.length > 5 ? ' ほか' : ''}）
+          </div>
+        )
+      })()}
+
       {/* 残高不一致の詳細 */}
       {!hideBalance && balanceMismatch.length > 0 && (
         <div className="px-4 py-2 bg-red-50 border-b border-red-200 shrink-0">

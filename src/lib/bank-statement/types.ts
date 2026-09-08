@@ -23,6 +23,8 @@ export interface BankTransaction {
   extras?: { name: string; amount: number; direction: 'credit' | 'debit'; memo?: string }[]
   // 備考列（パターン適用後も摘要に連結）
   memoText?: string
+  // 通帳の差引残高との検算で金額を直した行（隣の列がつながって桁違いになっていた等）
+  amountFixedByBalance?: boolean
 }
 
 // ページ情報
