@@ -135,8 +135,12 @@ export async function pushNow(clientId: string, key: string, data: unknown): Pro
     const { ref, set } = await import('firebase/database')
     const db = await getDb()
     const path = await dataPath(clientId, key)
-    lastPushedJson.set(mapKey, JSON.stringify(data ?? null))
-    await set(ref(db, path), data ?? null)
+    // RTDB は undefined を含むオブジェクトを拒否する（省略可能フィールドに undefined が
+    // 入っていると書き込み全体が失敗する）。JSON を通して undefined を落としてから送る。
+    const json = JSON.stringify(data ?? null)
+    const clean = JSON.parse(json === undefined ? 'null' : json)
+    lastPushedJson.set(mapKey, json)
+    await set(ref(db, path), clean)
     guardUntil.set(mapKey, Date.now() + PUSH_GUARD_MS)
     scheduleVerify(clientId, key)
     emit({ pushing: debounceTimers.size > 0, connected: true, lastSyncAt: new Date(), error: null })

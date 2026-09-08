@@ -74,15 +74,30 @@ export function saveTempEntries(entries: JournalEntry[]): boolean {
     // 一時保存は「ユーザーが押したときだけ」の操作なので、デバウンスせず即時に送る。
     // （1.5秒待つ間に受信が走ると、送信前の古い内容で手元が巻き戻る事故のもとになる）
     import('./firebase-sync')
-      .then(({ pushNow }) => pushNow(cid, 'temp-entries', entries))
-      .then(() => { markTempPushed(cid, entries) })
+      .then(async ({ pushNow }) => {
+        // 一時的な通信エラーで諦めないよう、間隔を空けて3回まで試す
+        let lastErr: unknown = null
+        for (let i = 0; i < 3; i++) {
+          try {
+            await pushNow(cid, 'temp-entries', entries)
+            markTempPushed(cid, entries)
+            return
+          } catch (err) {
+            lastErr = err
+            await new Promise((r) => setTimeout(r, 1000 * (i + 1)))
+          }
+        }
+        throw lastErr
+      })
       .catch((err) => {
         console.warn('[temp-store] push failed', err)
+        const msg = err instanceof Error ? err.message : String(err ?? '')
         warnOnce(
           '__bsTempPushWarned',
           '一時保存を同期先（合言葉の部屋）へ送れませんでした。\n' +
-          'この端末には保存されているので作業は続けられますが、他の端末には反映されていません。\n' +
-          '通信状態を確認し、必要なら「CSV出力」で早めに書き出してください。',
+          `この端末には${entries.length}件が保存されているので作業は続けられますが、他の端末には反映されていません。\n` +
+          '通信状態を確認し、必要なら「CSV出力」で早めに書き出してください。\n\n' +
+          `［エラー内容］${msg}\n［送信量］約${Math.round(json.length / 1024)}KB`,
         )
       })
   }
