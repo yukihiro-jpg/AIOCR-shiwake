@@ -1042,6 +1042,40 @@ function BulkReviewPanel({
   const savedRef = useRef<Record<string, string>>(
     Object.fromEntries(items.map((it) => [it.batch.id, JSON.stringify(it.rows)])),
   )
+  // 画像ペインの幅（境目をドラッグして変更。解析データ画面と同じ設定を使う）
+  const [leftW, setLeftW] = useState<number>(() => {
+    if (typeof window === 'undefined') return 380
+    const v = Number(localStorage.getItem('scan-analysis-left-w'))
+    return v >= 200 && v <= 1200 ? v : 380
+  })
+  const [wide, setWide] = useState(false)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const apply = () => setWide(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+
+  // 境目のドラッグ（押している間だけ window で追う。ドラッグ中は文字選択を止める）
+  useEffect(() => {
+    function move(e: MouseEvent) {
+      const d = dragRef.current
+      if (!d) return
+      setLeftW(Math.min(1200, Math.max(200, d.startW + (e.clientX - d.startX))))
+    }
+    function up() {
+      if (!dragRef.current) return
+      dragRef.current = null
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('scan-analysis-left-w', String(leftW)) } catch { /* ignore */ }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+  }, [leftW])
 
   const totalRows = items.reduce((n, it) => n + it.rows.length, 0)
   const totalAmount = items.reduce((n, it) => n + it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0), 0)
@@ -1143,8 +1177,11 @@ function BulkReviewPanel({
       )}
 
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        {/* 左: レシート画像 */}
-        <div className="md:w-[380px] shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-2 space-y-4">
+        {/* 左: レシート画像（境目のドラッグで幅＝画像の大きさを変えられる） */}
+        <div
+          style={wide ? { width: leftW, flex: '0 0 auto' } : undefined}
+          className="border-r border-gray-200 bg-gray-50 overflow-auto p-2 space-y-4"
+        >
           {items.map((it) => (
             <div key={it.batch.id}>
               <div className="text-[11px] font-semibold text-blue-800 bg-blue-50 border border-blue-100 rounded px-2 py-1 mb-2">
@@ -1179,6 +1216,19 @@ function BulkReviewPanel({
               )}
             </div>
           ))}
+        </div>
+
+        {/* 画像と解析結果の境目。左右にドラッグして幅（＝画像の大きさ）を変えられる */}
+        <div
+          onMouseDown={(e) => {
+            dragRef.current = { startX: e.clientX, startW: leftW }
+            document.body.style.userSelect = 'none'
+          }}
+          onDoubleClick={() => setLeftW(380)}
+          title="ドラッグで画像の大きさを変えられます（ダブルクリックで既定に戻す）"
+          className="hidden md:flex items-center justify-center w-2 shrink-0 cursor-col-resize bg-gray-100 hover:bg-blue-100 group"
+        >
+          <div className="h-16 w-1 rounded bg-gray-300 group-hover:bg-blue-400" />
         </div>
 
         {/* 右: 解析結果（編集できる） */}
