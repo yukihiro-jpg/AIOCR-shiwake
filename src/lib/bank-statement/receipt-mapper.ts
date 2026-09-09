@@ -48,7 +48,8 @@ export function receiptToEntries(
         amount: totalAmount,
         taxType: line ? getTaxCategory(line.taxRate, hasInvoice) : '',
         taxRate: line?.taxRate, hasInvoice,
-        description, originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
+        description: withTaxSuffix(description, line?.taxRate),
+        originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
       })
       entry.sourcePageId = sourcePageId
       entries.push(entry)
@@ -74,7 +75,8 @@ export function receiptToEntries(
           amount: line.totalAmount,
           taxType: getTaxCategory(line.taxRate, hasInvoice),
           taxRate: line.taxRate, hasInvoice,
-          description, originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
+          description: withTaxSuffix(description, line.taxRate),
+          originalDescription: `${rcp.storeName}_${rcp.mainContent}`,
         })
         childEntry.isCompound = true
         childEntry.parentId = parentEntry.id
@@ -85,6 +87,31 @@ export function receiptToEntries(
   }
 
   return entries
+}
+
+/**
+ * 摘要の末尾に付ける税率の目印。
+ * 軽減8%と非課税は、あとから帳簿を見たときに区別が付くよう摘要に残す（ユーザー要望）。
+ * 10%・対象外は既定なので何も付けない。
+ */
+function taxSuffix(taxRate?: string): string {
+  if (!taxRate) return ''
+  const r = taxRate.replace(/\s/g, '')
+  if (/非課税|^非課$/.test(r)) return '非課税'
+  if (/^0%$/.test(r)) return '非課税'
+  // 「8%」「軽減8%」「8%(軽)」等はすべて軽減税率
+  if (/8/.test(r) && !/18|28|38|48|58|68|78|88|98/.test(r)) return '(軽)8%'
+  return ''
+}
+
+/** 摘要（40字上限）の末尾に目印を付ける。上限を超える分は摘要側を削って目印を残す */
+export function withTaxSuffix(description: string, taxRate?: string): string {
+  const suffix = taxSuffix(taxRate)
+  if (!suffix) return description.slice(0, 40)
+  if (description.endsWith(suffix)) return description.slice(0, 40) // 二重付与を防ぐ
+  const room = 40 - suffix.length - 1
+  const base = description.slice(0, Math.max(0, room)).trim()
+  return `${base} ${suffix}`.trim()
 }
 
 function getTaxCategory(taxRate: string, hasInvoice: boolean): string {

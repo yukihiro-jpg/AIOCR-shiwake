@@ -270,14 +270,17 @@ export default function BankStatementContent() {
         (rcp) => idPages[rcp.pageIndex]?.id,
       )
       // 過去に学習したパターン（同じ店名・金額帯）があれば、そちらを優先して上書きする
-      const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns()).map((e) => {
-        if (!e.debitCode || e.debitTaxCode) return e
+      const { withTaxSuffix } = await import('@/lib/bank-statement/receipt-mapper')
+      const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns()).map((e, i) => {
+        // パターンで摘要が置き換わっても、軽減8%・非課税の目印は摘要の末尾に残す
+        const u = { ...e, description: withTaxSuffix(e.description, payload!.rows[i]?.taxRate) }
+        if (!u.debitCode || u.debitTaxCode) return u
         // 借方科目が決まった行は消費税CDも科目マスタから補う。
         // 税率（debitTaxRate）はレシートの解析値を維持する（taxLocked=true のため上書きされない）
-        const acc = master.find((a) => a.code === e.debitCode)
-        if (!acc) return e
+        const acc = master.find((a) => a.code === u.debitCode)
+        if (!acc) return u
         const tax = resolveAccountTax(acc, taxMaster)
-        return tax ? { ...e, debitTaxCode: tax.taxCode } : e
+        return tax ? { ...u, debitTaxCode: tax.taxCode } : u
       })
       const guessedCount = entries.filter((e) => e.debitCode).length
       const cfg: UploadConfig = {

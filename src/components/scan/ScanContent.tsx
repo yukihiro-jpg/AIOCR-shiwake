@@ -966,6 +966,7 @@ function BatchDetail({
   const [activeImg, setActiveImg] = useState<number | null>(null)
   const imgRefs = useRef<(HTMLDivElement | null)[]>([])
   const [pageBusy, setPageBusy] = useState<number | null>(null)
+  const [editingCell, setEditingCell] = useState<string | null>(null) // 金額編集中のセル（整形を止める）
   const [kind, setKind] = useState<ScanAnalysisKind | null>(docTypeToKind(batch.docType))
   const [meta, setMeta] = useState<ScanAnalysisMeta | undefined>(undefined)
   // 画像ペインの幅（境目をドラッグして変更・端末ごとに記憶）
@@ -1453,9 +1454,18 @@ function BatchDetail({
                         {colSpecs.map((c) => (
                           <td key={c.key} className="px-1 py-1">
                             {c.num ? (
+                              // 金額は「編集中は生の数字・カーソルが外れたら3桁区切り」で表示する
+                              // （1文字ごとに整形するとカーソルが飛ぶため）
                               <input
-                                value={r[c.key] == null ? '' : String(r[c.key])}
-                                onFocus={() => focusImage(r.pageIndex)}
+                                value={
+                                  r[c.key] == null
+                                    ? ''
+                                    : editingCell === `${i}:${c.key}`
+                                      ? String(r[c.key])
+                                      : Number(r[c.key]).toLocaleString('ja-JP')
+                                }
+                                onFocus={() => { setEditingCell(`${i}:${c.key}`); focusImage(r.pageIndex) }}
+                                onBlur={() => setEditingCell(null)}
                                 onChange={(e) => {
                                   const t = e.target.value.replace(/[^\d.-]/g, '')
                                   updateRow(i, { [c.key]: t === '' ? (c.key === 'totalAmount' ? 0 : null) : Number(t) } as Partial<ReceiptRow>)
