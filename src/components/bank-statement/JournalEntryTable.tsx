@@ -590,10 +590,16 @@ export default function JournalEntryTable({
     // 内部月は「通常月＝空欄」に戻す操作もあるので、値が空でも適用する
     if (!bulkField || selectedRange.size === 0) return
     const acc = accountMaster.find((a) => a.code === bulkValue)
+    // 日付は入力欄が YYYY-MM-DD なので、仕訳の持ち方（YYYYMMDD）に直す
+    let value = bulkValue
+    if (bulkField === 'date') {
+      value = bulkValue.replace(/\D/g, '')
+      if (value.length !== 8) { alert('日付を選んでください'); return }
+    }
     onEntriesChange(
       entries.map((entry) => {
         if (!selectedRange.has(entry.id)) return entry
-        const u = { ...entry, [bulkField]: bulkValue }
+        const u = { ...entry, [bulkField]: value }
         // 消費税CDは科目本来の正残で判定（借方・貸方どちらに置いても売上=課税売上、経費=課税仕入/対象外）
         const taxMaster = loadAccountTaxMaster()
         if (bulkField === 'debitCode' && acc) {
@@ -1071,9 +1077,10 @@ export default function JournalEntryTable({
           {showBulkEdit && selectedRange.size > 0 && (
             <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-100 border border-blue-300 rounded">
               <span className="text-xs font-bold text-blue-800 shrink-0 whitespace-nowrap">{selectedRange.size}件選択中</span>
-              <select value={bulkField} onChange={(e) => setBulkField(e.target.value)}
+              <select value={bulkField} onChange={(e) => { setBulkField(e.target.value); setBulkValue('') }}
                 className="px-1.5 py-0.5 text-xs border border-blue-300 rounded bg-white">
                 <option value="">変更項目</option>
+                <option value="date">日付</option>
                 <option value="debitCode">借方CD</option>
                 <option value="creditCode">貸方CD</option>
                 <option value="debitTaxCode">消費税CD</option>
@@ -1081,7 +1088,10 @@ export default function JournalEntryTable({
                 <option value="description">摘要</option>
                 <option value="naibuMonth">内部月</option>
               </select>
-              {bulkField === 'naibuMonth' ? (
+              {bulkField === 'date' ? (
+                <input type="date" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
+                  className="px-1.5 py-0.5 text-xs border border-blue-300 rounded bg-white w-32" />
+              ) : bulkField === 'naibuMonth' ? (
                 <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}
                   className="px-1.5 py-0.5 text-xs border border-blue-300 rounded bg-white w-28">
                   {NAIBU_MONTHS.map((m) => (
