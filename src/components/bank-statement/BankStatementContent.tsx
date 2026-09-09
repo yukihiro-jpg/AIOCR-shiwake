@@ -202,6 +202,7 @@ export default function BankStatementContent() {
       clientName: string
       docType: string
       submittedAt: string
+      batchCount?: number   // まとめて転送したバッチの件数（1件のときは無し）
       credit: { code: string; name: string; subCode?: string; subName?: string }
       rows: { date: string; storeName: string; mainContent: string; invoiceNumber: string; taxRate: string; totalAmount: number; pageIndex?: number | null }[]
       images: string[]
@@ -297,7 +298,7 @@ export default function BankStatementContent() {
       uploadConfigRef.current = cfg
       setJournalEntries(entries)
       setInfo(
-        `書類スキャン受信（${payload!.docType}・${new Date(payload!.submittedAt).toLocaleDateString('ja-JP')}受信）から ${entries.length} 件の仕訳を取り込みました。` +
+        `書類スキャン受信（${payload!.docType}・${(payload!.batchCount || 1) > 1 ? `${payload!.batchCount}件のバッチ` : `${new Date(payload!.submittedAt).toLocaleDateString('ja-JP')}受信`}）から ${entries.length} 件の仕訳を取り込みました。` +
         (guessedCount
           ? `うち ${guessedCount} 件は内容・学習パターンから借方科目を自動セットしています（必ずご確認ください）。`
           : '借方科目を設定してください。'),

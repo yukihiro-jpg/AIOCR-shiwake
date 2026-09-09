@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, Fragment } from 'react'
 import GlobalNav from '@/core/ui/GlobalNav'
 import { hasRoom, setRoomPassphrase } from '@/core/room'
 import {
@@ -477,6 +477,9 @@ export function InboxModal({
   const [err, setErr] = useState('')
   const [openBatch, setOpenBatch] = useState<ScanBatch | null>(null)
   const [transferBatch, setTransferBatch] = useState<ScanBatch | null>(null)
+  // 一覧でチェックしたバッチ（まとめて確認・転送する対象）
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+  const [bulkOpen, setBulkOpen] = useState(false)
   const [showDone, setShowDone] = useState(true) // 処理済みも既定で表示（処理済みにしても解析データ内に残す）
   const [analyses, setAnalyses] = useState<Record<string, ScanAnalysis>>({})
   // 共有フォルダ（DocuWorks風ツリー・顧問先版と同一のフォルダを双方向で共有）
@@ -611,6 +614,10 @@ export function InboxModal({
   const batchList = Object.values(batches)
     .filter((b) => showDone || b.status !== 'done')
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+  // まとめて転送できるバッチ（レシート・領収書＋解析済み）。転送済みも選べる（再送は確認する）
+  const transferableList = batchList.filter(
+    (b) => docTypeToKind(b.docType) === 'receipt' && (analyses[b.id]?.rows || []).length > 0,
+  )
   const cashList = Object.values(cash)
     .filter((c) => showDone || c.status !== 'done')
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
@@ -755,10 +762,42 @@ export function InboxModal({
               batchList.length === 0 ? (
                 <p className="text-sm text-gray-500 py-6 text-center">バッチがありません。</p>
               ) : (
+                <>
+                {/* まとめて確認・転送のツールバー（チェックした分をひとつの画面で確認してから送る） */}
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="text-xs text-gray-500">
+                    {checkedIds.size > 0
+                      ? `${checkedIds.size}件を選択中（合計${transferableList.filter((b) => checkedIds.has(b.id)).reduce((n, b) => n + (analyses[b.id]?.rows || []).length, 0)}行）`
+                      : 'チェックを付けると、複数のバッチをまとめて確認・転送できます'}
+                  </span>
+                  <button
+                    onClick={() => setBulkOpen(true)}
+                    disabled={checkedIds.size === 0}
+                    className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+                  >
+                    📒 選択した{checkedIds.size || ''}件をまとめて確認・転送
+                  </button>
+                  {checkedIds.size > 0 && (
+                    <button onClick={() => setCheckedIds(new Set())} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                      選択解除
+                    </button>
+                  )}
+                </div>
                 <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[720px] md:min-w-0">
+                <table className="w-full text-sm min-w-[760px] md:min-w-0">
                   <thead>
                     <tr className="bg-gray-50 text-gray-500">
+                      <th className="px-2 py-2 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          title="転送できるバッチをすべて選択"
+                          checked={transferableList.length > 0 && transferableList.every((b) => checkedIds.has(b.id))}
+                          onChange={(e) => {
+                            setCheckedIds(e.target.checked ? new Set(transferableList.map((b) => b.id)) : new Set())
+                          }}
+                        />
+                      </th>
                       <th className="text-left px-3 py-2">日時</th>
                       <th className="text-left px-3 py-2">書類種類</th>
                       <th className="text-left px-3 py-2">ページ数</th>
@@ -771,6 +810,29 @@ export function InboxModal({
                   <tbody>
                     {batchList.map((b) => (
                       <tr key={b.id} className="border-t border-gray-100">
+                        <td className="px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 disabled:opacity-30"
+                            disabled={!transferableList.some((t) => t.id === b.id)}
+                            title={
+                              docTypeToKind(b.docType) !== 'receipt'
+                                ? '仕訳作成への転送はレシート・領収書のみ対応しています'
+                                : (analyses[b.id]?.rows || []).length === 0
+                                  ? '先にAI解析を行ってください'
+                                  : '選択してまとめて転送'
+                            }
+                            checked={checkedIds.has(b.id)}
+                            onChange={(e) => {
+                              setCheckedIds((prev) => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(b.id)
+                                else next.delete(b.id)
+                                return next
+                              })
+                            }}
+                          />
+                        </td>
                         <td className="px-3 py-2 text-gray-600">{new Date(b.submittedAt).toLocaleString('ja-JP')}</td>
                         <td className="px-3 py-2 text-gray-800">
                           {b.docType}
@@ -842,6 +904,7 @@ export function InboxModal({
                   </tbody>
                 </table>
                 </div>
+                </>
               )
             ) : cashList.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center">現金の登録がありません。</p>
@@ -919,9 +982,19 @@ export function InboxModal({
         <TransferDialog
           client={client}
           company={company}
-          batch={transferBatch}
-          rows={(analyses[transferBatch.id]?.rows || []) as ReceiptRow[]}
+          items={[{ batch: transferBatch, rows: (analyses[transferBatch.id]?.rows || []) as ReceiptRow[] }]}
           onClose={() => setTransferBatch(null)}
+        />
+      )}
+
+      {bulkOpen && checkedIds.size > 0 && (
+        <TransferDialog
+          client={client}
+          company={company}
+          items={transferableList
+            .filter((b) => checkedIds.has(b.id))
+            .map((b) => ({ batch: b, rows: (analyses[b.id]?.rows || []) as ReceiptRow[] }))}
+          onClose={() => setBulkOpen(false)}
         />
       )}
     </div>
@@ -1266,8 +1339,7 @@ function BatchDetail({
           <TransferDialog
             client={client}
             company={company}
-            batch={batch}
-            rows={rows}
+            items={[{ batch, rows }]}
             onClose={() => setTransferOpen(false)}
           />
         )}
@@ -1545,23 +1617,24 @@ function BatchDetail({
 function TransferDialog({
   client,
   company,
-  batch,
-  rows,
+  items,
   onClose,
 }: {
   client: SharedClient
   company: ScanCompany
-  batch: ScanBatch
-  rows: ReceiptRow[]
+  /** 転送するバッチ（1件でも複数でも同じ画面で扱う） */
+  items: { batch: ScanBatch; rows: ReceiptRow[] }[]
   onClose: () => void
 }) {
-  const [step, setStep] = useState<'cash' | 'other'>('cash')
+  // 複数選んだときは、まず中身をまとめて確認してから貸方科目を選ぶ
+  const [step, setStep] = useState<'review' | 'cash' | 'other'>(items.length > 1 ? 'review' : 'cash')
   const [history, setHistory] = useState<ScanCreditAccount[]>([])
   const [master, setMaster] = useState<{ code: string; name: string }[]>([])
   const [selCode, setSelCode] = useState('')
   const [selName, setSelName] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState('')
 
   // 仕訳作成側の顧問先を解決（ID直結 → 予備としてコード一致）
   const bsClient = (() => {
@@ -1595,42 +1668,64 @@ function TransferDialog({
     setBusy(true)
     setErr('')
     try {
-      const images = await getBatchImageUrls(company.token, batch)
+      // 複数バッチを1つの取込みにまとめる。画像は全バッチ分をつなげ、
+      // 行の pageIndex はつなげた後の通し番号に振り直す（行から元画像をたどれるように）
+      const allRows: ReceiptRow[] = []
+      const allImages: string[] = []
+      for (const it of items) {
+        setProgress(`画像を取得しています…（${allImages.length ? allImages.length + '枚' : ''}${it.batch.docType}）`)
+        const imgs = await getBatchImageUrls(company.token, it.batch)
+        const offset = allImages.length
+        for (const r of it.rows) {
+          allRows.push({ ...r, pageIndex: typeof r.pageIndex === 'number' ? r.pageIndex + offset : null })
+        }
+        allImages.push(...imgs)
+      }
+      const first = items[0].batch
       const payload = {
         v: 1,
         clientId: bsClient.id,
         clientName: bsClient.name,
         scanClientName: client.name,
-        batchId: batch.id,
-        docType: batch.docType,
-        submittedAt: batch.submittedAt,
+        batchId: first.id,
+        batchIds: items.map((it) => it.batch.id),
+        batchCount: items.length,
+        docType: first.docType,
+        submittedAt: first.submittedAt,
         credit,
-        rows,
-        images,
+        rows: allRows,
+        images: allImages,
       }
       localStorage.setItem('bs-scan-import', JSON.stringify(payload))
       if (remember) {
         try { await pushScanCreditHistory(client.id, credit) } catch { /* ignore */ }
       }
-      try { await markBatchTransferred(company.token, batch.id) } catch { /* ignore */ }
+      for (const it of items) {
+        try { await markBatchTransferred(company.token, it.batch.id) } catch { /* ignore */ }
+      }
       setSelectedClientId(bsClient.id)
       const base = process.env.NEXT_PUBLIC_BASE_PATH || ''
       window.location.assign(`${base}/bank-statement/`)
     } catch (e) {
       setErr('転送の準備に失敗しました：' + (e instanceof Error ? e.message : ''))
       setBusy(false)
+      setProgress('')
     }
   }
 
   const historyKeys = new Set(history.map((h) => h.code))
   const restMaster = master.filter((m) => !historyKeys.has(m.code))
+  const totalRows = items.reduce((n, it) => n + it.rows.length, 0)
+  const totalAmount = items.reduce((n, it) => n + it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0), 0)
+  const alreadySent = items.filter((it) => it.batch.transferredAt)
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-white rounded-2xl p-6 w-full ${step === 'review' ? 'max-w-5xl max-h-[92vh] overflow-auto' : 'max-w-md'}`} onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-gray-800 mb-1">📒 仕訳作成へ送る</h3>
         <p className="text-xs text-gray-500 mb-4">
-          {client.name}／{batch.docType}・{rows.length}行を仕訳作成に取り込みます。
+          {client.name}／{items.length > 1 ? `${items.length}件のバッチ・` : `${items[0].batch.docType}・`}
+          {totalRows}行（税込合計 &yen;{totalAmount.toLocaleString('ja-JP')}）を仕訳作成に取り込みます。
         </p>
 
         {!bsClient ? (
@@ -1638,15 +1733,84 @@ function TransferDialog({
             仕訳作成にこの顧問先が見つかりません。「顧問先情報登録」でこの顧問先の<b>仕訳作成＝利用</b>にしてから、
             一度仕訳作成を開いて顧問先が表示されることを確認してください。
           </div>
+        ) : step === 'review' ? (
+          <div>
+            {alreadySent.length > 0 && (
+              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 mb-3">
+                ⚠️ 選んだうち{alreadySent.length}件は既に仕訳作成へ転送済みです。もう一度送ると二重取込みになります。
+              </div>
+            )}
+            <div className="border border-gray-200 rounded max-h-[60vh] overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 text-gray-500 sticky top-0">
+                  <tr>
+                    <th className="text-left px-2 py-1.5" style={{ minWidth: 100 }}>日付</th>
+                    <th className="text-left px-2 py-1.5" style={{ minWidth: 160 }}>店名</th>
+                    <th className="text-left px-2 py-1.5" style={{ minWidth: 160 }}>内容</th>
+                    <th className="text-left px-2 py-1.5" style={{ minWidth: 140 }}>インボイス番号</th>
+                    <th className="text-left px-2 py-1.5" style={{ minWidth: 60 }}>税率</th>
+                    <th className="text-right px-2 py-1.5" style={{ minWidth: 100 }}>税込金額</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <Fragment key={it.batch.id}>
+                      <tr className="bg-blue-50/60 border-t border-blue-100">
+                        <td colSpan={6} className="px-2 py-1 text-[11px] text-blue-800 font-semibold">
+                          {new Date(it.batch.submittedAt).toLocaleString('ja-JP')}／{it.batch.docType}
+                          （{it.batch.pageCount}枚・{it.rows.length}行・&yen;
+                          {it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0).toLocaleString('ja-JP')}）
+                          {it.batch.transferredAt && <span className="ml-2 text-amber-700">※転送済み</span>}
+                        </td>
+                      </tr>
+                      {it.rows.map((r, i) => (
+                        <tr key={it.batch.id + i} className="border-t border-gray-100">
+                          <td className="px-2 py-1 whitespace-nowrap">{r.date || <span className="text-red-500">日付なし</span>}</td>
+                          <td className="px-2 py-1">{r.storeName}</td>
+                          <td className="px-2 py-1">{r.mainContent}</td>
+                          <td className="px-2 py-1 text-gray-500">{r.invoiceNumber}</td>
+                          <td className="px-2 py-1">{r.taxRate}</td>
+                          <td className="px-2 py-1 text-right">
+                            {Number(r.totalAmount) ? Number(r.totalAmount).toLocaleString('ja-JP') : <span className="text-red-500">0</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 border-t border-gray-300 font-semibold">
+                    <td className="px-2 py-1.5" colSpan={5}>合計（{items.length}件・{totalRows}行）</td>
+                    <td className="px-2 py-1.5 text-right">&yen;{totalAmount.toLocaleString('ja-JP')}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-2">
+              内容を直したいときは、いったん閉じて該当のバッチを「開く」から編集してください。
+            </p>
+            <div className="flex gap-2 justify-end mt-3">
+              <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded">閉じる</button>
+              <button
+                onClick={() => setStep('cash')}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded font-semibold hover:bg-blue-700"
+              >
+                この内容で進む（貸方科目の選択へ）
+              </button>
+            </div>
+          </div>
         ) : step === 'cash' ? (
           <div>
+            {items.length > 1 && (
+              <button onClick={() => setStep('review')} className="text-xs text-blue-600 hover:underline mb-2">← 内容の確認に戻る</button>
+            )}
             <p className="text-sm font-semibold text-gray-700 mb-3">貸方（支払い方法）は「現金」ですか？</p>
             <button
               onClick={() => send(cashAccount(), false)}
               disabled={busy}
               className="w-full py-3 mb-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
             >
-              {busy ? '転送中...' : '💴 現金で送る'}
+              {busy ? (progress || '転送中...') : '💴 現金で送る'}
             </button>
             <button
               onClick={() => setStep('other')}
@@ -1723,7 +1887,7 @@ function TransferDialog({
               disabled={busy}
               className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-60"
             >
-              {busy ? '転送中...' : 'この科目で送る'}
+              {busy ? (progress || '転送中...') : 'この科目で送る'}
             </button>
             <button onClick={() => setStep('cash')} disabled={busy} className="w-full py-2 mt-2 text-sm text-gray-500 hover:text-gray-700">
               ← 戻る
