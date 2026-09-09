@@ -513,7 +513,125 @@ function parseByHeader(
   return { period, paymentDate, companyName: meta.companyName, employeeCount: employees.length, employees, payHeaders, deductHeaders, isBonus }
 }
 
+/**
+ * 縦持ち（従業員が「列」・項目が「行」）の賃金台帳を解析する。
+ *
+ *   区分 | 項目       | 保坂一志 | 保坂郁弥 | 合計
+ *   勤怠 | 労働日数   |          |    23    |  23
+ *   支給 | 基本給     | 400,000  | 299,000  | 699,000
+ *        | 支給合計   | ...
+ *   控除 | 健康保険料 | ...
+ *        | 控除合計   | ...
+ *        | 差引支給額 | ...
+ *
+ * 従来の解析は「1行＝1従業員」を前提にしていたため、この形は
+ * 「従業員データ行が見つかりません」になっていた。該当しない形なら null を返す。
+ */
+function parseVerticalPayrollRows(rows: string[][]): PayrollData | null {
+  // 1. ヘッダ行（「項目」列があり、右に従業員名が並ぶ行）を探す
+  let hdrIdx = -1
+  let itemCol = -1
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const r = rows[i] || []
+    const idx = r.findIndex((c) => ['項目', '項目名', '支給項目'].includes(norm(c)))
+    if (idx < 0) continue
+    // 右側に名前らしきセルが1つ以上あること
+    if (r.slice(idx + 1).some((c) => c.trim() && norm(c) !== '合計')) { hdrIdx = i; itemCol = idx; break }
+  }
+  if (hdrIdx < 0) return null
+
+  const header = rows[hdrIdx]
+  // 2. 従業員の列（「合計」列と空欄は除く）
+  const empCols: { col: number; name: string }[] = []
+  for (let c = itemCol + 1; c < header.length; c++) {
+    const name = (header[c] || '').trim()
+    if (!name) continue
+    if (['合計', '計', '総計'].includes(norm(name))) continue
+    empCols.push({ col: c, name })
+  }
+  if (empCols.length === 0) return null
+
+  // 3. 「基本給」「支給合計」等がこの並びで出てくることを確認（別形式の誤検出を防ぐ）
+  const itemNames = rows.slice(hdrIdx + 1).map((r) => norm((r || [])[itemCol] || ''))
+  if (!itemNames.some((n) => n === '基本給') || !itemNames.some((n) => n.includes('支給合計'))) return null
+
+  // 4. メタ情報（表題の「令和7年8月分」等）
+  let period = ''
+  for (let i = 0; i <= hdrIdx; i++) {
+    const line = (rows[i] || []).join(' ')
+    const pm = line.match(/令和(\d+)年(\d+)月/)
+    if (pm) { period = `${2018 + parseInt(pm[1])}-${pm[2].padStart(2, '0')}`; break }
+    const sm = line.match(/(20\d{2})年(\d{1,2})月/)
+    if (sm) { period = `${sm[1]}-${sm[2].padStart(2, '0')}`; break }
+  }
+
+  // 5. 行を「支給」「控除」に振り分ける（区分列があればそれを優先し、無ければ
+  //    支給合計→控除、控除合計→終わり、で切り替える）
+  const catCol = itemCol - 1 >= 0 ? itemCol - 1 : -1
+  const payItems: { name: string; values: Record<number, number> }[] = []
+  const deductItems: { name: string; values: Record<number, number> }[] = []
+  const totals: Record<string, Record<number, number>> = { pay: {}, deduct: {}, net: {} }
+  let section: '' | 'attendance' | 'pay' | 'deduct' = ''
+
+  for (let i = hdrIdx + 1; i < rows.length; i++) {
+    const r = rows[i] || []
+    const item = (r[itemCol] || '').trim()
+    if (!item) continue
+    const cat = catCol >= 0 ? norm(r[catCol] || '') : ''
+    if (cat === '勤怠' || cat === '出勤') section = 'attendance'
+    else if (cat === '支給') section = 'pay'
+    else if (cat === '控除') section = 'deduct'
+    const n = norm(item)
+    // 注記・出典などの説明行で終わり
+    if (/^[【（(]/.test(item)) break
+
+    const values: Record<number, number> = {}
+    for (const e of empCols) values[e.col] = parseNum(r[e.col])
+
+    if (n.includes('支給合計') || n === '総支給額' || n === '支給額合計') {
+      totals.pay = values
+      section = 'deduct' // 支給合計のあとは控除
+      continue
+    }
+    if (n.includes('控除合計') || n === '控除額合計') { totals.deduct = values; continue }
+    if (n.includes('差引支給') || n === '差引支給額' || n === '振込額') { totals.net = values; continue }
+    if (section === 'attendance' || n === '労働日数' || n === '労働時間' || n === '出勤日数') continue
+    if (section === 'pay') payItems.push({ name: item, values })
+    else if (section === 'deduct') deductItems.push({ name: item, values })
+  }
+  if (payItems.length === 0 && deductItems.length === 0) return null
+
+  // 6. 従業員ごとに組み立てる（全部0の列＝実質データ無しは除く）
+  const employees: PayrollEmployee[] = []
+  empCols.forEach((e, idx) => {
+    const items = [
+      ...payItems.map((p) => ({ name: p.name, amount: p.values[e.col] || 0 })),
+      ...deductItems.map((d) => ({ name: d.name, amount: d.values[e.col] || 0 })),
+    ]
+    const totalPay = totals.pay[e.col] || items.slice(0, payItems.length).reduce((s, it) => s + it.amount, 0)
+    const totalDeductions = totals.deduct[e.col] || items.slice(payItems.length).reduce((s, it) => s + it.amount, 0)
+    const netPay = totals.net[e.col] || totalPay - totalDeductions
+    if (totalPay === 0 && totalDeductions === 0 && netPay === 0) return
+    employees.push({ no: idx + 1, name: e.name, isExecutive: false, items, totalPay, totalDeductions, netPay })
+  })
+  if (employees.length === 0) return null
+
+  return {
+    period,
+    paymentDate: '',
+    companyName: '',
+    employeeCount: employees.length,
+    employees,
+    payHeaders: payItems.map((p) => p.name),
+    deductHeaders: deductItems.map((d) => d.name),
+  }
+}
+
 function parsePayrollRows(rows: string[][]): PayrollData {
+  // 従業員が列に並ぶ縦持ちの台帳（区分・項目・氏名…）はこちらで解析する
+  const vertical = parseVerticalPayrollRows(rows)
+  if (vertical) return vertical
+
   let period = ''
   let paymentDate = ''
   let companyName = ''
