@@ -551,9 +551,10 @@ function parseVerticalPayrollRows(rows: string[][]): PayrollData | null {
   }
   if (empCols.length === 0) return null
 
-  // 3. 「基本給」「支給合計」等がこの並びで出てくることを確認（別形式の誤検出を防ぐ）
+  // 3. 「基本給（役員報酬）」「支給合計」がこの並びで出てくることを確認（別形式の誤検出を防ぐ）
   const itemNames = rows.slice(hdrIdx + 1).map((r) => norm((r || [])[itemCol] || ''))
-  if (!itemNames.some((n) => n === '基本給') || !itemNames.some((n) => n.includes('支給合計'))) return null
+  const isMainPayItem = (n: string) => /^(基本給|役員報酬|役員給与|報酬|給料|給与|本俸)$/.test(n)
+  if (!itemNames.some(isMainPayItem) || !itemNames.some((n) => n.includes('支給合計'))) return null
 
   // 4. メタ情報（表題の「令和7年8月分」等）
   let period = ''
@@ -601,7 +602,17 @@ function parseVerticalPayrollRows(rows: string[][]): PayrollData | null {
   }
   if (payItems.length === 0 && deductItems.length === 0) return null
 
-  // 6. 従業員ごとに組み立てる（全部0の列＝実質データ無しは除く）
+  // 6. 支給項目を「課税分」と「非課税分（通勤手当等）」に分ける。
+  //    役員報酬・給与手当の借方は「課税分合計」で計上する仕組みなので、ここで作っておく。
+  //    課税分の内訳（基本給・役員報酬・手当）は payHeaders に載せない
+  //    （載せると課税分合計と二重計上になるため）。非課税分だけ個別に科目を割り当てる。
+  const isNonTax = (n: string) => /通勤|交通費/.test(n)
+  const nonTaxItems = payItems.filter((p) => isNonTax(norm(p.name)))
+  const taxItems = payItems.filter((p) => !isNonTax(norm(p.name)))
+  // 役員報酬の行に金額がある人は役員として扱う（あとから画面のチェックで変更できる）
+  const execItems = payItems.filter((p) => /役員報酬|役員給与/.test(norm(p.name)))
+
+  // 7. 従業員ごとに組み立てる（全部0の列＝実質データ無しは除く）
   const employees: PayrollEmployee[] = []
   empCols.forEach((e, idx) => {
     const items = [
@@ -612,7 +623,13 @@ function parseVerticalPayrollRows(rows: string[][]): PayrollData | null {
     const totalDeductions = totals.deduct[e.col] || items.slice(payItems.length).reduce((s, it) => s + it.amount, 0)
     const netPay = totals.net[e.col] || totalPay - totalDeductions
     if (totalPay === 0 && totalDeductions === 0 && netPay === 0) return
-    employees.push({ no: idx + 1, name: e.name, isExecutive: false, items, totalPay, totalDeductions, netPay })
+    const nonTax = nonTaxItems.reduce((sum, p) => sum + (p.values[e.col] || 0), 0)
+    const taxable = totals.pay[e.col] != null
+      ? totalPay - nonTax
+      : taxItems.reduce((sum, p) => sum + (p.values[e.col] || 0), 0)
+    items.push({ name: '課税分合計', amount: taxable })
+    const isExecutive = execItems.some((p) => (p.values[e.col] || 0) > 0)
+    employees.push({ no: idx + 1, name: e.name, isExecutive, items, totalPay, totalDeductions, netPay })
   })
   if (employees.length === 0) return null
 
@@ -622,7 +639,7 @@ function parseVerticalPayrollRows(rows: string[][]): PayrollData | null {
     companyName: '',
     employeeCount: employees.length,
     employees,
-    payHeaders: payItems.map((p) => p.name),
+    payHeaders: nonTaxItems.map((p) => p.name),
     deductHeaders: deductItems.map((d) => d.name),
   }
 }

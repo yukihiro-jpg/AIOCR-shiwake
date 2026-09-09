@@ -15,6 +15,7 @@ interface PayrollSettings {
   bankSubCode: string
   bankSubName: string
   salaryIndividual?: boolean
+  executiveIndividual?: boolean
   perPersonItems?: string[]
   perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
 }
@@ -82,6 +83,8 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
   const [busy, setBusy] = useState('')
   // 給与手当を個人別明細にするか（既定＝合計）
   const [salaryIndividual, setSalaryIndividual] = useState(false)
+  // 役員報酬を個人別明細にするか（既定＝個人別。役員は人ごとに金額を追うため）
+  const [execIndividual, setExecIndividual] = useState(true)
   // 補助科目ごと（個人別）に計上する控除項目
   const [perPersonItems, setPerPersonItems] = useState<Set<string>>(new Set())
   // 控除項目 → 従業員名 → 補助科目
@@ -109,6 +112,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       setBankSubCode(saved.bankSubCode || '')
       setBankSubName(saved.bankSubName || '')
       setSalaryIndividual(!!saved.salaryIndividual)
+      setExecIndividual(saved.executiveIndividual !== false)
       setPerPersonItems(new Set(saved.perPersonItems || []))
       setPerPersonSubs(saved.perPersonSubs || {})
     }
@@ -350,6 +354,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
       itemAccountsBonus,
       bankCode, bankName, bankSubCode, bankSubName,
       salaryIndividual,
+      executiveIndividual: execIndividual,
       perPersonItems: Array.from(perPersonItems),
       perPersonSubs,
     }
@@ -450,7 +455,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     }))
     // 【必須】貸借バランス検証は月ごとに行う（月によって控除項目の構成が違うことがあるため）
     for (const m of months) {
-      const bal = payrollBalanceCheck(m, allAccounts, { salaryIndividual, perPersonSubs: ppSubs })
+      const bal = payrollBalanceCheck(m, allAccounts, { salaryIndividual, executiveIndividual: execIndividual, perPersonSubs: ppSubs })
       if (bal.diff !== 0) {
         const hint = bal.unmapped.length
           ? `科目未設定: ${bal.unmapped.map((u) => `${u.name}（¥${u.amount.toLocaleString()}）`).join('、')}`
@@ -462,7 +467,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     const { payrollToEntries } = await import('@/lib/bank-statement/payroll-mapper')
     let all: JournalEntry[] = []
     for (const m of months) {
-      all = all.concat(payrollToEntries(m, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, accountTaxMaster, { salaryIndividual, perPersonSubs: ppSubs }))
+      all = all.concat(payrollToEntries(m, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, accountTaxMaster, { salaryIndividual, executiveIndividual: execIndividual, perPersonSubs: ppSubs }))
     }
     savePayrollSettings(buildSettingsToSave(allAccounts, Array.from(execNames)))
     onGenerateEntries(all, `賃金台帳 ${batch.length}ヶ月分（${batch[0].period}〜${batch[batch.length - 1].period}）から${all.length}件の仕訳を生成しました`)
@@ -486,7 +491,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     }
     // 【必須】貸借バランス検証：未設定項目があると差額が「差引支給額（引落口座）」行へ
     // 自動調整で押し込まれ、通帳と一致しない金額でCSV出力されてしまうため、ここでブロックする。
-    const bal = payrollBalanceCheck(parsed, allAccounts, { salaryIndividual, perPersonSubs: ppSubs })
+    const bal = payrollBalanceCheck(parsed, allAccounts, { salaryIndividual, executiveIndividual: execIndividual, perPersonSubs: ppSubs })
     if (bal.diff !== 0) {
       const hint = bal.unmapped.length
         ? `科目未設定: ${bal.unmapped.map((u) => `${u.name}（¥${u.amount.toLocaleString()}）`).join('、')}`
@@ -498,6 +503,7 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
     savePayrollSettings(buildSettingsToSave(allAccounts, parsed.employees.filter((e) => e.isExecutive).map((e) => e.name)))
     onGenerate(parsed, bankCode, bankName, allAccounts, bankSubCode || undefined, bankSubName || undefined, {
       salaryIndividual,
+      executiveIndividual: execIndividual,
       perPersonSubs: ppSubs,
     })
     onClose()
@@ -677,6 +683,9 @@ export default function PayrollUploadDialog({ open, onClose, accountMaster, subA
                     <div className="text-xs font-bold text-amber-700">{isBonusMode ? '役員賞与（借方）' : '役員報酬'}</div>
                     <div className="text-xs text-gray-500">¥{executiveTotal.toLocaleString()}</div>
                     {renderAccountInput('役員報酬')}
+                    <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600 cursor-pointer" title="ONで役員ごとの明細行（摘要に氏名）。OFFで合計1行">
+                      <input type="checkbox" checked={execIndividual} onChange={(e) => setExecIndividual(e.target.checked)} />個人別に明細
+                    </label>
                   </div>
                   <div>
                     <div className="text-xs font-bold text-blue-700">{isBonusMode ? '従業員賞与（借方）' : '給与手当'}</div>

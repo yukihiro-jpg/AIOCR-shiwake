@@ -8,6 +8,8 @@ interface ItemAccount {
 export interface PayrollGenerateOptions {
   // 給与手当を従業員ごとの明細行にする（既定＝合計1行）
   salaryIndividual?: boolean
+  // 役員報酬を従業員ごとの明細行にする（既定＝個人別。false で合計1行）
+  executiveIndividual?: boolean
   // 控除項目を「補助科目ごと（個人別）」で計上する。{ 項目名: { 従業員キー: {subCode, subName} } }
   perPersonSubs?: Record<string, Record<string, { subCode: string; subName: string }>>
 }
@@ -101,10 +103,18 @@ export function payrollToEntries(
   // 役員報酬（借方）— 役員は「一人ずつ個別の金額」で仕訳（摘要に氏名を入れる。同姓同名はNO付き）
   const execAcc = itemAccounts['役員報酬']
   if (execAcc?.code) {
-    for (const e of data.employees.filter((x) => x.isExecutive)) {
-      const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
-      if (amt > 0) {
-        lines.push({ name: `役員報酬 ${payrollPersonKey(e, data.employees)}`, amount: amt, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+    const execs = data.employees.filter((x) => x.isExecutive)
+    if (options?.executiveIndividual === false) {
+      const total = execs.reduce((s, e) => s + (e.items.find((i) => i.name === '課税分合計')?.amount || 0), 0)
+      if (total > 0) {
+        lines.push({ name: '役員報酬', amount: total, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+      }
+    } else {
+      for (const e of execs) {
+        const amt = e.items.find((i) => i.name === '課税分合計')?.amount || 0
+        if (amt > 0) {
+          lines.push({ name: `役員報酬 ${payrollPersonKey(e, data.employees)}`, amount: amt, isDebit: true, code: execAcc.code, accName: execAcc.name, subCode: execAcc.subCode || '', subName: execAcc.subName || '' })
+        }
       }
     }
   }
