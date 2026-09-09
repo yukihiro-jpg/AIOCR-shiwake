@@ -1050,6 +1050,12 @@ function BulkReviewPanel({
   })
   const [wide, setWide] = useState(false)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+  // 画像ごとの拡大率・回転
+  const [imgView, setImgView] = useState<Record<string, { zoom: number; rot: number }>>({})
+  function view(k: string) { return imgView[k] || { zoom: 1, rot: 0 } }
+  function setView(k: string, patch: Partial<{ zoom: number; rot: number }>) {
+    setImgView((prev) => ({ ...prev, [k]: { ...(prev[k] || { zoom: 1, rot: 0 }), ...patch } }))
+  }
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)')
@@ -1058,6 +1064,14 @@ function BulkReviewPanel({
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [])
+
+  // 全画面表示は Esc で閉じる
+  useEffect(() => {
+    if (!lightbox) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox])
 
   // 境目のドラッグ（押している間だけ window で追う。ドラッグ中は文字選択を止める）
   useEffect(() => {
@@ -1200,16 +1214,32 @@ function BulkReviewPanel({
                           {i + 1}枚目：{n === 0 ? '行なし' : `${n}行`}
                         </span>
                         <button onClick={() => setLightbox(k)} className="text-xs px-1.5 py-0.5 border border-blue-300 text-blue-700 rounded bg-white hover:bg-blue-50">
-                          ⤢ 拡大
+                          ⤢ 全画面
                         </button>
                       </div>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={src}
-                        alt={`${i + 1}枚目`}
+                      <div className="flex items-center gap-1 mb-1">
+                        <button onClick={() => setView(k, { zoom: Math.max(0.5, Math.round((view(k).zoom - 0.25) * 100) / 100) })}
+                          className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="縮小">➖</button>
+                        <span className="text-[11px] text-gray-500 w-10 text-center">{Math.round(view(k).zoom * 100)}%</span>
+                        <button onClick={() => setView(k, { zoom: Math.min(6, Math.round((view(k).zoom + 0.25) * 100) / 100) })}
+                          className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="拡大">➕</button>
+                        <button onClick={() => setView(k, { rot: (view(k).rot + 90) % 360 })}
+                          className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="90度回転">↻</button>
+                        <button onClick={() => setView(k, { zoom: 1, rot: 0 })}
+                          className="text-xs px-1.5 py-0.5 border border-gray-300 rounded bg-white hover:bg-gray-100" title="元に戻す">⟲</button>
+                      </div>
+                      <div
                         onClick={() => setActiveKey(k)}
-                        className={`w-full rounded border-2 cursor-pointer ${activeKey === k ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
-                      />
+                        className={`rounded border-2 overflow-auto bg-white cursor-pointer ${activeKey === k ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={src}
+                          alt={`${i + 1}枚目`}
+                          style={{ width: `${view(k).zoom * 100}%`, transform: `rotate(${view(k).rot}deg)`, maxWidth: 'none' }}
+                          className="block origin-center"
+                        />
+                      </div>
                     </div>
                   )
                 })
@@ -1324,15 +1354,29 @@ function BulkReviewPanel({
         </div>
       </div>
 
-      {lightboxSrc && (
+      {lightboxSrc && lightbox && (
         <div className="fixed inset-0 bg-black/80 z-[76] flex flex-col" onMouseDown={(e) => { if (e.target === e.currentTarget) setLightbox(null) }}>
-          <div className="flex items-center gap-2 p-2 bg-black/60 text-white text-sm">
-            <span className="font-semibold">レシート画像</span>
+          <div className="flex items-center gap-2 p-2 bg-black/60 text-white text-sm flex-wrap">
+            <span className="font-semibold">{Number(lightbox.split(':')[1]) + 1}枚目</span>
+            <button onClick={() => setView(lightbox, { zoom: Math.max(0.5, Math.round((view(lightbox).zoom - 0.25) * 100) / 100) })}
+              className="px-2 py-1 border border-white/40 rounded">➖</button>
+            <span className="w-12 text-center">{Math.round(view(lightbox).zoom * 100)}%</span>
+            <button onClick={() => setView(lightbox, { zoom: Math.min(6, Math.round((view(lightbox).zoom + 0.25) * 100) / 100) })}
+              className="px-2 py-1 border border-white/40 rounded">➕</button>
+            <button onClick={() => setView(lightbox, { rot: (view(lightbox).rot + 90) % 360 })}
+              className="px-2 py-1 border border-white/40 rounded">↻ 回転</button>
+            <button onClick={() => setView(lightbox, { zoom: 1, rot: 0 })}
+              className="px-2 py-1 border border-white/40 rounded">⟲ 元に戻す</button>
             <button onClick={() => setLightbox(null)} className="ml-auto px-3 py-1 bg-white/90 text-gray-800 rounded font-semibold">閉じる</button>
           </div>
           <div className="flex-1 overflow-auto p-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={lightboxSrc} alt="レシート" className="block mx-auto max-w-none" style={{ width: '150%' }} />
+            <img
+              src={lightboxSrc}
+              alt="レシート"
+              style={{ width: `${view(lightbox).zoom * 100}%`, transform: `rotate(${view(lightbox).rot}deg)`, maxWidth: 'none' }}
+              className="block mx-auto"
+            />
           </div>
         </div>
       )}

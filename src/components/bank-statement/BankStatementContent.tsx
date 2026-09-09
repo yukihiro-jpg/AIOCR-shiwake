@@ -270,11 +270,20 @@ export default function BankStatementContent() {
         undefined,
         (rcp) => idPages[rcp.pageIndex]?.id,
       )
-      // 過去に学習したパターン（同じ店名・金額帯）があれば、そちらを優先して上書きする
+      // 過去に学習したパターン（同じ店名・金額帯）があれば、借方科目はそちらを優先する。
+      // 【重要】貸方（支払い方法）は転送時にユーザーが選んだ科目が絶対で、パターンで
+      // 上書きしない。以前は学習パターンの貸方（通帳等）に置き換わってしまっていた。
       const { withTaxSuffix } = await import('@/lib/bank-statement/receipt-mapper')
       const entries = applyPatternsToInvoiceEntries(rawEntries, getPatterns()).map((e, i) => {
         // パターンで摘要が置き換わっても、軽減8%・非課税の目印は摘要の末尾に残す
         const u = { ...e, description: withTaxSuffix(e.description, payload!.rows[i]?.taxRate) }
+        // 複合仕訳の子（貸方=諸口997）以外は、選んだ貸方科目に必ず戻す
+        if (u.creditCode !== '997') {
+          u.creditCode = payload!.credit.code
+          u.creditName = payload!.credit.name
+          u.creditSubCode = payload!.credit.subCode || ''
+          u.creditSubName = payload!.credit.subName || ''
+        }
         if (!u.debitCode || u.debitTaxCode) return u
         // 借方科目が決まった行は消費税CDも科目マスタから補う。
         // 税率（debitTaxRate）はレシートの解析値を維持する（taxLocked=true のため上書きされない）
