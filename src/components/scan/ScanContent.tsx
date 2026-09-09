@@ -983,7 +983,12 @@ export function InboxModal({
           client={client}
           company={company}
           items={[{ batch: transferBatch, rows: (analyses[transferBatch.id]?.rows || []) as ReceiptRow[] }]}
-          onClose={() => setTransferBatch(null)}
+          review
+          onClose={() => {
+            setTransferBatch(null)
+            // 確認画面での修正を一覧の行数表示に反映
+            loadAnalyses(company.token).then(setAnalyses).catch(() => { /* ignore */ })
+          }}
         />
       )}
 
@@ -994,8 +999,292 @@ export function InboxModal({
           items={transferableList
             .filter((b) => checkedIds.has(b.id))
             .map((b) => ({ batch: b, rows: (analyses[b.id]?.rows || []) as ReceiptRow[] }))}
-          onClose={() => setBulkOpen(false)}
+          review
+          onClose={() => {
+            setBulkOpen(false)
+            loadAnalyses(company.token).then(setAnalyses).catch(() => { /* ignore */ })
+          }}
         />
+      )}
+    </div>
+  )
+}
+
+/**
+ * まとめて転送する前の確認画面。
+ * 左に選んだバッチのレシート画像、右にその解析結果（編集可）を並べ、
+ * 画像を見ながら金額・日付などを直してから仕訳作成へ送れるようにする。
+ * ここでの修正は各バッチの解析結果としてそのまま保存する（全端末共有）。
+ */
+function BulkReviewPanel({
+  client,
+  company,
+  items,
+  onChangeRows,
+  onClose,
+  onProceed,
+}: {
+  client: SharedClient
+  company: ScanCompany
+  items: { batch: ScanBatch; rows: ReceiptRow[] }[]
+  onChangeRows: (batchId: string, rows: ReceiptRow[]) => void
+  onClose: () => void
+  onProceed: () => void
+}) {
+  const [images, setImages] = useState<Record<string, string[]>>({})
+  const [loading, setLoading] = useState(true)
+  const [progress, setProgress] = useState('')
+  const [activeKey, setActiveKey] = useState<string | null>(null)
+  const [editingCell, setEditingCell] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const imgRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  // 初期値を入れておき、編集していないのに保存しないようにする
+  const savedRef = useRef<Record<string, string>>(
+    Object.fromEntries(items.map((it) => [it.batch.id, JSON.stringify(it.rows)])),
+  )
+
+  const totalRows = items.reduce((n, it) => n + it.rows.length, 0)
+  const totalAmount = items.reduce((n, it) => n + it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0), 0)
+  const alreadySent = items.filter((it) => it.batch.transferredAt)
+
+  // 画像はバッチの順に取得（枚数が多いこともあるので進み具合を出す）
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      for (const it of items) {
+        try {
+          setProgress(`${new Date(it.batch.submittedAt).toLocaleString('ja-JP')} の画像を読み込み中…`)
+          const urls = await getBatchImageUrls(company.token, it.batch)
+          if (cancelled) return
+          setImages((prev) => ({ ...prev, [it.batch.id]: urls }))
+        } catch {
+          if (cancelled) return
+          setImages((prev) => ({ ...prev, [it.batch.id]: [] }))
+        }
+      }
+      if (!cancelled) { setLoading(false); setProgress('') }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company.token])
+
+  // 直した内容をバッチごとの解析結果として保存（0.8秒デバウンス）
+  useEffect(() => {
+    const t = setTimeout(() => {
+      for (const it of items) {
+        const json = JSON.stringify(it.rows)
+        if (savedRef.current[it.batch.id] === json) continue
+        savedRef.current[it.batch.id] = json
+        saveAnalysis(company.token, it.batch.id, it.rows, docTypeToKind(it.batch.docType) || 'receipt')
+          .catch(() => { /* 次の編集時に再試行 */ })
+      }
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.map((it) => JSON.stringify(it.rows)).join('|')])
+
+  function keyOf(batchId: string, i: number) { return `${batchId}:${i}` }
+
+  function focusImage(batchId: string, pageIndex: number | null | undefined) {
+    if (pageIndex == null || pageIndex < 0) return
+    const k = keyOf(batchId, pageIndex)
+    setActiveKey(k)
+    imgRefs.current[k]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function updateRow(batchId: string, idx: number, patch: Partial<ReceiptRow>) {
+    const rows = items.find((it) => it.batch.id === batchId)?.rows || []
+    onChangeRows(batchId, rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  }
+  function removeRow(batchId: string, idx: number) {
+    const rows = items.find((it) => it.batch.id === batchId)?.rows || []
+    onChangeRows(batchId, rows.filter((_, i) => i !== idx))
+  }
+  function addRow(batchId: string) {
+    const rows = items.find((it) => it.batch.id === batchId)?.rows || []
+    const imgs = images[batchId] || []
+    const pageIndex = activeKey && activeKey.startsWith(`${batchId}:`)
+      ? Number(activeKey.split(':')[1])
+      : (imgs.length === 1 ? 0 : null)
+    onChangeRows(batchId, [...rows, { date: '', storeName: '', mainContent: '', invoiceNumber: '', taxRate: '', totalAmount: 0, pageIndex }])
+  }
+
+  const lightboxSrc = (() => {
+    if (!lightbox) return null
+    const [bid, i] = lightbox.split(':')
+    return (images[bid] || [])[Number(i)] || null
+  })()
+
+  return (
+    <div className="fixed inset-0 bg-white z-[72] flex flex-col">
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-200 flex-wrap">
+        <h3 className="font-bold text-gray-800">📒 仕訳作成へ送る前の確認</h3>
+        <span className="text-xs text-gray-500">
+          {client.name}／{items.length}件のバッチ・{totalRows}行（税込合計 &yen;{totalAmount.toLocaleString('ja-JP')}）
+        </span>
+        {loading && <span className="text-xs text-blue-600 animate-pulse">{progress || '画像を読み込み中…'}</span>}
+        <div className="ml-auto flex gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded">閉じる</button>
+          <button
+            onClick={onProceed}
+            disabled={totalRows === 0}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 disabled:opacity-50"
+          >
+            この内容で進む（貸方科目の選択へ）
+          </button>
+        </div>
+      </div>
+
+      {alreadySent.length > 0 && (
+        <div className="text-xs bg-amber-50 border-b border-amber-200 text-amber-800 px-4 py-2">
+          ⚠️ 選んだうち{alreadySent.length}件は既に仕訳作成へ転送済みです。もう一度送ると二重取込みになります。
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        {/* 左: レシート画像 */}
+        <div className="md:w-[380px] shrink-0 border-r border-gray-200 bg-gray-50 overflow-auto p-2 space-y-4">
+          {items.map((it) => (
+            <div key={it.batch.id}>
+              <div className="text-[11px] font-semibold text-blue-800 bg-blue-50 border border-blue-100 rounded px-2 py-1 mb-2">
+                {new Date(it.batch.submittedAt).toLocaleString('ja-JP')}（{it.batch.pageCount}枚）
+              </div>
+              {(images[it.batch.id] || []).length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-3">{loading ? '読み込み中…' : '画像がありません'}</p>
+              ) : (
+                (images[it.batch.id] || []).map((src, i) => {
+                  const k = keyOf(it.batch.id, i)
+                  const n = it.rows.filter((r) => r.pageIndex === i).length
+                  return (
+                    <div key={k} ref={(el) => { imgRefs.current[k] = el }} className="mb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${n === 0 ? 'bg-amber-100 text-amber-800 font-semibold' : 'text-gray-500'}`}>
+                          {i + 1}枚目：{n === 0 ? '行なし' : `${n}行`}
+                        </span>
+                        <button onClick={() => setLightbox(k)} className="text-xs px-1.5 py-0.5 border border-blue-300 text-blue-700 rounded bg-white hover:bg-blue-50">
+                          ⤢ 拡大
+                        </button>
+                      </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={src}
+                        alt={`${i + 1}枚目`}
+                        onClick={() => setActiveKey(k)}
+                        className={`w-full rounded border-2 cursor-pointer ${activeKey === k ? 'border-blue-500 ring-2 ring-blue-300' : 'border-gray-200'}`}
+                      />
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* 右: 解析結果（編集できる） */}
+        <div className="flex-1 min-w-0 overflow-auto p-3">
+          {items.map((it) => (
+            <div key={it.batch.id} className="mb-5">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="text-xs font-semibold text-gray-700">
+                  {new Date(it.batch.submittedAt).toLocaleString('ja-JP')}／{it.batch.docType}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {it.rows.length}行・&yen;{it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0).toLocaleString('ja-JP')}
+                </span>
+                {it.batch.transferredAt && <span className="text-[11px] text-amber-700">※転送済み</span>}
+                <button onClick={() => addRow(it.batch.id)} className="ml-auto px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">
+                  行を追加
+                </button>
+              </div>
+              <div className="border border-gray-200 rounded overflow-auto">
+                <table className="w-full text-xs table-fixed" style={{ minWidth: 700 }}>
+                  <colgroup>
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '22%' }} />
+                    <col style={{ width: '22%' }} />
+                    <col style={{ width: '19%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '6%' }} />
+                  </colgroup>
+                  <thead className="bg-gray-50 text-gray-500">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left truncate">日付</th>
+                      <th className="px-2 py-1.5 text-left truncate">店名</th>
+                      <th className="px-2 py-1.5 text-left truncate">内容</th>
+                      <th className="px-2 py-1.5 text-left truncate">インボイス番号</th>
+                      <th className="px-2 py-1.5 text-left truncate">税率</th>
+                      <th className="px-2 py-1.5 text-right truncate">税込金額</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {it.rows.length === 0 ? (
+                      <tr><td colSpan={7} className="px-2 py-3 text-center text-gray-400">行がありません（「行を追加」で入力できます）</td></tr>
+                    ) : it.rows.map((r, i) => {
+                      const active = r.pageIndex != null && activeKey === keyOf(it.batch.id, r.pageIndex)
+                      return (
+                        <tr
+                          key={i}
+                          className={`border-t border-gray-100 ${active ? 'bg-blue-50' : ''}`}
+                          onClick={() => focusImage(it.batch.id, r.pageIndex)}
+                        >
+                          {(['date', 'storeName', 'mainContent', 'invoiceNumber', 'taxRate'] as const).map((k) => (
+                            <td key={k} className="px-1 py-1">
+                              <input
+                                value={(r[k] as string) || ''}
+                                onFocus={() => focusImage(it.batch.id, r.pageIndex)}
+                                onChange={(e) => updateRow(it.batch.id, i, { [k]: e.target.value } as Partial<ReceiptRow>)}
+                                className="w-full px-1 py-1 border border-gray-200 rounded"
+                              />
+                            </td>
+                          ))}
+                          <td className="px-1 py-1">
+                            <input
+                              value={
+                                editingCell === `${it.batch.id}:${i}`
+                                  ? String(r.totalAmount ?? '')
+                                  : Number(r.totalAmount || 0).toLocaleString('ja-JP')
+                              }
+                              onFocus={() => { setEditingCell(`${it.batch.id}:${i}`); focusImage(it.batch.id, r.pageIndex) }}
+                              onBlur={() => setEditingCell(null)}
+                              onChange={(e) => {
+                                const t = e.target.value.replace(/[^\d.-]/g, '')
+                                updateRow(it.batch.id, i, { totalAmount: t === '' ? 0 : Number(t) })
+                              }}
+                              className="w-full px-1 py-1 border border-gray-200 rounded text-right"
+                            />
+                          </td>
+                          <td className="px-1 py-1 text-right">
+                            <button onClick={() => removeRow(it.batch.id, i)} className="text-red-500 text-xs">削除</button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-gray-500">
+            ここで直した内容は、そのままこのバッチの解析データとして保存されます（他の端末にも反映されます）。
+            行をクリックすると、左のレシート画像の該当ページに移動します。
+          </p>
+        </div>
+      </div>
+
+      {lightboxSrc && (
+        <div className="fixed inset-0 bg-black/80 z-[76] flex flex-col" onMouseDown={(e) => { if (e.target === e.currentTarget) setLightbox(null) }}>
+          <div className="flex items-center gap-2 p-2 bg-black/60 text-white text-sm">
+            <span className="font-semibold">レシート画像</span>
+            <button onClick={() => setLightbox(null)} className="ml-auto px-3 py-1 bg-white/90 text-gray-800 rounded font-semibold">閉じる</button>
+          </div>
+          <div className="flex-1 overflow-auto p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={lightboxSrc} alt="レシート" className="block mx-auto max-w-none" style={{ width: '150%' }} />
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1618,16 +1907,24 @@ function TransferDialog({
   client,
   company,
   items,
+  review,
   onClose,
 }: {
   client: SharedClient
   company: ScanCompany
   /** 転送するバッチ（1件でも複数でも同じ画面で扱う） */
   items: { batch: ScanBatch; rows: ReceiptRow[] }[]
+  /** レシート画像を見ながら確認・修正する画面を先に出すか（一覧からの転送では出す） */
+  review?: boolean
   onClose: () => void
 }) {
-  // 複数選んだときは、まず中身をまとめて確認してから貸方科目を選ぶ
-  const [step, setStep] = useState<'review' | 'cash' | 'other'>(items.length > 1 ? 'review' : 'cash')
+  // 複数選んだときは、まず中身（レシート画像と解析結果）を確認・修正してから貸方科目を選ぶ
+  const [step, setStep] = useState<'review' | 'cash' | 'other'>(review || items.length > 1 ? 'review' : 'cash')
+  // 確認画面で直した内容。バッチごとの解析結果としてそのまま保存もする
+  const [edited, setEdited] = useState<Record<string, ReceiptRow[]>>(
+    () => Object.fromEntries(items.map((it) => [it.batch.id, it.rows])),
+  )
+  const workItems = items.map((it) => ({ batch: it.batch, rows: edited[it.batch.id] || [] }))
   const [history, setHistory] = useState<ScanCreditAccount[]>([])
   const [master, setMaster] = useState<{ code: string; name: string }[]>([])
   const [selCode, setSelCode] = useState('')
@@ -1672,7 +1969,7 @@ function TransferDialog({
       // 行の pageIndex はつなげた後の通し番号に振り直す（行から元画像をたどれるように）
       const allRows: ReceiptRow[] = []
       const allImages: string[] = []
-      for (const it of items) {
+      for (const it of workItems) {
         setProgress(`画像を取得しています…（${allImages.length ? allImages.length + '枚' : ''}${it.batch.docType}）`)
         const imgs = await getBatchImageUrls(company.token, it.batch)
         const offset = allImages.length
@@ -1681,7 +1978,7 @@ function TransferDialog({
         }
         allImages.push(...imgs)
       }
-      const first = items[0].batch
+      const first = workItems[0].batch
       const payload = {
         v: 1,
         clientId: bsClient.id,
@@ -1700,7 +1997,7 @@ function TransferDialog({
       if (remember) {
         try { await pushScanCreditHistory(client.id, credit) } catch { /* ignore */ }
       }
-      for (const it of items) {
+      for (const it of workItems) {
         try { await markBatchTransferred(company.token, it.batch.id) } catch { /* ignore */ }
       }
       setSelectedClientId(bsClient.id)
@@ -1715,13 +2012,27 @@ function TransferDialog({
 
   const historyKeys = new Set(history.map((h) => h.code))
   const restMaster = master.filter((m) => !historyKeys.has(m.code))
-  const totalRows = items.reduce((n, it) => n + it.rows.length, 0)
-  const totalAmount = items.reduce((n, it) => n + it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0), 0)
+  const totalRows = workItems.reduce((n, it) => n + it.rows.length, 0)
+  const totalAmount = workItems.reduce((n, it) => n + it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0), 0)
   const alreadySent = items.filter((it) => it.batch.transferredAt)
+
+  // 確認ステップは画面いっぱいの専用画面（レシート画像を見ながら直せるように）
+  if (bsClient && step === 'review') {
+    return (
+      <BulkReviewPanel
+        client={client}
+        company={company}
+        items={workItems}
+        onChangeRows={(batchId, rows) => setEdited((prev) => ({ ...prev, [batchId]: rows }))}
+        onClose={onClose}
+        onProceed={() => setStep('cash')}
+      />
+    )
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)() }}>
-      <div className={`bg-white rounded-2xl p-6 w-full ${step === 'review' ? 'max-w-5xl max-h-[92vh] overflow-auto' : 'max-w-md'}`} onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-gray-800 mb-1">📒 仕訳作成へ送る</h3>
         <p className="text-xs text-gray-500 mb-4">
           {client.name}／{items.length > 1 ? `${items.length}件のバッチ・` : `${items[0].batch.docType}・`}
@@ -1734,71 +2045,7 @@ function TransferDialog({
             一度仕訳作成を開いて顧問先が表示されることを確認してください。
           </div>
         ) : step === 'review' ? (
-          <div>
-            {alreadySent.length > 0 && (
-              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2 mb-3">
-                ⚠️ 選んだうち{alreadySent.length}件は既に仕訳作成へ転送済みです。もう一度送ると二重取込みになります。
-              </div>
-            )}
-            <div className="border border-gray-200 rounded max-h-[60vh] overflow-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 text-gray-500 sticky top-0">
-                  <tr>
-                    <th className="text-left px-2 py-1.5" style={{ minWidth: 100 }}>日付</th>
-                    <th className="text-left px-2 py-1.5" style={{ minWidth: 160 }}>店名</th>
-                    <th className="text-left px-2 py-1.5" style={{ minWidth: 160 }}>内容</th>
-                    <th className="text-left px-2 py-1.5" style={{ minWidth: 140 }}>インボイス番号</th>
-                    <th className="text-left px-2 py-1.5" style={{ minWidth: 60 }}>税率</th>
-                    <th className="text-right px-2 py-1.5" style={{ minWidth: 100 }}>税込金額</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((it) => (
-                    <Fragment key={it.batch.id}>
-                      <tr className="bg-blue-50/60 border-t border-blue-100">
-                        <td colSpan={6} className="px-2 py-1 text-[11px] text-blue-800 font-semibold">
-                          {new Date(it.batch.submittedAt).toLocaleString('ja-JP')}／{it.batch.docType}
-                          （{it.batch.pageCount}枚・{it.rows.length}行・&yen;
-                          {it.rows.reduce((m, r) => m + (Number(r.totalAmount) || 0), 0).toLocaleString('ja-JP')}）
-                          {it.batch.transferredAt && <span className="ml-2 text-amber-700">※転送済み</span>}
-                        </td>
-                      </tr>
-                      {it.rows.map((r, i) => (
-                        <tr key={it.batch.id + i} className="border-t border-gray-100">
-                          <td className="px-2 py-1 whitespace-nowrap">{r.date || <span className="text-red-500">日付なし</span>}</td>
-                          <td className="px-2 py-1">{r.storeName}</td>
-                          <td className="px-2 py-1">{r.mainContent}</td>
-                          <td className="px-2 py-1 text-gray-500">{r.invoiceNumber}</td>
-                          <td className="px-2 py-1">{r.taxRate}</td>
-                          <td className="px-2 py-1 text-right">
-                            {Number(r.totalAmount) ? Number(r.totalAmount).toLocaleString('ja-JP') : <span className="text-red-500">0</span>}
-                          </td>
-                        </tr>
-                      ))}
-                    </Fragment>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-gray-50 border-t border-gray-300 font-semibold">
-                    <td className="px-2 py-1.5" colSpan={5}>合計（{items.length}件・{totalRows}行）</td>
-                    <td className="px-2 py-1.5 text-right">&yen;{totalAmount.toLocaleString('ja-JP')}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            <p className="text-[11px] text-gray-500 mt-2">
-              内容を直したいときは、いったん閉じて該当のバッチを「開く」から編集してください。
-            </p>
-            <div className="flex gap-2 justify-end mt-3">
-              <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded">閉じる</button>
-              <button
-                onClick={() => setStep('cash')}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded font-semibold hover:bg-blue-700"
-              >
-                この内容で進む（貸方科目の選択へ）
-              </button>
-            </div>
-          </div>
+          <div />
         ) : step === 'cash' ? (
           <div>
             {items.length > 1 && (
