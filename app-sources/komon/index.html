@@ -679,7 +679,10 @@
         <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dt_addr" style="width:auto"> 住所</label>
         <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dt_name" style="width:auto"> 顧問先名（御中）</label>
         <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="dt_rep" style="width:auto"> 代表者氏名（様）</label>
-      </div></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:10px"><input type="checkbox" id="dt_env" style="width:auto"> 窓付き封筒（長3）に合わせて宛名を下げる</label>
+      <div class="hint" style="margin-top:4px">OFF（既定）＝宛名を用紙の上のほうに置いて本文を詰めた見やすい体裁。ON＝三つ折りで長3封筒の窓に宛名が出る位置（本文は下がります）。</div>
+      </div>
     <div class="field full" style="margin-bottom:14px"><label>上部の案内文（資料リストの前）</label><textarea id="dt_header" rows="5" placeholder="例: 拝啓 時下ますますご清栄のこととお慶び申し上げます。下記の資料をご準備のうえご提出くださいますようお願い申し上げます。"></textarea></div>
     <div class="field full"><label>下部の案内文（資料リストの後）</label><textarea id="dt_footer" rows="4" placeholder="例: ご不明な点がございましたら担当者までお問い合わせください。　敬具"></textarea></div>
   </div>
@@ -2960,9 +2963,9 @@ function docsImpApply(){
 
 /* 案内文・宛名テンプレート */
 function openDocTemplate(){ const tpl=data.docTemplate||{}; const af=tpl.addr||{zip:true,addr:true,name:true,rep:true};
-  document.getElementById('dt_zip').checked=af.zip!==false; document.getElementById('dt_addr').checked=af.addr!==false; document.getElementById('dt_name').checked=af.name!==false; document.getElementById('dt_rep').checked=!!af.rep;
+  document.getElementById('dt_zip').checked=af.zip!==false; document.getElementById('dt_addr').checked=af.addr!==false; document.getElementById('dt_name').checked=af.name!==false; document.getElementById('dt_rep').checked=!!af.rep; document.getElementById('dt_env').checked=!!tpl.envelope;
   setVal('dt_header',tpl.header||''); setVal('dt_footer',tpl.footer||''); openModal('docTplModal'); }
-function saveDocTemplate(){ data.docTemplate={ addr:{zip:document.getElementById('dt_zip').checked,addr:document.getElementById('dt_addr').checked,name:document.getElementById('dt_name').checked,rep:document.getElementById('dt_rep').checked}, header:val('dt_header'), footer:val('dt_footer') }; persist(false); closeModal('docTplModal'); toast('案内文を保存しました','ok'); }
+function saveDocTemplate(){ data.docTemplate={ addr:{zip:document.getElementById('dt_zip').checked,addr:document.getElementById('dt_addr').checked,name:document.getElementById('dt_name').checked,rep:document.getElementById('dt_rep').checked}, envelope:document.getElementById('dt_env').checked, header:val('dt_header'), footer:val('dt_footer') }; persist(false); closeModal('docTplModal'); toast('案内文を保存しました','ok'); }
 function todayJP(){ const d=new Date(); return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日'; }
 function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{zip:true,addr:true,name:true,rep:true};
   const wrap=document.createElement('div'); wrap.style.cssText='position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#111;font-family:\'Noto Sans JP\',\'Hiragino Kaku Gothic ProN\',\'Meiryo\',sans-serif;padding:0 60px 60px;box-sizing:border-box;';
@@ -2976,23 +2979,31 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   // 資料項目はその顧問先のリストを使う（顧問先ごとに作る）
   // 分類は入力があるときだけ列を出す（従来どおりの資料名・詳細・期限だけのリストは見た目を変えない）
   const list=docCols(t,c.id); const hasCat=list.some(it=>(it.cat||'').trim());
-  const td='border:1px solid #888;padding:7px 10px';
+  // 幅の指定どおりに列を割り付けるため box-sizing を border-box にする
+  // （content-box のままだと左右のpaddingぶん各列が広がり、詳細列だけが狭くなる）
+  const td='border:1px solid #888;padding:7px 10px;box-sizing:border-box';
   const items=list.map(it=>`<tr>${hasCat?`<td style="${td}">${esc(it.cat||'')}</td>`:''}<td style="${td}">${esc(it.name)}</td><td style="${td}">${esc(it.detail||'')}</td><td style="${td};text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
-  // 窓付き長3封筒（A4三つ折り）の窓に必ず収まるよう、宛名は用紙の端からの絶対位置で置く。
-  // 三つ折りの1面は99mm。窓は用紙上端から約48〜90mm・左から約25mmの範囲に来るので、
-  // その内側（上50mm・左25mm・幅85mm・高さ34mm）に収める。長い住所は折り返して枠内に留める。
+  // 宛名の位置は2通り（案内文テンプレートの設定で切替）。
+  //  ・既定（envelope=false）… 用紙の上のほうに置いて、本文までを詰めて読みやすくする
+  //  ・窓付き封筒（envelope=true）… 長3封筒（A4三つ折り）の窓に収まる位置に置く。
+  //    三つ折りの1面は99mm。窓は用紙上端から約48〜90mm・左から約25mmの範囲に来るので、
+  //    その内側（上50mm・左25mm・幅85mm・高さ34mm）に収める。長い住所は折り返して枠内に留める。
   // 折る位置が1mmずれても窓から外れないよう、左右の端に薄い折り目の目印（99mm・198mm）を入れる。
+  const envelope=!!tpl.envelope;
+  const addrTop=envelope?50:16;     // 宛名ブロックの上端(mm)
+  const headH=envelope?92:52;       // 宛名エリア全体の高さ(mm)
+  const dateTop=envelope?86:44;     // 日付の上端(mm)
   const foldMark=(y)=>`<div style="position:absolute;left:0;top:${y}mm;width:4mm;height:0;border-top:0.3mm solid #c9ced6"></div>`+
     `<div style="position:absolute;right:0;top:${y}mm;width:4mm;height:0;border-top:0.3mm solid #c9ced6"></div>`;
-  wrap.innerHTML=`<div style="position:relative;height:92mm;margin:0 -60px">
+  wrap.innerHTML=`<div style="position:relative;height:${headH}mm;margin:0 -60px">
       ${foldMark(99)}
-      <div style="position:absolute;left:25mm;top:50mm;width:85mm;height:34mm;overflow:hidden">${addr}</div>
-      <div style="position:absolute;right:60px;top:86mm;font-size:13px">${esc(todayJP())}</div>
+      <div style="position:absolute;left:25mm;top:${addrTop}mm;width:85mm;height:34mm;overflow:hidden">${addr}</div>
+      <div style="position:absolute;right:60px;top:${dateTop}mm;font-size:13px">${esc(todayJP())}</div>
     </div>
-    <div style="position:relative;margin:0 -60px;height:0">${foldMark(198-92)}</div>
-    <div style="text-align:center;font-size:20px;font-weight:700;margin:6px 0 16px">資料回収のお願い</div>
-    <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin:0 0 18px">${esc(tpl.header||'')}</div>
-    <table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr>${hasCat?`<th style="${td};background:#eef;text-align:left;width:18%">分類</th>`:''}<th style="${td};background:#eef;text-align:left;width:${hasCat?'27%':'30%'}">資料名</th><th style="${td};background:#eef;text-align:left">詳細</th><th style="${td};background:#eef;width:90px">期限</th></tr></thead><tbody>${items}</tbody></table>
+    <div style="position:relative;margin:0 -60px;height:0">${foldMark(198-headH)}</div>
+    <div style="text-align:center;font-size:21px;font-weight:700;letter-spacing:2px;margin:10px 0 20px">資料回収のお願い</div>
+    <div style="white-space:pre-wrap;font-size:14px;line-height:2.0;margin:0 0 20px">${esc(tpl.header||'')}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed"><thead><tr>${hasCat?`<th style="${td};background:#eef;text-align:left;width:14%">分類</th>`:''}<th style="${td};background:#eef;text-align:left;width:${hasCat?'32%':'38%'}">資料名</th><th style="${td};background:#eef;text-align:left">詳細</th><th style="${td};background:#eef;width:76px">期限</th></tr></thead><tbody>${items}</tbody></table>
     <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin-top:20px">${esc(tpl.footer||'')}</div>`;
   return wrap; }
 /* 個別PDF：リスト内の顧問先をチェックボックスで選び、選んだ分だけPDFを作成する */
