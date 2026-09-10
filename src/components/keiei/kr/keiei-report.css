@@ -589,3 +589,15 @@
 }
 .kr-root .kr-pdetail ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.9; }
 @media (max-width: 900px) { .kr-root .kr-pdetail { grid-template-columns: 1fr; gap: 12px; } }
+
+/* ---- タブ（移植時に追加。移植元のサイドバーの代わり） ---- */
+.kr-root .kr-tabs { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 14px; }
+.kr-root .kr-tabgroup { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.kr-root .kr-tabgroup-label { font-size: 11px; color: var(--kr-ink-3); margin-right: 2px; white-space: nowrap; }
+.kr-root .kr-tab {
+  border: 1px solid var(--kr-line); background: var(--kr-surface); color: var(--kr-ink-2);
+  border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.kr-root .kr-tab:hover { background: var(--kr-surface-2); }
+.kr-root .kr-tab.active { background: var(--kr-accent-wash); border-color: var(--kr-accent); color: var(--kr-accent-ink); }
