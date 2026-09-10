@@ -1,0 +1,591 @@
+/* 月次レポート・ビューア — 画面スタイル
+ *
+ * 顧問先用アプリ（komon-app / src/apps/keiei-report/styles.css）から移植。
+ * 変更点:
+ *   ・Google Fonts の @import を削除（外部CDNから読まない決まり。Noto Sans JP は
+ *     KeieiContent 側が読み込むフォントをそのまま使う）
+ *   ・.kr-root から height:100vh / overflow:hidden / display:flex を外した
+ *     （この総合管理アプリは共通ナビの中に置くため。二重スクロールになる）
+ *   ・サイドバー・トップバー・フローティング操作は移植しない（ナビは総合管理アプリ側）
+ *   ・table.kr-grid → table.kr-grid に改名（Tailwind の .grid{display:grid} と衝突するため）
+ *   ・印刷（B4横）は print.css に分けた
+ * すべてのセレクタは .kr-root 配下に限定してあり、他モジュールには影響しない。
+ * グラフの系列色は ui.tsx のパレット（別管理）。
+ */
+
+
+.kr-root {
+  /* 共通ナビの中に置くので、高さと overflow は指定しない（移植時の変更点） */
+  --kr-bg: #f8fafc;          /* 画面の地（白に近い） */
+  --kr-surface: #ffffff;     /* カード */
+  --kr-surface-2: #f7f9fc;   /* 表のヘッダ・区分列 */
+  --kr-surface-3: #eff3f9;   /* セグメントのトラック・小計行 */
+  --kr-line: #e3e8ef;
+  --kr-line-2: #cfd6e0;
+  --kr-ink: #16202f;
+  --kr-ink-2: #5a6676;
+  --kr-ink-3: #8b95a3;
+  --kr-main: #16202f;        /* 見出し・濃い面 */
+  --kr-accent: #2a5fd9;      /* 主色（ブルー） */
+  --kr-accent-ink: #1e4ab0;
+  --kr-accent-wash: #eaf0fe;
+  --kr-purple: #6d46d9;
+  --kr-purple-wash: #efeafd;
+  --kr-good: #12855f;
+  --kr-good-wash: #e6f5ef;
+  --kr-warn: #b77400;
+  --kr-warn-wash: #fdf3e0;
+  --kr-crit: #c8443c;
+  --kr-crit-wash: #fcecea;
+  --kr-sh: 0 1px 2px rgba(16, 32, 55, .06);
+  font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', 'Meiryo', sans-serif;
+  color: var(--kr-ink); background: var(--kr-bg);
+}
+
+/* ---- 本体 ---- */
+.kr-root .kr-main { flex: 1; overflow-y: auto; padding: 20px 24px 70px; }
+.kr-root .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.kr-root .page-title {
+  position: relative; font-size: 21px; font-weight: 800; margin: 0 0 12px; padding-left: 0;
+  color: var(--kr-ink); letter-spacing: -.01em;
+}
+.kr-root .page-title::before { content: none; }
+.kr-root .page-sub { color: var(--kr-ink-2); font-size: 12.5px; margin: -6px 0 15px; line-height: 1.75; max-width: 880px; }
+
+.kr-root .card {
+  background: var(--kr-surface); border: 1px solid var(--kr-line); border-radius: 13px;
+  box-shadow: var(--kr-sh); padding: 15px 17px; margin-bottom: 13px;
+}
+.kr-root .card > h3 {
+  margin: 0 0 11px; font-size: 13.5px; font-weight: 800; color: var(--kr-ink);
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+}
+.kr-root .card > h3 small { font-weight: 400; color: var(--kr-ink-3); margin-left: 0; font-size: 11.5px; }
+.kr-root .row { display: flex; gap: 13px; flex-wrap: wrap; }
+.kr-root .row > .card { flex: 1; min-width: 300px; }
+.kr-root .muted { color: var(--kr-ink-3); font-size: 11.5px; line-height: 1.85; }
+.kr-root .table-scroll { overflow-x: auto; }
+
+/* ---- 入力・ボタン ---- */
+.kr-root label { display: block; font-size: 11px; color: var(--kr-ink-2); margin: 8px 0 4px; font-weight: 700; }
+.kr-root input, .kr-root select, .kr-root textarea {
+  padding: 6.5px 10px; border: 1px solid var(--kr-line-2); border-radius: 9px;
+  font-size: 12.5px; font-family: inherit; background: var(--kr-surface); color: inherit;
+}
+.kr-root select, .kr-root textarea { width: 100%; }
+.kr-root textarea { min-height: 74px; line-height: 1.8; }
+.kr-root input:focus, .kr-root select:focus, .kr-root textarea:focus {
+  outline: none; border-color: var(--kr-accent); box-shadow: 0 0 0 3px rgba(42, 95, 217, .13);
+}
+.kr-root button {
+  font-family: inherit; font-size: 12px; padding: 6.5px 13px; border-radius: 9px;
+  border: 1px solid var(--kr-accent); background: var(--kr-accent); color: #fff;
+  font-weight: 700; cursor: pointer;
+}
+.kr-root button:hover:not(:disabled) { background: var(--kr-accent-ink); border-color: var(--kr-accent-ink); filter: none; }
+.kr-root button.secondary {
+  background: var(--kr-surface); color: var(--kr-ink); border: 1px solid var(--kr-line-2);
+}
+.kr-root button.secondary:hover:not(:disabled) { background: var(--kr-surface-2); border-color: var(--kr-line-2); }
+.kr-root button.small { padding: 5px 11px; font-size: 11.5px; }
+.kr-root button.link {
+  background: none; border-color: transparent; color: var(--kr-accent-ink);
+  padding: 2px 6px; font-weight: 700; font-size: 11.5px;
+}
+.kr-root button.link:hover:not(:disabled) { background: var(--kr-accent-wash); border-color: transparent; }
+.kr-root button:disabled { opacity: .45; cursor: default; }
+
+/* ---- 表（一覧・KPI・CF明細） ---- */
+.kr-root table.kr-grid {
+  width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px;
+  border: 1px solid var(--kr-line); border-radius: 10px;
+}
+/* 角丸は四隅のセルで表現する（table に overflow:hidden を付けると
+   1列目の position: sticky が効かなくなるため） */
+.kr-root table.kr-grid thead tr:first-child th:first-child { border-top-left-radius: 9px; }
+.kr-root table.kr-grid thead tr:first-child th:last-child { border-top-right-radius: 9px; }
+.kr-root table.kr-grid tbody tr:last-child td:first-child { border-bottom-left-radius: 9px; }
+.kr-root table.kr-grid tbody tr:last-child td:last-child { border-bottom-right-radius: 9px; }
+.kr-root table.kr-grid th {
+  background: var(--kr-surface-2); color: var(--kr-ink-2); font-weight: 700; padding: 8px 11px;
+  text-align: left; border: none; border-bottom: 1px solid var(--kr-line); white-space: nowrap;
+  font-size: 11.5px;
+}
+.kr-root table.kr-grid th.num { text-align: right; }
+.kr-root table.kr-grid td {
+  padding: 6px 11px; border: none; border-bottom: 1px solid var(--kr-line); vertical-align: middle;
+}
+.kr-root table.kr-grid tbody tr:last-child td { border-bottom: none; }
+.kr-root table.kr-grid td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kr-root table.kr-grid tbody tr:nth-child(even) td { background: transparent; }
+.kr-root table.kr-grid tbody tr:hover td { background: #f9fbff; }
+.kr-root table.kr-grid tr.total td {
+  background: var(--kr-surface-2) !important; font-weight: 800; border-top: 1px solid var(--kr-line-2);
+}
+.kr-root .pos { color: var(--kr-accent-ink); }
+.kr-root .neg { color: var(--kr-crit); }
+.kr-root table.kr-grid td.cf-item { min-width: 190px; white-space: normal; line-height: 1.5; font-weight: 600; }
+
+/* KPI表（ダッシュボード） */
+.kr-root table.kr-grid.kpi-table th[scope='row'] {
+  background: var(--kr-surface-2); color: var(--kr-ink); font-weight: 700; text-align: left;
+  border: none; border-bottom: 1px solid var(--kr-line); padding: 8px 12px; white-space: nowrap;
+  font-size: 12.5px;
+}
+.kr-root table.kr-grid.kpi-table td.val {
+  font-size: 15.5px; font-weight: 800; color: var(--kr-ink); font-variant-numeric: tabular-nums;
+}
+.kr-root table.kr-grid.kpi-table td.delta { font-weight: 800; }
+.kr-root table.kr-grid.kpi-table td.delta.good { color: var(--kr-good); }
+.kr-root table.kr-grid.kpi-table td.delta.bad { color: var(--kr-crit); }
+.kr-root table.kr-grid.kpi-table td.delta.neutral { color: var(--kr-ink-2); }
+.kr-root table.kr-grid.kpi-table td.note {
+  color: var(--kr-ink-2); font-size: 12px; white-space: normal; min-width: 240px;
+}
+/* 補足の「？」ボタン（押すと指標の意味を開く） */
+.kr-root .kr-help-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; min-width: 18px; padding: 0; margin-left: 6px;
+  border: 1px solid var(--kr-line-2); border-radius: 50%;
+  background: var(--kr-surface); color: var(--kr-accent);
+  font-size: 11px; font-weight: 800; line-height: 1; cursor: pointer;
+  vertical-align: middle;
+}
+.kr-root .kr-help-btn:hover { background: var(--kr-accent-wash); border-color: var(--kr-accent); }
+.kr-root .kr-help-btn.open { background: var(--kr-accent); border-color: var(--kr-accent); color: #fff; }
+.kr-root .kr-help-box {
+  margin-top: 7px; padding: 9px 12px; border-radius: 9px;
+  background: var(--kr-accent-wash); border: 1px solid #d3e0fb;
+  color: #24406e; font-size: 12px; line-height: 1.85; max-width: 640px;
+}
+/* 印刷時は説明ボタンを出さない（開いている説明文は残す） */
+@media print {
+  .kr-root .kr-help-btn { display: none; }
+}
+
+/* ---- 月次推移のピボット表 ---- */
+.kr-root .pivot-wrap {
+  overflow: auto; max-height: 72vh; border: 1px solid var(--kr-line); border-radius: 10px;
+  background: var(--kr-surface);
+}
+.kr-root table.pivot { border-collapse: separate; border-spacing: 0; font-size: 11.5px; width: max-content; min-width: 100%; }
+.kr-root table.pivot th, .kr-root table.pivot td {
+  padding: 4.5px 9px; border-bottom: 1px solid var(--kr-line); border-right: 1px solid #edf1f6;
+}
+.kr-root table.pivot thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--kr-main); color: #fff;
+  text-align: center; white-space: nowrap; font-weight: 700; border-bottom: none;
+  border-right: 1px solid rgba(255, 255, 255, .12);
+}
+.kr-root table.pivot thead th:first-child { text-align: left; position: sticky; left: 0; z-index: 3; }
+.kr-root table.pivot tbody th {
+  position: sticky; left: 0; z-index: 1; background: var(--kr-surface); text-align: left;
+  font-weight: 600; white-space: nowrap; border-right: 1px solid var(--kr-line); cursor: pointer;
+}
+.kr-root table.pivot td {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--kr-surface);
+}
+.kr-root table.pivot tr.sub th, .kr-root table.pivot tr.sub td { background: var(--kr-surface-3); font-weight: 700; }
+.kr-root table.pivot tr.profit th, .kr-root table.pivot tr.profit td { background: #e4ecfa; font-weight: 800; }
+.kr-root table.pivot tr.selected th { box-shadow: inset 3px 0 0 var(--kr-accent); color: var(--kr-accent-ink); }
+.kr-root table.pivot tbody th:hover { background: var(--kr-surface-3); }
+.kr-root table.pivot td.dim { color: var(--kr-ink-3); }
+
+/* 前期比較・3期比較の固定列と段 */
+.kr-root table.pivot tbody th.acct { vertical-align: top; padding-top: 6px; font-weight: 700; left: 0; width: 200px; min-width: 200px; }
+.kr-root table.pivot thead th:first-child { width: 200px; min-width: 200px; }
+.kr-root table.pivot thead th.seg-head,
+.kr-root table.pivot tbody th.seg { position: sticky; left: 200px; z-index: 1; width: 92px; min-width: 92px; }
+.kr-root table.pivot thead th.seg-head { z-index: 3; text-align: left; }
+.kr-root table.pivot tbody th.seg {
+  font-weight: 400; font-size: 10.5px; color: var(--kr-ink-2); background: var(--kr-surface-2); white-space: nowrap;
+}
+.kr-root table.pivot tr.sub th.seg { background: #e8edf4; }
+.kr-root table.pivot tr.profit th.seg { background: #dde7f7; }
+.kr-root table.pivot tr.g-start th, .kr-root table.pivot tr.g-start td { border-top: 2px solid var(--kr-line-2); }
+.kr-root table.pivot tr.seg-diff td, .kr-root table.pivot tr.seg-ratio td { color: var(--kr-ink-2); }
+.kr-root table.pivot td.cum { background: #f2f6fc; font-weight: 700; }
+.kr-root table.pivot thead th.cum { background: #0f1926; }
+.kr-root table.pivot th.acct .grp-toggle {
+  background: none; border: none; padding: 0 5px 0 0; margin: 0;
+  color: var(--kr-ink-3); font-size: 10px; font-weight: 700; cursor: pointer; line-height: 1;
+}
+.kr-root table.pivot th.acct .grp-toggle:hover { color: var(--kr-accent); background: none; filter: none; }
+.kr-root table.pivot th.acct .grp-count {
+  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  background: #dfe5ee; color: var(--kr-ink-2); border-radius: 999px; padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- KPIタイル（一部ページで使用） ---- */
+.kr-root .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 13px; }
+.kr-root .kr-kpi {
+  background: var(--kr-surface); border: 1px solid var(--kr-line); border-left: 1px solid var(--kr-line);
+  border-radius: 13px; padding: 12px 15px; box-shadow: var(--kr-sh);
+}
+.kr-root .kr-kpi .lbl { font-size: 11.5px; color: var(--kr-ink-2); font-weight: 600; }
+.kr-root .kr-kpi .val {
+  font-size: 22px; font-weight: 800; color: var(--kr-ink); margin-top: 3px;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.kr-root .kr-kpi .sub { font-size: 11px; color: var(--kr-ink-3); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+.kr-root .kr-kpi .delta { font-weight: 800; }
+.kr-root .kr-kpi .delta.good { color: var(--kr-good); }
+.kr-root .kr-kpi .delta.bad { color: var(--kr-crit); }
+.kr-root .kr-kpi .delta.neutral { color: var(--kr-ink-2); }
+
+/* ---- チャート ---- */
+.kr-root .kr-chart { position: relative; }
+.kr-root .kr-chart svg { width: 100%; height: auto; display: block; }
+.kr-root .kr-legend { display: flex; gap: 15px; flex-wrap: wrap; font-size: 11.5px; color: var(--kr-ink-2); margin-bottom: 5px; align-items: center; }
+.kr-root .kr-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.kr-root .kr-legend i.ln { height: 3px; width: 15px; border-radius: 2px; vertical-align: 3px; }
+.kr-root .kr-legend .kr-unit { margin-left: auto; color: var(--kr-ink-3); font-size: 11px; }
+.kr-root .kr-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: rgba(16, 32, 55, .95); color: #fff; border-radius: 9px;
+  padding: 8px 11px; font-size: 11.5px; min-width: 150px; box-shadow: 0 4px 14px rgba(16, 32, 55, .28);
+}
+.kr-root .kr-tip-title { font-weight: 800; margin-bottom: 4px; }
+.kr-root .kr-tip-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.kr-root .kr-tip-line i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 9px; }
+.kr-root .kr-tip-line span { color: #c2cbd6; }
+.kr-root .kr-tip-line b { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ---- メーター ---- */
+.kr-root .kr-meter { margin: 9px 0; }
+.kr-root .kr-meter-track { height: 9px; border-radius: 999px; background: var(--kr-surface-3); overflow: hidden; }
+.kr-root .kr-meter-fill { height: 100%; border-radius: 999px; transition: width .25s; }
+.kr-root .kr-meter-text { font-size: 11.5px; color: var(--kr-ink-2); margin-top: 5px; }
+
+/* ---- 自動所見 ---- */
+.kr-root .kr-insights { list-style: none; margin: 0; padding: 0; }
+.kr-root .kr-insights li {
+  display: flex; gap: 10px; align-items: flex-start; padding: 8px 2px;
+  border-bottom: 1px dashed var(--kr-line); font-size: 12.5px; line-height: 1.8;
+}
+.kr-root .kr-insights li:last-child { border-bottom: none; }
+.kr-root .kr-insights .dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; margin-top: 7px; }
+.kr-root .kr-insights .dot.good { background: var(--kr-good); }
+.kr-root .kr-insights .dot.warn { background: #eda100; }
+.kr-root .kr-insights .dot.bad { background: var(--kr-crit); }
+.kr-root .kr-insights .dot.info { background: var(--kr-accent); }
+
+/* ---- スライダー ---- */
+.kr-root .kr-slider { margin: 13px 0; }
+.kr-root .kr-slider-head { display: flex; align-items: center; gap: 10px; font-size: 12.5px; margin-bottom: 5px; }
+.kr-root .kr-slider-head b {
+  font-size: 15px; color: var(--kr-accent-ink); min-width: 90px; text-align: right;
+  margin-left: auto; font-variant-numeric: tabular-nums;
+}
+.kr-root .kr-slider input[type='range'] { width: 100%; accent-color: var(--kr-accent); padding: 0; border: none; }
+
+/* ---- 年度ナビ ---- */
+.kr-root .kr-yearnav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kr-root .kr-yeartabs {
+  display: inline-flex; gap: 3px; background: var(--kr-surface-3); border-radius: 10px; padding: 3px;
+  flex-wrap: wrap;
+}
+.kr-root .kr-yeartab {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  padding: 5px 12px; font-size: 12px; font-weight: 700; color: var(--kr-ink-2);
+}
+.kr-root .kr-yeartab:hover:not(:disabled) { background: #e4eaf3; color: var(--kr-ink); border-color: transparent; }
+.kr-root .kr-yeartab.on {
+  background: var(--kr-surface); color: var(--kr-ink); border-color: #dbe3f2; box-shadow: var(--kr-sh);
+}
+.kr-root .kr-yeartab-badge {
+  font-size: 9.5px; font-weight: 800; border-radius: 4px; padding: 1px 5px;
+  background: #dfe5ee; color: var(--kr-ink-2);
+}
+.kr-root .kr-yeartab-badge.running { background: var(--kr-purple-wash); color: var(--kr-purple); }
+
+/* ---- 月次推移のツールバー ---- */
+.kr-root .trend-toolbar {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 9px;
+  background: var(--kr-accent-wash); border: 1px solid #d3e0fb; border-radius: 10px; padding: 8px 12px;
+}
+.kr-root .trend-toolbar .muted { color: var(--kr-accent-ink); font-weight: 700; font-size: 11.5px; }
+.kr-root .trend-toolbar .tb-sep { width: 1px; height: 18px; background: #c3d3f5; margin: 0 5px; }
+.kr-root .trend-toolbar .tb-grow { flex: 1; min-width: 8px; }
+
+/* ---- 取込・案内 ---- */
+.kr-root .kr-needdata { font-size: 13px; line-height: 2; border-left: 3px solid var(--kr-accent); }
+.kr-root .kr-drop {
+  border: 2px dashed var(--kr-line-2); border-radius: 13px; padding: 28px 16px; text-align: center;
+  background: var(--kr-surface-2); color: var(--kr-ink-2); font-size: 13px; cursor: pointer;
+}
+.kr-root .kr-drop:hover, .kr-root .kr-drop.over { border-color: var(--kr-accent); background: #f2f7ff; }
+.kr-root .ok-box {
+  background: var(--kr-good-wash); border: 1px solid #b6d6c0; color: #14603d;
+  border-radius: 10px; padding: 9px 13px; font-size: 12.5px; margin: 10px 0;
+}
+.kr-root .warn-box {
+  background: var(--kr-warn-wash); border: 1px solid #f2dcae; color: #7a5000;
+  border-radius: 10px; padding: 9px 13px; font-size: 12.5px; margin: 10px 0;
+}
+
+/* ---- バッジ ---- */
+.kr-root .badge {
+  display: inline-flex; align-items: center; font-size: 11px; font-weight: 800;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.kr-root .badge.good { background: var(--kr-good-wash); color: var(--kr-good); }
+.kr-root .badge.warn { background: var(--kr-warn-wash); color: var(--kr-warn); }
+.kr-root .badge.bad { background: var(--kr-crit-wash); color: var(--kr-crit); }
+.kr-root .badge.info { background: var(--kr-accent-wash); color: var(--kr-accent-ink); }
+.kr-root .badge.fc { background: var(--kr-purple-wash); color: var(--kr-purple); }
+
+/* ---- 変動費/固定費トグル ---- */
+.kr-root .cc-toggle {
+  display: inline-flex; background: var(--kr-surface-3); border: 1px solid var(--kr-line);
+  border-radius: 9px; padding: 2px; gap: 2px;
+}
+.kr-root .cc-toggle button {
+  background: transparent; color: var(--kr-ink-2); border: 1px solid transparent;
+  border-radius: 7px; padding: 3px 11px; font-size: 11.5px; font-weight: 700;
+}
+.kr-root .cc-toggle button:hover:not(:disabled) { background: #e4eaf3; color: var(--kr-ink); border-color: transparent; }
+.kr-root .cc-toggle button.on-var {
+  background: var(--kr-surface); color: var(--kr-accent-ink); border-color: #dbe3f2; box-shadow: var(--kr-sh);
+}
+.kr-root .cc-toggle button.on-fix {
+  background: var(--kr-surface); color: var(--kr-purple); border-color: #ded3f7; box-shadow: var(--kr-sh);
+}
+
+/* ---- メモ ---- */
+.kr-root .kr-note-saved { font-size: 11px; color: var(--kr-good); font-weight: 700; }
+
+
+/* ---- 横スクロールする表は、1列目（項目名）を左に固定する ---- */
+.kr-root .table-scroll { position: relative; }
+.kr-root .table-scroll table.kr-grid th:first-child,
+.kr-root .table-scroll table.kr-grid td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--kr-surface);
+  border-right: 1px solid var(--kr-line-2);
+}
+.kr-root .table-scroll table.kr-grid thead th:first-child {
+  z-index: 3; background: var(--kr-surface-2);
+}
+/* 見出し・合計・KPIの行は、その行の背景色を固定列にも引き継ぐ */
+.kr-root .table-scroll table.kr-grid tr.total td:first-child { background: var(--kr-surface-2); }
+.kr-root .table-scroll table.kr-grid.kpi-table th[scope='row'] { background: var(--kr-surface-2); }
+.kr-root .table-scroll table.kr-grid tbody tr:hover td:first-child { background: #f9fbff; }
+/* 固定列の行が背景色を持つ場合（CF明細の区分計など）は inline style 側で塗る */
+/* CF明細: 区分計（営業CF・投資CF・財務CF）は薄い水色、内訳は1文字下げる */
+.kr-root table.kr-grid tr.cf-section td { background: #eaf4fb; font-weight: 800; }
+.kr-root .table-scroll table.kr-grid tr.cf-section td:first-child { background: #eaf4fb; }
+.kr-root table.kr-grid td.cf-indent { padding-left: 26px; font-weight: 400; color: var(--kr-ink-2); }
+
+/* ---- 横棒の比較チャート（損益分岐点など） ---- */
+.kr-root .kr-cmpbars { display: flex; flex-direction: column; gap: 15px; margin: 6px 0 4px; }
+.kr-root .kr-cmpbar-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 5px; }
+.kr-root .kr-cmpbar-label { font-size: 12.5px; font-weight: 700; color: var(--kr-ink); }
+.kr-root .kr-cmpbar-value {
+  margin-left: auto; font-size: 16px; font-weight: 800; color: var(--kr-ink);
+  font-variant-numeric: tabular-nums;
+}
+.kr-root .kr-cmpbar-track {
+  position: relative; height: 22px; background: var(--kr-surface-3); border-radius: 6px; overflow: hidden;
+}
+.kr-root .kr-cmpbar-fill { height: 100%; border-radius: 6px 4px 4px 6px; transition: width .3s; }
+.kr-root .kr-cmpbar-mark {
+  position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--kr-ink);
+  opacity: .5;
+}
+.kr-root .kr-cmpbar-note {
+  font-size: 11.5px; color: var(--kr-ink-3); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap;
+}
+.kr-root .kr-cmpbar-note .short { color: var(--kr-crit); font-weight: 700; }
+.kr-root .kr-cmpbar-note .ok { color: var(--kr-good); font-weight: 700; }
+
+/* 金額の入力（#,### 表示） */
+.kr-root .kr-yen-input { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* ---- 従業員数の入力（労働分配率） ---- */
+.kr-root .kr-emp { margin-bottom: 12px; }
+.kr-root .kr-emp-row { display: flex; align-items: center; gap: 9px; }
+
+/* ---- 経営シミュレーション: 比較表の項目にスライダーを置く ---- */
+.kr-root table.kr-grid td.sim-item { min-width: 300px; padding-top: 8px; padding-bottom: 8px; }
+.kr-root .sim-item-label { font-weight: 700; margin-bottom: 3px; }
+.kr-root .sim-item-slider { display: flex; align-items: center; gap: 10px; }
+.kr-root .sim-item-slider input[type='range'] {
+  flex: 1; min-width: 120px; accent-color: var(--kr-accent); padding: 0; border: none; height: 16px;
+}
+.kr-root .sim-item-slider b {
+  flex: 0 0 62px; text-align: right; font-size: 12.5px; color: var(--kr-accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.kr-root .sim-item-hint {
+  margin-top: 4px; font-size: 11.5px; color: var(--kr-ink-3); line-height: 1.65; font-weight: 400;
+}
+
+/* 自動計算値の説明（納税資金予測の前提） */
+.kr-root .kr-auto-note {
+  background: var(--kr-accent-wash); border: 1px solid #d3e0fb; border-radius: 10px;
+  padding: 9px 13px; font-size: 12px; color: #24406e; line-height: 1.8; margin-bottom: 6px;
+}
+
+/* =====================================================================
+   顧問先モード: AIに質問 / 質問ログ
+   ===================================================================== */
+
+/* よくある質問のチップ */
+.kr-root .kr-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 2px 0 14px; }
+.kr-root .kr-chip {
+  background: var(--kr-surface); border: 1px solid var(--kr-line-2); border-radius: 999px;
+  padding: 6px 14px; font-size: 12.5px; color: var(--kr-ink-2); font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.kr-root .kr-chip:hover:not(:disabled) {
+  border-color: var(--kr-accent); color: var(--kr-accent-ink); background: var(--kr-accent-wash);
+}
+.kr-root .kr-chip:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 質問の入力欄 */
+.kr-root .kr-askbar {
+  display: flex; gap: 9px; align-items: center; background: var(--kr-surface);
+  border: 1.5px solid var(--kr-line-2); border-radius: 12px; padding: 7px 7px 7px 14px;
+}
+.kr-root .kr-askbar input {
+  flex: 1; border: none; outline: none; font: inherit; font-size: 14px;
+  background: transparent; padding: 4px 0;
+}
+.kr-root .kr-askbar button {
+  border-radius: 9px; padding: 9px 20px; font-size: 13px; font-weight: 800;
+}
+.kr-root .kr-quota { font-size: 11px; color: var(--kr-ink-3); text-align: right; margin: 5px 2px 18px; }
+
+/* 質問と回答 */
+.kr-root .kr-qa { margin-bottom: 16px; }
+.kr-root .kr-q { display: flex; justify-content: flex-end; margin-bottom: 9px; }
+.kr-root .kr-q span {
+  background: var(--kr-accent); color: #fff; border-radius: 14px 14px 3px 14px;
+  padding: 9px 15px; font-size: 13.5px; font-weight: 600; max-width: 76%;
+}
+.kr-root .kr-a {
+  background: var(--kr-surface); border: 1px solid var(--kr-line);
+  border-radius: 3px 14px 14px 14px; padding: 15px 17px;
+}
+.kr-root .kr-ahead {
+  display: flex; align-items: center; gap: 7px; font-size: 11px;
+  color: var(--kr-ink-3); font-weight: 800; margin-bottom: 8px;
+}
+.kr-root .kr-adot {
+  width: 17px; height: 17px; border-radius: 5px; background: var(--kr-accent); color: #fff;
+  font-size: 9px; display: flex; align-items: center; justify-content: center; font-weight: 800;
+}
+.kr-root .kr-atext { margin: 0 0 10px; font-size: 13.5px; line-height: 1.9; }
+.kr-root .kr-abtns { margin-top: 9px; display: flex; gap: 8px; flex-wrap: wrap; }
+.kr-root .kr-abtns button { padding: 6px 14px; font-size: 12px; }
+.kr-root .kr-disc {
+  font-size: 10.5px; color: var(--kr-ink-3); border-top: 1px dashed var(--kr-line-2);
+  padding-top: 8px; margin-top: 10px; line-height: 1.7;
+}
+
+/* 回答の根拠 */
+.kr-root .kr-evi {
+  background: var(--kr-surface-2); border: 1px solid var(--kr-line);
+  border-radius: 10px; padding: 12px 14px; margin: 10px 0;
+}
+.kr-root .kr-evihead { font-size: 11.5px; font-weight: 800; color: var(--kr-ink-2); margin-bottom: 9px; }
+.kr-root table.kr-evitable { font-size: 12.5px; }
+.kr-root table.kr-evitable td { border: none; border-bottom: 1px solid var(--kr-line); padding: 6px 8px; }
+.kr-root table.kr-evitable tr:last-child td { border-bottom: none; }
+.kr-root table.kr-evitable td.val { font-weight: 800; white-space: nowrap; }
+.kr-root table.kr-evitable td.note { color: var(--kr-ink-3); font-size: 11.5px; }
+
+/* 根拠の棒グラフ（軽量・SVGなし） */
+.kr-root .kr-evibars { display: flex; align-items: flex-end; gap: 4px; height: 150px; }
+.kr-root .kr-evibar { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.kr-root .kr-evibar-v { font-size: 9.5px; color: var(--kr-ink-3); height: 14px; font-variant-numeric: tabular-nums; }
+.kr-root .kr-evibar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.kr-root .kr-evibar-fill { width: 100%; background: #2a78d6; border-radius: 3px 3px 0 0; min-height: 1px; }
+.kr-root .kr-evibar-fill.hot { background: #eb6834; }
+.kr-root .kr-evibar-fill.minus { background: #e34948; }
+.kr-root .kr-evibar-l { font-size: 9.5px; color: var(--kr-ink-3); margin-top: 4px; white-space: nowrap; }
+.kr-root .kr-evibar-l.hot { color: #eb6834; font-weight: 800; }
+
+/* ダッシュボードから質問へ誘導するカード */
+.kr-root .kr-askcta {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+}
+.kr-root .kr-memo-view { font-size: 13px; color: var(--kr-ink-2); white-space: pre-wrap; line-height: 1.9; }
+
+/* 同意モーダル */
+.kr-root .kr-consent-ov {
+  position: fixed; inset: 0; background: rgba(16, 24, 40, .55);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 60;
+}
+.kr-root .kr-consent {
+  background: #fff; border-radius: 16px; max-width: 560px; width: 100%; padding: 26px 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .28); max-height: 90vh; overflow-y: auto;
+}
+.kr-root .kr-consent h3 { margin: 0 0 6px; font-size: 18px; font-weight: 800; }
+.kr-root .kr-consent ul { margin: 12px 0 16px; padding-left: 20px; font-size: 13px; color: var(--kr-ink-2); }
+.kr-root .kr-consent li { margin-bottom: 8px; line-height: 1.85; }
+.kr-root .kr-consent button { width: 100%; padding: 12px; font-size: 14px; font-weight: 800; }
+.kr-root .kr-consent button.secondary { margin-top: 8px; font-weight: 600; font-size: 12.5px; padding: 9px; }
+
+/* 質問ログ（税理士のみ） */
+.kr-root .kr-only-adviser {
+  font-size: 10.5px; background: #fdecec; color: #c0392b; border-radius: 6px;
+  padding: 2px 8px; font-weight: 800; margin-left: 10px; vertical-align: middle;
+}
+.kr-root .kr-logstat { display: flex; gap: 30px; flex-wrap: wrap; }
+.kr-root .kr-logstat .val { font-size: 21px; font-weight: 800; }
+.kr-root .kr-star {
+  background: none; border: none; font-size: 16px; cursor: pointer; padding: 0 4px;
+  color: var(--kr-warn); line-height: 1;
+}
+.kr-root tr.kr-declined td { background: #fdf7f7; }
+.kr-root .kr-declined-tag,
+.kr-root .kr-ai-tag,
+.kr-root .kr-unknown-tag {
+  display: inline-block; margin-left: 7px; font-size: 10px; font-weight: 800;
+  border-radius: 5px; padding: 1px 7px;
+}
+.kr-root .kr-declined-tag { background: #fdecec; color: #c0392b; }
+.kr-root .kr-unknown-tag { background: var(--kr-surface-3); color: var(--kr-ink-3); }
+.kr-root .kr-ai-tag { background: #eaf2fd; color: #1565c0; }
+
+/* 回答に添える動作確認用のメモ（税理士にだけ見える） */
+.kr-root .kr-adminnote {
+  margin-top: 10px; padding: 8px 12px; border-radius: 8px;
+  background: var(--kr-surface-3); color: var(--kr-ink-2);
+  font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.kr-root .kr-adminnote .kr-only-adviser { margin-left: 0; margin-right: 8px; }
+
+/* 回答の見出しに出す「AIが読み取った」印 */
+.kr-root .kr-aivia {
+  margin-left: 9px; font-size: 10.5px; font-weight: 700;
+  background: #eaf2fd; color: #1565c0; border-radius: 5px; padding: 2px 8px;
+}
+
+@media (max-width: 720px) {
+  .kr-root .kr-evibars { height: 120px; }
+  .kr-root .kr-evibar-v { display: none; }
+  .kr-root .kr-q span { max-width: 90%; }
+}
+
+/* 取引先の整理（税理士のみ） */
+.kr-root .kr-ptools { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.kr-root .kr-ptools input { flex: 0 0 260px; padding: 7px 10px; }
+.kr-root .kr-linkbtn {
+  background: none; border: none; padding: 0; color: var(--kr-accent);
+  font: inherit; cursor: pointer; text-align: left;
+}
+.kr-root .kr-linkbtn:hover { text-decoration: underline; }
+.kr-root .kr-linkbtn:disabled { color: var(--kr-ink-3); cursor: default; text-decoration: none; }
+.kr-root .kr-pdetail {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  background: var(--kr-surface-2); border-radius: 8px; padding: 12px 16px;
+}
+.kr-root .kr-pdetail ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.9; }
+@media (max-width: 900px) { .kr-root .kr-pdetail { grid-template-columns: 1fr; gap: 12px; } }
