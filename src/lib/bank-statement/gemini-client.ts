@@ -982,6 +982,34 @@ export async function expandDescriptions(descriptions: string[], geminiModel?: s
 }
 
 // ============================================================
+// 短い問い合わせをJSONで受け取る汎用の窓口
+// （月次レポートの「AIに質問」で、質問文だけを送ってどの集計で答えるかを1つ選ばせる用途。
+//   数字は一切送らない。長文の生成には使わない）
+// ============================================================
+export async function askGeminiJson<T>(o: {
+  /** 役割・禁止事項の指示（システムプロンプト相当） */
+  system: string
+  /** 送る本文。**数字や個人情報を入れないこと** */
+  prompt: string
+  /** 返答の形（JSON Schema 相当）。enum で選択肢を縛れる */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  schema: any
+  geminiModel?: string
+}): Promise<T> {
+  const model = gm({
+    model: resolveModel(o.geminiModel),
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseSchema: o.schema as ResponseSchema,
+    },
+  })
+  const result = await model.generateContent([o.system, o.prompt])
+  const text = result.response.text()
+  return JSON.parse(text) as T
+}
+
+// ============================================================
 // 共有フォルダ：届いたファイルに対するAI質問（PDF・画像はFile API、Excel/CSV/テキストは本文として渡す）
 // ============================================================
 export async function askFilesQuestion(

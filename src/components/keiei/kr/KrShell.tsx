@@ -27,6 +27,9 @@ import BreakEven from './pages/BreakEven'
 import Labor from './pages/Labor'
 import Simulation from './pages/Simulation'
 import QaLog from './pages/QaLog'
+import Ask from './pages/Ask'
+import LedgerImport from './pages/LedgerImport'
+import Partners from './pages/Partners'
 import DataImport from './pages/DataImport'
 import Help from './pages/Help'
 
@@ -35,8 +38,8 @@ export type KrPage =
   | 'dash' | 'pl' | 'bs'
   | 'cf' | 'debt' | 'tax'
   | 'bep' | 'labor' | 'sim'
-  | 'client' | 'qalog'
-  | 'import' | 'help'
+  | 'client' | 'ask' | 'qalog'
+  | 'import' | 'ledger' | 'partners' | 'help'
 
 export const KR_GROUPS: { group: string; items: { key: KrPage; label: string }[] }[] = [
   {
@@ -67,6 +70,7 @@ export const KR_GROUPS: { group: string; items: { key: KrPage; label: string }[]
     group: '顧問先向け',
     items: [
       { key: 'client', label: '顧問先の画面' },
+      { key: 'ask', label: '💬 AIに質問' },
       { key: 'qalog', label: 'AI質問ログ' },
     ],
   },
@@ -74,6 +78,8 @@ export const KR_GROUPS: { group: string; items: { key: KrPage; label: string }[]
     group: 'データ',
     items: [
       { key: 'import', label: 'データ取込（JSON）' },
+      { key: 'ledger', label: '元帳の取込' },
+      { key: 'partners', label: '取引先の整理' },
       { key: 'help', label: '❓ 使い方' },
     ],
   },
@@ -92,7 +98,11 @@ export const KR_PRINTABLE: { key: KrPage; label: string }[] = [
   { key: 'sim', label: '経営シミュレーション' },
 ]
 
-export function KrPageBody({ page, jumpCode }: { page: KrPage; jumpCode?: string | null }) {
+export function KrPageBody({ page, jumpCode, onNavigate }: {
+  page: KrPage
+  jumpCode?: string | null
+  onNavigate?: (page: KrPage) => void
+}) {
   switch (page) {
     case 'dash': return <Dashboard />
     case 'pl': return <TrendPL jumpCode={jumpCode} />
@@ -103,8 +113,11 @@ export function KrPageBody({ page, jumpCode }: { page: KrPage; jumpCode?: string
     case 'bep': return <BreakEven />
     case 'labor': return <Labor />
     case 'sim': return <Simulation />
-    // 顧問先が見ているのと同じ画面。AI質問ボタンはAI画面の移植後に結線する
-    case 'client': return <ClientDashboard canAsk={false} onAsk={() => { /* AI質問の移植後に結線 */ }} />
+    // 顧問先が見ているのと同じ画面
+    case 'client': return <ClientDashboard canAsk onAsk={() => onNavigate?.('ask')} />
+    case 'ask': return <Ask onNavigate={(to) => onNavigate?.(to === '/pl' ? 'pl' : to === '/bs' ? 'bs' : 'dash')} />
+    case 'ledger': return <LedgerImport />
+    case 'partners': return <Partners />
     case 'qalog': return <QaLog />
     case 'import': return <DataImport />
     case 'help': return <Help />
@@ -182,7 +195,7 @@ export default function KrShell({
         ))}
       </div>
       <div className="kr-main">
-        <KrPageBody page={page} />
+        <KrPageBody page={page} onNavigate={setPage} />
       </div>
     </div>
   )

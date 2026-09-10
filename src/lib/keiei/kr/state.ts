@@ -27,6 +27,8 @@ export interface KrExtraSettings {
   costClass?: Record<string, CostClass> // 科目コード→変動費/固定費
   notes?: Record<string, string> // 所見メモ
   employees?: Record<string, number> // 年度ごとの従業員数
+  // 取引先の名寄せの手動指定（表記→グループ / グループ→表示名）。自動判定より優先する
+  krAliases?: { toGroup: Record<string, string>; label: Record<string, string> }
 }
 
 export const KR_DEFAULT_TAX_RATE = 34

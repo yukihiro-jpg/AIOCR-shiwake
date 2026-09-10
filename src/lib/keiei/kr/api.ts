@@ -191,10 +191,21 @@ export const api = {
     rebuild()
     onDataWrite?.()
   },
+  /** 取引先の名寄せ（手動指定）を保存する */
+  setAliases(a: { toGroup: Record<string, string>; label: Record<string, string> }): void {
+    appSettings.krAliases = a
+    void persistSettings()
+    rebuild()
+  },
   /** 顧問先IDを画面へ渡す（元帳の取込・取引先の整理で使う） */
   clientId(): string {
     return clientId
   },
+}
+
+/** 保存されている取引先の名寄せ（手動指定） */
+export function getKrAliases(): { toGroup: Record<string, string>; label: Record<string, string> } {
+  return appSettings.krAliases || { toGroup: {}, label: {} }
 }
 
 /** 顧問先の月次データと設定を読み直す（顧問先の切替時に使う） */
