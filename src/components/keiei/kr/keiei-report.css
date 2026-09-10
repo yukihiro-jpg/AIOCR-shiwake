@@ -590,14 +590,80 @@
 .kr-root .kr-pdetail ul { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.9; }
 @media (max-width: 900px) { .kr-root .kr-pdetail { grid-template-columns: 1fr; gap: 12px; } }
 
-/* ---- タブ（移植時に追加。移植元のサイドバーの代わり） ---- */
-.kr-root .kr-tabs { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 14px; }
-.kr-root .kr-tabgroup { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.kr-root .kr-tabgroup-label { font-size: 11px; color: var(--kr-ink-3); margin-right: 2px; white-space: nowrap; }
-.kr-root .kr-tab {
-  border: 1px solid var(--kr-line); background: var(--kr-surface); color: var(--kr-ink-2);
-  border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+/* ---- サイドバー（顧問先用アプリと同じ並び。移植元 styles.css L41-92 を持ち込み） ----
+   移植先は共通ナビの中に置くため、高さは 100vh ではなく画面に合わせて伸ばし、
+   スクロールはサイドバー内で完結させる（本文と二重スクロールにしない） */
+.kr-root { display: flex; align-items: flex-start; gap: 0; }
+.kr-root .kr-sidebar {
+  width: 244px; flex: 0 0 244px; background: var(--kr-surface);
+  border-right: 1px solid var(--kr-line); color: var(--kr-ink-2);
+  padding: 14px 10px 18px; position: sticky; top: 0;
+  max-height: calc(100vh - 120px); overflow-y: auto;
+  border-radius: 12px 0 0 12px;
+}
+.kr-root .kr-sidebar h1 {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14.5px; font-weight: 800; color: var(--kr-ink);
+  margin: 3px 8px 0 8px; line-height: 1.4; letter-spacing: -.01em; min-width: 0;
   white-space: nowrap;
 }
-.kr-root .kr-tab:hover { background: var(--kr-surface-2); }
-.kr-root .kr-tab.active { background: var(--kr-accent-wash); border-color: var(--kr-accent); color: var(--kr-accent-ink); }
+.kr-root .kr-sidebar h1 .kr-mark {
+  width: 27px; height: 27px; flex: 0 0 27px; border-radius: 8px;
+  background: linear-gradient(150deg, #2a5fd9, #17307a); color: #fff;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800;
+}
+.kr-root .kr-sidebar h1 > :not(.kr-mark) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kr-root .kr-client {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--kr-ink-3); margin: 4px 8px 13px 43px; font-weight: 600;
+}
+.kr-root .kr-client .kr-tag {
+  font-size: 10px; font-weight: 800; color: var(--kr-purple);
+  background: var(--kr-purple-wash); border-radius: 5px; padding: 1px 6px; letter-spacing: .02em;
+}
+.kr-root .kr-sidebar .kr-nav {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; margin: 1px 0; border-radius: 9px;
+  color: var(--kr-ink-2); background: transparent; text-decoration: none;
+  font-size: 12.5px; font-weight: 600; border: 1px solid transparent; cursor: pointer;
+}
+.kr-root .kr-sidebar .kr-nav:hover { background: var(--kr-surface-2); color: var(--kr-ink); }
+.kr-root .kr-sidebar .kr-nav.active {
+  background: var(--kr-accent-wash); color: var(--kr-accent-ink);
+  border-color: #d3e0fb; font-weight: 700;
+}
+.kr-root .kr-group {
+  font-size: 10.5px; color: var(--kr-ink-3); font-weight: 800; letter-spacing: .09em;
+  margin: 15px 10px 4px;
+}
+
+/* ---- サイドバーに置く「対象期・対象月・取込済み・書き出し」 ---- */
+.kr-root .kr-side-box { margin: 10px 8px 0; }
+.kr-root .kr-side-label { font-size: 10.5px; color: var(--kr-ink-3); font-weight: 700; margin-bottom: 3px; }
+.kr-root .kr-side-box select {
+  width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid var(--kr-line-2);
+  border-radius: 8px; background: var(--kr-surface); color: var(--kr-ink); margin-bottom: 8px;
+}
+.kr-root .kr-side-year {
+  display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--kr-ink-2);
+  border: 1px solid var(--kr-line); border-radius: 8px; padding: 4px 6px; margin-bottom: 4px;
+  background: var(--kr-surface);
+}
+.kr-root .kr-side-year.current { border-color: #d3e0fb; background: var(--kr-accent-wash); color: var(--kr-accent-ink); }
+.kr-root .kr-side-year .rel {
+  font-size: 9.5px; font-weight: 800; border-radius: 4px; padding: 1px 4px;
+  background: var(--kr-surface-3); color: var(--kr-ink-2);
+}
+.kr-root .kr-side-year.current .rel { background: var(--kr-accent); color: #fff; }
+.kr-root .kr-side-year .del { margin-left: auto; color: var(--kr-ink-3); background: none; border: none; cursor: pointer; padding: 0 2px; }
+.kr-root .kr-side-year .del:hover { color: var(--kr-crit); }
+.kr-root .kr-side-btn {
+  display: block; width: 100%; text-align: center; margin-top: 6px; padding: 7px 8px;
+  font-size: 11.5px; font-weight: 700; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--kr-accent); color: var(--kr-accent-ink); background: var(--kr-surface);
+}
+.kr-root .kr-side-btn:hover { background: var(--kr-accent-wash); }
+.kr-root .kr-side-btn.plain { border-color: var(--kr-line-2); color: var(--kr-ink-2); }
+.kr-root .kr-side-btn.plain:hover { background: var(--kr-surface-2); }
+
+/* ---- 本文（サイドバーの右） ---- */
+.kr-root .kr-body { flex: 1; min-width: 0; }

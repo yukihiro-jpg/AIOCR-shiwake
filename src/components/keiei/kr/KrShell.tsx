@@ -133,6 +133,12 @@ export default function KrShell({
   monthIdx,
   clientName,
   clientCode,
+  yearId,
+  onYearChange,
+  onMonthChange,
+  onDeleteYear,
+  onExportJson,
+  onBackToClients,
   onDataChanged,
 }: {
   clientId: string
@@ -141,6 +147,13 @@ export default function KrShell({
   monthIdx: number
   clientName: string
   clientCode?: string
+  /** 表示中の期。サイドバーの「対象期」で切り替える */
+  yearId?: string
+  onYearChange?: (id: string) => void
+  onMonthChange?: (idx: number) => void
+  onDeleteYear?: (id: string) => void
+  onExportJson?: () => void
+  onBackToClients?: () => void
   /** ビューア側でデータを取り込んだ・消したときに親へ知らせる（一覧の再読込用） */
   onDataChanged?: () => void
 }) {
@@ -187,35 +200,102 @@ export default function KrShell({
     setTick((t) => t + 1) // 渡した直後に必ず描き直す
   }, [clientId, years, settings, monthIdx, clientName, clientCode])
 
+  // 会社名の頭文字をマークにする（法人格は除いた最初の1文字）
+  const mark = clientName
+    .replace(/^(株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|医療法人|税理士法人)\s*/, '')
+    .trim().charAt(0) || '経'
+  const sorted = Object.values(years).sort((a, b) => (a.endYear * 12 + a.endMonth) - (b.endYear * 12 + b.endMonth))
+  const fy = yearId ? years[yearId] : undefined
+
   return (
     <div className="kr-root">
-      <div className="kr-tabs no-print">
-        <div className="kr-tabgroup" style={{ marginLeft: 'auto' }}>
-          <button
-            className="kr-tab"
-            onClick={() => { setPrintPick(new Set(KR_PRINTABLE.some((p) => p.key === page) ? [page] : [])); setPrintOpen(true) }}
-            title="B4横カラーで印刷します（画面を選べます）"
-          >
-            🖨 印刷
-          </button>
-        </div>
+      <aside className="kr-sidebar no-print">
+        <h1 title={clientName}>
+          <span className="kr-mark" aria-hidden="true">{mark}</span>
+          <span>{clientName || '月次経営レポート'}</span>
+        </h1>
+        <div className="kr-client"><span className="kr-tag">経営</span>月次経営レポート</div>
+
         {KR_GROUPS.map((g) => (
-          <div key={g.group} className="kr-tabgroup">
-            <span className="kr-tabgroup-label">{g.group}</span>
+          <div key={g.group}>
+            <div className="kr-group">{g.group}</div>
             {g.items.map((it) => (
               <button
                 key={it.key}
                 onClick={() => setPage(it.key)}
-                className={`kr-tab${page === it.key ? ' active' : ''}`}
+                className={`kr-nav${page === it.key ? ' active' : ''}`}
               >
                 {it.label}
               </button>
             ))}
           </div>
         ))}
-      </div>
-      <div className="kr-main">
-        <KrPageBody page={page} onNavigate={setPage} />
+
+        {/* 対象期・対象月・取込済み・書き出し（総合管理アプリの上部にあった帯をここへ収めた） */}
+        {sorted.length > 0 && (
+          <>
+            <div className="kr-group">表示する期・月</div>
+            <div className="kr-side-box">
+              <div className="kr-side-label">対象期</div>
+              <select value={yearId || ''} onChange={(e) => onYearChange?.(e.target.value)}>
+                {sorted.slice().reverse().map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
+              </select>
+              {fy && (
+                <>
+                  <div className="kr-side-label">対象月（報告月）</div>
+                  <select value={monthIdx} onChange={(e) => onMonthChange?.(Number(e.target.value))}>
+                    {fy.fiscalMonths.slice(0, fy.lastFilledIndex + 1).map((m, i) => (
+                      <option key={i} value={i}>{m}月</option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+
+            <div className="kr-group">取込済みの期</div>
+            <div className="kr-side-box">
+              {sorted.slice().reverse().map((y, i) => {
+                const rel = i // 0=当期
+                const relLabel = rel === 0 ? '当期' : rel === 1 ? '前期' : rel === 2 ? '前々期' : `${rel}期前`
+                return (
+                  <div key={y.id} className={`kr-side-year${y.id === yearId ? ' current' : ''}`}>
+                    <span className="rel">{relLabel}</span>
+                    <span>{y.label}（{y.lastFilledIndex + 1}ヶ月）</span>
+                    {onDeleteYear && (
+                      <button className="del" title="この期を削除" onClick={() => onDeleteYear(y.id)}>✕</button>
+                    )}
+                  </div>
+                )
+              })}
+              {onExportJson && (
+                <button className="kr-side-btn" onClick={onExportJson}
+                  title="取り込んだ全期の月次推移BS/PLを1つのJSONファイルで保存します（顧問先へ渡す用）">
+                  📤 取込データを書き出し（JSON・{sorted.length}期）
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        <div className="kr-group">操作</div>
+        <div className="kr-side-box">
+          <button
+            className="kr-side-btn"
+            onClick={() => { setPrintPick(new Set(KR_PRINTABLE.some((p) => p.key === page) ? [page] : [])); setPrintOpen(true) }}
+            title="B4横カラーで印刷します（画面を選べます）"
+          >
+            🖨 印刷（B4横）
+          </button>
+          {onBackToClients && (
+            <button className="kr-side-btn plain" onClick={onBackToClients}>← 顧問先一覧へ</button>
+          )}
+        </div>
+      </aside>
+
+      <div className="kr-body">
+        <div className="kr-main">
+          <KrPageBody page={page} onNavigate={setPage} />
+        </div>
       </div>
 
       {printOpen && (

@@ -344,64 +344,24 @@ export default function KeieiContent() {
           </label>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto p-5 space-y-5">
-          {/* 期・月の選択＋取込済み一覧（試算表CSV取込後のみ表示。案件台帳のみの利用時は不要なため） */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-4">
-            {sorted.length > 0 && (<>
-            <div className="flex items-center gap-3 flex-wrap mb-3">
-              <span className="text-xs text-gray-500">対象期</span>
-              <select value={yearId} onChange={(e) => { setYearId(e.target.value); const y = years[e.target.value]; if (y) setMonthIdx(y.lastFilledIndex) }}
-                className="px-3 py-1.5 border border-gray-300 rounded text-sm">
-                {sorted.slice().reverse().map((y) => <option key={y.id} value={y.id}>{y.label}</option>)}
-              </select>
-              {fy && (
-                <>
-                  <span className="text-xs text-gray-500 ml-2">対象月</span>
-                  <select value={monthIdx} onChange={(e) => setMonthIdx(Number(e.target.value))}
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm">
-                    {fy.fiscalMonths.slice(0, fy.lastFilledIndex + 1).map((m, i) => (
-                      <option key={i} value={i}>{m}月</option>
-                    ))}
-                  </select>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-gray-400">取込済み（期ごとに追加・差し替え可。翌期は新しい期の試算表CSVを取り込むだけで当期になります。保持は直近5期まで＝古い期は自動削除）:</span>
-              {sorted.map((y, i) => {
-                const rel = sorted.length - 1 - i
-                const relLabel = rel === 0 ? '当期' : rel === 1 ? '前期' : rel === 2 ? '前々期' : `${rel}期前`
-                return (
-                  <span key={y.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs border ${y.id === yearId ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
-                    <span className={`px-1 rounded text-[10px] font-bold ${rel === 0 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-700'}`}>{relLabel}</span>
-                    {y.label}（{y.lastFilledIndex + 1}ヶ月）
-                    <button onClick={() => deleteYear(y.id)} className="text-gray-400 hover:text-red-600 ml-1">✕</button>
-                  </span>
-                )
-              })}
-              <button
-                onClick={exportJson}
-                title="取り込んだ全期の月次推移BS/PLを1つのJSONファイルで保存します（顧問先へ渡して別アプリで読み込む用）"
-                className="ml-auto px-3 py-1 text-xs border border-[#1a73e8] text-[#1a73e8] rounded-full hover:bg-[#e8f0fe] whitespace-nowrap"
-              >
-                📤 取込データを書き出し（JSON・{sorted.length}期）
-              </button>
-            </div>
-            </>)}
-          </div>
-
-          {/* 画面は移植した月次レポート・ビューア（顧問先用アプリと同じもの）に一本化した */}
-          <div className="space-y-5">
-            <KrShell
-              clientId={clientId}
-              years={years}
-              settings={settings}
-              monthIdx={monthIdx}
-              clientName={current?.name || ''}
-              clientCode={current?.code}
-              onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
-            />
-          </div>
+        <div className="flex-1 overflow-auto">
+          {/* 画面は移植した月次レポート・ビューア（顧問先用アプリと同じもの）に一本化した。
+              対象期・対象月・取込済み・JSON書き出しはビューアのサイドバーへ収めている */}
+          <KrShell
+            clientId={clientId}
+            years={years}
+            settings={settings}
+            monthIdx={monthIdx}
+            clientName={current?.name || ''}
+            clientCode={current?.code}
+            yearId={yearId}
+            onYearChange={(id) => { setYearId(id); const y = years[id]; if (y) setMonthIdx(y.lastFilledIndex) }}
+            onMonthChange={setMonthIdx}
+            onDeleteYear={deleteYear}
+            onExportJson={exportJson}
+            onBackToClients={() => setClientId('')}
+            onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
+          />
         </div>
       )}
 
