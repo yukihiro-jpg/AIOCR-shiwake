@@ -11,6 +11,7 @@
 // この総合管理アプリの保存データを返すので、顧問先が見る画面と数字が必ず一致する。
 
 import { useCallback, useEffect, useState } from 'react'
+import KrPrint from './KrPrint'
 import type { FiscalYearData } from '@/lib/keiei/types'
 import type { KeieiSettings } from '@/lib/keiei/analysis'
 import { setKrContext, setKrChangeHandler, setKrDataChangeHandler } from '@/lib/keiei/kr/api'
@@ -145,6 +146,16 @@ export default function KrShell({
 }) {
   const [page, setPage] = useState<KrPage>('dash')
   const [, setTick] = useState(0)
+  // 印刷: 選んだ画面をB4横で刷る。既定は表示中の画面だけ
+  const [printOpen, setPrintOpen] = useState(false)
+  const [printPick, setPrintPick] = useState<Set<KrPage>>(new Set())
+  const [printPages, setPrintPages] = useState<KrPage[] | null>(null)
+
+  // 表紙・ページ下部に出す「どの期のどの月までか」
+  const latest = Object.values(years).sort((a, b) => (a.endYear * 12 + a.endMonth) - (b.endYear * 12 + b.endMonth)).pop()
+  const periodLabel = latest
+    ? `${latest.label}／${latest.fiscalMonths[Math.max(0, Math.min(monthIdx, latest.lastFilledIndex))]}月まで`
+    : ''
 
   // ビューア側の操作（設定変更・取込）で再描画する。
   // 【順番が大事】データを渡す前にこの登録を済ませること。逆にすると初回表示のとき
@@ -179,6 +190,15 @@ export default function KrShell({
   return (
     <div className="kr-root">
       <div className="kr-tabs no-print">
+        <div className="kr-tabgroup" style={{ marginLeft: 'auto' }}>
+          <button
+            className="kr-tab"
+            onClick={() => { setPrintPick(new Set(KR_PRINTABLE.some((p) => p.key === page) ? [page] : [])); setPrintOpen(true) }}
+            title="B4横カラーで印刷します（画面を選べます）"
+          >
+            🖨 印刷
+          </button>
+        </div>
         {KR_GROUPS.map((g) => (
           <div key={g.group} className="kr-tabgroup">
             <span className="kr-tabgroup-label">{g.group}</span>
@@ -197,6 +217,59 @@ export default function KrShell({
       <div className="kr-main">
         <KrPageBody page={page} onNavigate={setPage} />
       </div>
+
+      {printOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[75] flex items-center justify-center p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPrintOpen(false) }}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-800 mb-1">🖨 印刷する画面を選ぶ</h3>
+            <p className="text-xs text-gray-500 mb-3">B4横・カラーで、1画面につき1ページ印刷します（表紙が付きます）。</p>
+            <div className="flex gap-2 mb-2">
+              <button className="px-2 py-1 text-xs border border-gray-300 rounded"
+                onClick={() => setPrintPick(new Set(KR_PRINTABLE.map((p) => p.key)))}>すべて選ぶ</button>
+              <button className="px-2 py-1 text-xs border border-gray-300 rounded"
+                onClick={() => setPrintPick(new Set())}>選択を外す</button>
+            </div>
+            <div className="border border-gray-200 rounded max-h-[50vh] overflow-auto p-2">
+              {KR_PRINTABLE.map((p) => (
+                <label key={p.key} className="flex items-center gap-2 py-1 text-sm cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4"
+                    checked={printPick.has(p.key)}
+                    onChange={(e) => setPrintPick((prev) => {
+                      const n = new Set(prev)
+                      if (e.target.checked) n.add(p.key); else n.delete(p.key)
+                      return n
+                    })} />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setPrintOpen(false)} className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded">閉じる</button>
+              <button
+                disabled={printPick.size === 0}
+                onClick={() => {
+                  // 画面の並び順で刷る（選んだ順ではなく、いつも同じ並びの資料にする）
+                  setPrintPages(KR_PRINTABLE.filter((p) => printPick.has(p.key)).map((p) => p.key))
+                  setPrintOpen(false)
+                }}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 disabled:opacity-40"
+              >
+                {printPick.size}ページを印刷
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {printPages && (
+        <KrPrint
+          pages={printPages}
+          company={clientName}
+          periodLabel={periodLabel}
+          onClose={() => setPrintPages(null)}
+        />
+      )}
     </div>
   )
 }

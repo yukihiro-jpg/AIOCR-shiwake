@@ -1,0 +1,115 @@
+/* 月次レポート・ビューアの印刷（B4横・カラー）
+ *
+ * 用紙は B4(JIS) 横＝364×257mm。CSS の `size: B4` は ISO B4（250×353mm）と
+ * 解釈される場合があるため、**実寸で指定する**。
+ * 余白はブラウザのヘッダ・フッタ（URL・日付）を出さないために @page で 0 にし、
+ * 紙面側の padding で取る（他モジュールの印刷と同じ考え方）。
+ *
+ * ページの割り方は「画面ごとに改ページ・中身は必要なページ数だけ流す」。
+ * 1画面を必ず1枚に押し込むと、表とグラフの多い画面が読めない大きさまで縮むため。
+ */
+
+@page {
+  size: 364mm 257mm;
+  margin: 0;
+}
+
+@media print {
+  /* 網掛け・グラフの色を紙にも出す。これが無いと表の見出しの塗りだけ白く抜ける */
+  html, body, .kr-print-root, .kr-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body { background: #fff !important; margin: 0 !important; }
+
+  /* 画面の操作部品は紙に出さない（期の切替・並べ替え・折りたたみのボタン類）。
+     紙面には「いま画面で選んでいる期・モードの結果」だけを出す */
+  .no-print, .kr-tabs, .kr-help-btn, .kr-tip, .kr-fabs,
+  .kr-print-root .kr-yearnav,
+  .kr-print-root .trend-toolbar,
+  .kr-print-root .kr-seg { display: none !important; }
+
+  /* 印刷プレビューを開いているときは、その裏の画面を出さない（二重印刷の防止）。
+     プレビューは body 直下に出しているのでこの指定が確実に効く */
+  body.kr-printing > *:not(.kr-print-overlay) { display: none !important; }
+  /* position:fixed のままだと Chrome は1ページ目にしか描かない。印刷時は通常の流れに戻す */
+  .kr-print-overlay {
+    position: static !important; inset: auto !important;
+    overflow: visible !important; background: #fff !important; height: auto !important;
+  }
+
+  .kr-print-root { background: #fff !important; }
+
+  /* 画面プレビュー用の飾り（余白・影・中央寄せ）は紙では邪魔になる。
+     残すと1枚ぶんの高さを超えて、白いページが挟まる（実際に起きた） */
+  .kr-print-root.preview { padding: 0 !important; margin: 0 !important; }
+  .kr-print-root.preview .kr-print-cover,
+  .kr-print-root.preview .kr-print-screen {
+    margin: 0 !important; box-shadow: none !important;
+  }
+
+  /* 表紙 */
+  .kr-print-cover {
+    width: 364mm; height: 257mm; box-sizing: border-box;
+    padding: 40mm 24mm; display: flex; flex-direction: column; justify-content: center;
+    break-after: page; page-break-after: always;
+  }
+
+  /* 画面のかたまり。必ず新しいページから始める */
+  .kr-print-screen {
+    break-before: page; page-break-before: always;
+    padding: 10mm 12mm 12mm;
+    box-sizing: border-box;
+    width: 364mm;
+  }
+  .kr-print-screen:first-of-type { break-before: auto; page-break-before: auto; }
+
+  /* 各資料の見出し（どの会社・いつの・何の資料か。ページをばらしても分かるように） */
+  .kr-print-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: .4mm solid #16202f; padding-bottom: 2mm; margin-bottom: 5mm;
+    font-size: 9pt; color: #555;
+  }
+  .kr-print-head .t { font-size: 13pt; font-weight: 700; color: #16202f; }
+
+  /* 紙では画面用のスクロール枠・固定列を解除する。
+     解除し忘れると、警告も出ないまま列が欠けた紙が出る */
+  .kr-print-root .pivot-wrap,
+  .kr-print-root .table-scroll { max-height: none !important; overflow: visible !important; }
+  .kr-print-root table.kr-grid th,
+  .kr-print-root table.kr-grid td { position: static !important; }
+  .kr-print-root table.kr-grid thead { display: table-header-group; }
+  .kr-print-root tr { break-inside: avoid; }
+  /* 表・グラフの箱は途中で切らない */
+  .kr-print-root .card { break-inside: avoid; box-shadow: none !important; }
+  .kr-print-root .kr-root { height: auto !important; overflow: visible !important; }
+}
+
+/* ---- 画面上のプレビュー（印刷ダイアログを出す前に確認できるようにする） ---- */
+.kr-print-root.preview { padding: 16px 0; }
+.kr-print-root.preview .kr-print-cover,
+.kr-print-root.preview .kr-print-screen {
+  width: 364mm;
+  box-sizing: border-box;
+  margin: 0 auto 8mm;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+}
+.kr-print-root.preview .kr-print-cover {
+  height: 257mm; padding: 40mm 24mm; display: flex; flex-direction: column; justify-content: center;
+}
+.kr-print-root.preview .kr-print-screen { padding: 10mm 12mm 12mm; }
+.kr-print-root.preview .kr-print-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: .4mm solid #16202f; padding-bottom: 2mm; margin-bottom: 5mm;
+  font-size: 9pt; color: #555;
+}
+.kr-print-root.preview .kr-print-head .t { font-size: 13pt; font-weight: 700; color: #16202f; }
+.kr-print-root.preview .pivot-wrap,
+.kr-print-root.preview .table-scroll { max-height: none; overflow: visible; }
+
+/* 表紙の文字（画面・紙で共通） */
+.kr-print-cover .t1 { font-size: 30pt; font-weight: 800; letter-spacing: .04em; }
+.kr-print-cover .t2 { font-size: 16pt; margin-top: 6mm; }
+.kr-print-cover .t3 { font-size: 11pt; color: #555; margin-top: 12mm; }
+.kr-print-cover ol { font-size: 12pt; margin-top: 8mm; line-height: 1.9; padding-left: 6mm; }
