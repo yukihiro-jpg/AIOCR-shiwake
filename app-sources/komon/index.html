@@ -2967,6 +2967,12 @@ function openDocTemplate(){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   setVal('dt_header',tpl.header||''); setVal('dt_footer',tpl.footer||''); openModal('docTplModal'); }
 function saveDocTemplate(){ data.docTemplate={ addr:{zip:document.getElementById('dt_zip').checked,addr:document.getElementById('dt_addr').checked,name:document.getElementById('dt_name').checked,rep:document.getElementById('dt_rep').checked}, envelope:document.getElementById('dt_env').checked, header:val('dt_header'), footer:val('dt_footer') }; persist(false); closeModal('docTplModal'); toast('案内文を保存しました','ok'); }
 function todayJP(){ const d=new Date(); return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日'; }
+// 案内文を描画用HTMLにする。改行は <br>、行頭や連続する空白は &nbsp; で見た目どおりに残す。
+// （white-space:pre-wrap のままだと html2canvas が空白の分だけ位置を進めず、
+//   次の文字が前の文字に重なって印刷されることがあるため、pre-wrap を使わない）
+function nl2br(s){ return esc(s).split(/\r?\n/)
+  .map(line=>line.replace(/^ +/,m=>'&nbsp;'.repeat(m.length)).replace(/ {2,}/g,m=>'&nbsp;'.repeat(m.length)))
+  .join('<br>'); }
 function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{zip:true,addr:true,name:true,rep:true};
   const wrap=document.createElement('div'); wrap.style.cssText='position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#111;font-family:\'Noto Sans JP\',\'Hiragino Kaku Gothic ProN\',\'Meiryo\',sans-serif;padding:0 60px 60px;box-sizing:border-box;';
   let addr='';
@@ -2981,8 +2987,11 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
   const list=docCols(t,c.id); const hasCat=list.some(it=>(it.cat||'').trim());
   // 幅の指定どおりに列を割り付けるため box-sizing を border-box にする
   // （content-box のままだと左右のpaddingぶん各列が広がり、詳細列だけが狭くなる）
-  const td='border:1px solid #888;padding:7px 10px;box-sizing:border-box';
-  const items=list.map(it=>`<tr>${hasCat?`<td style="${td}">${esc(it.cat||'')}</td>`:''}<td style="${td}">${esc(it.name)}</td><td style="${td}">${esc(it.detail||'')}</td><td style="${td};text-align:center;white-space:nowrap">${it.due?esc(fmtMD(it.due)):''}</td></tr>`).join('');
+  // アプリ全体のCSSに th,td{white-space:nowrap} があるため、そのままだと長い資料名が
+  // セルからはみ出して隣の列の文字と重なる。ここで折り返しを明示的に指定する。
+  const td='border:1px solid #888;padding:7px 10px;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;vertical-align:top'
+  // 期限の列は依頼書に印刷しない（画面での進捗管理用の項目のため）
+  const items=list.map(it=>`<tr>${hasCat?`<td style="${td}">${esc(it.cat||'')}</td>`:''}<td style="${td}">${esc(it.name)}</td><td style="${td}">${esc(it.detail||'')}</td></tr>`).join('');
   // 宛名の位置は2通り（案内文テンプレートの設定で切替）。
   //  ・既定（envelope=false）… 用紙の上のほうに置いて、本文までを詰めて読みやすくする
   //  ・窓付き封筒（envelope=true）… 長3封筒（A4三つ折り）の窓に収まる位置に置く。
@@ -3002,9 +3011,9 @@ function buildDocHtml(t,c){ const tpl=data.docTemplate||{}; const af=tpl.addr||{
     </div>
     <div style="position:relative;margin:0 -60px;height:0">${foldMark(198-headH)}</div>
     <div style="text-align:center;font-size:21px;font-weight:700;letter-spacing:2px;margin:10px 0 20px">資料回収のお願い</div>
-    <div style="white-space:pre-wrap;font-size:14px;line-height:2.0;margin:0 0 20px">${esc(tpl.header||'')}</div>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed"><thead><tr>${hasCat?`<th style="${td};background:#eef;text-align:left;width:14%">分類</th>`:''}<th style="${td};background:#eef;text-align:left;width:${hasCat?'32%':'38%'}">資料名</th><th style="${td};background:#eef;text-align:left">詳細</th><th style="${td};background:#eef;width:76px">期限</th></tr></thead><tbody>${items}</tbody></table>
-    <div style="white-space:pre-wrap;font-size:14px;line-height:1.95;margin-top:20px">${esc(tpl.footer||'')}</div>`;
+    <div style="font-size:14px;line-height:2.0;margin:0 0 20px">${nl2br(tpl.header||'')}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed"><thead><tr>${hasCat?`<th style="${td};background:#eef;text-align:left;width:16%">分類</th>`:''}<th style="${td};background:#eef;text-align:left;width:${hasCat?'38%':'42%'}">資料名</th><th style="${td};background:#eef;text-align:left">詳細</th></tr></thead><tbody>${items}</tbody></table>
+    <div style="font-size:14px;line-height:1.95;margin-top:20px">${nl2br(tpl.footer||'')}</div>`;
   return wrap; }
 /* 個別PDF：リスト内の顧問先をチェックボックスで選び、選んだ分だけPDFを作成する */
 let docsPickTableId=null;
