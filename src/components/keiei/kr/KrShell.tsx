@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FiscalYearData } from '@/lib/keiei/types'
 import type { KeieiSettings } from '@/lib/keiei/analysis'
-import { setKrContext, setKrChangeHandler } from '@/lib/keiei/kr/api'
+import { setKrContext, setKrChangeHandler, setKrDataChangeHandler } from '@/lib/keiei/kr/api'
 import './keiei-report.css'
 
 import Dashboard from './pages/Dashboard'
@@ -133,6 +133,23 @@ export default function KrShell({
   const [page, setPage] = useState<KrPage>('dash')
   const [, setTick] = useState(0)
 
+  // ビューア側の操作（設定変更・取込）で再描画する。
+  // 【順番が大事】データを渡す前にこの登録を済ませること。逆にすると初回表示のとき
+  // 「データがありません」の案内が出たまま再描画されない（実際に起きた）。
+  const rerender = useCallback(() => {
+    setTick((t) => t + 1)
+  }, [])
+  useEffect(() => {
+    setKrChangeHandler(rerender)
+    return () => setKrChangeHandler(null)
+  }, [rerender])
+
+  // 取込・全削除のときだけ親へ知らせる（親は月次データを読み直す）
+  useEffect(() => {
+    setKrDataChangeHandler(onDataChanged ?? null)
+    return () => setKrDataChangeHandler(null)
+  }, [onDataChanged])
+
   // 差し替え層へ、いま表示している顧問先・期・報告月を渡す。
   // 報告月は state.ts で「最新期の最終月」を下げる形で反映される。
   useEffect(() => {
@@ -143,17 +160,8 @@ export default function KrShell({
       monthIdx,
       client: { code: clientCode || '', name: clientName },
     })
+    setTick((t) => t + 1) // 渡した直後に必ず描き直す
   }, [clientId, years, settings, monthIdx, clientName, clientCode])
-
-  // ビューア側の操作（設定変更・取込）で再描画する
-  const rerender = useCallback(() => {
-    setTick((t) => t + 1)
-    onDataChanged?.()
-  }, [onDataChanged])
-  useEffect(() => {
-    setKrChangeHandler(rerender)
-    return () => setKrChangeHandler(null)
-  }, [rerender])
 
   return (
     <div className="kr-root">

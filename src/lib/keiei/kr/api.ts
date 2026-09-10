@@ -37,6 +37,13 @@ export function setKrChangeHandler(fn: (() => void) | null): void {
   onChange = fn
 }
 
+// 取込・全削除のときだけ親（月次レポート画面）へ知らせる。
+// 毎回の再描画で知らせると、親がデータを読み直す→渡し直す→再描画…の堂々巡りになる。
+let onDataWrite: (() => void) | null = null
+export function setKrDataChangeHandler(fn: (() => void) | null): void {
+  onDataWrite = fn
+}
+
 function rebuild(): void {
   state = toKrState(appYears, {
     monthIdx,
@@ -108,6 +115,7 @@ export const api = {
     appYears = next
     await persistYears()
     rebuild()
+    onDataWrite?.()
   },
   /** 実効税率（%） */
   setTaxRate(v: number): void {
@@ -181,6 +189,7 @@ export const api = {
     state.client = null
     state.generatedAt = ''
     rebuild()
+    onDataWrite?.()
   },
   /** 顧問先IDを画面へ渡す（元帳の取込・取引先の整理で使う） */
   clientId(): string {

@@ -28,12 +28,13 @@ import { buildSummaryStory } from '@/lib/keiei/narrative'
 import { detectIssues, laborShare } from '@/lib/keiei/issues'
 import SectionAnken from './SectionAnken'
 import SectionLedger from './SectionLedger'
+import KrShell from '@/components/keiei/kr/KrShell'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
 import SectionReport2 from './SectionReport2'
 import { buildKeieiExport, keieiExportFileName, keieiExportJson } from '@/lib/keiei/export-data'
 
-type View = 'report2' | 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
+type View = 'viewer' | 'report2' | 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -132,6 +133,8 @@ export default function KeieiContent() {
   // 画面タブ。顧問先へお渡しする報告書は「報告書」タブ（新デザイン・A4横2色）に一本化した。
   // 他のタブは事務所内で数字を確かめるための作業画面（経営課題は報告書には入れない）。
   const SCREEN_TABS: [View, string][] = [
+    // 顧問先用アプリと同じ月次レポート画面（移植版）。旧タブは確認後に整理する
+    ['viewer', '📊 月次レポート'],
     ['report2', '報告書'],
     ['overview', '概要'],
     ['budget', '予算・予実'],
@@ -154,6 +157,17 @@ export default function KeieiContent() {
   }, [sorted, fy])
 
   const renderView = (v: View) => {
+    if (v === 'viewer') return (
+      <KrShell
+        clientId={clientId}
+        years={years}
+        settings={settings}
+        monthIdx={monthIdx}
+        clientName={current?.name || ''}
+        clientCode={current?.code}
+        onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
+      />
+    )
     if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
     if (!fy) return null
     if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} priorFy={prior} monthIdx={monthIdx} reloadKey={ledgerReload} />
