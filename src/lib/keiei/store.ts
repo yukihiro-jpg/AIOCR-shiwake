@@ -145,43 +145,8 @@ export async function subscribeSettings(cid: string, cb: (s: KeieiSettings) => v
   }
 }
 
-// ===== 案件台帳（設計業務Excel）の保存 =====
-import type { AnkenData } from './anken'
-import { normalizeAnkenItems } from './anken'
-const lsAnken = (cid: string) => `keiei-anken-${cid}`
-
-export async function loadAnken(cid: string): Promise<AnkenData> {
-  const empty: AnkenData = { items: [], closingMonth: 5 }
-  if (hasRoom() && cid) {
-    try {
-      const { db, ref, get } = await dbfns()
-      const snap = await get(ref(db, await modulePath(MODULE_KEY, cid, 'anken')))
-      const v = snap.val() as AnkenData | null
-      if (v) {
-        // RTDBはnull・空文字・空配列を落とすため、欠けたプロパティを必ず補完する
-        const data = { ...empty, ...v, items: normalizeAnkenItems(v.items) }
-        try { localStorage.setItem(lsAnken(cid), JSON.stringify(data)) } catch { /* ignore */ }
-        return data
-      }
-    } catch { /* ignore */ }
-  }
-  if (typeof window !== 'undefined' && cid) {
-    try {
-      const raw = localStorage.getItem(lsAnken(cid))
-      if (raw) { const v = JSON.parse(raw) as AnkenData; return { ...empty, ...v, items: normalizeAnkenItems(v.items) } }
-    } catch { /* ignore */ }
-  }
-  return empty
-}
-
-export async function saveAnken(cid: string, data: AnkenData): Promise<void> {
-  if (typeof window !== 'undefined' && cid) {
-    try { localStorage.setItem(lsAnken(cid), JSON.stringify(data)) } catch { /* ignore */ }
-  }
-  if (hasRoom() && cid) {
-    try { const { db, ref, set } = await dbfns(); await set(ref(db, await modulePath(MODULE_KEY, cid, 'anken')), data) } catch { /* ignore */ }
-  }
-}
+// 案件台帳（設計業務Excel）の保存は 2026-09 に廃止した。
+// 顧問先用アプリ側の専用アプリへ移したため、この総合管理アプリでは扱わない。
 
 const SEL_KEY = 'keiei-selected-client'
 export function getSelectedClientId(): string {

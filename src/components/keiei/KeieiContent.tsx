@@ -14,27 +14,14 @@ import {
   sortedYears, findPriorYear,
 } from '@/lib/keiei/calc'
 import { fmtYen, fmtShort, fmtPct, fmtPctSigned } from '@/lib/keiei/format'
-import { ComboBarLine, GroupedBars, Waterfall, Bullet, HBars } from './charts'
 import { saveSettings, subscribeSettings } from '@/lib/keiei/store'
 import { defaultSettings, cvp, safety, profitBridge, landingScenarios, detailsOf, rowYtd, type KeieiSettings } from '@/lib/keiei/analysis'
-import SectionDetail from './SectionDetail'
-import SectionCvpFcf, { type CvpSim } from './SectionCvpFcf'
-import SectionCash from './SectionCash'
-import SectionReport from './SectionReport'
-import SectionBudget from './SectionBudget'
-import SectionIssues from './SectionIssues'
-import { StoryBody } from './StoryCard'
-import { buildSummaryStory } from '@/lib/keiei/narrative'
-import { detectIssues, laborShare } from '@/lib/keiei/issues'
-import SectionAnken from './SectionAnken'
-import SectionLedger from './SectionLedger'
 import KrShell from '@/components/keiei/kr/KrShell'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
-import SectionReport2 from './SectionReport2'
 import { buildKeieiExport, keieiExportFileName, keieiExportJson } from '@/lib/keiei/export-data'
 
-type View = 'viewer' | 'report2' | 'overview' | 'report' | 'detail' | 'cvpfcf' | 'issues' | 'cash' | 'budget' | 'anken' | 'ledger'
+// 画面は移植した月次レポート・ビューア1つ（旧タブは 2026-09 に廃止し、顧問先用アプリと同じ画面へ統一）
 
 export default function KeieiContent() {
   const [roomReady, setRoomReady] = useState(false)
@@ -44,7 +31,6 @@ export default function KeieiContent() {
   const [years, setYears] = useState<Record<string, FiscalYearData>>({})
   const [yearId, setYearId] = useState('')
   const [monthIdx, setMonthIdx] = useState(0)
-  const [view, setView] = useState<View>('overview')
   const [settings, setSettings] = useState<KeieiSettings>(defaultSettings())
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -88,7 +74,6 @@ export default function KeieiContent() {
   useEffect(() => {
     if (!clientId) { setYears({}); return }
     setSelectedClientId(clientId)
-    setView('overview')
     // 設定はリアルタイム購読（他端末の変更を都度反映し、古い値での上書き＝巻き戻りを防ぐ）
     let unsub = () => { /* noop */ }
     let alive = true
@@ -108,7 +93,6 @@ export default function KeieiContent() {
       else {
         setYearId('')
         // 試算表CSV未取込で案件台帳を使う顧問先は、最初から案件台帳タブを開く
-        if (clients.find((c) => c.id === clientId)?.name?.includes('藤井設計')) setView('anken')
       }
     }).finally(() => setLoading(false))
     const cid = clientId
@@ -127,61 +111,8 @@ export default function KeieiContent() {
   const current = clients.find((c) => c.id === clientId)
   const fy = years[yearId]
 
-  // ===== 印刷（タブ選択式・新規ウィンドウに「1資料＝横A4・1枚」の報告書を生成） =====
-  // 案件台帳タブは設計業務の契約管理Excelを使う顧問先（藤井設計）のみ表示。専用のPDF/Excel出力を持つため印刷選択には含めない
-  const hasAnken = !!current?.name?.includes('藤井設計')
-  // 画面タブ。顧問先へお渡しする報告書は「報告書」タブ（新デザイン・A4横2色）に一本化した。
-  // 他のタブは事務所内で数字を確かめるための作業画面（経営課題は報告書には入れない）。
-  const SCREEN_TABS: [View, string][] = [
-    // 顧問先用アプリと同じ月次レポート画面（移植版）。旧タブは確認後に整理する
-    ['viewer', '📊 月次レポート'],
-    ['report2', '報告書'],
-    ['overview', '概要'],
-    ['budget', '予算・予実'],
-    ['report', '試算表・3期比較・推移'],
-    ['detail', '原価・経費明細'],
-    ['cvpfcf', '損益分岐点・キャッシュフロー'],
-    ['issues', '経営課題'],
-    ['cash', '資金繰り・安全性'],
-  ]
-  // 元帳分析は端末ローカルデータ（IndexedDB）を使う（会計監査は税務チェックへ移設済み）
-  const TABS: [View, string][] = [...SCREEN_TABS, ['ledger', '元帳分析'] as [View, string], ...(hasAnken ? [['anken', '案件台帳'] as [View, string]] : [])]
-  // 損益分岐点シミュレーションのスライダー値を親で保持（画面タブ用）
-  const [cvpSim, setCvpSim] = useState<CvpSim>({ sales: 0, gross: 0, var: 0, fixed: 0 })
   const prior = useMemo(() => (fy ? findPriorYear(years, fy) : null), [years, fy])
   const sorted = useMemo(() => sortedYears(years), [years])
-  const comp = useMemo(() => {
-    if (!fy) return []
-    const idx = sorted.findIndex((y) => y.id === fy.id)
-    return sorted.slice(Math.max(0, idx - 2), idx + 1)
-  }, [sorted, fy])
-
-  const renderView = (v: View) => {
-    if (v === 'viewer') return (
-      <KrShell
-        clientId={clientId}
-        years={years}
-        settings={settings}
-        monthIdx={monthIdx}
-        clientName={current?.name || ''}
-        clientCode={current?.code}
-        onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
-      />
-    )
-    if (v === 'anken') return <SectionAnken clientId={clientId} company={current?.name || ''} />
-    if (!fy) return null
-    if (v === 'ledger') return <SectionLedger clientId={clientId} fy={fy} priorFy={prior} monthIdx={monthIdx} reloadKey={ledgerReload} />
-    switch (v) {
-      case 'report2': return <SectionReport2 fy={fy} prior={prior} years={years} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} company={current?.name || ''} />
-      case 'overview': return <Overview fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} clientId={clientId} />
-      case 'report': return <SectionReport fy={fy} comp={comp} monthIdx={monthIdx} company={current?.name || ''} />
-      case 'detail': return <SectionDetail fy={fy} prior={prior} monthIdx={monthIdx} />
-      case 'cvpfcf': return <SectionCvpFcf fy={fy} prior={prior} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} sim={cvpSim} onSimChange={setCvpSim} />
-      case 'issues': return <SectionIssues fy={fy} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} company={current?.name || ''} />
-      case 'cash': return <SectionCash fy={fy} monthIdx={monthIdx} settings={settings} onSettingsChange={changeSettings} years={years} />
-      case 'budget': return <SectionBudget fy={fy} monthIdx={monthIdx} yearId={yearId} settings={settings} onSettingsChange={changeSettings} years={years} />
-    }
-  }
 
   // 期末年の推定（ファイル名 R6 / 2024 など）
   const guessYear = (fileName: string, endMonth: number): number => {
@@ -268,9 +199,8 @@ export default function KeieiContent() {
       }
     }
     if (okMsgs.length) {
-      setMsg(`総勘定元帳を取り込みました: ${okMsgs.join('、')}。「元帳分析」タブで確認できます（この端末にのみ保存）。`)
+      setMsg(`総勘定元帳を取り込みました: ${okMsgs.join('、')}（この端末にのみ保存）。取引先ごとの集計や税務チェックの会計監査で使えます。`)
       setLedgerReload((n) => n + 1)
-      setView('ledger')
     }
     if (errs.length) setErr(errs.join(' / '))
   }, [years, clientId])
@@ -397,7 +327,7 @@ export default function KeieiContent() {
         </div>
       ) : loading ? (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">読み込み中…</div>
-      ) : sorted.length === 0 && !hasAnken ? (
+      ) : sorted.length === 0 ? (
         <div className="flex-1 flex items-center justify-center p-6">
           <label className="w-full max-w-xl border-2 border-dashed border-blue-300 rounded-2xl bg-blue-50/40 hover:bg-blue-50 p-8 flex flex-col items-center gap-3 text-center cursor-pointer">
             <div className="text-5xl opacity-40">📈</div>
@@ -458,23 +388,20 @@ export default function KeieiContent() {
               </button>
             </div>
             </>)}
-            {/* 分析タブ（④ Apple×Google調のピル）＋印刷 */}
-            <div className={`flex items-center gap-2 flex-wrap ${sorted.length > 0 ? 'mt-3 pt-3 border-t border-gray-100' : ''}`}>
-              {TABS.map(([v, l]) => (
-                <button key={v} onClick={() => setView(v)}
-                  className={`px-4 py-1.5 text-sm rounded-full transition-colors ${view === v ? 'bg-[#e8f0fe] text-[#1a73e8] font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50 shadow-[0_1px_2px_rgba(60,64,67,0.08)]'}`}>{l}</button>
-              ))}
-              {fy && view !== 'report2' && (
-                <button onClick={() => setView('report2')} className="ml-auto px-4 py-1.5 text-sm text-gray-600 rounded-full hover:bg-gray-100">🖨 報告書を作る</button>
-              )}
-            </div>
           </div>
 
-          {(fy || view === 'anken') && (
-            <div className="space-y-5">
-              {renderView(view)}
-            </div>
-          )}
+          {/* 画面は移植した月次レポート・ビューア（顧問先用アプリと同じもの）に一本化した */}
+          <div className="space-y-5">
+            <KrShell
+              clientId={clientId}
+              years={years}
+              settings={settings}
+              monthIdx={monthIdx}
+              clientName={current?.name || ''}
+              clientCode={current?.code}
+              onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
+            />
+          </div>
         </div>
       )}
 
@@ -509,305 +436,6 @@ export default function KeieiContent() {
               <button onClick={confirmAll} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded font-medium hover:bg-blue-700">取込（{pending.length}期）</button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ============ 社長の1枚（意思決定ダッシュボード） ============
-// 「3つの大きな数字」「信号機スコアカード」「ゲージ3本」「利益ブリッジ」「主要指標3期比較」「増えた経費トップ5」を
-// A4一枚感覚でまとめる。数字は万円・億円の概数（詳細な円単位は各タブ・付録の表が担保）。
-function Dashboard({ fy, prior, monthIdx, years, settings }: {
-  fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number
-  years: Record<string, FiscalYearData>; settings: KeieiSettings
-}) {
-  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-  const single = plKpisSingle(fy, monthIdx)
-  const priorIdx = prior ? Math.min(monthIdx, prior.lastFilledIndex) : 0
-  const pSingle = prior ? plKpisSingle(prior, priorIdx) : null
-  const s = useMemo(() => safety(fy, monthIdx, settings), [fy, monthIdx, settings])
-  const c = useMemo(() => cvp(fy, monthIdx, settings), [fy, monthIdx, settings])
-  const labor = useMemo(() => laborShare(years, fy, monthIdx), [years, fy, monthIdx])
-  const land = useMemo(() => landingScenarios(years, fy), [years, fy])
-  const bridge = useMemo(() => profitBridge(fy, prior, monthIdx), [fy, prior, monthIdx])
-  const budget = settings.budgets?.[fy.id]
-  const issuesResult = useMemo(() => {
-    try { return detectIssues({ years, fy, monthIdx, settings, yearId: fy.id, budget }) } catch { return null }
-  }, [years, fy, monthIdx, settings, budget])
-
-  const std = land.scenarios.find((x) => x.key === 'standard') || land.scenarios[0]
-  const opBudgetFull = budget && budget.sales > 0 ? budget.sales * (budget.grossMargin / 100) - budget.sgna : null
-  const priorFullOp = prior ? (getRow(prior, CODES.opProfit)?.annual ?? null) : null
-  const landCompare = opBudgetFull != null
-    ? { label: '予算比', diff: std.opProfit - opBudgetFull }
-    : priorFullOp != null ? { label: '前期比', diff: std.opProfit - priorFullOp } : null
-
-  // 増えた経費トップ5（販管費の明細を前年同期のYTDと比較）
-  const sgnaUp = useMemo(() => {
-    if (!prior) return []
-    const preMap = new Map<string, number>()
-    for (const a of detailsOf(prior, CODES.sgna)) preMap.set(a.name.trim(), rowYtd(a, priorIdx))
-    return detailsOf(fy, CODES.sgna)
-      .map((a) => { const cur = rowYtd(a, monthIdx); const pre = preMap.get(a.name.trim()) ?? 0; return { label: a.name.trim(), value: cur - pre, cur, pre } })
-      .filter((x) => x.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
-  }, [fy, prior, monthIdx, priorIdx])
-
-  const opYoy = pSingle ? yoyInfo(single.opProfit, pSingle.opProfit) : null
-  const bepRatio = c.sales > 0 && c.bep > 0 ? (c.bep / c.sales) * 100 : null
-
-  const BigCard = ({ label, main, sub, tone }: { label: string; main: React.ReactNode; sub?: React.ReactNode; tone?: 'good' | 'bad' | null }) => (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="text-[13px] font-semibold text-gray-500 mb-1.5">{label}</div>
-      <div className={`text-[34px] leading-none font-extrabold tabular-nums ${tone === 'bad' ? 'text-red-600' : 'text-gray-900'}`}>{main}</div>
-      {sub && <div className="text-[12.5px] mt-2">{sub}</div>}
-    </div>
-  )
-  const sevChip = (sev: 'danger' | 'warn' | 'good') =>
-    sev === 'danger' ? 'bg-red-50 text-red-700 border-red-200' : sev === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-green-50 text-green-700 border-green-200'
-  const sevIcon = (sev: 'danger' | 'warn' | 'good') => (sev === 'danger' ? '🔴' : sev === 'warn' ? '🟡' : '🟢')
-
-  return (
-    <div className="bg-gradient-to-b from-[#f7f9fc] to-white rounded-2xl border border-gray-200 p-5 shadow-sm">
-      <div className="flex items-baseline gap-3 mb-4">
-        <h2 className="text-[16px] font-extrabold text-gray-900">社長の1枚</h2>
-        <span className="text-xs text-gray-400">{fy.label} {monthLabel}時点 ／ 金額は概数（詳細は各タブの表）</span>
-      </div>
-
-      {/* ① 3つの大きな数字 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-        <BigCard label={`今月の営業利益（${monthLabel}単月）`}
-          main={fmtShort(single.opProfit)}
-          tone={single.opProfit < 0 ? 'bad' : null}
-          sub={opYoy ? (
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold ${opYoy.tone === 'good' ? 'bg-green-100 text-green-700' : opYoy.tone === 'bad' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
-              {opYoy.tone === 'good' ? '▲' : opYoy.tone === 'bad' ? '▼' : '－'} 前年同月比 {opYoy.label}
-            </span>
-          ) : <span className="text-gray-400">前年データなし</span>} />
-        <BigCard label={land.partial ? '通期の着地見込み（営業利益・標準）' : '通期の営業利益（確定）'}
-          main={fmtShort(std.opProfit)}
-          tone={std.opProfit < 0 ? 'bad' : null}
-          sub={landCompare ? (
-            <span className={landCompare.diff >= 0 ? 'text-green-700 font-bold' : 'text-red-600 font-bold'}>
-              {landCompare.label} {landCompare.diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(landCompare.diff))}
-            </span>
-          ) : <span className="text-gray-400">売上見込み {fmtShort(std.sales)}</span>} />
-        <BigCard label="手元資金（現預金）"
-          main={s.monthlySales > 0 ? `月商 ${s.liquidityMonths.toFixed(1)}か月分` : fmtShort(s.cash)}
-          tone={s.monthlySales > 0 && s.liquidityMonths < 1 ? 'bad' : null}
-          sub={<span className="text-gray-500">残高 {fmtShort(s.cash)}（目安：2〜3か月分）</span>} />
-      </div>
-
-      {/* ② 信号機スコアカード */}
-      {issuesResult && issuesResult.issues.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-[13px] font-bold text-gray-700">今月の信号</span>
-            <span className="text-[12px] text-gray-500">
-              🔴 {issuesResult.issues.filter((i) => i.severity === 'danger').length}　🟡 {issuesResult.issues.filter((i) => i.severity === 'warn').length}　🟢 {issuesResult.issues.filter((i) => i.severity === 'good').length}
-              　<span className="text-gray-400">詳細は「経営課題」タブへ</span>
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {issuesResult.issues.map((i, n) => (
-              <span key={n} className={`px-2.5 py-1 rounded-full border text-[12px] font-semibold ${sevChip(i.severity)}`}>{sevIcon(i.severity)} {i.category}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ③ ゲージ3本 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-1 mb-4 bg-white rounded-xl border border-gray-200 p-4">
-        {bepRatio != null && (
-          <Bullet title="損益分岐点比率" valueLabel={`${bepRatio.toFixed(0)}%`} value={Math.min(bepRatio, 120)} max={120}
-            zones={[{ to: 75, color: '#bfe6c8', label: '安全(〜75%)' }, { to: 90, color: '#fbe8b6', label: '注意(〜90%)' }, { to: 120, color: '#f6c6c2', label: '危険(90%〜)' }]}
-            subtitle="売上があと何%落ちたら赤字か（低いほど安全）" />
-        )}
-        {labor.share != null && (
-          <Bullet title="労働分配率" valueLabel={`${labor.share.toFixed(0)}%`} value={Math.min(labor.share, 100)} max={100}
-            zones={[{ to: 50, color: '#bfe6c8', label: '健全(〜50%)' }, { to: 60, color: '#e8f0d8', label: '' }, { to: 70, color: '#fbe8b6', label: '警戒(60〜70%)' }, { to: 100, color: '#f6c6c2', label: '危険(70%〜)' }]}
-            subtitle="粗利のうち人件費が占める割合（外注費・派遣費は含まない）" />
-        )}
-        {s.monthlySales > 0 && (
-          <Bullet title="手元資金の月商倍率" valueLabel={`${s.liquidityMonths.toFixed(1)}か月`} value={Math.min(s.liquidityMonths, 6)} max={6}
-            zones={[{ to: 1, color: '#f6c6c2', label: '危険(〜1)' }, { to: 2, color: '#fbe8b6', label: '注意(〜2)' }, { to: 3, color: '#e8f0d8', label: '' }, { to: 6, color: '#bfe6c8', label: '安心(3〜)' }]}
-            subtitle="現預金が月商の何か月分あるか（多いほど安心）" />
-        )}
-      </div>
-
-      {/* ④ 利益ブリッジ（前年同期→当期） */}
-      {bridge && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-[13px] font-bold text-gray-700">なぜ利益が変わったか（前年同期 → 当期・期首〜{monthLabel}累計）</span>
-            <span className="text-[11px] text-gray-400">緑＝利益を押し上げた要因／赤＝押し下げた要因</span>
-          </div>
-          <Waterfall startLabel="前年の営業利益" startValue={bridge.preOp} steps={bridge.steps} endLabel="当期の営業利益" endValue={bridge.curOp} />
-        </div>
-      )}
-
-      {/* ⑤ 増えた経費トップ5 */}
-      {sgnaUp.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-[13px] font-bold text-gray-700">前年より増えた経費トップ5（期首〜{monthLabel}累計）</span>
-            <span className="text-[11px] text-gray-400">棒＝増加額。科目別の明細は「明細・経費」タブへ</span>
-          </div>
-          <HBars items={sgnaUp.map((x) => ({ label: x.label, value: x.value, sub: x.pre > 0 ? `+${(((x.cur - x.pre) / x.pre) * 100).toFixed(0)}%` : '新規' }))} color="#d97706" />
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ============ 概要（経営サマリー＋単月業績＋推移グラフ） ============
-function Overview({ fy, prior, monthIdx, years, settings, clientId }: { fy: FiscalYearData; prior: FiscalYearData | null; monthIdx: number; years: Record<string, FiscalYearData>; settings: KeieiSettings; clientId: string }) {
-  const single = plKpisSingle(fy, monthIdx)
-  const pSingle = prior ? plKpisSingle(prior, monthIdx) : null
-  const monthLabel = `${fy.fiscalMonths[monthIdx]}月`
-  const upto = monthIdx + 1
-  const monthLabels = fy.fiscalMonths.slice(0, upto).map((m) => `${m}月`)
-  const salesSeries = (getRow(fy, CODES.sales)?.monthly || []).slice(0, upto)
-  const opSeries = (getRow(fy, CODES.opProfit)?.monthly || []).slice(0, upto)
-  const baseStory = useMemo(() => buildSummaryStory(fy, prior, monthIdx, years, settings), [fy, prior, monthIdx, years, settings])
-  return (
-    <div className="space-y-5">
-      <Dashboard fy={fy} prior={prior} monthIdx={monthIdx} years={years} settings={settings} />
-      <SummaryStory baseStory={baseStory} storyKey={`${clientId}__${fy.id}__${monthIdx}`} />
-      <Section title={`${fy.label}　${monthLabel}（単月）の業績`} note={prior ? '各カード下段に前年同月比を表示' : '前年のデータを取り込むと前年同月比を表示します'}>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KpiCard title="売上高" value={single.sales} prior={pSingle?.sales} />
-          <KpiCard title="売上総利益(粗利)" value={single.grossProfit} margin={single.grossMargin} prior={pSingle?.grossProfit} />
-          <KpiCard title="営業利益" value={single.opProfit} margin={single.opMargin} prior={pSingle?.opProfit} />
-          <KpiCard title="経常利益" value={single.ordProfit} margin={single.ordMargin} prior={pSingle?.ordProfit} />
-          <KpiCard title="当期純利益" value={single.netProfit} prior={pSingle?.netProfit} />
-        </div>
-      </Section>
-      <Section title={`損益の推移実績（当期・期首〜${monthLabel}）`}>
-        <ComboBarLine labels={monthLabels} bars={salesSeries} barLabel="売上高（棒）" line={opSeries} lineLabel="営業利益（線）" />
-      </Section>
-    </div>
-  )
-}
-
-// 経営サマリー（相続レポートの .story と同思想のカード解説）。
-// テンプレ生成文を土台に、任意で Gemini「AI仕上げ」できる。仕上げ後の文は編集も可能。
-function SummaryStory({ baseStory, storyKey }: { baseStory: string; storyKey: string }) {
-  // 対象（顧問先・期・月）が変わったら仕上げ済みテキストをリセット
-  const [aiText, setAiText] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
-  useEffect(() => { setAiText(null); setEditing(false); setErr(null) }, [storyKey])
-  const text = aiText ?? baseStory
-
-  const runPolish = async () => {
-    setBusy(true); setErr(null)
-    try {
-      const { polishSummaryStory } = await import('@/lib/keiei/gemini')
-      const out = await polishSummaryStory(baseStory)
-      setAiText(out)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'AI仕上げに失敗しました')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-100 bg-gradient-to-r from-[#f4f8ff] to-white">
-        <span className="text-lg">📝</span>
-        <h2 className="text-[15px] font-bold text-gray-800">今月の経営サマリー</h2>
-        <span className="text-[11px] text-gray-400">{aiText ? 'AI仕上げ済み' : 'テンプレ自動生成'}</span>
-        <div className="ml-auto flex items-center gap-1.5">
-          {aiText && (
-            <button onClick={() => setEditing((e) => !e)}
-              className="px-3 py-1.5 text-xs text-gray-600 rounded-full hover:bg-gray-100">{editing ? '編集を終了' : '✎ 編集'}</button>
-          )}
-          {aiText && (
-            <button onClick={() => { setAiText(null); setEditing(false) }}
-              className="px-3 py-1.5 text-xs text-gray-600 rounded-full hover:bg-gray-100">元に戻す</button>
-          )}
-          <button onClick={runPolish} disabled={busy}
-            className="px-4 py-1.5 text-xs bg-[#1a73e8] text-white rounded-full font-semibold hover:bg-[#1765cc] disabled:opacity-50">
-            {busy ? '仕上げ中…' : aiText ? '✨ 再仕上げ' : '✨ AIで仕上げ'}
-          </button>
-        </div>
-      </div>
-      {err && <div className="px-5 py-2 bg-amber-50 text-amber-700 text-xs border-b border-amber-100">{err}</div>}
-      <div className="p-5">
-        {editing ? (
-          <textarea value={text} onChange={(e) => setAiText(e.target.value)}
-            className="w-full h-80 p-3 border border-gray-300 rounded-lg text-sm leading-relaxed font-[inherit]" />
-        ) : (
-          <StoryBody text={text} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_3px_10px_rgba(26,115,232,0.06)] p-5">
-      <div className="flex items-baseline gap-2 mb-3">
-        <h2 className="text-[15px] font-bold text-gray-800">{title}</h2>
-        {note && <span className="text-xs text-gray-400">{note}</span>}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-// 前年同月比の表示。黒字↔赤字の符号反転は「黒字転換／赤字転落」等と明示し、
-// 単純な%が誤解を招くケース（前年が赤字→当年黒字で+101.7%等）を防ぐ。
-function yoyInfo(value: number, prior?: number): { label: string; tone: 'good' | 'bad' | 'muted'; diff: number } | null {
-  if (prior == null) return null
-  const diff = value - prior
-  if (prior === 0) {
-    if (value > 0) return { label: '前年0→黒字', tone: 'good', diff }
-    if (value < 0) return { label: '前年0→赤字', tone: 'bad', diff }
-    return { label: '±0', tone: 'muted', diff }
-  }
-  if (prior < 0 && value >= 0) return { label: '黒字転換', tone: 'good', diff }
-  if (prior >= 0 && value < 0) return { label: '赤字転落', tone: 'bad', diff }
-  if (prior < 0 && value < 0) {
-    const rate = (diff / Math.abs(prior)) * 100 // >0＝赤字縮小（改善）
-    return { label: `赤字${rate >= 0 ? '縮小' : '拡大'}${Math.abs(rate).toFixed(1)}%`, tone: rate >= 0 ? 'good' : 'bad', diff }
-  }
-  const rate = (diff / Math.abs(prior)) * 100
-  return { label: `${rate >= 0 ? '+' : '−'}${Math.abs(rate).toFixed(1)}%`, tone: rate >= 0 ? 'good' : 'bad', diff }
-}
-
-function KpiCard({ title, value, margin, prior }: { title: string; value: number; margin?: number; prior?: number }) {
-  const neg = value < 0
-  const yy = yoyInfo(value, prior)
-  const toneCls = yy == null ? 'bg-gray-100 text-gray-400' : yy.tone === 'good' ? 'bg-green-100 text-green-700' : yy.tone === 'bad' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
-  return (
-    <div className={`rounded-xl border p-4 ${neg ? 'border-red-200 bg-red-50/70' : 'border-gray-200 bg-white'} shadow-sm`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[13px] font-semibold text-gray-700">{title}</span>
-        {margin != null && (
-          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold whitespace-nowrap">利益率 {fmtPct(margin)}</span>
-        )}
-      </div>
-      <div className={`text-[26px] leading-none font-extrabold ${neg ? 'text-red-600' : 'text-gray-900'}`}>{fmtShort(value)}</div>
-      <div className="text-xs text-gray-500 mt-1">{fmtYen(value)}</div>
-      <div className="mt-2.5 pt-2 border-t border-gray-200 flex items-center justify-between">
-        <span className="text-[11px] text-gray-500">前年同月比</span>
-        {yy == null ? (
-          <span className="text-[11px] text-gray-400">データなし</span>
-        ) : (
-          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${toneCls}`}>{yy.label}</span>
-        )}
-      </div>
-      {yy != null && (
-        <div className="text-[11px] text-gray-400 mt-1 flex items-center justify-between">
-          <span>前年同月 {fmtShort(prior as number)}</span>
-          <span className={yy.diff >= 0 ? 'text-green-600' : 'text-red-500'}>前年差 {yy.diff >= 0 ? '＋' : '−'}{fmtShort(Math.abs(yy.diff))}</span>
         </div>
       )}
     </div>
