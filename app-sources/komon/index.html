@@ -954,6 +954,33 @@ function showPage(p){ document.querySelectorAll('.page').forEach(s=>s.classList.
   else if(p==='kakunin'){ kkOnShow(); } }
 function openModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+// 選択肢に名前のある確認ダイアログ。confirm の OK/キャンセルでは
+// 「どちらを選んだのか」が伝わらない場面（例: 原則課税か簡易課税か）で使う。
+// options=[{label,value,primary}] を渡すと選んだ value で解決し、✕/Esc/背景クリックは null（＝中止）。
+function askChoice(title, message, options){
+  return new Promise(resolve=>{
+    const bg=document.createElement('div'); bg.className='modal-bg open';
+    const box=document.createElement('div'); box.className='modal'; box.style.maxWidth='520px';
+    const head=document.createElement('div'); head.className='modal-head';
+    const h=document.createElement('h3'); h.textContent=title; head.appendChild(h);
+    const x=document.createElement('button'); x.className='text x'; x.textContent='✕'; head.appendChild(x);
+    const body=document.createElement('div'); body.className='modal-body';
+    const p=document.createElement('p'); p.style.cssText='white-space:pre-wrap;line-height:1.8;margin:4px 0 10px'; p.textContent=message;
+    body.appendChild(p);
+    const foot=document.createElement('div'); foot.className='modal-foot'; foot.style.flexWrap='wrap';
+    let done=false;
+    const finish=v=>{ if(done)return; done=true; document.removeEventListener('keydown',onKey); bg.remove(); resolve(v); };
+    options.forEach(o=>{ const b=document.createElement('button'); if(o.primary)b.className='primary';
+      b.textContent=o.label; b.onclick=()=>finish(o.value); foot.appendChild(b); });
+    x.onclick=()=>finish(null);
+    bg.onclick=e=>{ if(e.target===bg) finish(null); };
+    const onKey=e=>{ if(e.key==='Escape') finish(null); };
+    document.addEventListener('keydown',onKey);
+    box.appendChild(head); box.appendChild(body); box.appendChild(foot); bg.appendChild(box);
+    document.body.appendChild(bg);
+    const first=foot.querySelector('button'); if(first)first.focus();
+  });
+}
 let toastTimer=null;
 function toast(m,t=''){ const e=document.getElementById('toast'); e.textContent=m; e.className='toast show '+t; clearTimeout(toastTimer); toastTimer=setTimeout(()=>e.className='toast '+t,2600); }
 function filterMnClients(){
@@ -1872,7 +1899,7 @@ function komonPrintWindow(title,bodyHtml,styles){
   },200);
 }
 function lastDayStr(y,m){ const d=new Date(y,m,0).getDate(); return y+'年'+m+'月'+d+'日'; }
-function printKessanGuide(cid){
+async function printKessanGuide(cid){
   const c=clientById(cid); if(!c) return;
   const M=fiscalMonthNum(c.fiscal);
   if(!M){ toast('決算月が未設定です（顧問先情報で設定してください）','err'); return; }
@@ -1887,7 +1914,11 @@ function printKessanGuide(cid){
   // ④ 簡易課税（消費税がある場合のみ出力時に質問）
   let kanni=false;
   if(num(tx.consumption)>0){
-    kanni=confirm('【簡易課税の確認】\n翌事業年度（'+nextPeriod+'）は消費税の簡易課税に該当しますか？\n\nOK＝該当する（案内文を記載します）\nキャンセル＝該当しない');
+    const ans=await askChoice('簡易課税の確認',
+      '翌事業年度（'+nextPeriod+'）の消費税はどちらになりますか？\n選んだ課税方式にあわせて案内文を記載します。',
+      [{label:'来期は原則課税',value:'genzoku'},{label:'来期は簡易課税',value:'kanni',primary:true}]);
+    if(ans===null) return; // ✕・Esc は出力そのものを中止
+    kanni=(ans==='kanni');
   }
   // ③ ダイレクト納付（顧問先情報の納付方法）
   const isDirect=String(c.payMethod||'').indexOf('ダイレクト')>=0;
