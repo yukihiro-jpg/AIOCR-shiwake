@@ -146,8 +146,8 @@ function JournalEntryRowInner({
         </td>
 
         {/* 日付 */}
-        <td style={CB}>
-          <CellInput value={entry.date} onChange={(v) => onChange(entry.id, 'date', v)} placeholder="YYYYMMDD" halfWidth />
+        <td style={{ ...CB, minWidth: 100 }}>
+          <CellInput value={entry.date} onChange={(v) => onChange(entry.id, 'date', v)} placeholder="YYYYMMDD" halfWidth tabular />
         </td>
 
         {/* 内部月（決算月へ入れる仕訳だけ選ぶ。通常月は空欄） */}
@@ -338,8 +338,10 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
   )
 }
 
-function CellInput({ value, onChange, placeholder, halfWidth, align }: {
+function CellInput({ value, onChange, placeholder, halfWidth, align, tabular }: {
   value: string; onChange: (v: string) => void; placeholder?: string; halfWidth?: boolean; align?: string
+  /** 数字を等幅にして横幅のブレを無くす（日付のように桁数が決まっている欄用） */
+  tabular?: boolean
 }) {
   // Uncontrolled input: 打鍵中は React の state/再レンダを一切発生させず
   // ブラウザ標準の input 動作のみに任せる。親への反映は blur/Enter 時のみ。
@@ -364,7 +366,7 @@ function CellInput({ value, onChange, placeholder, halfWidth, align }: {
       placeholder={placeholder}
       inputMode={halfWidth ? 'numeric' : undefined}
       style={halfWidth ? { imeMode: 'disabled' } as React.CSSProperties : undefined}
-      className={`w-full px-1.5 py-1 text-sm bg-transparent border-0 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded text-gray-800 ${align === 'right' ? 'text-right font-medium tabular-nums' : ''}`} />
+      className={`w-full ${tabular ? 'px-1' : 'px-1.5'} py-1 text-sm bg-transparent border-0 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded text-gray-800 ${align === 'right' ? 'text-right font-medium tabular-nums' : ''} ${tabular ? 'tabular-nums' : ''}`} />
   )
 }
 

@@ -1276,7 +1276,10 @@ export default function JournalEntryTable({
                 />
               </th>
               <th className="px-2 py-2 text-center w-12 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>学習</th>
-              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb' }}>日付</th>
+              {/* 日付は8桁（YYYYMMDD）が必ず収まる幅を確保する。
+                  入力欄は w-full なので列は幾らでも縮められてしまい、min-width が無いと
+                  科目名や摘要に押されて末尾が見切れる */}
+              <th className="px-2 py-2 text-center w-24 font-medium" style={{ borderRight: '1px solid #e5e7eb', minWidth: '100px' }}>日付</th>
               <th
                 className="px-1 py-2 text-center w-24 font-medium"
                 style={{ borderRight: '1px solid #e5e7eb' }}
