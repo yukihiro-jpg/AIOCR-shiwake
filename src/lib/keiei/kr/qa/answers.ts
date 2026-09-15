@@ -40,6 +40,11 @@ export interface Answer {
   /** どの集計で答えたか（ログ用） */
   tool: string;
   /**
+   * 「続けてこう見ますか？」の提案。画面がボタンにして、押されたら同じ条件で別の集計を走らせる。
+   * 集計はブラウザの中だけなので、AIには問い合わせ直さず質問回数も消費しない。
+   */
+  followUp?: { label: string; tool: string };
+  /**
    * 取引先の質問で、摘要の書き方が複数あるときに画面へ出す選択肢。
    * 「まとめて数える」か「聞かれた表記だけで数える」かを、答えを見てから切り替えられる。
    */
@@ -666,6 +671,8 @@ function partnerTotal(_state: State, y: FiscalYearData, ctx?: AskContext): Answe
       })),
     },
     variantChoice: choice,
+    // 合計だけ見せて終わりにせず、そのまま月別へ降りられるようにする
+    followUp: t.count > 1 ? { label: '月別に見る', tool: 'partnerMonthly' } : undefined,
   };
 }
 
@@ -707,17 +714,35 @@ function variantChoiceOf(ctx: AskContext | undefined, p: PartnerGroup): Answer['
   };
 }
 
-/** 年度の各月を「YYYY-MM-DD の期間」に開く（決算月に合わせる）。 */
-function monthRanges(y: FiscalYearData): { from: string; to: string }[] {
-  return Array.from({ length: 12 }, (_, i) => {
-    const m = calYm(y, i);
-    const mm = String(m.month).padStart(2, '0');
-    const last = new Date(m.year, m.month, 0).getDate();
-    return { from: `${m.year}-${mm}-01`, to: `${m.year}-${mm}-${last}` };
-  });
+/**
+ * 期間を暦月に割る。
+ * 合計を出したときと同じ期間を月へ分けるので、**月別の合計は必ず合計の答えと一致する**
+ * （年度の12ヶ月に決め打ちすると、「元帳の全期間」で答えた合計とずれてしまう）。
+ */
+function monthBucketsBetween(from: string, to: string):
+{ label: string; from: string; to: string }[] {
+  const out: { label: string; from: string; to: string }[] = [];
+  let yy = Number(from.slice(0, 4));
+  let mm = Number(from.slice(5, 7));
+  const ey = Number(to.slice(0, 4));
+  const em = Number(to.slice(5, 7));
+  if (!yy || !mm || !ey || !em) return out;
+  // 元帳が何年分あっても止まるように上限を置く
+  for (let guard = 0; guard < 240; guard++) {
+    const m2 = String(mm).padStart(2, '0');
+    const last = new Date(yy, mm, 0).getDate();
+    out.push({
+      label: `${yy}年${mm}月`,
+      from: `${yy}-${m2}-01`, to: `${yy}-${m2}-${last}`,
+    });
+    if (yy === ey && mm === em) break;
+    if (yy > ey || (yy === ey && mm > em)) break;
+    mm++; if (mm > 12) { mm = 1; yy++; }
+  }
+  return out;
 }
 
-/** ある取引先との取引を月別に（「〇〇への支払を月別に」）。 */
+/** ある取引先との取引を月別に（「〇〇への支払を月別に」「何月にいくら払った」）。 */
 function partnerMonthlyAnswer(_state: State, y: FiscalYearData, ctx?: AskContext): Answer {
   const led = ctx?.ledger ?? null;
   const kinds = ctx?.kinds;
@@ -731,13 +756,16 @@ function partnerMonthlyAnswer(_state: State, y: FiscalYearData, ctx?: AskContext
         + (eg ? `${eg} などの名前でお聞きいただけます。` : ''),
     };
   }
-  const m = partnerMonthly(led, kinds, partnerScope(ctx, p), monthRanges(y));
+  // 合計を答えるときと同じ期間を使う（月の指定があればその月だけになる）
+  const r = ledgerRange(y, ctx);
+  const buckets = monthBucketsBetween(r.from ?? led.from, r.to ?? led.to);
+  const m = partnerMonthly(led, kinds, partnerScope(ctx, p), buckets);
   const choice = variantChoiceOf(ctx, p);
   const label = scopeLabel(ctx, p);
   if (m.total.count === 0) {
     return {
       tool: 'partnerMonthly',
-      text: `${y.label}に ${label} との取引は見当たりませんでした。`,
+      text: `${r.label}に ${label} との取引は見当たりませんでした。`,
       variantChoice: choice,
     };
   }
@@ -745,25 +773,32 @@ function partnerMonthlyAnswer(_state: State, y: FiscalYearData, ctx?: AskContext
   const useExpense = m.total.expense >= m.total.revenue;
   const series = useExpense ? m.expense : m.revenue;
   const what = useExpense ? 'お支払い・仕入' : '売上';
-  const vals = actual(series, y);
-  // 実績のある月だけで平均・最大を見る
-  const filled = vals.map((v, i) => ({ v, i })).filter(x => x.v !== null) as { v: number; i: number }[];
-  const top = filled.reduce((a, b) => (b.v > a.v ? b : a), filled[0]);
-  const active = filled.filter(x => x.v !== 0).length;
-  const avg = active ? filled.reduce((s, x) => s + x.v, 0) / active : 0;
   const totalAmt = useExpense ? m.total.expense : m.total.revenue;
+  // 金額のあった月だけを並べる（0円の月を並べても読みにくいだけ）
+  const paid = series
+    .map((v, i) => ({ v, i }))
+    .filter(x => x.v !== 0);
+  const top = paid.reduce((a, b) => (b.v > a.v ? b : a), paid[0]);
+  const avg = paid.length ? totalAmt / paid.length : 0;
   const both = m.total.expense > 0 && m.total.revenue > 0
     ? `（このほかに${useExpense ? `売上が ${yen(m.total.revenue)}円` : `お支払いが ${yen(m.total.expense)}円`} あります）`
     : '';
+  // 「〇月 〇円」を文章にも出す（6ヶ月までは全部、それ以上は表で見てもらう）
+  const inline = paid.length <= 6
+    ? `内訳は ${paid.map(x => `${buckets[x.i].label} ${yen(x.v)}円`).join('、')} です。`
+    : `${paid.length}ヶ月にわたって取引があり、いちばん多かったのは `
+      + `${buckets[top.i].label}（${yen(top.v)}円）、1ヶ月あたりの平均は ${yen(Math.round(avg))}円 です。`;
   return {
     tool: 'partnerMonthly',
-    text: `${y.label}の ${label} への${what}は、合計 ${yen(totalAmt)}円 です。`
-      + `いちばん多かったのは ${calYm(y, top.i).month}月（${yen(top.v)}円）で、`
-      + `取引のあった月の平均は ${yen(Math.round(avg))}円 でした。${both}`
+    text: `${r.label}の ${label} への${what}は、合計 ${yen(totalAmt)}円 です。${inline}${both}`
       + `${scopeNote(ctx, p)}`,
     evidence: {
-      kind: 'bars', title: `${label}／${what}の月別（${y.label}）`,
-      labels: monthLabels(y), values: vals, highlight: top.i,
+      kind: 'table', title: `${label}／${what}の月別（${r.label}）`,
+      rows: paid.map(x => ({
+        label: buckets[x.i].label,
+        value: `${yen(x.v)}円`,
+        note: `${m.counts[x.i]}件${x.i === top.i && paid.length > 1 ? ' ・ 最多' : ''}`,
+      })).concat([{ label: '合計', value: `${yen(totalAmt)}円`, note: `${m.total.count}件` }]),
     },
     variantChoice: choice,
   };
@@ -941,8 +976,8 @@ export function extractYearsBack(q: string): number {
 const RANKING_WORDS = /相手先|取引先|支払先|得意先|仕入先|業者別|先別|別に|ランキング|内訳|誰に|どこに/;
 /** 「〇〇に払った」のように取引先との金額を聞いていると分かる言い回し。 */
 const PARTNER_WORDS = /払っ|支払|払った|いくら|合計|取引|買っ|発注|仕入れ/;
-/** 「月別に」「月ごとの推移」のように、月単位で並べてほしいと分かる言い回し。 */
-const MONTHLY_WORDS = /月別|月ごと|月毎|毎月|月次|月間|推移|月を追って|月単位/;
+/** 「月別に」「何月にいくら」のように、月単位で並べてほしいと分かる言い回し。 */
+const MONTHLY_WORDS = /月別|月ごと|月毎|毎月|月次|月間|推移|月を追って|月単位|何月|各月|月あたり|月に/;
 
 export function matchPreset(q: string, y?: FiscalYearData, ledger?: Ledger | null): Preset | null {
   const t = q.replace(/\s/g, '');

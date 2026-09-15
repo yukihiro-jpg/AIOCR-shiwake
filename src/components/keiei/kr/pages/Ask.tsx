@@ -129,6 +129,22 @@ export default function Ask({ canAsk = true, onNavigate }: {
     settle(t.id, { answer: a, ctx });
   };
 
+  /**
+   * 「月別に見る」のような続きの提案を実行する。
+   * 同じ条件のまま別の集計を走らせるだけなので、AIへは問い合わせず質問回数も消費しない。
+   */
+  const runFollowUp = (t: Turn, fu: { label: string; tool: string }) => {
+    const preset = PRESETS.find(p => p.id === fu.tool);
+    if (!preset) return;
+    const id = seq;
+    setSeq(id + 1);
+    const ctx = t.ctx;
+    const a = preset.run(state, y, ctx);
+    setTurns(list => [...list, {
+      id, question: fu.label, answer: a, declined: false, preset, ctx,
+    }]);
+  };
+
   /** どの集計にも当たらなかったとき。 */
   const giveUp = (id: number, q: string, exists: boolean, error?: string) => {
     const a: Answer = {
@@ -262,6 +278,15 @@ export default function Ask({ canAsk = true, onNavigate }: {
                     onChange={strict => recount(t, strict)} />
                 )}
                 {t.answer.evidence && <EvidenceView ev={t.answer.evidence} />}
+                {t.answer.followUp && (
+                  <div className="kr-followup">
+                    <span>続けて {t.answer.followUp.label.replace(/見る$/, '')}確認しますか？</span>
+                    <button type="button"
+                      onClick={() => runFollowUp(t, t.answer!.followUp!)}>
+                      {t.answer.followUp.label}
+                    </button>
+                  </div>
+                )}
                 {t.answer.link && (
                   <div className="kr-abtns">
                     <button type="button" className="secondary"
