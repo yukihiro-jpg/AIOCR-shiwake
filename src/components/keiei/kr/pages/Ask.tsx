@@ -21,7 +21,7 @@ import { NeedData, useRerender } from '../ui';
 import {
   PRESETS, PRESET_CHIPS, matchPreset, isTaxQuestion, latestYear, readContext,
 } from '@/lib/keiei/kr/qa/answers';
-import type { Answer, Evidence, AskContext } from '@/lib/keiei/kr/qa/answers';
+import type { Answer, Evidence, AskContext, Preset } from '@/lib/keiei/kr/qa/answers';
 import { routeByAi } from '@/lib/keiei/kr/ask-ai';
 import { useLedger } from '@/lib/keiei/kr/ledger/useLedger';
 
@@ -41,6 +41,13 @@ interface Turn {
    * 顧問先には表示しないし、質問ログにも残さない。
    */
   adminNote?: string;
+  /**
+   * 数え方を変えて出し直すために、使った集計と条件を覚えておく。
+   * （摘要の書き方をまとめるか・聞かれた表記だけで見るかの切替に使う。
+   *   AIには問い合わせ直さないので、質問回数も消費しない）
+   */
+  preset?: Preset;
+  ctx?: AskContext;
 }
 
 /** 1日あたりの質問回数の上限（費用の暴走を防ぐ） */
@@ -102,13 +109,24 @@ export default function Ask({ canAsk = true, onNavigate }: {
       + (ctx?.period ? `（${ctx.period.label}）` : '')
       + (ctx?.month ? `（${ctx.month}月）` : '');
     const turn: Turn = {
-      id, question: q, answer: a, declined: false, viaAi,
+      id, question: q, answer: a, declined: false, viaAi, preset, ctx,
       adminNote: isAdmin && viaAi ? `判定モデル: ${model || '不明'} → ${where}` : undefined,
     };
     if (exists) settle(id, turn);
     else setTurns(t => [...t, turn]);
     api.addQaLog({ question: q, answer: a.text, tool: a.tool, declined: false, viaAi });
     rerender();
+  };
+
+  /**
+   * 同じ質問を、取引先の数え方だけ変えて出し直す。
+   * 集計はブラウザの中だけで行うので、AIへの問い合わせも質問回数の消費も無い。
+   */
+  const recount = (t: Turn, strict: boolean) => {
+    if (!t.preset) return;
+    const ctx: AskContext = { ...t.ctx, strictPartner: strict };
+    const a = t.preset.run(state, y, ctx);
+    settle(t.id, { answer: a, ctx });
   };
 
   /** どの集計にも当たらなかったとき。 */
@@ -239,6 +257,10 @@ export default function Ask({ canAsk = true, onNavigate }: {
             ) : t.answer && (
               <>
                 <p className="kr-atext">{t.answer.text}</p>
+                {t.answer.variantChoice && (
+                  <VariantChoiceView vc={t.answer.variantChoice}
+                    onChange={strict => recount(t, strict)} />
+                )}
                 {t.answer.evidence && <EvidenceView ev={t.answer.evidence} />}
                 {t.answer.link && (
                   <div className="kr-abtns">
@@ -259,6 +281,45 @@ export default function Ask({ canAsk = true, onNavigate }: {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 摘要の書き方が複数あるときの数え方の切替。
+ *
+ * 名寄せ（表記のゆれをまとめること）はあくまで推測なので、
+ * 「まとめ過ぎでは？」と思ったときに **聞かれた表記だけ** で数え直せるようにする。
+ * 切り替えても再計算はブラウザの中だけで、AIには何も送らない。
+ */
+function VariantChoiceView({ vc, onChange }: {
+  vc: NonNullable<Answer['variantChoice']>;
+  onChange: (strict: boolean) => void;
+}) {
+  const btn = (strict: boolean, label: string) => (
+    <button type="button" className={vc.strict === strict ? '' : 'secondary'}
+      style={{ padding: '4px 12px', fontSize: 12.5 }}
+      onClick={() => { if (vc.strict !== strict) onChange(strict); }}>{label}</button>
+  );
+  return (
+    <div className="kr-vchoice">
+      <div className="kr-vchoice-head">摘要の書き方が {vc.variants.length} 通りあります</div>
+      <div className="kr-vchoice-list">
+        {vc.variants.map(v => (
+          <span key={v.name}
+            className={`kr-vchoice-tag${vc.strict && v.name === vc.matched ? ' hit' : ''}`}>
+            {v.name}<small>{v.count}件</small>
+          </span>
+        ))}
+      </div>
+      <div className="kr-vchoice-btns">
+        {btn(false, `まとめて数える（${vc.groupName}）`)}
+        {btn(true, `「${vc.matched ?? vc.groupName}」だけで数える`)}
+      </div>
+      <div className="kr-vchoice-note">
+        別々の取引先がまとまってしまっている場合は、右を選ぶと聞かれた書き方の分だけで数え直します。
+        まとめ方そのものを直すときは「取引先の整理」で変更できます。
+      </div>
     </div>
   );
 }

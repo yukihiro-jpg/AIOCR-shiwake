@@ -668,3 +668,52 @@
 
 /* ---- 本文（サイドバーの右） ---- */
 .kr-root .kr-body { flex: 1; min-width: 0; }
+
+/* ---- 取引先の数え方の切替（AIに質問の回答に出る） ----
+   名寄せは推測なので、「まとめて数える」と「聞かれた表記だけで数える」を
+   答えを見てから切り替えられるようにしている。再計算はブラウザの中だけ。 */
+.kr-root .kr-vchoice {
+  margin-top: 9px; padding: 10px 12px; border: 1px solid var(--kr-line);
+  border-radius: 10px; background: #fafbfd;
+}
+.kr-root .kr-vchoice-head { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
+.kr-root .kr-vchoice-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.kr-root .kr-vchoice-tag {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 9px;
+  border: 1px solid var(--kr-line); border-radius: 999px; background: #fff; font-size: 12px;
+}
+.kr-root .kr-vchoice-tag.hit { border-color: var(--kr-accent); color: var(--kr-accent-ink); background: var(--kr-accent-wash); font-weight: 700; }
+.kr-root .kr-vchoice-tag small { color: var(--kr-ink-3); font-size: 11px; }
+.kr-root .kr-vchoice-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.kr-root .kr-vchoice-note { margin-top: 7px; font-size: 11.5px; color: var(--kr-ink-3); line-height: 1.6; }
+
+/* ---- 明細ドリルダウン（月次推移の数字から中身へ降りる） ---- */
+.kr-root .kr-drill-bg {
+  position: fixed; inset: 0; z-index: 60; background: rgba(16, 32, 55, .45);
+  display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+}
+.kr-root .kr-drill {
+  background: var(--kr-surface); border-radius: 14px; width: 100%; max-width: 980px;
+  max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+  padding: 16px 18px; box-shadow: 0 12px 40px rgba(16, 32, 55, .3);
+}
+.kr-root .kr-drill-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 10px; font-size: 15px;
+}
+.kr-root .kr-drill-sum {
+  display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline;
+  padding: 9px 12px; border-radius: 10px; background: var(--kr-surface-2); margin-bottom: 10px;
+}
+.kr-root .kr-drill-sum b { margin-left: 7px; font-variant-numeric: tabular-nums; font-size: 15px; }
+.kr-root .kr-drill-diff { color: var(--kr-crit); font-weight: 700; }
+.kr-root .kr-drill-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+.kr-root .kr-drill-body { overflow: auto; flex: 1; min-height: 0; }
+/* 明細から降りられる月次推移のセル */
+.kr-root table.pivot td.drillable { cursor: pointer; }
+.kr-root table.pivot td.drillable:hover { background: var(--kr-accent-wash); box-shadow: inset 0 0 0 1px var(--kr-accent); }
+.kr-root table.pivot th.acct button.drill {
+  border: none; background: none; cursor: pointer; padding: 0 4px; color: var(--kr-ink-3); font-size: 12px;
+}
+.kr-root table.pivot th.acct button.drill:hover { color: var(--kr-accent); }
+@media print { .kr-root .kr-drill-bg { display: none !important; } }

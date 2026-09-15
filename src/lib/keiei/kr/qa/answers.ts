@@ -16,9 +16,9 @@ import {
 import { findAccounts, sampleExpenseNames } from './accounts';
 import type { AccountMatch } from './accounts';
 import {
-  partnerTotals, partnersOfAccount, findPartner, findLedgerAccount,
+  partnerTotals, partnersOfAccount, findPartnerHit, findLedgerAccount, partnerMonthly,
 } from '../ledger/aggregate';
-import type { Ledger, AccountKind } from '../ledger/aggregate';
+import type { Ledger, AccountKind, PartnerScope } from '../ledger/aggregate';
 import type { PartnerGroup } from '../ledger/normalize';
 
 const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
@@ -39,6 +39,18 @@ export interface Answer {
   link?: { label: string; to: string };
   /** どの集計で答えたか（ログ用） */
   tool: string;
+  /**
+   * 取引先の質問で、摘要の書き方が複数あるときに画面へ出す選択肢。
+   * 「まとめて数える」か「聞かれた表記だけで数える」かを、答えを見てから切り替えられる。
+   */
+  variantChoice?: {
+    groupName: string;
+    variants: { name: string; count: number }[];
+    /** いま「聞かれた表記だけ」で数えているか */
+    strict: boolean;
+    /** 質問文の中で当たった表記 */
+    matched: string | null;
+  };
 }
 
 /**
@@ -60,6 +72,13 @@ export interface AskContext {
   kinds?: Map<string, AccountKind>;
   /** 質問が指している取引先。無ければ null */
   partner?: PartnerGroup | null;
+  /** 質問文の中で実際に当たった表記（「ヤマダ電機」と書かれたのか「カ）ヤマダデンキ」なのか） */
+  partnerVariant?: string | null;
+  /**
+   * true なら **質問に書かれた表記だけ** で数える（名寄せしない）。
+   * 名寄せは推測なので、まとめ過ぎを疑うときに切り替えられるようにしてある。
+   */
+  strictPartner?: boolean;
   /** 質問が指している元帳の勘定科目名。無ければ null */
   ledgerAccount?: string | null;
 }
@@ -622,30 +641,131 @@ function partnerTotal(_state: State, y: FiscalYearData, ctx?: AskContext): Answe
     };
   }
   const r = ledgerRange(y, ctx);
-  const t = partnerTotals(led, kinds, p.id, r);
+  const sc = partnerScope(ctx, p);
+  const t = partnerTotals(led, kinds, sc, r);
+  const choice = variantChoiceOf(ctx, p);
   if (t.count === 0) {
     return {
       tool: 'partnerTotal',
-      text: `${r.label}に ${p.name} との取引は見当たりませんでした。`,
+      text: `${r.label}に ${scopeLabel(ctx, p)} との取引は見当たりませんでした。`,
+      variantChoice: choice,
     };
   }
   const parts: string[] = [];
   if (t.expense > 0) parts.push(`お支払い・仕入が ${yen(t.expense)}円`);
   if (t.revenue > 0) parts.push(`売上が ${yen(t.revenue)}円`);
-  const variants = p.variants.length > 1
-    ? `（摘要では ${p.variants.slice(0, 3).map(v => v.name).join('・')}`
-      + `${p.variants.length > 3 ? ' ほか' : ''} と書かれているものをまとめています）`
-    : '';
   return {
     tool: 'partnerTotal',
-    text: `${r.label}の ${p.name} との取引は、${parts.join('、')} です。${variants}`
+    text: `${r.label}の ${scopeLabel(ctx, p)} との取引は、${parts.join('、')} です。`
+      + `${scopeNote(ctx, p)}`
       + '（費用と売上の科目に計上された金額です。入出金そのものではありません）',
     evidence: {
-      kind: 'table', title: `${p.name}／科目の内訳（${r.label}）`,
+      kind: 'table', title: `${scopeLabel(ctx, p)}／科目の内訳（${r.label}）`,
       rows: t.byAccount.slice(0, 12).map(b => ({
         label: b.name, value: `${yen(b.amount)}円`, note: `${b.count}件`,
       })),
     },
+    variantChoice: choice,
+  };
+}
+
+// --- 取引先の「数え方」（名寄せしてまとめる / 聞かれた表記だけ） -------------
+
+/** いまの数え方。ctx.strictPartner のときだけ表記を絞る。 */
+function partnerScope(ctx: AskContext | undefined, p: PartnerGroup): PartnerScope {
+  return {
+    groupId: p.id,
+    variant: ctx?.strictPartner ? (ctx.partnerVariant ?? null) : null,
+  };
+}
+
+/** 回答文で使う呼び名。 */
+function scopeLabel(ctx: AskContext | undefined, p: PartnerGroup): string {
+  return ctx?.strictPartner && ctx.partnerVariant ? ctx.partnerVariant : p.name;
+}
+
+/** 何をまとめている／まとめていないかの一文。 */
+function scopeNote(ctx: AskContext | undefined, p: PartnerGroup): string {
+  if (ctx?.strictPartner) {
+    return p.variants.length > 1
+      ? `（摘要が「${ctx.partnerVariant ?? p.name}」のものだけを数えています）`
+      : '';
+  }
+  if (p.variants.length <= 1) return '';
+  return `（摘要では ${p.variants.slice(0, 3).map(v => v.name).join('・')}`
+    + `${p.variants.length > 3 ? ' ほか' : ''} と書かれているものをまとめています）`;
+}
+
+/** 書き方が複数あるときだけ、画面に切替を出す。 */
+function variantChoiceOf(ctx: AskContext | undefined, p: PartnerGroup): Answer['variantChoice'] {
+  if (p.variants.length <= 1) return undefined;
+  return {
+    groupName: p.name,
+    variants: p.variants.slice(0, 12),
+    strict: !!ctx?.strictPartner,
+    matched: ctx?.partnerVariant ?? null,
+  };
+}
+
+/** 年度の各月を「YYYY-MM-DD の期間」に開く（決算月に合わせる）。 */
+function monthRanges(y: FiscalYearData): { from: string; to: string }[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const m = calYm(y, i);
+    const mm = String(m.month).padStart(2, '0');
+    const last = new Date(m.year, m.month, 0).getDate();
+    return { from: `${m.year}-${mm}-01`, to: `${m.year}-${mm}-${last}` };
+  });
+}
+
+/** ある取引先との取引を月別に（「〇〇への支払を月別に」）。 */
+function partnerMonthlyAnswer(_state: State, y: FiscalYearData, ctx?: AskContext): Answer {
+  const led = ctx?.ledger ?? null;
+  const kinds = ctx?.kinds;
+  if (!led || !kinds) return needLedger('partnerMonthly');
+  const p = ctx?.partner ?? null;
+  if (!p) {
+    const eg = led.groups.slice(0, 5).map(g => g.name).join('・');
+    return {
+      tool: 'partnerMonthly',
+      text: 'どちらの取引先のことか分かりませんでした。'
+        + (eg ? `${eg} などの名前でお聞きいただけます。` : ''),
+    };
+  }
+  const m = partnerMonthly(led, kinds, partnerScope(ctx, p), monthRanges(y));
+  const choice = variantChoiceOf(ctx, p);
+  const label = scopeLabel(ctx, p);
+  if (m.total.count === 0) {
+    return {
+      tool: 'partnerMonthly',
+      text: `${y.label}に ${label} との取引は見当たりませんでした。`,
+      variantChoice: choice,
+    };
+  }
+  // 支払と売上のうち、金額の大きい方を主役にする（両方ある取引先は少ない）
+  const useExpense = m.total.expense >= m.total.revenue;
+  const series = useExpense ? m.expense : m.revenue;
+  const what = useExpense ? 'お支払い・仕入' : '売上';
+  const vals = actual(series, y);
+  // 実績のある月だけで平均・最大を見る
+  const filled = vals.map((v, i) => ({ v, i })).filter(x => x.v !== null) as { v: number; i: number }[];
+  const top = filled.reduce((a, b) => (b.v > a.v ? b : a), filled[0]);
+  const active = filled.filter(x => x.v !== 0).length;
+  const avg = active ? filled.reduce((s, x) => s + x.v, 0) / active : 0;
+  const totalAmt = useExpense ? m.total.expense : m.total.revenue;
+  const both = m.total.expense > 0 && m.total.revenue > 0
+    ? `（このほかに${useExpense ? `売上が ${yen(m.total.revenue)}円` : `お支払いが ${yen(m.total.expense)}円`} あります）`
+    : '';
+  return {
+    tool: 'partnerMonthly',
+    text: `${y.label}の ${label} への${what}は、合計 ${yen(totalAmt)}円 です。`
+      + `いちばん多かったのは ${calYm(y, top.i).month}月（${yen(top.v)}円）で、`
+      + `取引のあった月の平均は ${yen(Math.round(avg))}円 でした。${both}`
+      + `${scopeNote(ctx, p)}`,
+    evidence: {
+      kind: 'bars', title: `${label}／${what}の月別（${y.label}）`,
+      labels: monthLabels(y), values: vals, highlight: top.i,
+    },
+    variantChoice: choice,
   };
 }
 
@@ -716,6 +836,7 @@ export const PRESETS: Preset[] = [
   { id: 'periodResult', label: '', keys: [], run: periodResult },
   { id: 'partnerTotal', label: '', keys: [], run: partnerTotal },
   { id: 'partnerRanking', label: '', keys: [], run: partnerRanking },
+  { id: 'partnerMonthly', label: '', keys: [], run: partnerMonthlyAnswer },
 ];
 
 /** 画面のボタンに出す質問（label が空のものは内部用なので出さない）。 */
@@ -820,6 +941,8 @@ export function extractYearsBack(q: string): number {
 const RANKING_WORDS = /相手先|取引先|支払先|得意先|仕入先|業者別|先別|別に|ランキング|内訳|誰に|どこに/;
 /** 「〇〇に払った」のように取引先との金額を聞いていると分かる言い回し。 */
 const PARTNER_WORDS = /払っ|支払|払った|いくら|合計|取引|買っ|発注|仕入れ/;
+/** 「月別に」「月ごとの推移」のように、月単位で並べてほしいと分かる言い回し。 */
+const MONTHLY_WORDS = /月別|月ごと|月毎|毎月|月次|月間|推移|月を追って|月単位/;
 
 export function matchPreset(q: string, y?: FiscalYearData, ledger?: Ledger | null): Preset | null {
   const t = q.replace(/\s/g, '');
@@ -834,7 +957,10 @@ export function matchPreset(q: string, y?: FiscalYearData, ledger?: Ledger | nul
     // 元帳が取り込まれているときだけ、取引先の質問に答えられる
     if (ledger) {
       const ranking = RANKING_WORDS.test(t);
-      const partner = findPartner(ledger, t);
+      const partner = findPartnerHit(ledger, t)?.group ?? null;
+      // 「〇〇への支払を月別に」… 取引先が分かっていて、月で並べてと言われている
+      // （「月別」は「相手先別」より具体的な指定なので、ランキングより先に見る）
+      if (partner && MONTHLY_WORDS.test(t)) return find('partnerMonthly');
       // 「修繕費を相手先別に」… 科目が分かっていて、内訳を聞いている
       if (ranking && (acc || findLedgerAccount(ledger, t))) return find('partnerRanking');
       // 「〇〇商事にいくら払った？」… 取引先が分かっている
@@ -876,6 +1002,7 @@ export function readContext(
 ): AskContext {
   const t = q.replace(/\s/g, '');
   const period = extractPeriod(t, y);
+  const hit = ledger ? findPartnerHit(ledger, t) : null;
   return {
     // 期間の指定があるときは、その中の数字を単月と取り違えない
     month: period ? null : extractMonth(t),
@@ -884,7 +1011,8 @@ export function readContext(
     account: findAccounts(y, t),
     ledger: ledger ?? null,
     kinds,
-    partner: ledger ? findPartner(ledger, t) : null,
+    partner: hit?.group ?? null,
+    partnerVariant: hit?.variant ?? null,
     ledgerAccount: ledger ? findLedgerAccount(ledger, t) : null,
   };
 }

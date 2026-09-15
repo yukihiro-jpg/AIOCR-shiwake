@@ -95,18 +95,39 @@ export interface Breakdown {
 }
 
 /**
+ * 取引先の数え方。
+ *
+ * 既定は「名寄せしたグループ全体」＝摘要の書き方が違っていても同じ取引先として合算する。
+ * variant を指定すると **その表記だけ** を数える。
+ * 名寄せは推測なので、まとめ過ぎ（別会社が1つになっている）を疑ったときに
+ * 「この書き方だけで見る」へ切り替えられるようにするための仕組み。
+ */
+export interface PartnerScope {
+  groupId: string;
+  /** この表記（と、キーが同じ表記）だけを数える。null なら名寄せしたグループ全体 */
+  variant?: string | null;
+}
+
+/** 明細がその数え方に入るか。 */
+function inScope(led: Ledger, e: LedgerEntry, scope: PartnerScope): boolean {
+  if (scope.variant) return !!e.p && nameKey(e.p) === nameKey(scope.variant);
+  return groupIdOf(led, e) === scope.groupId;
+}
+
+/**
  * ある取引先の金額。
  * 費用（仕入・経費）と収益（売上）を分けて出す。
  * 費用は 借方−貸方、収益は 貸方−借方 で、いずれもプラスが「増えた側」。
  */
 export function partnerTotals(
-  led: Ledger, kinds: Map<string, AccountKind>, groupId: string,
+  led: Ledger, kinds: Map<string, AccountKind>, scope: string | PartnerScope,
   opts: { from?: string; to?: string } = {},
 ): { expense: number; revenue: number; byAccount: Breakdown[]; count: number } {
+  const sc: PartnerScope = typeof scope === 'string' ? { groupId: scope } : scope;
   const acc = new Map<string, Breakdown>();
   let expense = 0; let revenue = 0; let count = 0;
   for (const e of led.entries) {
-    if (groupIdOf(led, e) !== groupId) continue;
+    if (!inScope(led, e, sc)) continue;
     if (!inRange(e.d, opts.from, opts.to)) continue;
     const k = kindOf(kinds, e.an);
     if (k === 'bs') continue;               // 買掛金・売掛金の側は二重計上になるので数えない
@@ -178,21 +199,123 @@ export function partnerSummary(
  * 質問文に出てくる取引先を探す。
  * 表記のゆれを吸収したキーで、質問文の中に含まれているかを見る。
  * いちばん長く一致したものを採る（「山新友部店」と「山新」なら前者）。
+ *
+ * どの表記で当たったかも返す。質問者が書いた表記そのものだけで
+ * 数え直したいとき（名寄せのまとめ過ぎを疑うとき）の起点になる。
  */
-export function findPartner(led: Ledger, q: string): PartnerGroup | null {
+export function findPartnerHit(
+  led: Ledger, q: string,
+): { group: PartnerGroup; variant: string } | null {
   const t = nameKey(q);
   if (!t) return null;
-  let best: PartnerGroup | null = null;
+  let best: { group: PartnerGroup; variant: string } | null = null;
   let bestLen = 0;
   for (const g of led.groups) {
     for (const v of g.variants) {
       const k = nameKey(v.name);
       // 2文字以下は誤爆するので対象にしない
       if (k.length < 3 || k.length <= bestLen) continue;
-      if (t.includes(k)) { best = g; bestLen = k.length; }
+      if (t.includes(k)) { best = { group: g, variant: v.name }; bestLen = k.length; }
     }
   }
   return best;
+}
+
+export function findPartner(led: Ledger, q: string): PartnerGroup | null {
+  return findPartnerHit(led, q)?.group ?? null;
+}
+
+/**
+ * ある取引先の月別金額。
+ * months は年度の各月の期間（YYYY-MM-DD の from/to）を並べたもので、
+ * 呼び出し側（回答の組み立て）が決算月に合わせて作る。
+ */
+export function partnerMonthly(
+  led: Ledger, kinds: Map<string, AccountKind>, scope: string | PartnerScope,
+  months: { from: string; to: string }[],
+): { expense: number[]; revenue: number[]; counts: number[]; total: { expense: number; revenue: number; count: number } } {
+  const sc: PartnerScope = typeof scope === 'string' ? { groupId: scope } : scope;
+  const expense = months.map(() => 0);
+  const revenue = months.map(() => 0);
+  const counts = months.map(() => 0);
+  const total = { expense: 0, revenue: 0, count: 0 };
+  for (const e of led.entries) {
+    if (!inScope(led, e, sc)) continue;
+    const k = kindOf(kinds, e.an);
+    if (k === 'bs') continue;               // 買掛金・売掛金の側は二重計上になる
+    const v = k === 'expense' ? e.dr - e.cr : e.cr - e.dr;
+    if (v === 0) continue;
+    const i = months.findIndex(m => e.d >= m.from && e.d <= m.to);
+    if (i < 0) continue;                    // 年度の外（前期以前の元帳）は数えない
+    if (k === 'expense') { expense[i] += v; total.expense += v; }
+    else { revenue[i] += v; total.revenue += v; }
+    counts[i]++; total.count++;
+  }
+  return { expense, revenue, counts, total };
+}
+
+/**
+ * 試算表の科目 → 元帳の科目名 を引くための対応表。
+ * 科目名が最優先。試算表と元帳で表記が違うことがある（車輌費／車両費など）ので、
+ * 名前で当たらなければ科目コードでも引けるようにしておく。
+ * 明細は数万件になりうるので、**1回だけ作って使い回す**（行ごとに走査しない）。
+ */
+export interface AccountIndex {
+  byName: Set<string>;
+  byCode: Map<string, string>;
+}
+
+export function buildAccountIndex(led: Ledger): AccountIndex {
+  const byName = new Set<string>();
+  const byCode = new Map<string, string>();
+  for (const e of led.entries) {
+    byName.add(e.an);
+    if (e.ac && !byCode.has(e.ac)) byCode.set(e.ac, e.an);
+  }
+  return { byName, byCode };
+}
+
+export function ledgerAccountOf(idx: AccountIndex, name: string, code?: string): string | null {
+  if (idx.byName.has(name)) return name;
+  if (code) return idx.byCode.get(code) ?? null;
+  return null;
+}
+
+/**
+ * ある勘定科目の明細（月次推移の数字から中身へ降りるため）。
+ * 科目名で絞る。同じ名前の科目が複数の期に跨っていても、期間で切れば足りる。
+ */
+export function entriesOfAccount(
+  led: Ledger, kinds: Map<string, AccountKind>, accountName: string,
+  opts: { from?: string; to?: string } = {},
+): { rows: LedgerEntry[]; total: number; kind: AccountKind; byPartner: Breakdown[] } {
+  const kind = kindOf(kinds, accountName);
+  const rows: LedgerEntry[] = [];
+  const byGroup = new Map<string, Breakdown>();
+  const label = new Map<string, string>();
+  for (const g of led.groups) label.set(g.id, g.name);
+  let total = 0;
+  for (const e of led.entries) {
+    if (e.an !== accountName) continue;
+    if (!inRange(e.d, opts.from, opts.to)) continue;
+    const v = kind === 'revenue' ? e.cr - e.dr : e.dr - e.cr;
+    rows.push(e);
+    total += v;
+    const gid = groupIdOf(led, e) ?? `__${e.p || 'その他'}`;
+    const b = byGroup.get(gid) ?? { name: label.get(gid) ?? (e.p || 'その他'), amount: 0, count: 0 };
+    b.amount += v; b.count++;
+    byGroup.set(gid, b);
+  }
+  rows.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+  return {
+    rows, total, kind,
+    byPartner: Array.from(byGroup.values()).sort((a, b) => b.amount - a.amount),
+  };
+}
+
+/** 元帳に載っている勘定科目名（ドリルダウンできるかの判定に使う）。 */
+export function ledgerAccountNames(led: Ledger): Set<string> {
+  return new Set(led.entries.map(e => e.an));
 }
 
 /** 元帳にある勘定科目のうち、質問文に出てくるもの。 */

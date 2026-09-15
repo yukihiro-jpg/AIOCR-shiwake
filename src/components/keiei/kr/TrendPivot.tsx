@@ -103,11 +103,19 @@ export function TrendToolbar({ table, mode, setMode, exp, note }: {
 }
 
 /** 月次推移のピボット表。 */
-export function TrendPivot({ table, exp, selCode, onSelect }: {
+export function TrendPivot({ table, exp, selCode, onSelect, onDrill, drillable }: {
   table: TrendTable;
   exp: GroupExpansion;
   selCode: string;
   onSelect: (code: string) => void;
+  /**
+   * 明細へ降りる（元帳が取り込まれているときだけ渡す）。
+   * monthIndex=null はその科目の年間ぶん。
+   * 小計行は明細の集まりなので対象にしない（元帳には小計という科目が無い）。
+   */
+  onDrill?: (row: { code: string; name: string }, monthIndex: number | null) => void;
+  /** その科目が元帳にあるか（無い科目でクリックできると空振りになる） */
+  drillable?: (row: { code: string; name: string }) => boolean;
 }) {
   const showSeg = table.mode !== 'amount';
   const showCum = table.hasCum && table.mode !== 'amount';
@@ -143,6 +151,10 @@ export function TrendPivot({ table, exp, selCode, onSelect }: {
               tr.row.code === selCode ? 'selected' : '',
             ].filter(Boolean).join(' ');
 
+            // 明細へ降りられるのは「小計でない科目」かつ「元帳にその科目がある」場合だけ。
+            // 当期実績の段（cur）以外は前期・差・比なので、そこからは降りない。
+            const canDrill = !!onDrill && !isSub && (!drillable || drillable(tr.row));
+
             return tr.segs.map((sg, si) => (
               <tr key={`${tr.row.code}-${idx}-${sg.key}`}
                 className={`${cls} seg-${sg.key}${si === 0 ? ' g-start' : ''}`.trim()}
@@ -160,12 +172,29 @@ export function TrendPivot({ table, exp, selCode, onSelect }: {
                     {isSub && tr.detailCount > 0 && !open && (
                       <span className="grp-count">{tr.detailCount}</span>
                     )}
+                    {canDrill && (
+                      <button className="drill" title="この科目の明細（元帳）を今期ぶん見る"
+                        onClick={e => { e.stopPropagation(); onDrill!(tr.row, null); }}>🔍</button>
+                    )}
                   </th>
                 )}
                 {showSeg && <th className="seg">{sg.label}</th>}
-                {sg.months.map((c, i) => (
-                  <td key={i} className={c.kind === 'none' ? 'dim' : c.neg ? 'neg' : undefined}>{c.text}</td>
-                ))}
+                {sg.months.map((c, i) => {
+                  const cellDrill = canDrill && sg.key === 'cur' && c.kind !== 'none';
+                  return (
+                    <td key={i}
+                      className={[
+                        c.kind === 'none' ? 'dim' : c.neg ? 'neg' : '',
+                        cellDrill ? 'drillable' : '',
+                      ].filter(Boolean).join(' ') || undefined}
+                      title={cellDrill ? 'クリックでこの月の明細（元帳）を表示' : undefined}
+                      onClick={cellDrill
+                        ? e => { e.stopPropagation(); onSelect(tr.row.code); onDrill!(tr.row, i); }
+                        : undefined}>
+                      {c.text}
+                    </td>
+                  );
+                })}
                 {showCum && (
                   <td className={`cum${sg.cum.neg ? ' neg' : ''}`}>{sg.cum.text}</td>
                 )}

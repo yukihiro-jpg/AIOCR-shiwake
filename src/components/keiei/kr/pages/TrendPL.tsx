@@ -11,13 +11,18 @@
  * 【】〔〕の小計だけを表示する折りたたみ、科目グループごとの部分展開、
  * 表示中の内容そのままのExcelダウンロードに対応する。
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { getState } from '@/lib/keiei/kr/api';
 import { sortedYears, calYm, CODES } from '@/lib/keiei/kr/analysis';
 import { buildTrend, matchRow, statementRows, MODE_LABEL } from '@/lib/keiei/kr/trend';
 import type { TrendMode } from '@/lib/keiei/kr/trend';
 import { C, ComboChart, NeedData, YearNav, useYearSelection } from '../ui';
 import { TrendPivot, TrendToolbar, useGroupExpansion } from '../TrendPivot';
+import { buildAccountIndex, ledgerAccountOf } from '@/lib/keiei/kr/ledger/aggregate';
+import { LedgerDrill } from '../LedgerDrill';
+import type { DrillTarget } from '../LedgerDrill';
+import { useLedger } from '@/lib/keiei/kr/ledger/useLedger';
+import { api } from '@/lib/keiei/kr/api';
 import type { AccountRow, FiscalYearData } from '@/lib/keiei/kr/types';
 
 export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
@@ -27,6 +32,11 @@ export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
   const [mode, setMode] = useState<TrendMode>('amount');
   // 初期選択は 純売上高（9534）
   const [selCode, setSelCode] = useState<string>(CODES.sales);
+  // 元帳（取り込んであれば、科目の数字から明細へ降りられる）
+  const { ledger, kinds } = useLedger(api.clientId());
+  const [drill, setDrill] = useState<DrillTarget | null>(null);
+  // 試算表の科目 → 元帳の科目名 の対応表（明細は数万件になりうるので1回だけ作る）
+  const accIndex = useMemo(() => (ledger ? buildAccountIndex(ledger) : null), [ledger]);
   // 上部の検索から科目を指定して来たとき（?code=…）はその科目を選ぶ
   // 移植元は URL の ?code=… で科目を指定していたが、この総合管理アプリは
   // 画面内のタブ切替なのでURLを使わない。親から prop で受け取る形にした。
@@ -70,6 +80,40 @@ export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
   const chartVals = (yy: FiscalYearData, r: AccountRow): (number | null)[] =>
     Array.from({ length: 12 }, (_, i) => (i <= yy.lastFilledIndex ? r.monthly[i] : null));
 
+  // 試算表の科目 → 元帳の科目名。名前が違うときはコードで拾う（車輌費／車両費など）。
+  // 元帳に無い科目はクリックできても空振りになるので、当たるものだけ降りられるようにする。
+  const ledgerNameOf = (code: string, name: string): string | null =>
+    (accIndex ? ledgerAccountOf(accIndex, name, code) : null);
+
+  /** 月の1日〜末日（元帳は日付で絞るため、決算月に合わせて暦月へ開く）。 */
+  const monthRange = (i: number) => {
+    const m = calYm(y, i);
+    const mm = String(m.month).padStart(2, '0');
+    const last = new Date(m.year, m.month, 0).getDate();
+    return { from: `${m.year}-${mm}-01`, to: `${m.year}-${mm}-${last}` };
+  };
+
+  /** 表のセル・🔍 から明細を開く。monthIndex=null は今期の実績ぶん全部。 */
+  const openDrill = (row: { code: string; name: string }, monthIndex: number | null) => {
+    const r = plRows.find(x => x.code === row.code);
+    const name = ledgerNameOf(row.code, row.name) ?? row.name;
+    if (monthIndex == null) {
+      const a = monthRange(0); const b = monthRange(li);
+      setDrill({
+        name, label: `${y.label}（${calYm(y, 0).month}月〜${calYm(y, li).month}月）`,
+        from: a.from, to: b.to,
+        expected: r ? r.monthly.slice(0, li + 1).reduce((s, v) => s + (v || 0), 0) : null,
+      });
+      return;
+    }
+    const m = monthRange(monthIndex);
+    setDrill({
+      name, label: `${calYm(y, monthIndex).year}年${calYm(y, monthIndex).month}月`,
+      from: m.from, to: m.to,
+      expected: r ? (r.monthly[monthIndex] ?? 0) : null,
+    });
+  };
+
   return (
     <div>
       <div className="page-head">
@@ -79,6 +123,9 @@ export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
             {y.label}・{li + 1}ヶ月分の実績です。
             {li < 11 && `進行期のため ${calYm(y, li).month}月まで表示し、それ以降の月は「—」になります。`}
             表の行をクリックすると、その科目の3期比較グラフが上に表示されます。
+            {ledger
+              ? '元帳を取り込んであるので、金額のセルをクリックするとその月の明細（誰にいくら払ったか）が開きます。'
+              : '「元帳の取込」でCSVを読み込むと、金額から明細へ降りられるようになります。'}
           </p>
         </div>
         <YearNav years={years} current={y.id} onChange={setYearId} />
@@ -94,7 +141,13 @@ export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
       </div>
 
       <PLTableCard table={table} mode={mode} setMode={setMode}
-        selCode={selRow.code} onSelect={setSelCode} />
+        selCode={selRow.code} onSelect={setSelCode}
+        onDrill={ledger ? openDrill : undefined}
+        drillable={ledger ? (r: { code: string; name: string }) => !!ledgerNameOf(r.code, r.name) : undefined} />
+
+      {drill && ledger && (
+        <LedgerDrill led={ledger} kinds={kinds} target={drill} onClose={() => setDrill(null)} />
+      )}
 
       <div className="card">
         <h3>このページの見方</h3>
@@ -111,12 +164,14 @@ export default function TrendPL({ jumpCode }: { jumpCode?: string | null }) {
 }
 
 /** 表のカード（モード切替・折りたたみ・Excel出力）。 */
-function PLTableCard({ table, mode, setMode, selCode, onSelect }: {
+function PLTableCard({ table, mode, setMode, selCode, onSelect, onDrill, drillable }: {
   table: ReturnType<typeof buildTrend>;
   mode: TrendMode;
   setMode: (m: TrendMode) => void;
   selCode: string;
   onSelect: (code: string) => void;
+  onDrill?: (row: { code: string; name: string }, monthIndex: number | null) => void;
+  drillable?: (row: { code: string; name: string }) => boolean;
 }) {
   const exp = useGroupExpansion(table);
   const prevMissing = mode !== 'amount' && !table.prevYear;
@@ -141,7 +196,8 @@ function PLTableCard({ table, mode, setMode, selCode, onSelect }: {
           前々期（{table.year.endYear - 2}年{table.year.endMonth}月期）のデータが未取込のため、前々期の段は「—」になります。
         </div>
       )}
-      <TrendPivot table={table} exp={exp} selCode={selCode} onSelect={onSelect} />
+      <TrendPivot table={table} exp={exp} selCode={selCode} onSelect={onSelect}
+        onDrill={onDrill} drillable={drillable} />
     </div>
   );
 }

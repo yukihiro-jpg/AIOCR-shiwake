@@ -35,6 +35,7 @@ const TOOLS: { id: string; desc: string }[] = [
   { id: 'periodResult', desc: '期間を区切った業績。「上半期は」「第2四半期の」「4月から6月の」など' },
   { id: 'partnerTotal', desc: '特定の取引先との金額。「〇〇商事にいくら払った」「△△との取引は」など' },
   { id: 'partnerRanking', desc: '科目の相手先別の内訳・ランキング。「修繕費を相手先別に」「外注費は誰に払った」など' },
+  { id: 'partnerMonthly', desc: '特定の取引先との金額を月別に並べる。「〇〇への支払を月別に」「△△との取引の推移」「毎月いくら払っているか」など' },
 ]
 
 const ALLOWED = [...TOOLS.map((t) => t.id), 'tax', 'none']
