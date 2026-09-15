@@ -59,7 +59,7 @@ export default function QaLog() {
       ) : (
         <div className="card table-scroll">
           <h3>質問の記録<small>新しい順・直近200件</small></h3>
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr>
                 <th style={{ width: 90 }}>日時</th>

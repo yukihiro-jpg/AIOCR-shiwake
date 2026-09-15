@@ -99,7 +99,7 @@ export default function CashFlow() {
           <div className="card">
             <h3>月次CF計算書の明細<small>単位: 円</small></h3>
             <div className="table-scroll">
-              <table className="grid">
+              <table className="kr-grid">
                 <thead>
                   <tr>
                     <th className="cf-item">項目</th>

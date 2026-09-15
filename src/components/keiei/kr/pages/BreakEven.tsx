@@ -166,7 +166,7 @@ export default function BreakEven() {
       <div className="card">
         <h3>必要売上高の逆算<small>目標から逆算した「いくら売ればよいか」</small></h3>
         <div className="table-scroll">
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr>
                 <th>目標</th>
@@ -214,7 +214,7 @@ export default function BreakEven() {
           労務費や工場家賃など売上が減っても変わらない原価は「固定」に切り替えると、実態に近い損益分岐点になります。
         </div>
         <div className="table-scroll">
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr>
                 <th>科目</th>

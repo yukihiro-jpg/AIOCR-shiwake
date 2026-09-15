@@ -213,7 +213,7 @@ export default function Debt() {
           <div className="ok-box">借入金・社債・リース債務の残高はありません（無借金です）。</div>
         ) : (
           <div className="table-scroll">
-            <table className="grid">
+            <table className="kr-grid">
               <thead>
                 <tr>
                   <th>科目</th>

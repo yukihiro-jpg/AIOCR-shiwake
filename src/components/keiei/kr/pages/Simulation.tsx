@@ -202,7 +202,7 @@ export default function Simulation() {
       <div className="card">
         <h3>基準との比較<small>項目のスライダーを動かすと、右の数値がその場で変わります（年間ベース・円）</small></h3>
         <div className="table-scroll">
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr>
                 <th>項目</th>

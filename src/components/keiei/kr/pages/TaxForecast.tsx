@@ -178,7 +178,7 @@ export default function TaxForecast() {
               納税は住民税の均等割 {yen(tax.equalization)}円のみとなります（均等割は赤字でも必ず発生します）。
             </div>
           )}
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr><th>税目</th><th className="num">見込税額（円）</th><th>計算の目安</th></tr>
             </thead>
@@ -198,7 +198,7 @@ export default function TaxForecast() {
           <h3>消費税の見込み<small>仮受−仮払の残高を年換算する簡便法</small></h3>
           {hasCt ? (
             <>
-              <table className="grid">
+              <table className="kr-grid">
                 <thead>
                   <tr><th>項目</th><th className="num">金額（円）</th></tr>
                 </thead>
@@ -235,7 +235,7 @@ export default function TaxForecast() {
 
       <div className="card">
         <h3>中間納付の目安<small>期中に前払いする税金（決算の納税とは別に資金が要ります）</small></h3>
-        <table className="grid">
+        <table className="kr-grid">
           <thead>
             <tr><th>税目</th><th>判定の目安</th><th className="num">中間納付額の目安</th></tr>
           </thead>

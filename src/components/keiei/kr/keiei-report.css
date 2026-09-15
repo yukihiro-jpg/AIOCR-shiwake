@@ -7,7 +7,8 @@
  *   ・.kr-root から height:100vh / overflow:hidden / display:flex を外した
  *     （この総合管理アプリは共通ナビの中に置くため。二重スクロールになる）
  *   ・サイドバー・トップバー・フローティング操作は移植しない（ナビは総合管理アプリ側）
- *   ・table.kr-grid → table.kr-grid に改名（Tailwind の .grid{display:grid} と衝突するため）
+ *   ・table.grid → table.kr-grid に改名（Tailwind の .grid{display:grid} と衝突してセルが潰れるため。
+ *     移植元から画面を持ち込むときは、この改名を必ず適用すること）
  *   ・印刷（B4横）は print.css に分けた
  * すべてのセレクタは .kr-root 配下に限定してあり、他モジュールには影響しない。
  * グラフの系列色は ui.tsx のパレット（別管理）。

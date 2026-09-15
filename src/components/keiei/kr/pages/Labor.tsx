@@ -197,7 +197,7 @@ export default function Labor() {
       <div className="card">
         <h3>人件費の内訳<small>科目別・期間合計（単位: 円）</small></h3>
         <div className="table-scroll">
-          <table className="grid">
+          <table className="kr-grid">
             <thead>
               <tr>
                 <th>科目</th>

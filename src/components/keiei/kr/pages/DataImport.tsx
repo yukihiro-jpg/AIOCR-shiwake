@@ -75,7 +75,7 @@ export default function DataImport() {
       {pending && (
         <div className="card">
           <h3>取込内容の確認</h3>
-          <table className="grid" style={{ maxWidth: 640 }}>
+          <table className="kr-grid" style={{ maxWidth: 640 }}>
             <tbody>
               <tr><td style={{ width: 140 }}>会社</td><td><b>{pending.client.name || '（名称なし）'}</b>（コード: {pending.client.code || '—'}）</td></tr>
               <tr><td>書き出し日時</td><td>{pending.generatedAt ? new Date(pending.generatedAt).toLocaleString('ja-JP') : '—'}</td></tr>
@@ -109,7 +109,7 @@ export default function DataImport() {
               <b>{state.client?.name}</b>
               {state.uploadedAt && <span className="muted">　最終取込: {new Date(state.uploadedAt).toLocaleString('ja-JP')}</span>}
             </div>
-            <table className="grid" style={{ maxWidth: 640 }}>
+            <table className="kr-grid" style={{ maxWidth: 640 }}>
               <thead><tr><th>事業年度</th><th>実績月数</th><th className="num">科目数</th></tr></thead>
               <tbody>
                 {years.map(y => (

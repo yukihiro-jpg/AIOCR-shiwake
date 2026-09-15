@@ -131,7 +131,7 @@ export default function Partners() {
           )}
         </div>
 
-        <table className="grid">
+        <table className="kr-grid">
           <thead>
             <tr>
               <th style={{ width: 36 }}></th>

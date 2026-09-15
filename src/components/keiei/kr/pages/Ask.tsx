@@ -269,7 +269,7 @@ function EvidenceView({ ev }: { ev: Evidence }) {
     return (
       <div className="kr-evi">
         <div className="kr-evihead">🧮 {ev.title}</div>
-        <table className="grid kr-evitable">
+        <table className="kr-grid kr-evitable">
           <tbody>
             {ev.rows.map(r => (
               <tr key={r.label}>
