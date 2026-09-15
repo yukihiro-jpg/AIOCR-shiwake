@@ -23,11 +23,15 @@ import {
 } from '@/lib/keiei/kr/qa/answers';
 import type { Answer, Evidence, AskContext, Preset } from '@/lib/keiei/kr/qa/answers';
 import { routeByAi } from '@/lib/keiei/kr/ask-ai';
+import { exportQaXlsx } from '@/lib/keiei/kr/qa-excel';
+import type { QaRow } from '@/lib/keiei/kr/qa-excel';
 import { useLedger } from '@/lib/keiei/kr/ledger/useLedger';
 
 /** 画面に出す1往復 */
 interface Turn {
   id: number;
+  /** この往復が起きた時刻（Excelに出す） */
+  at: string;
   question: string;
   answer: Answer | null;
   declined: boolean;
@@ -69,6 +73,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
   const [input, setInput] = useState('');
   const [seq, setSeq] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [dl, setDl] = useState(false);
 
   const y = latestYear(state);
   if (!y) {
@@ -92,7 +97,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
 
   /** 税務判断として回答を断る。 */
   const decline = (id: number, q: string, exists: boolean) => {
-    const turn: Turn = { id, question: q, answer: null, declined: true };
+    const turn: Turn = { id, at: new Date().toISOString(), question: q, answer: null, declined: true };
     if (exists) settle(id, turn);
     else setTurns(t => [...t, turn]);
     api.addQaLog({ question: q, answer: '（税務判断のため回答せず）', tool: null, declined: true });
@@ -109,7 +114,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
       + (ctx?.period ? `（${ctx.period.label}）` : '')
       + (ctx?.month ? `（${ctx.month}月）` : '');
     const turn: Turn = {
-      id, question: q, answer: a, declined: false, viaAi, preset, ctx,
+      id, at: new Date().toISOString(), question: q, answer: a, declined: false, viaAi, preset, ctx,
       adminNote: isAdmin && viaAi ? `判定モデル: ${model || '不明'} → ${where}` : undefined,
     };
     if (exists) settle(id, turn);
@@ -141,7 +146,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
     const ctx = t.ctx;
     const a = preset.run(state, y, ctx);
     setTurns(list => [...list, {
-      id, question: fu.label, answer: a, declined: false, preset, ctx,
+      id, at: new Date().toISOString(), question: fu.label, answer: a, declined: false, preset, ctx,
     }]);
   };
 
@@ -153,7 +158,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
         + '下のボタンからお選びいただくか、「売上」「経費」「現金」などの言葉を入れて聞き直してください。',
     };
     const turn: Turn = {
-      id, question: q, answer: a, declined: false,
+      id, at: new Date().toISOString(), question: q, answer: a, declined: false,
       // 顧問先には理由を出さない。税理士が開いたときだけ原因を見せる。
       adminNote: isAdmin && error ? `AIの呼び出しに失敗しました: ${error}` : undefined,
     };
@@ -161,6 +166,33 @@ export default function Ask({ canAsk = true, onNavigate }: {
     else setTurns(t => [...t, turn]);
     api.addQaLog({ question: q, answer: a.text, tool: null, declined: false });
     rerender();
+  };
+
+  // 画面に出ている「答えの出た往復」＝Excelに書き出す対象
+  const answered = turns.filter(t => !t.pending);
+
+  /** この画面のやりとりを、回答の根拠つきでExcelにする。 */
+  const download = async () => {
+    setDl(true);
+    try {
+      const rows: QaRow[] = answered.map(t => ({
+        at: t.at,
+        question: t.question,
+        answer: t.declined
+          ? '（税務上の判断が必要なため回答しませんでした）'
+          : (t.answer?.text ?? ''),
+        tool: t.declined ? null : (t.answer?.tool === 'unknown' ? null : (t.answer?.tool ?? null)),
+        declined: t.declined,
+        viaAi: t.viaAi,
+        evidence: t.answer?.evidence,
+      }));
+      await exportQaXlsx(rows, state.client?.name ?? '');
+    } catch (e) {
+      console.error('Excelの作成に失敗しました', e);
+      alert('Excelの作成に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setDl(false);
+    }
   };
 
   const ask = async (question: string) => {
@@ -184,7 +216,7 @@ export default function Ask({ canAsk = true, onNavigate }: {
     }
 
     // 読み取れなかったものだけ AI に頼る。送るのは質問の文章だけ。
-    setTurns(t => [...t, { id, question: q, answer: null, declined: false, pending: true }]);
+    setTurns(t => [...t, { id, at: new Date().toISOString(), question: q, answer: null, declined: false, pending: true }]);
     setBusy(true);
     try {
       const res = await routeByAi(q);
@@ -211,6 +243,13 @@ export default function Ask({ canAsk = true, onNavigate }: {
             金額は会計データから計算しています。
           </p>
         </div>
+        {answered.length > 0 && (
+          <button type="button" className="secondary" disabled={dl}
+            title="この画面のやりとりを、回答の根拠つきでExcelに書き出します"
+            onClick={() => void download()}>
+            {dl ? '作成中…' : `⬇ Excelダウンロード（${answered.length}件）`}
+          </button>
+        )}
       </div>
 
       <div className="kr-chips">

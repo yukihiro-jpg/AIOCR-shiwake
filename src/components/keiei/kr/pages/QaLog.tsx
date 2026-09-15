@@ -5,7 +5,9 @@
  * 顧問先がどんなことを気にしているかを一覧する画面。
  * 月次報告の前に開くと、先回りして準備できる。
  */
+import { useState } from 'react';
 import { getState, api } from '@/lib/keiei/kr/api';
+import { exportQaXlsx, rowsFromLog } from '@/lib/keiei/kr/qa-excel';
 import { useRerender } from '../ui';
 
 function fmt(iso: string): string {
@@ -18,6 +20,7 @@ function fmt(iso: string): string {
 export default function QaLog() {
   const state = getState();
   const rerender = useRerender();
+  const [dl, setDl] = useState(false);
   const log = state.settings.qaLog;
   const month = new Date().toISOString().slice(0, 7);
   const thisMonth = log.filter(e => e.at.slice(0, 7) === month);
@@ -38,6 +41,20 @@ export default function QaLog() {
             この画面は顧問先には表示されません。
           </p>
         </div>
+        {log.length > 0 && (
+          <button disabled={dl} title="記録した質問と回答をExcelに書き出します"
+            onClick={() => {
+              setDl(true);
+              void exportQaXlsx(rowsFromLog(log), state.client?.name ?? '', {
+                title: 'AI質問ログ — 質問と回答',
+              }).catch((e) => {
+                console.error('Excelの作成に失敗しました', e);
+                alert('Excelの作成に失敗しました。時間をおいて再度お試しください。');
+              }).finally(() => setDl(false));
+            }}>
+            {dl ? '作成中…' : `⬇ Excelダウンロード（${log.length}件）`}
+          </button>
+        )}
         {log.length > 0 && (
           <button className="secondary" onClick={() => {
             if (confirm(`質問の記録 ${log.length}件 をすべて削除します。よろしいですか？`)) {
