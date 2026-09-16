@@ -28,6 +28,22 @@ export interface KrExtraSettings {
   notes?: Record<string, string> // 所見メモ
   employees?: Record<string, number> // 年度ごとの従業員数
   // 取引先の名寄せの手動指定（表記→グループ / グループ→表示名）。自動判定より優先する
+  /**
+   * 消費税の課税方式。仮受−仮払の年換算は**原則課税のときだけ**正しい。
+   * 簡易課税は「課税売上に係る消費税 ×（1−みなし仕入率）」で、仮払は一切関係しない。
+   * 未設定（undefined）は原則課税として扱う（従来どおりの動き）。
+   */
+  ctMethod?: 'general' | 'simplified' | 'exempt'
+  /** 簡易課税の事業区分（1〜6）。みなし仕入率はここから引く */
+  ctBiz?: 1 | 2 | 3 | 4 | 5 | 6
+  /** 事業区分では表せないとき用のみなし仕入率（%）。入っていればこちらを優先 */
+  ctDeemedRate?: number
+  /** 均等割: 使う自治体プリセットのid（未設定なら手入力の equalization を使う） */
+  eqPresetId?: string
+  /** 均等割: 資本金等の額（円）。区分の判定に使う */
+  eqCapital?: number
+  /** 均等割: 従業者数（市町村分の区分に使う） */
+  eqStaff?: number
   krAliases?: {
     toGroup: Record<string, string>
     label: Record<string, string>

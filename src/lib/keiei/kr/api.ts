@@ -129,6 +129,37 @@ export const api = {
     void persistSettings()
     rebuild()
   },
+  /**
+   * 納税予測の前提（均等割の自治体・資本金等・従業者数、消費税の課税方式）。
+   * 顧問先ごとの設定に相乗りするので、新しい保存先は作らない。
+   */
+  setTaxBasis(patch: {
+    eqPresetId?: string
+    eqCapital?: number
+    eqStaff?: number
+    equalization?: number
+    ctMethod?: 'general' | 'simplified' | 'exempt'
+    ctBiz?: number
+    ctDeemedRate?: number
+  }): void {
+    Object.assign(appSettings, patch)
+    void persistSettings()
+    rebuild()
+  },
+  /** いま保存されている納税予測の前提 */
+  taxBasis(): {
+    eqPresetId?: string; eqCapital?: number; eqStaff?: number
+    ctMethod?: 'general' | 'simplified' | 'exempt'; ctBiz?: number; ctDeemedRate?: number
+  } {
+    return {
+      eqPresetId: appSettings.eqPresetId,
+      eqCapital: appSettings.eqCapital,
+      eqStaff: appSettings.eqStaff,
+      ctMethod: appSettings.ctMethod,
+      ctBiz: appSettings.ctBiz,
+      ctDeemedRate: appSettings.ctDeemedRate,
+    }
+  },
   /** 科目の変動費/固定費を上書きする（null で自動判定に戻す） */
   setCostClass(code: string, cls: CostClass | null): void {
     const m = { ...(appSettings.costClass || {}) }

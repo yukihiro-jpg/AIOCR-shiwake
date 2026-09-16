@@ -771,35 +771,90 @@ export function corpTaxEstimate(income: number, equalization: number): CorpTaxDe
   };
 }
 
+/** 簡易課税のみなし仕入率（事業区分ごと）。 */
+export const DEEMED_RATES: Record<number, { label: string; rate: number }> = {
+  1: { label: '第1種（卸売業）', rate: 0.9 },
+  2: { label: '第2種（小売業・農林漁業の飲食料品）', rate: 0.8 },
+  3: { label: '第3種（製造業・建設業・農林漁業など）', rate: 0.7 },
+  4: { label: '第4種（飲食店業・その他）', rate: 0.6 },
+  5: { label: '第5種（運輸・通信・金融・サービス業）', rate: 0.5 },
+  6: { label: '第6種（不動産業）', rate: 0.4 },
+};
+
+export type CtMethod = 'general' | 'simplified' | 'exempt';
+
 export interface ConsumptionTaxForecast {
-  received: number;   // 仮受消費税（最新残高）
-  paid: number;       // 仮払消費税（最新残高）
+  method: CtMethod;
+  received: number;   // 仮受消費税（期首からの増加分）
+  paid: number;       // 仮払消費税（期首からの増加分）
   net: number;        // 差引（≒ここまでの納税義務の概算）
   elapsed: number;    // 経過月数
   annual: number;     // 年額予測（単純年換算）
   /** 前期末の未払消費税等 ＝ 前期の確定納付額（中間納付があった場合はその控除後） */
   prevActual: number | null;
+  /** 簡易課税のときのみなし仕入率（表示用） */
+  deemedRate: number | null;
+  /** 期首残高を差し引いて計算できたか（前期データが無いと残高そのままになる） */
+  fromOpening: boolean;
+  /** 期首に残っていた仮受・仮払（0 でなければ前期分の繰越がある＝注意） */
+  openingLeft: number;
+  /** 仮受・仮払の科目が見つかったか（税込経理・免税だと無い） */
+  hasAccounts: boolean;
 }
 
-/** 消費税の年額予測（仮受−仮払の残高を年換算する簡便法）。 */
-export function consumptionTaxForecast(state: State, y: FiscalYearData): ConsumptionTaxForecast {
+/**
+ * 消費税の年額予測。
+ *
+ * 【原則課税】仮受−仮払の増加額を年換算する簡便法。
+ * 【簡易課税】仮払は一切使わない。課税売上に係る消費税（＝仮受の増加額）に
+ *   (1−みなし仕入率) を掛ける。**原則課税の式で簡易課税の顧問先を計算すると必ず外れる**。
+ * 【免税】0。
+ *
+ * 残高そのものではなく **期首からの増加分** で計算する。
+ * 期首に前期分の仮受・仮払が残ったままだと、そのぶん今期の納税義務に混ざるため
+ * （決算整理で未払消費税等へ振り替えていれば期首は0になる）。
+ */
+export function consumptionTaxForecast(
+  state: State, y: FiscalYearData,
+  opts: { method?: CtMethod; biz?: number; deemedRate?: number } = {},
+): ConsumptionTaxForecast {
   const li = y.lastFilledIndex;
   const recv = sumByName(y, 'BS', /仮受消費税/);
   const paid = sumByName(y, 'BS', /仮払消費税/);
-  const received = recv[li];
-  const paidV = paid[li];
-  const net = received - paidV;
-  const elapsed = li + 1;
+  const hasAccounts = recv.some(v => v !== 0) || paid.some(v => v !== 0);
   const prevY = prevYearOf(state, y);
+  // 期首残高（前期の期末）。前期が12ヶ月そろっているときだけ使う
+  const prevFull = prevY && prevY.lastFilledIndex === 11 ? prevY : null;
+  const openRecv = prevFull ? sumByName(prevFull, 'BS', /仮受消費税/)[11] : 0;
+  const openPaid = prevFull ? sumByName(prevFull, 'BS', /仮払消費税/)[11] : 0;
+  const received = recv[li] - openRecv;
+  const paidV = paid[li] - openPaid;
+
+  const method: CtMethod = opts.method ?? 'general';
+  // 簡易課税で事業区分もみなし仕入率も指定が無いときは第3種（70%）を既定にする。
+  // ここを null（＝0%）のままにすると、控除ゼロの過大な税額を黙って出してしまう
+  const deemed = method === 'simplified'
+    ? (opts.deemedRate != null ? opts.deemedRate / 100
+      : DEEMED_RATES[opts.biz ?? 3]?.rate ?? DEEMED_RATES[3].rate)
+    : null;
+
+  const net = method === 'exempt' ? 0
+    : method === 'simplified' ? received * (1 - (deemed ?? 0))
+      : received - paidV;
+  const elapsed = li + 1;
+
   let prevActual: number | null = null;
   if (prevY) {
     const unpaid = sumByName(prevY, 'BS', /未払消費税/);
     prevActual = unpaid[11] > 0 ? unpaid[11] : null;
   }
   return {
-    received, paid: paidV, net, elapsed,
-    annual: elapsed > 0 ? (net / elapsed) * 12 : 0,
-    prevActual,
+    method, received, paid: paidV, net, elapsed,
+    annual: method === 'exempt' ? 0 : (elapsed > 0 ? (net / elapsed) * 12 : 0),
+    prevActual, deemedRate: deemed,
+    fromOpening: !!prevFull,
+    openingLeft: openRecv - openPaid,
+    hasAccounts,
   };
 }
 

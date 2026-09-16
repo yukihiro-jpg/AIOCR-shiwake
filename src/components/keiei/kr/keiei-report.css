@@ -771,3 +771,36 @@
 .kr-root table.kr-grid tr.cf-balance td {
   background: var(--kr-surface-3); font-weight: 700;
 }
+
+/* ---- 納税予測の前提（均等割の自治体・消費税の課税方式） ---- */
+.kr-root .kr-basis { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.kr-root .kr-basis-col { border: 1px solid var(--kr-line); border-radius: 10px; padding: 11px 13px; }
+.kr-root .kr-basis-h { font-weight: 700; margin-bottom: 8px; }
+.kr-root .kr-basis-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12.5px; }
+.kr-root .kr-basis-row > span { width: 108px; flex: 0 0 108px; color: var(--kr-ink-2); }
+.kr-root .kr-basis-row input, .kr-root .kr-basis-row select {
+  flex: 1 1 auto; min-width: 0; padding: 5px 8px; border: 1px solid var(--kr-line-2);
+  border-radius: 7px; font-size: 12.5px; font-family: inherit;
+}
+.kr-root .kr-basis-note { font-size: 11.5px; color: var(--kr-ink-3); margin: -2px 0 8px 116px; }
+.kr-root .kr-basis-result {
+  background: var(--kr-accent-wash); border-radius: 8px; padding: 8px 11px; margin: 6px 0 9px; font-size: 12.5px;
+}
+.kr-root .kr-basis-result b { font-variant-numeric: tabular-nums; margin-left: 6px; }
+.kr-root .kr-basis-total { border-top: 1px solid var(--kr-accent); margin-top: 5px; padding-top: 5px; font-weight: 700; }
+
+/* 自治体プリセットの編集 */
+.kr-root .kr-eq-wrap { display: grid; grid-template-columns: 220px 1fr; gap: 14px; min-height: 0; overflow: auto; }
+.kr-root .kr-eq-list { display: flex; flex-direction: column; gap: 5px; }
+.kr-root .kr-eq-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--kr-surface); color: var(--kr-ink); border: 1px solid var(--kr-line);
+  border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-weight: 400; text-align: left;
+}
+.kr-root .kr-eq-item.on { border-color: var(--kr-accent); background: var(--kr-accent-wash); font-weight: 700; }
+.kr-root .kr-eq-item:hover:not(:disabled) { background: var(--kr-accent-wash); border-color: var(--kr-accent); }
+.kr-root .kr-eq-edit { min-width: 0; }
+.kr-root .kr-eq-edit select, .kr-root .kr-eq-edit input {
+  padding: 4px 7px; border: 1px solid var(--kr-line-2); border-radius: 6px; font-size: 12.5px; font-family: inherit;
+}
+@media (max-width: 720px) { .kr-root .kr-eq-wrap { grid-template-columns: 1fr; } }

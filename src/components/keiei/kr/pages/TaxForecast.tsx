@@ -7,12 +7,17 @@
  * 計算はすべて analysis.ts（forecastOf / corpTaxEstimate / consumptionTaxForecast）に任せる。
  */
 import { useState } from 'react';
-import { getState } from '@/lib/keiei/kr/api';
+import { getState, api } from '@/lib/keiei/kr/api';
 import {
   sortedYears, yearSeries, prevYearOf, calYm, forecastOf,
   corpTaxEstimate, consumptionTaxForecast, yen,
 } from '@/lib/keiei/kr/analysis';
 import { C, ComboChart, Kpi, LineChart, Meter, NeedData, SliderRow, fmtShort } from '../ui';
+import { TaxBasisBox, resolveEqualization } from '../TaxBasis';
+import type { TaxBasis } from '../TaxBasis';
+import { loadEqPresets } from '@/lib/keiei/equalization-presets';
+import type { EqPreset } from '@/lib/keiei/equalization-presets';
+import { useEffect } from 'react';
 
 const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
 
@@ -27,6 +32,15 @@ export default function TaxForecast() {
   // 売上調整率（%）。初期値は forecastOf の自動値（当期累計の前年同期比）
   const [adjPct, setAdjPct] = useState<number>(() =>
     y ? clampPct(forecastOf(state, y).salesAdj) : 100);
+  // 納税予測の前提（顧問先ごとの設定）と、自治体プリセット（事務所で共有）
+  const [presets, setPresets] = useState<EqPreset[]>([]);
+  useEffect(() => { void loadEqPresets().then(setPresets).catch(() => setPresets([])); }, []);
+  const basis: TaxBasis = { ...api.taxBasis(), equalization: state.settings.equalization };
+  const setBasis = (patch: Partial<TaxBasis>) => {
+    api.setTaxBasis(patch);
+    // 自治体プリセットを触った直後にも反映されるよう読み直す
+    void loadEqPresets().then(setPresets).catch(() => { /* 取れなければ前の内容のまま */ });
+  };
 
   if (!y) return (
     <div>
@@ -43,10 +57,15 @@ export default function TaxForecast() {
 
   const autoPct = clampPct(forecastOf(state, y).salesAdj);
   const fc = forecastOf(state, y, adjPct / 100);
-  const tax = corpTaxEstimate(fc.landing.pretax, state.settings.equalization);
-  const ct = consumptionTaxForecast(state, y);
+  // 均等割は自治体プリセットから引く（決まらなければ手入力の値）
+  const eq = resolveEqualization(basis, presets);
+  const tax = corpTaxEstimate(fc.landing.pretax, eq.total);
+  const ct = consumptionTaxForecast(state, y, {
+    method: basis.ctMethod, biz: basis.ctBiz, deemedRate: basis.ctDeemedRate,
+  });
   const isLoss = fc.landing.pretax <= 0;
-  const hasCt = ct.received !== 0 || ct.paid !== 0;
+  // 免税なら「予測できない」ではなく「0で確定」。科目が無い場合だけ予測できない
+  const hasCt = ct.method === 'exempt' || ct.hasAccounts;
 
   // 前期通期との比較（前期が通年揃っているときだけ）
   const prevFullSales = prevComplete && prevS ? sum(prevS.sales.slice(0, 12)) : null;
@@ -107,6 +126,8 @@ export default function TaxForecast() {
           </p>
         </div>
       </div>
+
+      <TaxBasisBox basis={basis} onChange={setBasis} />
 
       <div className="kpi-grid">
         <Kpi label="通期売上見込" value={`${fmtShort(fc.landing.sales)}円`}
@@ -195,16 +216,38 @@ export default function TaxForecast() {
         </div>
 
         <div className="card">
-          <h3>消費税の見込み<small>仮受−仮払の残高を年換算する簡便法</small></h3>
-          {hasCt ? (
+          <h3>消費税の見込み<small>{
+            ct.method === 'exempt' ? '免税事業者'
+              : ct.method === 'simplified'
+                ? `簡易課税（みなし仕入率 ${Math.round((ct.deemedRate ?? 0) * 100)}%）`
+                : '原則課税（仮受−仮払を年換算）'
+          }</small></h3>
+          {ct.method === 'exempt' ? (
+            <div className="ok-box">
+              免税事業者に設定されているため、消費税の納税は発生しない前提で計算しています。
+            </div>
+          ) : hasCt ? (
             <>
               <table className="kr-grid">
                 <thead>
                   <tr><th>項目</th><th className="num">金額（円）</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td>仮受消費税の残高（売上で預かった分）</td><td className="num">{yen(ct.received)}</td></tr>
-                  <tr><td>仮払消費税の残高（仕入等で支払った分）</td><td className="num">{yen(ct.paid)}</td></tr>
+                  <tr>
+                    <td>仮受消費税（売上で預かった分{ct.fromOpening ? '・期首からの増加' : ''}）</td>
+                    <td className="num">{yen(ct.received)}</td>
+                  </tr>
+                  {ct.method === 'simplified' ? (
+                    <tr>
+                      <td>みなし仕入れ分（{Math.round((ct.deemedRate ?? 0) * 100)}%）</td>
+                      <td className="num">{yen(-ct.received * (ct.deemedRate ?? 0))}</td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td>仮払消費税（仕入等で支払った分{ct.fromOpening ? '・期首からの増加' : ''}）</td>
+                      <td className="num">{yen(ct.paid)}</td>
+                    </tr>
+                  )}
                   <tr><td>差引（経過 {ct.elapsed}ヶ月分の納税義務の概算）</td><td className="num">{yen(ct.net)}</td></tr>
                   <tr className="total">
                     <td>年額予測（単純年換算）</td>
@@ -212,11 +255,23 @@ export default function TaxForecast() {
                   </tr>
                 </tbody>
               </table>
+              {!ct.fromOpening && (
+                <div className="muted">
+                  ※ 前期の通年データが無いため、期首残高を差し引かずに残高そのままで計算しています。
+                  期首に前期分の仮受・仮払が残っていると、そのぶん多めに出ます。
+                </div>
+              )}
+              {ct.fromOpening && ct.openingLeft !== 0 && (
+                <div className="warn-box">
+                  期首に仮受−仮払が {yen(ct.openingLeft)}円 残っていました（決算整理で未払消費税等へ
+                  振り替えていれば0になります）。この分は差し引いて計算しています。
+                </div>
+              )}
               <div className="muted">
                 前期の確定納付額: {ctPrev !== null ? `${yen(ctPrev)}円` : '—（前期末の未払消費税等から取得できません）'}
                 {ctPrev !== null && '（前期末の未払消費税等。中間納付があった場合はその控除後の金額です）'}
               </div>
-              {ct.net < 0 && (
+              {ct.method === 'general' && ct.net < 0 && (
                 <div className="warn-box">
                   仮払消費税が仮受消費税を上回っています。大きな設備投資があった場合や、
                   中間納付が仮払消費税に含まれている場合、この年換算は実際の年税額より小さく（還付側に）出ます。
@@ -225,7 +280,11 @@ export default function TaxForecast() {
               )}
             </>
           ) : (
-            <div className="muted">仮受消費税・仮払消費税の残高が見つからないため予測できません（税込経理・免税事業者の場合など）。</div>
+            <div className="warn-box">
+              仮受消費税・仮払消費税の残高が見つからないため予測できません。
+              <b>税込経理</b>の場合はこの方法では出せません。<b>免税事業者</b>であれば、
+              上の「納税予測の前提」で免税を選んでください（0円で確定します）。
+            </div>
           )}
           <div className="muted">
             消費税はお客様から預かった税金の精算であり、赤字でも納税が発生します。資金繰り上もっとも注意が必要な税金です。
