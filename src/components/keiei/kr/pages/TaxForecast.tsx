@@ -16,6 +16,8 @@ import { C, ComboChart, Kpi, LineChart, Meter, NeedData, SliderRow, fmtShort } f
 import { TaxBasisBox, resolveEqualization } from '../TaxBasis';
 import type { TaxBasis } from '../TaxBasis';
 import { loadEqPresets } from '@/lib/keiei/equalization-presets';
+import { loadLoans, next12 } from '@/lib/keiei/loans';
+import type { Loan } from '@/lib/keiei/loans';
 import type { EqPreset } from '@/lib/keiei/equalization-presets';
 import { useEffect } from 'react';
 
@@ -35,6 +37,14 @@ export default function TaxForecast() {
   // 納税予測の前提（顧問先ごとの設定）と、自治体プリセット（事務所で共有）
   const [presets, setPresets] = useState<EqPreset[]>([]);
   useEffect(() => { void loadEqPresets().then(setPresets).catch(() => setPresets([])); }, []);
+  // 借入の返済予定（FCF・借入返済バランスで登録したもの）
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const cid = api.clientId();
+  useEffect(() => {
+    let alive = true;
+    void loadLoans(cid).then(l => { if (alive) setLoans(l); }).catch(() => { if (alive) setLoans([]); });
+    return () => { alive = false; };
+  }, [cid]);
   const basis: TaxBasis = { ...api.taxBasis(), equalization: state.settings.equalization };
   const setBasis = (patch: Partial<TaxBasis>) => {
     api.setTaxBasis(patch);
@@ -100,6 +110,33 @@ export default function TaxForecast() {
   const monthlyReserve = annualTax / 12;
   const cashNow = s.cash[li];
   const cashRatio = annualTax > 0 ? cashNow / annualTax : null;
+
+  // 返済予定＋納税を同じ月に並べる（今後12ヶ月）。
+  // 決算の納付は決算月の2ヶ月後、中間納付は期首から8ヶ月後に置く（申告期限の一般的な形）。
+  const cashPlan = (() => {
+    const c0 = calYm(y, li);
+    const start = new Date(c0.year, c0.month, 1); // 報告月の翌月から
+    const fromYm = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+    const rows = next12(loans, fromYm).map(r => ({ ...r, tax: 0, taxNote: '' }));
+    const put = (ym: string, amount: number, note: string) => {
+      const hit = rows.find(r => r.ym === ym);
+      if (hit && amount > 0) { hit.tax += amount; hit.taxNote = hit.taxNote ? `${hit.taxNote}・${note}` : note; }
+    };
+    // 決算の納付月（決算月＋2ヶ月）
+    const settle = new Date(y.endYear, y.endMonth - 1 + 2, 1);
+    put(`${settle.getFullYear()}-${String(settle.getMonth() + 1).padStart(2, '0')}`,
+      annualTax, '決算の納付');
+    // 中間納付（期首＝決算月の翌月 から8ヶ月後）
+    const mid = new Date(y.endYear - 1, y.endMonth + 8, 1);
+    const midAmount = (corpInterim ?? 0) + (ctPrev !== null && ctPrev > 480_000 ? ctPrev / 2 : 0);
+    put(`${mid.getFullYear()}-${String(mid.getMonth() + 1).padStart(2, '0')}`, midAmount, '中間納付');
+    const total = rows.reduce((a, r) => ({
+      principal: a.principal + r.principal, interest: a.interest + r.interest, tax: a.tax + r.tax,
+    }), { principal: 0, interest: 0, tax: 0 });
+    const peak = rows.reduce<typeof rows[number] | null>(
+      (a, r) => (!a || (r.principal + r.interest + r.tax) > (a.principal + a.interest + a.tax) ? r : a), null);
+    return { rows, total, peak: peak && (peak.principal + peak.interest + peak.tax) > 0 ? peak : null };
+  })();
 
   // チャート: 単月の経常利益＝棒／累計の経常利益＝線（当期＝赤・前期＝灰）
   const labels = Array.from({ length: 12 }, (_, i) => `${calYm(y, i).month}月`);
@@ -348,6 +385,63 @@ export default function TaxForecast() {
             運転資金とは分けて考えておくと安心です。
           </div>
         ))}
+      </div>
+
+      {/* 返済と納税を同じ月に並べる。どちらか片方だけ見ていると「実際に困る月」が分からない */}
+      <div className="card">
+        <h3>返済と納税の資金繰り<small>
+          {loans.length ? '今後12ヶ月・返済予定＋納税の見込み' : '返済予定が未登録です'}</small></h3>
+        {loans.length === 0 ? (
+          <div className="muted">
+            「FCF・借入返済バランス」の画面で借入の返済予定を登録すると、
+            <b>返済と納税を同じ月に並べて</b>、資金が要る月を先に出せます。
+          </div>
+        ) : (
+          <>
+            <div className="table-scroll">
+              <table className="kr-grid">
+                <thead>
+                  <tr>
+                    <th>月</th>
+                    <th className="num">元金返済</th>
+                    <th className="num">利息</th>
+                    <th className="num">納税</th>
+                    <th className="num">合計</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashPlan.rows.map(r => (
+                    <tr key={r.ym} className={r.tax > 0 ? 'cf-section' : undefined}>
+                      <td>{r.ym.replace('-', '年')}月{r.taxNote ? <span className="note" style={{ marginLeft: 8 }}>{r.taxNote}</span> : null}</td>
+                      <td className="num">{r.principal ? yen(r.principal) : '—'}</td>
+                      <td className="num">{r.interest ? yen(r.interest) : '—'}</td>
+                      <td className="num">{r.tax ? yen(r.tax) : '—'}</td>
+                      <td className="num"><b>{yen(r.principal + r.interest + r.tax)}</b></td>
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td>合計</td>
+                    <td className="num">{yen(cashPlan.total.principal)}</td>
+                    <td className="num">{yen(cashPlan.total.interest)}</td>
+                    <td className="num">{yen(cashPlan.total.tax)}</td>
+                    <td className="num">{yen(cashPlan.total.principal + cashPlan.total.interest + cashPlan.total.tax)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {cashPlan.peak && (
+              <div className="warn-box">
+                いちばん資金が要るのは <b>{cashPlan.peak.ym.replace('-', '年')}月</b>で、
+                返済と納税で <b>{yen(cashPlan.peak.principal + cashPlan.peak.interest + cashPlan.peak.tax)}円</b> です。
+                この月に向けて手元資金を用意しておいてください。
+              </div>
+            )}
+            <div className="muted">
+              ※ 納税の置き方は、決算の納付を決算月の2ヶ月後、中間納付を期首から8ヶ月後に置いた目安です。
+              実際の納付月は申告期限の延長の有無などで変わります。利息は経費なので損益にも影響します。
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">

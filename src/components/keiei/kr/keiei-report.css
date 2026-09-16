@@ -804,3 +804,11 @@
   padding: 4px 7px; border: 1px solid var(--kr-line-2); border-radius: 6px; font-size: 12.5px; font-family: inherit;
 }
 @media (max-width: 720px) { .kr-root .kr-eq-wrap { grid-template-columns: 1fr; } }
+
+/* ---- 借入の返済予定（手入力） ---- */
+.kr-root .kr-loan-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 18px; }
+.kr-root .kr-loan-sum {
+  display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 8px 11px; border-radius: 9px;
+  background: var(--kr-surface-2); font-size: 12.5px; margin-top: 6px;
+}
+.kr-root .kr-loan-sum b { margin-left: 5px; font-variant-numeric: tabular-nums; }

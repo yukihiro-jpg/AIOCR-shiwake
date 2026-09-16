@@ -1,13 +1,18 @@
 'use client'
 
-import { getState } from '@/lib/keiei/kr/api';
+import { useEffect, useState } from 'react';
+import { getState, api } from '@/lib/keiei/kr/api';
 import {
   sortedYears, prevYearOf, debtSummary, timeline, ymLabel, yen, PAT,
 } from '@/lib/keiei/kr/analysis';
 import type { AccountRow } from '@/lib/keiei/kr/types';
 import {
-  C, KpiTable, LineChart, Meter, NeedData, YearNav, useYearSelection, fmtShort, fmtYen,
+  C, BarChart, KpiTable, LineChart, Meter, NeedData, YearNav, useYearSelection, fmtShort, fmtYen,
 } from '../ui';
+import { LoanEditor } from '../LoanEditor';
+import { loadLoans, saveLoans, next12, mergeSchedules } from '@/lib/keiei/loans';
+import type { Loan } from '@/lib/keiei/loans';
+import { calYm } from '@/lib/keiei/kr/analysis';
 
 /**
  * FCF・借入返済バランス:
@@ -15,10 +20,28 @@ import {
  * 債務償還年数・手元流動性・インタレスト・カバレッジで借入の健全性を
  * 金融機関目線で確認するページ。計算はすべて analysis.ts の debtSummary に任せる。
  */
+function Kpi12({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="kr-kpi">
+      <div className="muted">{label}</div>
+      <div className="val">{fmtShort(value)}円</div>
+    </div>
+  );
+}
+
 export default function Debt() {
   const state = getState();
   const years = sortedYears(state);
   const [yearId, setYearId] = useYearSelection(years);
+  // 返済予定（手入力）。入っていれば「今後12ヶ月の約定返済」を実績とは別に出す
+  const clientId = api.clientId();
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [editLoans, setEditLoans] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void loadLoans(clientId).then(l => { if (alive) setLoans(l); }).catch(() => { if (alive) setLoans([]); });
+    return () => { alive = false; };
+  }, [clientId]);
   if (!years.length) return (
     <div>
       <h2 className="page-title">FCF・借入返済バランス</h2>
@@ -29,6 +52,28 @@ export default function Debt() {
   const y = years.find(x => x.id === yearId) ?? years[years.length - 1];
   const li = y.lastFilledIndex;
   const ds = debtSummary(state, y);
+
+  // 今後12ヶ月の返済予定。起点は「報告月の翌月」（過ぎた月を入れても意味がない）
+  const nextYm = (() => {
+    const c = calYm(y, li);
+    const d = new Date(c.year, c.month, 1); // month は1始まりなので、これで翌月になる
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const plan12 = (() => {
+    const rows = next12(loans, nextYm);
+    return {
+      principal: rows.reduce((a, r) => a + r.principal, 0),
+      interest: rows.reduce((a, r) => a + r.interest, 0),
+    };
+  })();
+  // グラフ用（月末の借入残高の予定も出す）
+  const plan = (() => {
+    const merged = mergeSchedules(loans);
+    const rows = next12(loans, nextYm);
+    return rows.map(r => ({ ...r, balance: merged.get(r.ym)?.balance ?? 0 }));
+  })();
+  const planCoverage = plan12.principal > 0 ? ds.fcf / plan12.principal : null;
+
   /** 倍率・年数の表示（マイナス記号は金額表示（−）と揃える） */
   const num = (v: number, digits: number) => v.toFixed(digits).replace('-', '−');
 
@@ -207,6 +252,45 @@ export default function Debt() {
         </div>
       </div>
 
+      {/* 返済予定（手入力）。実績の返済額は「過ぎたこと」しか分からないので、
+          予定を入れておくと「これから何月にいくら返すのか」を出せる */}
+      <div className="card">
+        <h3>今後12ヶ月の約定返済<span className="kr-only-adviser">税理士のみ</span>
+          <small>{loans.length ? `返済予定 ${loans.length}本を登録済み` : '返済予定は未登録'}</small></h3>
+        {loans.length === 0 ? (
+          <div className="muted">
+            借入の返済予定を登録すると、これから何月にいくら返すのかが出せます。
+            実績の返済額（上のKPI）は過ぎた期間のものなので、資金繰りの見通しには使えません。
+            <div style={{ marginTop: 8 }}>
+              <button type="button" onClick={() => setEditLoans(true)}>返済予定を登録する</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="kpi-grid">
+              <Kpi12 label="今後12ヶ月の元金返済" value={plan12.principal} />
+              <Kpi12 label="今後12ヶ月の利息" value={plan12.interest} />
+              <Kpi12 label="元金＋利息" value={plan12.principal + plan12.interest} />
+            </div>
+            <BarChart name="元金返済" labels={plan.map(p => p.ym.slice(5) + '月')}
+              values={plan.map(p => p.principal)}
+              line={{ name: '借入残高（予定）', values: plan.map(p => p.balance) }} />
+            <div className="muted">
+              棒は左の目盛り（その月の元金返済）、緑の線は右の目盛り（月末の借入残高の予定）です。
+              {planCoverage !== null && (
+                <> 直近12ヶ月のFCF（{fmtShort(ds.fcf)}円）に対する予定返済のカバー率は
+                  <b>{planCoverage.toFixed(2)}倍</b>です。</>
+              )}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <button type="button" className="secondary small" onClick={() => setEditLoans(true)}>
+                返済予定を編集する
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="card">
         <h3>借入の内訳<small>{y.label}・科目別残高（{prevFull ? '期首＝前期末' : `期首＝${ymLabel(y, 0)}`} → 最新 {ymLabel(y, li)}）</small></h3>
         {tableRows.length === 0 ? (
@@ -265,6 +349,11 @@ export default function Debt() {
           急な入金遅れや設備故障にも慌てず対応できます。
         </div>
       </div>
+
+      {editLoans && (
+        <LoanEditor loans={loans} onClose={() => setEditLoans(false)}
+          onChange={(list) => { setLoans(list); void saveLoans(clientId, list); }} />
+      )}
     </div>
   );
 }

@@ -127,6 +127,8 @@ const REGISTRY = {
   const ALLOW_LOCAL = [
     { pre: 'keiei-years-', post: '' },     // keieiはリモート優先で独自同期（store.ts）
     { pre: 'keiei-settings-', post: '' },  // 同上
+    { pre: 'keiei-loans-', post: '' },     // 借入の返済予定。keiei と同じくリモート優先で独自同期
+                                           // （RTDB は keiei/{cid}/loans。顧問先削除で一緒に消える）
     { pre: 'bs-excel-mapping-', post: '-' }, // 旧形式（科目CD付き）。読込時に新形式へ移行済み
     { pre: 'bs-temp-pushed-', post: '' },  // 一時保存のうち「この端末が同期先へ送れた仕訳ID」。
                                            // 端末ごとの送信状況なので同期してはいけない（同期すると
