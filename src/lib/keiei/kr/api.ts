@@ -192,7 +192,11 @@ export const api = {
     onDataWrite?.()
   },
   /** 取引先の名寄せ（手動指定）を保存する */
-  setAliases(a: { toGroup: Record<string, string>; label: Record<string, string> }): void {
+  setAliases(a: {
+    toGroup: Record<string, string>
+    label: Record<string, string>
+    reviewed?: Record<string, string>
+  }): void {
     appSettings.krAliases = a
     void persistSettings()
     rebuild()
@@ -204,7 +208,11 @@ export const api = {
 }
 
 /** 保存されている取引先の名寄せ（手動指定） */
-export function getKrAliases(): { toGroup: Record<string, string>; label: Record<string, string> } {
+export function getKrAliases(): {
+  toGroup: Record<string, string>
+  label: Record<string, string>
+  reviewed?: Record<string, string>
+} {
   return appSettings.krAliases || { toGroup: {}, label: {} }
 }
 

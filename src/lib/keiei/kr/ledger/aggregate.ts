@@ -318,6 +318,29 @@ export function ledgerAccountNames(led: Ledger): Set<string> {
   return new Set(led.entries.map(e => e.an));
 }
 
+/**
+ * 摘要の表記ごとの金額（取引先の整理で「どの書き方がいくらか」を出すため）。
+ * 表記は数百〜数万になりうるので、**全明細を1回だけ走査して一括で作る**
+ * （表記ごとに集計関数を呼ぶと二乗になる）。
+ */
+export function variantAmounts(
+  led: Ledger, kinds: Map<string, AccountKind>,
+): Map<string, { amount: number; count: number }> {
+  const out = new Map<string, { amount: number; count: number }>();
+  for (const e of led.entries) {
+    if (!e.p) continue;
+    const k = kindOf(kinds, e.an);
+    if (k === 'bs') continue;               // 買掛金・売掛金の側は二重計上になる
+    const v = k === 'expense' ? e.dr - e.cr : e.cr - e.dr;
+    if (v === 0) continue;
+    const key = nameKey(e.p);
+    const b = out.get(key) ?? { amount: 0, count: 0 };
+    b.amount += v; b.count++;
+    out.set(key, b);
+  }
+  return out;
+}
+
 /** 元帳にある勘定科目のうち、質問文に出てくるもの。 */
 export function findLedgerAccount(led: Ledger, q: string): string | null {
   const t = nameKey(q);

@@ -81,11 +81,15 @@ export async function loadKrLedger(
 
 /** 名寄せの手動指定を保存する（既存の設定に相乗りするので新しい保存先は作らない） */
 export async function saveAliases(_clientId: string, aliases: AliasMap): Promise<void> {
-  api.setAliases({ toGroup: { ...aliases.toGroup }, label: { ...aliases.label } })
+  api.setAliases({
+    toGroup: { ...aliases.toGroup },
+    label: { ...aliases.label },
+    reviewed: { ...(aliases.reviewed || {}) },
+  })
 }
 
 /** 保存されている名寄せの手動指定 */
 export function loadAliases(): AliasMap {
   const a = getKrAliases()
-  return { toGroup: a.toGroup || {}, label: a.label || {} }
+  return { toGroup: a.toGroup || {}, label: a.label || {}, reviewed: a.reviewed || {} }
 }
