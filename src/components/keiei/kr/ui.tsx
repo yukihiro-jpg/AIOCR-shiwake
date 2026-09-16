@@ -215,7 +215,7 @@ export function LineChart({ labels, series, height = 240, unitHint = '', format 
 // 棒チャート（正負対応・単一色 or 正負で青/赤）
 // ---------------------------------------------------------------------------
 
-export function BarChart({ labels, values, height = 220, color = C.blue, diverging = false, name = '', format = fmtYen, axisFormat = fmtShort }: {
+export function BarChart({ labels, values, height = 220, color = C.blue, diverging = false, name = '', format = fmtYen, axisFormat = fmtShort, line }: {
   labels: string[];
   values: (number | null)[];
   height?: number;
@@ -225,9 +225,15 @@ export function BarChart({ labels, values, height = 220, color = C.blue, divergi
   name?: string;
   format?: (n: number) => string;
   axisFormat?: (n: number) => string;
+  /**
+   * 棒に重ねる折れ線（残高など）。
+   * 増減と残高は桁がまるで違うので**右側に専用の目盛りを持つ**。
+   * 同じ目盛りに載せると、残高の大きさに押されて増減の棒が潰れて読めなくなる。
+   */
+  line?: { name: string; values: (number | null)[]; color?: string };
 }) {
   const W = 760; const H = height;
-  const padL = 58; const padR = 14; const padT = 12; const padB = 26;
+  const padL = 58; const padR = line ? 62 : 14; const padT = 12; const padB = 26;
   const [hover, setHover] = useState<number | null>(null);
 
   const nums = values.filter((v): v is number => v !== null);
@@ -238,11 +244,24 @@ export function BarChart({ labels, values, height = 220, color = C.blue, divergi
   const slot = (W - padL - padR) / Math.max(1, labels.length);
   const bw = Math.min(24, slot - 2);
 
-  const tip: TipState | null = hover === null || values[hover] === null ? null : {
+  // 折れ線（右目盛り）
+  const lnums = (line?.values ?? []).filter((v): v is number => v !== null);
+  const lLo = Math.min(0, ...lnums);
+  const lHi = Math.max(0, ...lnums);
+  const lTicks = line ? niceTicks(lLo, lHi) : [];
+  const yv2 = (v: number) => padT + (1 - (v - lLo) / Math.max(1, lHi - lLo)) * (H - padT - padB);
+  const lineColor = line?.color ?? C.good;
+
+  const tipLines = hover === null ? [] : [
+    ...(values[hover] === null ? [] : [{ label: name || '金額', value: format(values[hover] as number) }]),
+    ...(line && line.values[hover] != null
+      ? [{ label: line.name, value: format(line.values[hover] as number) }] : []),
+  ];
+  const tip: TipState | null = hover === null || tipLines.length === 0 ? null : {
     leftPct: ((padL + slot * hover + slot / 2) / W) * 100,
     topPct: 8,
     title: labels[hover],
-    lines: [{ label: name || '金額', value: format(values[hover] as number) }],
+    lines: tipLines,
   };
 
   return (
@@ -277,6 +296,29 @@ export function BarChart({ labels, values, height = 220, color = C.blue, divergi
               onMouseEnter={() => setHover(i)} />
           );
         })}
+        {/* 右の目盛り（折れ線用） */}
+        {line && lTicks.map(t => (
+          <text key={`r${t}`} x={W - padR + 6} y={yv2(t) + 3.5} textAnchor="start"
+            fontSize={10.5} fill={lineColor}>{axisFormat(t)}</text>
+        ))}
+        {/* 折れ線（残高など） */}
+        {line && (() => {
+          const pts = line.values
+            .map((v, i) => (v === null ? null : { x: padL + slot * i + slot / 2, y: yv2(v), i }))
+            .filter((p): p is { x: number; y: number; i: number } => p !== null);
+          if (!pts.length) return null;
+          return (
+            <g>
+              <polyline fill="none" stroke={lineColor} strokeWidth={2}
+                strokeLinejoin="round" strokeLinecap="round"
+                points={pts.map(p => `${p.x},${p.y}`).join(' ')} />
+              {pts.map(p => (
+                <circle key={p.i} cx={p.x} cy={p.y} r={hover === p.i ? 4 : 2.8}
+                  fill="#fff" stroke={lineColor} strokeWidth={2} />
+              ))}
+            </g>
+          );
+        })()}
         {/* 当たり判定を広く */}
         {labels.map((_, i) => (
           <rect key={i} x={padL + slot * i} y={padT} width={slot} height={H - padT - padB}

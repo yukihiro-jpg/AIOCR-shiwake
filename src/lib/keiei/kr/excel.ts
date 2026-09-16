@@ -389,7 +389,8 @@ function buildCfSheet(state: State, y: FiscalYearData, company: string): SheetSp
   merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } });
   aoa.push(pad([subCell(
     `${company}　${y.label}　実績 ${y.lastFilledIndex + 1}ヶ月　（単位: 円）`
-    + '　※ 営業CF＋投資CF＋財務CF＝現預金の増減 が一致します',
+    + '　※ 営業CF＋投資CF＋財務CF＝現預金の増減 が一致します'
+    + '　※ 残高の行（月初・月末）は足し算ではなく、合計欄は期首残高・報告月末の残高です',
   )]));
   merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: nCols - 1 } });
   aoa.push(pad([]));
@@ -397,8 +398,8 @@ function buildCfSheet(state: State, y: FiscalYearData, company: string): SheetSp
   aoa.push(headers.map((h, i) => th(h, i === 0 ? 'left' : 'center')));
 
   for (const row of CF_ROWS.filter(r => !r.optional || r.pick(cf.sums) !== 0)) {
-    // 区分計は強調、内訳は1文字下げる（画面と同じ並び）
-    const kind: 'group' | 'detail' = row.section || row.last ? 'group' : 'detail';
+    // 区分計・残高は強調、内訳は1文字下げる（画面と同じ並び）
+    const kind: 'group' | 'detail' = row.section || row.last || row.balance ? 'group' : 'detail';
     const line: Cell[] = [nameCell(row.label, kind, row.indent ? 1 : 0, false)];
     for (let i = 0; i < 12; i++) {
       const m = monthAt.get(i);

@@ -20,6 +20,8 @@ import KrShell from '@/components/keiei/kr/KrShell'
 import { parseLedgerCsv, findMatchingFy } from '@/lib/keiei/ledger'
 import { saveLedger, deleteLedger } from '@/lib/keiei/ledger-store'
 import { buildKeieiExport, keieiExportFileName, keieiExportJson } from '@/lib/keiei/export-data'
+import type { KeieiExportLedger } from '@/lib/keiei/export-data'
+import { ExportJsonDialog } from './ExportJsonDialog'
 
 // 画面は移植した月次レポート・ビューア1つ（旧タブは 2026-09 に廃止し、顧問先用アプリと同じ画面へ統一）
 
@@ -34,6 +36,7 @@ export default function KeieiContent() {
   const [settings, setSettings] = useState<KeieiSettings>(defaultSettings())
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   // 期末年の確認ダイアログ（複数ファイルまとめて）
@@ -220,11 +223,11 @@ export default function KeieiContent() {
 
   // 取り込んだ試算表データ（取込済みの全期）を1つのJSONファイルとして書き出す。
   // 顧問先へ渡して別アプリに読み込ませる想定。再計算はせず保存内容をそのまま出す。
-  const exportJson = useCallback(() => {
+  const doExport = useCallback((ledger?: KeieiExportLedger) => {
     const list = sortedYears(years)
     if (!list.length) return
     const client = { code: current?.code || '', name: current?.name || '' }
-    const file = buildKeieiExport(client, years)
+    const file = buildKeieiExport(client, years, undefined, ledger)
     const blob = new Blob([keieiExportJson(file)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -234,8 +237,16 @@ export default function KeieiContent() {
     a.click()
     a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 2000)
-    setMsg(`取込データ（${list.length}期）をJSONファイルで書き出しました。`)
+    setExportOpen(false)
+    setMsg(ledger
+      ? `取込データ（${list.length}期）と元帳の明細 ${ledger.rows.length.toLocaleString('ja-JP')}件 を書き出しました。`
+      : `取込データ（${list.length}期）をJSONファイルで書き出しました。`)
   }, [years, current])
+
+  const exportJson = useCallback(() => {
+    if (!sortedYears(years).length) return
+    setExportOpen(true)
+  }, [years])
 
   // ---- 合言葉ゲート ----
   if (!roomReady) {
@@ -363,6 +374,16 @@ export default function KeieiContent() {
             onDataChanged={() => { loadYears(clientId).then(setYears).catch(() => { /* 失敗時は次の操作で再取得 */ }) }}
           />
         </div>
+      )}
+
+      {/* 顧問先へ渡すJSONの書き出し（元帳を同梱するかをここで選ぶ） */}
+      {exportOpen && (
+        <ExportJsonDialog
+          clientId={clientId}
+          years={years}
+          onClose={() => setExportOpen(false)}
+          onExport={doExport}
+        />
       )}
 
       {/* 期末年の確認ダイアログ（複数ファイルまとめて） */}

@@ -766,3 +766,8 @@
   font-size: 11px; color: var(--kr-crit); border: 1px solid #eab9b4; border-radius: 999px; padding: 0 7px;
 }
 .kr-root .kr-pvar-tag.alias { color: var(--kr-accent-ink); border-color: var(--kr-accent); }
+
+/* CF明細の残高行（月初・月末）。増減の行と見分けがつくように濃いめの地色にする */
+.kr-root table.kr-grid tr.cf-balance td {
+  background: var(--kr-surface-3); font-weight: 700;
+}

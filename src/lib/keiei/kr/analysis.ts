@@ -244,6 +244,9 @@ export interface CfMonth {
   // 検算
   dCash: number;        // 現預金の増減（実績）
   total: number;        // 営業＋投資＋財務（＝dCash になるはず）
+  // 残高（増減だけだと「いま手元にいくらあるか」が分からないので併せて持つ）
+  cashOpen: number;     // 月初の現預金残高
+  cashEnd: number;      // 月末の現預金残高
 }
 
 export interface CfResult {
@@ -274,12 +277,14 @@ function cfBetween(s: YearSeries, i: number, prevOf: (sel: SeriesPick) => number
   const dLease = d(x => x.lease);
   const dEquityEtc = d(x => x.equity) - net;
   const finCf = dDebt + dLease + dEquityEtc;
+  const cashEnd = s.cash[i];
   const dCash = d(x => x.cash);
   return {
     mi: i, label: ymLabel(s.y, i),
     net, dep, dRecv, dInv, dPay, dOtherWc, saleAdj, opCf,
     invCf, dDebt, dLease, dEquityEtc, finCf,
     dCash, total: opCf + invCf + finCf,
+    cashOpen: cashEnd - dCash, cashEnd,
   };
 }
 
@@ -299,6 +304,9 @@ export function cashFlowOf(state: State, y: FiscalYearData): CfResult {
   }
   const keys = ['net', 'dep', 'dRecv', 'dInv', 'dPay', 'dOtherWc', 'saleAdj', 'opCf', 'invCf', 'dDebt', 'dLease', 'dEquityEtc', 'finCf', 'dCash', 'total'] as const;
   const sums = Object.fromEntries(keys.map(k => [k, sum(months.map(m => m[k]))])) as CfResult['sums'];
+  // 残高は足し算ではない。合計欄には「期首＝最初の月の月初」「期末＝最後の月の月末」を置く
+  sums.cashOpen = months.length ? months[0].cashOpen : 0;
+  sums.cashEnd = months.length ? months[months.length - 1].cashEnd : 0;
   return { months, sums, hasOpening: !!prevS };
 }
 
@@ -314,6 +322,11 @@ export interface CfRowDef {
   last?: boolean;
   /** 合計が0のときは行ごと隠す（固定資産売却の振替など） */
   optional?: boolean;
+  /**
+   * 残高の行（月初・月末）。増減ではないので合計欄は足し算にならず、
+   * 期首残高・期末残高が入る。画面では区分計とは別の見た目にする
+   */
+  balance?: boolean;
 }
 
 /**
@@ -324,6 +337,9 @@ export interface CfRowDef {
  *   現預金の増減（3区分の合計）
  */
 export const CF_ROWS: CfRowDef[] = [
+  // 残高は足し合わせるものではないので、合計欄には期首・期末を置いている（cashFlowOf 参照）
+  { label: '月初の現預金残高', pick: m => m.cashOpen, balance: true },
+
   { label: '営業CF計', pick: m => m.opCf, section: true },
   { label: '当期純利益', pick: m => m.net, indent: true },
   { label: '＋減価償却費', pick: m => m.dep, indent: true },
@@ -348,6 +364,7 @@ export const CF_ROWS: CfRowDef[] = [
   { label: '増資・配当等', pick: m => m.dEquityEtc, indent: true },
 
   { label: '現預金の増減（営業＋投資＋財務）', pick: m => m.dCash, last: true },
+  { label: '月末の現預金残高', pick: m => m.cashEnd, balance: true },
 ];
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,8 @@ export const STATE_VERSION = 2;
 
 /** 取込JSONのスキーマ識別子（これ以外のファイルは受け付けない） */
 export const IMPORT_SCHEMA = 'keiei-monthly/1';
+/** 元帳を同梱できるようにした版。受け取る側は 1 と 2 の両方を読む */
+export const IMPORT_SCHEMA_V2 = 'keiei-monthly/2';
 
 /** 月次推移表の1行（勘定科目 or 小計行）。 */
 export interface AccountRow {

@@ -6,6 +6,8 @@ import { parseImport, previewOf, approxStateBytes } from '@/lib/keiei/kr/import-
 import type { ParsedImport } from '@/lib/keiei/kr/import-json';
 import { useRerender } from '../ui';
 import { sortedYears } from '@/lib/keiei/kr/analysis';
+import { saveLedger } from '@/lib/keiei/ledger-store';
+import { invalidateLedger } from '@/lib/keiei/kr/ledger/useLedger';
 
 /**
  * データ取込:
@@ -37,10 +39,32 @@ export default function DataImport() {
     if (!pending) return;
     api.importData(pending);
     const bytes = approxStateBytes(getState());
+    const led = pending.ledger;
     setPending(null);
     setDone(`取り込みました（${pending.years.length}年度分）。`
+      + (led ? `元帳の明細 ${led.rows.length.toLocaleString('ja-JP')}件 も取り込みます。` : '')
       + (bytes > 800_000 ? ' ※データ量が大きくなっています。古い年度の削除をご検討ください。' : ''));
     rerender();
+    // 元帳が同梱されていれば、CSVから取り込んだときと同じ保存先（IndexedDB）へ入れる。
+    // 保存に失敗しても試算表の取込はすでに済んでいるので、画面は壊さず知らせるだけにする
+    if (led) {
+      void (async () => {
+        try {
+          await saveLedger(api.clientId(), led.yearId || 'imported', {
+            accounts: ledgerAccountsOf(led),
+            fileName: 'JSONに同梱された元帳',
+            importedAt: new Date().toISOString(),
+            minDate: led.from, maxDate: led.to, txCount: led.rows.length,
+          });
+          // 事務所で確定させた名寄せが入っていれば、そのまま使う（顧問先側で計算し直さない）
+          if (led.aliases) api.setAliases({ ...led.aliases, reviewed: {} });
+          invalidateLedger();
+          rerender();
+        } catch (e) {
+          setError(`元帳の保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      })();
+    }
   };
 
   const years = sortedYears(state);
@@ -151,4 +175,23 @@ export default function DataImport() {
       </div>
     </div>
   );
+}
+
+/** 同梱された明細を、元帳の保存形式（科目ごとのまとまり）へ戻す。 */
+function ledgerAccountsOf(led: NonNullable<ParsedImport['ledger']>) {
+  const byAcc = new Map<string, { code: string; name: string; opening: number; txs: {
+    date: string; month: number; counterCode: string; counterName: string;
+    memo: string; debit: number; credit: number; taxRate: number | null;
+  }[] }>();
+  for (const r of led.rows) {
+    const k = `${r.ac}|${r.an}`;
+    let a = byAcc.get(k);
+    if (!a) { a = { code: r.ac, name: r.an, opening: 0, txs: [] }; byAcc.set(k, a); }
+    a.txs.push({
+      date: r.d, month: Number(r.d.slice(5, 7)) || 0,
+      counterCode: '', counterName: r.ca, memo: r.no,
+      debit: r.dr, credit: r.cr, taxRate: null,
+    });
+  }
+  return Array.from(byAcc.values());
 }

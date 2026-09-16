@@ -90,10 +90,18 @@ export default function CashFlow() {
           </div>
 
           <div className="card">
-            <h3>月次の現預金増減<small>プラス=増加・マイナス=減少</small></h3>
+            <h3>月次の現預金増減<small>棒=増減（プラス=青・マイナス=赤）／緑の線=月末残高</small></h3>
             <BarChart diverging name="現預金の増減"
               labels={monthLabels}
-              values={Array.from({ length: 12 }, (_, i) => monthAt.get(i)?.dCash ?? null)} />
+              values={Array.from({ length: 12 }, (_, i) => monthAt.get(i)?.dCash ?? null)}
+              line={{
+                name: '月末の現預金残高',
+                values: Array.from({ length: 12 }, (_, i) => monthAt.get(i)?.cashEnd ?? null),
+              }} />
+            <div className="muted">
+              棒は左の目盛り（その月の増減）、線は右の目盛り（月末の残高）です。
+              増減と残高は桁が違うため、目盛りを分けています。
+            </div>
           </div>
 
           <div className="card">
@@ -112,7 +120,7 @@ export default function CashFlow() {
                     const total = row.pick(cf.sums);
                     return (
                       <tr key={row.label}
-                        className={row.last ? 'total' : row.section ? 'cf-section' : undefined}>
+                        className={row.balance ? 'cf-balance' : row.last ? 'total' : row.section ? 'cf-section' : undefined}>
                         <td className={`cf-item${row.indent ? ' cf-indent' : ''}`}>{row.label}</td>
                         {Array.from({ length: 12 }, (_, i) => cell(i, row))}
                         <td className={`num${total < 0 ? ' neg' : ''}`}>{yen(total)}</td>
@@ -127,6 +135,8 @@ export default function CashFlow() {
               「資金への影響額」で表示しているため、内訳を足すとその区分の計と一致します。
               売上債権・棚卸資産は増えるとお金が減るため符号を反転（プラス＝回収が進んで資金増）、
               仕入債務は増えるとお金が残るためそのまま表示しています。
+              いちばん上と下の<b>残高</b>の行は足し算ではないので、合計欄には
+              <b>期首の残高</b>と<b>報告月末の残高</b>が入ります（月初残高＋増減＝月末残高）。
             </div>
           </div>
         </>

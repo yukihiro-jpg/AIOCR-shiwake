@@ -5,7 +5,7 @@
 // 例外を投げて取り込まない（既存データを上書きしない）。
 
 import type { AccountRow, FiscalYearData, State } from './types';
-import { IMPORT_SCHEMA } from './types';
+import { IMPORT_SCHEMA, IMPORT_SCHEMA_V2 } from './types';
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -17,11 +17,22 @@ export interface ImportPreview {
   years: { id: string; label: string; months: number; rows: number }[];
 }
 
+/** JSONに同梱された元帳（schema 2 以降。無ければ undefined）。 */
+export interface ParsedLedger {
+  yearId: string;
+  from: string;
+  to: string;
+  rows: { d: string; ac: string; an: string; ca: string; no: string; dr: number; cr: number }[];
+  aliases?: { toGroup: Record<string, string>; label: Record<string, string> };
+  excluded?: string[];
+}
+
 /** 取込JSON全体。検証済み。 */
 export interface ParsedImport {
   client: { code: string; name: string };
   generatedAt: string;
   years: FiscalYearData[];
+  ledger?: ParsedLedger;
 }
 
 function normalizeRow(r: Record<string, unknown>): AccountRow {
@@ -69,7 +80,9 @@ export function parseImport(text: string): ParsedImport {
   }
   if (!obj || typeof obj !== 'object') throw new Error('ファイルの内容が想定と異なります。');
   const d = obj as Record<string, unknown>;
-  if (d.schema !== IMPORT_SCHEMA) {
+  // schema 1（試算表のみ）と 2（元帳を同梱できる）の両方を受け取る。
+  // 古い書き出しファイルもそのまま読めるようにしておく
+  if (d.schema !== IMPORT_SCHEMA && d.schema !== IMPORT_SCHEMA_V2) {
     throw new Error(`このファイルは対応形式（${IMPORT_SCHEMA}）ではありません。月次推移の書き出しファイルを選択してください。`);
   }
   const client = (d.client && typeof d.client === 'object' ? d.client : {}) as Record<string, unknown>;
@@ -86,6 +99,36 @@ export function parseImport(text: string): ParsedImport {
     client: { code: str(client.code), name: str(client.name) },
     generatedAt: str(d.generatedAt),
     years,
+    ledger: normalizeLedger(d.ledger),
+  };
+}
+
+/** 同梱された元帳の検証。壊れていたら「無かったこと」にする（試算表の取込は続ける）。 */
+function normalizeLedger(v: unknown): ParsedLedger | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const l = v as Record<string, unknown>;
+  const rowsRaw = Array.isArray(l.rows) ? l.rows : [];
+  const rows = rowsRaw
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+    .map(r => ({
+      d: str(r.d), ac: str(r.ac), an: str(r.an), ca: str(r.ca), no: str(r.no),
+      dr: num(r.dr), cr: num(r.cr),
+    }))
+    .filter(r => r.d && r.an);
+  if (!rows.length) return undefined;
+  const al = (l.aliases && typeof l.aliases === 'object' ? l.aliases : null) as Record<string, unknown> | null;
+  return {
+    yearId: str(l.yearId),
+    from: str(l.from) || rows[0].d,
+    to: str(l.to) || rows[rows.length - 1].d,
+    rows,
+    ...(al ? {
+      aliases: {
+        toGroup: (al.toGroup && typeof al.toGroup === 'object' ? al.toGroup : {}) as Record<string, string>,
+        label: (al.label && typeof al.label === 'object' ? al.label : {}) as Record<string, string>,
+      },
+    } : {}),
+    ...(Array.isArray(l.excluded) ? { excluded: l.excluded.map(str).filter(Boolean) } : {}),
   };
 }
 
