@@ -82,6 +82,38 @@ export function findRate(
     ?? null
 }
 
+/**
+ * src の **都道府県分だけ** を base へ重ねる（市町村分はそのまま残す）。
+ *
+ * 同じ県に顧問先が何社もあるとき、市町村ごとに県分を入れ直させるのは手間なだけでなく、
+ * 打ち間違いで同じ県なのに金額が違うプリセットができてしまう。
+ */
+export function withPrefRatesFrom(base: EqRate[], src: EqRate[]): EqRate[] {
+  const out = base.map((r) => ({ ...r }))
+  for (const s of src) {
+    if (!s.pref) continue
+    const hit = out.find((r) => r.capital === s.capital && r.staffOver50 === s.staffOver50)
+    if (hit) hit.pref = s.pref
+    else out.push({ capital: s.capital, staffOver50: s.staffOver50, pref: s.pref, city: 0 })
+  }
+  const ord = 'abcde'
+  out.sort((x, y) =>
+    ord.indexOf(x.capital) - ord.indexOf(y.capital)
+    || Number(x.staffOver50) - Number(y.staffOver50))
+  return out
+}
+
+/** 同じ都道府県で、都道府県分の金額が入っているプリセットを探す。 */
+export function findPrefSource(
+  list: EqPreset[], prefName: string, exceptId: string,
+): EqPreset | null {
+  const key = (prefName || '').trim()
+  if (!key) return null
+  return list.find(
+    (p) => p.id !== exceptId && p.pref.trim() === key && p.rates.some((r) => r.pref > 0),
+  ) ?? null
+}
+
 function readLocal(): EqPreset[] {
   if (typeof window === 'undefined') return []
   try {

@@ -10,7 +10,7 @@ import { useState } from 'react';
 import { getState, api } from '@/lib/keiei/kr/api';
 import {
   sortedYears, yearSeries, prevYearOf, calYm, forecastOf,
-  corpTaxEstimate, consumptionTaxForecast, yen,
+  corpTaxEstimate, consumptionTaxForecast, settledCorpTax, yen,
 } from '@/lib/keiei/kr/analysis';
 import { C, ComboChart, Kpi, LineChart, Meter, NeedData, SliderRow, fmtShort } from '../ui';
 import { TaxBasisBox, resolveEqualization } from '../TaxBasis';
@@ -69,11 +69,16 @@ export default function TaxForecast() {
   const fc = forecastOf(state, y, adjPct / 100);
   // 均等割は自治体プリセットから引く（決まらなければ手入力の値）
   const eq = resolveEqualization(basis, presets);
-  const tax = corpTaxEstimate(fc.landing.pretax, eq.total);
+  const tax = corpTaxEstimate(fc.landing.pretax, eq.total, {
+    carryLoss: basis.carryLoss, capital: basis.eqCapital,
+  });
   const ct = consumptionTaxForecast(state, y, {
     method: basis.ctMethod, biz: basis.ctBiz, deemedRate: basis.ctDeemedRate,
   });
-  const isLoss = fc.landing.pretax <= 0;
+  // 決算整理（税額計算）まで終わった試算表なら、予測ではなく計上済みの確定額を使う
+  const corpSettled = settledCorpTax(y);
+  const corpTotal = corpSettled.settled ? corpSettled.amount : tax.total;
+  const isLoss = tax.income <= 0;
   // 免税なら「予測できない」ではなく「0で確定」。科目が無い場合だけ予測できない
   const hasCt = ct.method === 'exempt' || ct.hasAccounts;
 
@@ -106,7 +111,7 @@ export default function TaxForecast() {
 
   // 納税準備: （法人税等予測＋消費税年額予測）÷ 12 の月割積立
   const ctAnnualForReserve = hasCt ? Math.max(0, ct.annual) : 0;
-  const annualTax = tax.total + ctAnnualForReserve;
+  const annualTax = corpTotal + ctAnnualForReserve;
   const monthlyReserve = annualTax / 12;
   const cashNow = s.cash[li];
   const cashRatio = annualTax > 0 ? cashNow / annualTax : null;
@@ -229,12 +234,35 @@ export default function TaxForecast() {
 
       <div className="row">
         <div className="card">
-          <h3>法人税等の見込み<small>課税所得 ≒ 税引前利益 {yen(tax.income)}円 で近似</small></h3>
+          <h3>法人税等の見込み<small>課税所得 {yen(tax.income)}円で計算</small></h3>
+          {corpSettled.settled && (
+            <div className="ok-box">
+              この期は決算整理まで終わっているため、<b>計上済みの {yen(corpSettled.amount)}円</b> を
+              納税見込みとして使っています（{corpSettled.source}）。下の表は簡易計算の内訳で、
+              別表調整が入っている分だけ計上額とずれます。
+            </div>
+          )}
           {isLoss && (
             <div className="warn-box">
-              通期見込みが赤字（利益ゼロ以下）のため、所得にかかる法人税・事業税などは発生しない見込みです。
+              {tax.lossUsed > 0
+                ? `繰越欠損金 ${yen(tax.lossUsed)}円 を差し引いた結果、課税所得がゼロになります。`
+                : '通期見込みが赤字（利益ゼロ以下）のため、'}
+              所得にかかる法人税・事業税などは発生しない見込みです。
               納税は住民税の均等割 {yen(tax.equalization)}円のみとなります（均等割は赤字でも必ず発生します）。
             </div>
+          )}
+          {(basis.carryLoss ?? 0) > 0 && (
+            <table className="kr-grid" style={{ marginBottom: 10 }}>
+              <tbody>
+                <tr><td>税引前利益（着地見込み）</td><td className="num">{yen(tax.incomeBefore)}</td></tr>
+                <tr>
+                  <td>繰越欠損金の控除{tax.lossLimitRate < 1 ? '（所得の50%まで）' : ''}</td>
+                  <td className="num">{yen(-tax.lossUsed)}</td>
+                </tr>
+                <tr className="total"><td>課税所得</td><td className="num">{yen(tax.income)}</td></tr>
+                <tr><td>翌期へ繰り越す欠損金</td><td className="num">{yen(tax.lossCarry)}</td></tr>
+              </tbody>
+            </table>
           )}
           <table className="kr-grid">
             <thead>
@@ -250,11 +278,18 @@ export default function TaxForecast() {
               <tr className="total"><td>合計</td><td className="num">{yen(tax.total)}</td><td></td></tr>
             </tbody>
           </table>
+          {!(basis.carryLoss ?? 0) && (
+            <div className="muted">
+              繰越欠損金が未設定です。前期末の申告書（別表七(一)）の翌期繰越額を上の
+              「納税予測の前提」に入れると、黒字転換した期の税額を出しすぎずに済みます。
+            </div>
+          )}
         </div>
 
         <div className="card">
           <h3>消費税の見込み<small>{
-            ct.method === 'exempt' ? '免税事業者'
+            ct.method !== 'exempt' && ct.settled.settled ? '決算整理済み（計上額）'
+              : ct.method === 'exempt' ? '免税事業者'
               : ct.method === 'simplified'
                 ? `簡易課税（みなし仕入率 ${Math.round((ct.deemedRate ?? 0) * 100)}%）`
                 : '原則課税（仮受−仮払を年換算）'
@@ -263,6 +298,31 @@ export default function TaxForecast() {
             <div className="ok-box">
               免税事業者に設定されているため、消費税の納税は発生しない前提で計算しています。
             </div>
+          ) : ct.settled.settled ? (
+            <>
+              <div className="ok-box">
+                この期は決算整理まで終わっています（仮受・仮払消費税が未払消費税等へ振替済み）。
+                そのため年換算の予測ではなく、<b>計上済みの確定額</b>を使っています。
+              </div>
+              <table className="kr-grid">
+                <thead><tr><th>項目</th><th className="num">金額（円）</th></tr></thead>
+                <tbody>
+                  <tr><td>{ct.settled.source}</td><td className="num">{yen(ct.settled.amount)}</td></tr>
+                  <tr className="total">
+                    <td>確定納付額</td>
+                    <td className="num">
+                      {ct.settled.amount < 0
+                        ? <span className="neg">{yen(ct.settled.amount)}（還付）</span>
+                        : yen(ct.settled.amount)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="muted">
+                中間納付をしている場合、この金額は中間納付を差し引いたあとの残りです。
+                期中の試算表（振替前）に戻すと、仮受−仮払の年換算による見込みに切り替わります。
+              </div>
+            </>
           ) : hasCt ? (
             <>
               <table className="kr-grid">
@@ -362,7 +422,7 @@ export default function TaxForecast() {
         <h3>納税準備（月割積立）<small>決算・中間納付で慌てないための毎月の積立目安</small></h3>
         <div className="kpi-grid">
           <Kpi label="年間の納税見込み合計" value={`${fmtShort(annualTax)}円`}
-            sub={`法人税等 ${fmtShort(tax.total)}円 ＋ 消費税 ${fmtShort(ctAnnualForReserve)}円`} />
+            sub={`法人税等 ${fmtShort(corpTotal)}円 ＋ 消費税 ${fmtShort(ctAnnualForReserve)}円`} />
           <Kpi label="月割の積立目安" value={`${fmtShort(monthlyReserve)}円`}
             sub="納税見込み合計 ÷ 12ヶ月" />
           <Kpi label="現預金残高（最新月）" value={`${fmtShort(cashNow)}円`}
@@ -453,8 +513,9 @@ export default function TaxForecast() {
           売上調整率のスライダーを動かすと「売上がこのまま推移したら納税はいくらになるか」をその場で確認できます。
         </div>
         <div className="warn-box">
-          ※ 本ページの税額は簡易計算（標準税率・中小法人の目安）です。繰越欠損金・別表調整・
-          軽減税率の適用状況は考慮していないため、正式な税額は申告計算で確定します。
+          ※ 本ページの税額は簡易計算（標準税率・中小法人の目安）です。繰越欠損金は上の
+          「納税予測の前提」に入れた残高を所得から差し引きますが、繰越期間（10年）の管理や
+          別表調整・軽減税率の適用状況は考慮していないため、正式な税額は申告計算で確定します。
         </div>
       </div>
     </div>

@@ -735,7 +735,15 @@ export function forecastOf(state: State, y: FiscalYearData, salesAdjOverride?: n
 // ---------------------------------------------------------------------------
 
 export interface CorpTaxDetail {
-  income: number;        // 課税所得（≒税引前利益で近似）
+  income: number;        // 課税所得（繰越欠損金の控除後）
+  /** 控除前の所得（≒税引前利益） */
+  incomeBefore: number;
+  /** 当期に使った繰越欠損金 */
+  lossUsed: number;
+  /** 翌期へ繰り越す欠損金（使い残し＋当期の欠損） */
+  lossCarry: number;
+  /** 控除の上限率（中小法人 100% / それ以外 50%） */
+  lossLimitRate: number;
   corpTax: number;       // 法人税（軽減税率15%/23.2%）
   localCorpTax: number;  // 地方法人税（法人税×10.3%）
   inhabitantTax: number; // 住民税法人税割（法人税×7%）
@@ -747,10 +755,28 @@ export interface CorpTaxDetail {
 
 /**
  * 法人税等の簡易計算（標準税率・中小法人の目安）。
- * 課税所得は税引前利益で近似する（繰越欠損金・別表調整は考慮しない）。
+ *
+ * 課税所得は税引前利益で近似し、**繰越欠損金を控除してから**税額を計算する。
+ * 繰越欠損金を無視すると、黒字転換した期の税額を大きく出しすぎて
+ * 「予測より実際の納税がずっと少ない」という外し方をする（顧問先の資金計画を誤らせる）。
+ *
+ * 控除の上限は中小法人（資本金1億円以下）が所得の100%、それ以外は50%。
+ * 繰越期間（10年）の管理はここではできない（発生年度の内訳を持っていないため）ので、
+ * 入力された残高はすべて期限内という前提で計算する。
  */
-export function corpTaxEstimate(income: number, equalization: number): CorpTaxDetail {
-  const inc = Math.max(0, income);
+export function corpTaxEstimate(
+  income: number, equalization: number,
+  opts: { carryLoss?: number; capital?: number } = {},
+): CorpTaxDetail {
+  const incomeBefore = income;
+  const carry = Math.max(0, opts.carryLoss ?? 0);
+  // 資本金1億円以下（未入力も中小とみなす）は全額、それ以外は所得の50%まで
+  const lossLimitRate = (opts.capital ?? 0) > 100_000_000 ? 0.5 : 1;
+  const positive = Math.max(0, incomeBefore);
+  const lossUsed = Math.min(carry, positive * lossLimitRate);
+  // 使い残し ＋ 当期が赤字ならその赤字も翌期へ繰り越す
+  const lossCarry = carry - lossUsed + Math.max(0, -incomeBefore);
+  const inc = Math.max(0, positive - lossUsed);
   const corpTax = Math.min(inc, 8_000_000) * 0.15 + Math.max(0, inc - 8_000_000) * 0.232;
   const localCorpTax = corpTax * 0.103;
   const inhabitantTax = corpTax * 0.07;
@@ -765,10 +791,54 @@ export function corpTaxEstimate(income: number, equalization: number): CorpTaxDe
     bizTax: round(bizTax), specialBizTax: round(specialBizTax),
   };
   return {
-    income: inc, ...parts,
+    income: inc, incomeBefore, lossUsed, lossCarry, lossLimitRate, ...parts,
     total: parts.corpTax + parts.localCorpTax + parts.inhabitantTax
       + parts.equalization + parts.bizTax + parts.specialBizTax,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 決算整理（税額計算）が済んでいるかの判定
+// ---------------------------------------------------------------------------
+
+/**
+ * 「予測」ではなく「計上済みの確定額」を出せる状態かを判定する。
+ *
+ * 決算整理まで終わった試算表を取り込むと、仮受・仮払消費税は未払消費税等へ振り替えられて
+ * **期末残高が0になる**。このとき仮受−仮払の年換算はどう計算しても0円になり、
+ * 画面には「消費税0円」と出てしまう（実際には未払消費税等に納税額が載っている）。
+ * そこで、振替済みと分かったら未払消費税等の残高をそのまま確定額として使う。
+ */
+export interface SettledTax {
+  /** 計上済みの確定額として使えるか */
+  settled: boolean;
+  /** 計上済みの金額（円）。マイナスなら還付 */
+  amount: number;
+  /** どこから取ったか（画面に出して根拠が分かるようにする） */
+  source: string;
+}
+
+const NOT_SETTLED: SettledTax = { settled: false, amount: 0, source: '' };
+
+/** 消費税: 仮受・仮払が期末0（＝未払消費税等へ振替済み）なら、その残高が確定額。 */
+export function settledConsumptionTax(y: FiscalYearData): SettledTax {
+  const li = y.lastFilledIndex;
+  const recv = sumByName(y, 'BS', /仮受消費税/);
+  const paid = sumByName(y, 'BS', /仮払消費税/);
+  const moved = recv.some(v => v !== 0) || paid.some(v => v !== 0);
+  // 期中に動きがあったのに期末が0 ＝ 決算整理で振り替えたあと
+  if (!moved || recv[li] !== 0 || paid[li] !== 0) return NOT_SETTLED;
+  const unpaid = sumByName(y, 'BS', /未払消費税/)[li];
+  if (unpaid === 0) return NOT_SETTLED;
+  return { settled: true, amount: unpaid, source: '未払消費税等の期末残高' };
+}
+
+/** 法人税等: 通期の実績が揃っていて、損益計算書に法人税等が計上されていれば確定額。 */
+export function settledCorpTax(y: FiscalYearData): SettledTax {
+  if (y.lastFilledIndex !== 11) return NOT_SETTLED;
+  const tax = sumByName(y, 'PL', PAT.taxRow).slice(0, 12).reduce((a, b) => a + b, 0);
+  if (tax === 0) return NOT_SETTLED;
+  return { settled: true, amount: tax, source: '損益計算書の法人税・住民税等の計上額' };
 }
 
 /** 簡易課税のみなし仕入率（事業区分ごと）。 */
@@ -800,6 +870,8 @@ export interface ConsumptionTaxForecast {
   openingLeft: number;
   /** 仮受・仮払の科目が見つかったか（税込経理・免税だと無い） */
   hasAccounts: boolean;
+  /** 決算整理で未払消費税等へ振り替え済みなら、その確定額 */
+  settled: SettledTax;
 }
 
 /**
@@ -848,13 +920,20 @@ export function consumptionTaxForecast(
     const unpaid = sumByName(prevY, 'BS', /未払消費税/);
     prevActual = unpaid[11] > 0 ? unpaid[11] : null;
   }
+  // 決算整理済み（仮受・仮払を未払消費税等へ振替済み）なら、年換算ではなく確定額を使う。
+  // ここを見ないと、税額計算まで終わった試算表で「消費税0円」と出てしまう
+  const settled = method === 'exempt' ? NOT_SETTLED : settledConsumptionTax(y);
+  const annual = method === 'exempt' ? 0
+    : settled.settled ? settled.amount
+      : (elapsed > 0 ? (net / elapsed) * 12 : 0);
+
   return {
-    method, received, paid: paidV, net, elapsed,
-    annual: method === 'exempt' ? 0 : (elapsed > 0 ? (net / elapsed) * 12 : 0),
+    method, received, paid: paidV, net, elapsed, annual,
     prevActual, deemedRate: deemed,
     fromOpening: !!prevFull,
     openingLeft: openRecv - openPaid,
-    hasAccounts,
+    hasAccounts: hasAccounts || settled.settled,
+    settled,
   };
 }
 

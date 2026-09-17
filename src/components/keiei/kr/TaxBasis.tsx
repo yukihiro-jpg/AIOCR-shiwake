@@ -15,7 +15,7 @@
 import { useEffect, useState } from 'react'
 import {
   CAPITAL_BRACKETS, capitalBracketOf, capitalLabel, eqPresetLabel, findRate,
-  loadEqPresets, saveEqPresets, newEqPresetId,
+  loadEqPresets, saveEqPresets, newEqPresetId, withPrefRatesFrom, findPrefSource,
 } from '@/lib/keiei/equalization-presets'
 import type { EqPreset, CapitalKey } from '@/lib/keiei/equalization-presets'
 import { EqTableImport } from './EqTableImport'
@@ -33,6 +33,8 @@ export interface TaxBasis {
   ctMethod?: CtMethod
   ctBiz?: number
   ctDeemedRate?: number
+  /** 繰越欠損金の残高（前期末の申告書 別表七(一) の翌期繰越額） */
+  carryLoss?: number
 }
 
 /** 設定から実際に使う均等割を決める。プリセットで決まればそれ、決まらなければ手入力。 */
@@ -163,6 +165,29 @@ export function TaxBasisBox({ basis, onChange }: {
                 : '納税は発生しない前提で計算します。'}
           </div>
         </div>
+
+        {/* ---- 法人税（繰越欠損金） ---- */}
+        <div className="kr-basis-col">
+          <div className="kr-basis-h">法人税の前提</div>
+          <label className="kr-basis-row">
+            <span>繰越欠損金</span>
+            <input type="number" value={basis.carryLoss ?? ''} placeholder="例) 12000000"
+              onChange={e => onChange({
+                carryLoss: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0),
+              })} />
+          </label>
+          <div className="kr-basis-note">
+            前期末の申告書「別表七(一)」の翌期繰越額を入れてください。
+            所得から差し引いてから法人税・事業税を計算します
+            {(basis.eqCapital ?? 0) > 100_000_000
+              ? '（資本金1億円超のため、控除は所得の50%までとして計算します）'
+              : '（中小法人として所得の全額まで控除できる前提です）'}。
+          </div>
+          <div className="kr-basis-note">
+            繰越期間（10年）の管理はできません。発生年度の古いものが期限切れになっていないか、
+            申告書で確かめてから入れてください。
+          </div>
+        </div>
       </div>
 
       {manage && (
@@ -182,10 +207,39 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
   const [list, setList] = useState<EqPreset[]>(() => JSON.parse(JSON.stringify(presets)) as EqPreset[])
   const [sel, setSel] = useState<string>(presets[0]?.id ?? '')
   const [importing, setImporting] = useState(false)
+  const [carried, setCarried] = useState('')
   const cur = list.find(p => p.id === sel) ?? null
 
   const update = (id: string, patch: Partial<EqPreset>) =>
     setList(l => l.map(p => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)))
+
+  /**
+   * 都道府県名を入れたとき、同じ県の登録が既にあれば **都道府県分を引き継ぐ**。
+   * 県が変わらないのに毎回入れ直すのは手間なだけでなく、
+   * 打ち間違いで同じ県なのに金額の違うプリセットができてしまう。
+   * すでに都道府県分を入れてあるプリセットは上書きしない。
+   */
+  const setPrefName = (id: string, name: string) => {
+    const p = list.find(x => x.id === id)
+    if (!p) return
+    if (p.rates.some(r => r.pref > 0)) { update(id, { pref: name }); setCarried(''); return }
+    const src = findPrefSource(list, name, id)
+    if (!src) { update(id, { pref: name }); setCarried(''); return }
+    update(id, { pref: name, rates: withPrefRatesFrom(p.rates, src.rates) })
+    setCarried(`${eqPresetLabel(src)} から都道府県分を引き継ぎました（市町村分は入力してください）`)
+  }
+
+  /** いま開いている自治体の都道府県分を、同じ県の他の自治体へ配る（税率改正のとき用）。 */
+  const pushPrefToSiblings = (p: EqPreset) => {
+    const targets = list.filter(x => x.id !== p.id && x.pref.trim() === p.pref.trim())
+    if (!targets.length) return
+    if (!confirm(`${p.pref}の他の ${targets.length}件（${targets.map(eqPresetLabel).join('・')}）の`
+      + '都道府県分を、この内容で上書きします。よろしいですか？')) return
+    const ids = new Set(targets.map(x => x.id))
+    setList(l => l.map(x => (ids.has(x.id)
+      ? { ...x, rates: withPrefRatesFrom(x.rates, p.rates), updatedAt: Date.now() } : x)))
+    setCarried(`${targets.length}件へ都道府県分を反映しました`)
+  }
 
   const add = () => {
     const p: EqPreset = { id: newEqPresetId(), pref: '', city: '', rates: [], updatedAt: Date.now() }
@@ -230,9 +284,14 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
               <>
                 <div className="kr-basis-row">
                   <span>都道府県</span>
-                  <input value={cur.pref} placeholder="例) 茨城県"
-                    onChange={e => update(cur.id, { pref: e.target.value })} />
+                  <input value={cur.pref} placeholder="例) 茨城県" list="kr-eq-prefs"
+                    onChange={e => setPrefName(cur.id, e.target.value)} />
+                  <datalist id="kr-eq-prefs">
+                    {Array.from(new Set(list.map(p => p.pref.trim()).filter(Boolean)))
+                      .map(p => <option key={p} value={p} />)}
+                  </datalist>
                 </div>
+                {carried && <div className="kr-basis-note" style={{ marginLeft: 0 }}>{carried}</div>}
                 <div className="kr-basis-row">
                   <span>市町村</span>
                   <input value={cur.city} placeholder="例) 水戸市"
@@ -305,6 +364,11 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
                   <button type="button" className="secondary small" onClick={() => setImporting(true)}>
                     📋 税率表を貼り付けて取り込む
                   </button>
+                  {list.some(x => x.id !== cur.id && x.pref.trim() === cur.pref.trim() && cur.pref.trim()) && (
+                    <button type="button" className="secondary small" onClick={() => pushPrefToSiblings(cur)}>
+                      都道府県分を{cur.pref}の他の自治体へ反映
+                    </button>
+                  )}
                   <button type="button" className="secondary small"
                     onClick={() => {
                       if (!confirm(`「${eqPresetLabel(cur)}」を削除しますか？`)) return

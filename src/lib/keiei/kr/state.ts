@@ -44,6 +44,11 @@ export interface KrExtraSettings {
   eqCapital?: number
   /** 均等割: 従業者数（市町村分の区分に使う） */
   eqStaff?: number
+  /**
+   * 繰越欠損金の残高（円）。前期末の申告書（別表七(一)）の翌期繰越額を入れる。
+   * これを入れないと、黒字転換した期の法人税を大きく出しすぎる
+   */
+  carryLoss?: number
   krAliases?: {
     toGroup: Record<string, string>
     label: Record<string, string>

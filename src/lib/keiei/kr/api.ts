@@ -141,6 +141,7 @@ export const api = {
     ctMethod?: 'general' | 'simplified' | 'exempt'
     ctBiz?: number
     ctDeemedRate?: number
+    carryLoss?: number
   }): void {
     Object.assign(appSettings, patch)
     void persistSettings()
@@ -150,6 +151,7 @@ export const api = {
   taxBasis(): {
     eqPresetId?: string; eqCapital?: number; eqStaff?: number
     ctMethod?: 'general' | 'simplified' | 'exempt'; ctBiz?: number; ctDeemedRate?: number
+    carryLoss?: number
   } {
     return {
       eqPresetId: appSettings.eqPresetId,
@@ -158,6 +160,7 @@ export const api = {
       ctMethod: appSettings.ctMethod,
       ctBiz: appSettings.ctBiz,
       ctDeemedRate: appSettings.ctDeemedRate,
+      carryLoss: appSettings.carryLoss,
     }
   },
   /** 科目の変動費/固定費を上書きする（null で自動判定に戻す） */
