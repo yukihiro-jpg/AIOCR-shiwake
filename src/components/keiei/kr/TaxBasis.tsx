@@ -18,6 +18,7 @@ import {
   loadEqPresets, saveEqPresets, newEqPresetId,
 } from '@/lib/keiei/equalization-presets'
 import type { EqPreset, CapitalKey } from '@/lib/keiei/equalization-presets'
+import { EqTableImport } from './EqTableImport'
 import { DEEMED_RATES } from '@/lib/keiei/kr/analysis'
 import type { CtMethod } from '@/lib/keiei/kr/analysis'
 
@@ -180,6 +181,7 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
 }) {
   const [list, setList] = useState<EqPreset[]>(() => JSON.parse(JSON.stringify(presets)) as EqPreset[])
   const [sel, setSel] = useState<string>(presets[0]?.id ?? '')
+  const [importing, setImporting] = useState(false)
   const cur = list.find(p => p.id === sel) ?? null
 
   const update = (id: string, patch: Partial<EqPreset>) =>
@@ -300,6 +302,9 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
                   <button type="button" className="secondary small" onClick={() => addRate(cur.id)}>
                     ＋ 区分を追加
                   </button>
+                  <button type="button" className="secondary small" onClick={() => setImporting(true)}>
+                    📋 税率表を貼り付けて取り込む
+                  </button>
                   <button type="button" className="secondary small"
                     onClick={() => {
                       if (!confirm(`「${eqPresetLabel(cur)}」を削除しますか？`)) return
@@ -315,6 +320,12 @@ function EqPresetDialog({ presets, onClose, onSaved }: {
           <button type="button" className="secondary" onClick={onClose}>キャンセル</button>
           <button type="button" onClick={() => { onSaved(list); onClose() }}>保存する</button>
         </div>
+
+        {importing && cur && (
+          <EqTableImport rates={cur.rates}
+            onApply={next => update(cur.id, { rates: next })}
+            onClose={() => setImporting(false)} />
+        )}
       </div>
     </div>
   )

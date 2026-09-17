@@ -846,6 +846,38 @@ export async function leaseScheduleOcr(images: string[], geminiModel?: string): 
 }
 
 // ============================================================
+// 均等割の税率表（自治体のページのスクリーンショット）→ タブ区切りテキスト
+// ============================================================
+
+// AIには「表をそのまま書き写す」ことだけをさせ、金額の解釈（どの区分か・どちらの列か）は
+// 端末側の parseEqTable で行う。読み取り結果はテキストで画面に出すので、
+// 取り込む前に先生が数字を目で確かめられる。
+const PROMPT_EQ_TABLE = `この画像は日本の自治体（都道府県または市町村）のホームページにある、
+法人住民税の「均等割」の税率表です。表をそのままタブ区切りのテキストに書き写してください。
+
+【必ず守ること】
+- 1行目に見出し行を出す。列の並びは画像のとおりにする
+  （例: 資本金等の額<TAB>従業者数50人超<TAB>従業者数50人以下）
+- 2行目以降は表の各行。資本金等の額の区分をそのまま1列目に書く
+  （例: 1千万円以下 / 1千万円を超え1億円以下 / 1億円を超え10億円以下 /
+        10億円を超え50億円以下 / 50億円を超える法人）
+- 金額は数字のみ（カンマは付けてよい。「円」「年額」などの語は付けない）
+- 表に無い行を作らない。読み取れない欄は空にする
+- 説明文・注記・見出しの前後の文章は出力しない
+
+出力はタブ区切りのテキストのみ。コードブロックやJSONにしないでください。`
+
+/** 税率表のスクリーンショット（data URL）を、タブ区切りのテキストに書き写す。 */
+export async function eqTableOcr(images: string[], geminiModel?: string): Promise<string> {
+  if (!images || images.length === 0) throw new Error('画像データがありません')
+  const model = gm({ model: resolveModel(geminiModel), generationConfig: { temperature: 0 } })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: any[] = [PROMPT_EQ_TABLE, ...imagesToParts(images)]
+  const result = await model.generateContent(parts)
+  return result.response.text().replace(/^```[a-z]*\n?|```$/gm, '').trim()
+}
+
+// ============================================================
 // 請求書 OCR … 旧 /api/bank-statement/invoice
 // ============================================================
 
