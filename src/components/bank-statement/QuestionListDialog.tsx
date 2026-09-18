@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { AccountItem } from '@/lib/bank-statement/types'
+import type { AccountItem, JournalEntry } from '@/lib/bank-statement/types'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
 import { clearQuestionItems } from '@/lib/bank-statement/question-store'
 import type { Client } from '@/lib/bank-statement/client-store'
@@ -11,9 +11,11 @@ interface Props {
   onClose: () => void
   accountMaster: AccountItem[]
   client: Client | null
+  /** いま画面に出ている仕訳。一時保存やCSV出力をする前でもリストに出すために渡す */
+  entries?: JournalEntry[]
 }
 
-export default function QuestionListDialog({ open, onClose, accountMaster, client }: Props) {
+export default function QuestionListDialog({ open, onClose, accountMaster, client, entries }: Props) {
   const [copied, setCopied] = useState(false)
   const [refresh, setRefresh] = useState(0)
 
@@ -22,7 +24,7 @@ export default function QuestionListDialog({ open, onClose, accountMaster, clien
   const clientName = client?.name || '顧問先'
   // refresh をキーに含めることで、クリア後に再計算させる
   void refresh
-  const rows = generateQuestionList(accountMaster, clientName)
+  const rows = generateQuestionList(accountMaster, clientName, entries)
   const today = new Date().toLocaleDateString('ja-JP')
 
   const handleClear = () => {
@@ -62,7 +64,12 @@ ${today}現在のお取引につきまして、内容が確認できないもの
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
         <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">仮払金質問リスト</h2>
-          <p className="text-sm text-gray-600 mb-4">質問対象の仮払金がありません。<br/>（仮払金にした行のうち「要質問」のものが、CSV出力や一時保存を通じてここに溜まります）</p>
+          <p className="text-sm text-gray-600 mb-4">
+            質問対象の仮払金がありません。<br />
+            画面の仕訳・一時保存・CSV出力済みのすべてから、<b>借方または貸方が「仮払金」で、
+            かつ「要質問」の行</b>を集めています。<br />
+            行の「質問しない」にした分（本物の仮払金）は出ません。
+          </p>
           <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200">閉じる</button>
         </div>
       </div>

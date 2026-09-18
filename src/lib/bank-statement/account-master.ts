@@ -134,6 +134,21 @@ export function findAccountByCode(master: AccountItem[], code: string): AccountI
   return master.find((item) => item.code === code)
 }
 
+/**
+ * 科目マスタから「仮払金」を1つに決める。
+ *
+ * 単に「仮払」を含む科目の先頭を採ると、**仮払消費税等・仮払法人税等**を拾ってしまい、
+ * 画面では要質問の印が付いているのに質問リストが空になる、といった食い違いが起きる。
+ * 完全一致 → 前方一致 → 消費税・法人税・源泉を除いた部分一致 の順で探す。
+ */
+export function findKaribaraiAccount(master: AccountItem[]): AccountItem | undefined {
+  const names = (a: AccountItem) => [a.name || '', a.shortName || '']
+  return master.find((a) => names(a).some((n) => n === '仮払金'))
+    ?? master.find((a) => names(a).some((n) => n.startsWith('仮払金')))
+    ?? master.find((a) => names(a).some(
+      (n) => n.includes('仮払') && !/消費税|法人税|源泉|住民税|事業税/.test(n)))
+}
+
 export function getSubAccountsForCode(subMaster: SubAccountItem[], parentCode: string): SubAccountItem[] {
   return subMaster.filter((item) => item.parentCode === parentCode)
 }

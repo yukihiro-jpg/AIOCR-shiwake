@@ -2,6 +2,7 @@ import XLSX from 'xlsx-js-style'
 import type { JournalEntry, AccountItem } from './types'
 import { getTempEntries } from './temp-store'
 import { getQuestionItems } from './question-store'
+import { findKaribaraiAccount } from './account-master'
 
 interface QuestionRow {
   no: number
@@ -17,17 +18,20 @@ interface QuestionRow {
 export function generateQuestionList(
   accountMaster: AccountItem[],
   clientName: string,
+  /** いま画面に出ている仕訳（まだ一時保存・CSV出力していないもの）。
+   *  これを入れないと、画面に「要質問」の印が出ているのにリストが空になる */
+  currentEntries?: JournalEntry[],
 ): QuestionRow[] {
-  const karibaraiAcc = accountMaster.find((a) =>
-    a.name.includes('仮払') || a.shortName.includes('仮払')
-  )
+  const karibaraiAcc = findKaribaraiAccount(accountMaster)
   if (!karibaraiAcc) return []
   const kariCode = karibaraiAcc.code
 
-  // 蓄積ストア（過去にCSV出力済み分）＋ 現在の一時保存（未出力分）を統合（id重複除去）
+  // 蓄積ストア（過去にCSV出力済み分）＋ 一時保存（未出力分）＋ 画面の分 を統合（id重複除去）。
+  // あとに入れたものが勝つので、画面で直した内容が最新として反映される
   const byId = new Map<string, JournalEntry>()
   for (const e of getQuestionItems()) byId.set(e.id, e)
   for (const e of getTempEntries()) byId.set(e.id, e)
+  for (const e of currentEntries ?? []) byId.set(e.id, e)
   const entries = Array.from(byId.values())
     .filter((e) => e.debitCode === kariCode || e.creditCode === kariCode)
     // 「質問しない」(本物の仮払金) は除外。未設定は質問対象。

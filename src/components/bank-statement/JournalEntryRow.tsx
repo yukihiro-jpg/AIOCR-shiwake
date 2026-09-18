@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import { NAIBU_MONTHS, type JournalEntry, type AccountItem, type SubAccountItem } from '@/lib/bank-statement/types'
 import { getTaxCodesForEntry, isBS, isPL, getDefaultTaxCodeByName } from '@/lib/bank-statement/tax-codes'
 import { recordAccountUse } from '@/lib/bank-statement/account-usage'
+import { findKaribaraiAccount } from '@/lib/bank-statement/account-master'
 
 interface Props {
   entry: JournalEntry
@@ -80,9 +81,11 @@ function JournalEntryRowInner({
   const debitAccForTax = accountMaster.find((a) => a.code === entry.debitCode)
   const creditAccForTax = accountMaster.find((a) => a.code === entry.creditCode)
   // 仮払金の行か（借方/貸方どちらかが仮払金科目）
-  const isKariEntry = [debitAccForTax, creditAccForTax].some(
-    (a) => a && (a.name.includes('仮払') || a.shortName.includes('仮払')),
-  )
+  // 仮払金の科目は1つに決めてから見る。「仮払」を含む科目すべてを仮払金扱いにすると、
+  // 仮払消費税等の行にまで「要質問」が付き、質問リスト（同じ判定を使う）と食い違う
+  const kariCode = findKaribaraiAccount(accountMaster)?.code
+  const isKariEntry = !!kariCode
+    && (entry.debitCode === kariCode || entry.creditCode === kariCode)
   const isBsBothForTax = !!(debitAccForTax && creditAccForTax && isBS(debitAccForTax.bsPl) && isBS(creditAccForTax.bsPl))
   const isNonTaxable = (entry.debitTaxType || '').includes('不課')
   const taxCellBg = (isBsBothForTax || isNonTaxable) ? '' : emptyBg('debitTaxCode')

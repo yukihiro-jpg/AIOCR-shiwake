@@ -46,7 +46,7 @@ import { saveExcelMapping, loadExcelMapping } from '@/lib/bank-statement/excel-m
 import { creditCardOcr, receiptOcrParallel, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
-import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode } from '@/lib/bank-statement/account-master'
+import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode, findKaribaraiAccount } from '@/lib/bank-statement/account-master'
 import { loadLoanSchedules } from '@/lib/bank-statement/loan-schedule-store'
 import type { LoanSchedule } from '@/lib/bank-statement/loan-schedule-store'
 import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
@@ -1721,7 +1721,7 @@ export default function BankStatementContent() {
     downloadCsv(completed, undefined, selectedClient?.taxType)
     if (selectedClient) recordCsvExport(selectedClient.id)
     // 仮払金の質問対象を蓄積ストアへ追記（CSV出力でtempはクリアされるため、ここで退避）
-    const kariAcc = accountMaster.find((a) => a.name.includes('仮払') || a.shortName.includes('仮払'))
+    const kariAcc = findKaribaraiAccount(accountMaster)
     if (kariAcc) {
       const qItems = completed.filter(
         (e) => (e.debitCode === kariAcc.code || e.creditCode === kariAcc.code) && e.needsQuestion !== false,
@@ -2296,6 +2296,7 @@ export default function BankStatementContent() {
         onClose={() => setShowQuestionList(false)}
         accountMaster={accountMaster}
         client={selectedClient}
+        entries={journalEntries}
       />
     </div>
     )}

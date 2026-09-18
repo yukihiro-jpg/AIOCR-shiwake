@@ -15,7 +15,7 @@ import {
 import { learnFromEntriesWithRange, getPatterns, savePatterns, getEntrySide } from '@/lib/bank-statement/pattern-store'
 import { getAccountUsage } from '@/lib/bank-statement/account-usage'
 import { NAIBU_MONTHS, type PatternEntry } from '@/lib/bank-statement/types'
-import { saveSubAccountMaster, loadAccountTaxMaster, resolveAccountTax } from '@/lib/bank-statement/account-master'
+import { saveSubAccountMaster, loadAccountTaxMaster, resolveAccountTax, findKaribaraiAccount } from '@/lib/bank-statement/account-master'
 import { isBS } from '@/lib/bank-statement/tax-codes'
 import JournalEntryRow from './JournalEntryRow'
 import LearnPatternDialog from './LearnPatternDialog'
@@ -997,9 +997,7 @@ export default function JournalEntryTable({
           </button>
           <button onClick={() => {
             // 科目チェックリストから仮払金を検索
-            const karibarai = accountMaster.find((a) =>
-              a.name.includes('仮払') || a.shortName.includes('仮払')
-            )
+            const karibarai = findKaribaraiAccount(accountMaster)
             if (!karibarai) {
               alert('科目チェックリストに「仮払金」が見つかりません。\n科目チェックリストを先に登録してください。')
               return
