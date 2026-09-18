@@ -160,6 +160,10 @@ export interface PatternEntry {
    *  複合仕訳で行ごとに摘要が違うケース（親=みらい協同組合／子=…監理費／…不課税）用。
    *  学習時に「元の通帳摘要と違う摘要の行がある」と自動で true になる */
   useLineDescriptions?: boolean
+  /** 摘要の言い換えだけを覚えたパターン（科目・金額は当てない）。
+   *  返済予定表から作った仕訳を学習したときに自動で付く。元利均等は毎回の元本と利息の
+   *  配分が変わるので、そのときの金額を覚えて次回に当てると必ず間違う */
+  descriptionOnly?: boolean
   amountMin: number | null
   amountMax: number | null
   accountCode?: string

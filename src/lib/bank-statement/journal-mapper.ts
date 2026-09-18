@@ -71,10 +71,22 @@ export function mapTransactionsToJournalEntries(
         ? findLoanRepayment(loanSchedules, tx.date, amount)
         : null
       if (loan) {
-        entries.push(...buildLoanEntries(
+        const built = buildLoanEntries(
           tx, loan, accountCode, accountName, accountSubCode, accountSubName,
           shoguchiCode, shoguchiName,
-        ))
+        )
+        // 科目と金額は予定表が正なので当てない。摘要の言い換えだけはパターンから拾う
+        // （「返済」→「筑波銀行 返済」のような直しを毎月やり直さずに済むように）。
+        // 行ごとに摘要を覚えているときは、親→元本→利息 の順に当てる
+        const lpat = findPattern(patterns, tx.description, amount, accountCode, 'withdrawal')
+        if (lpat) {
+          const base = patternDescriptionFor(lpat, tx, tx.description)
+          built.forEach((e, i) => {
+            e.patternId = lpat.id
+            e.description = (lpat.useLineDescriptions && lpat.lines?.[i]?.description) || base
+          })
+        }
+        entries.push(...built)
         continue
       }
 
@@ -82,24 +94,28 @@ export function mapTransactionsToJournalEntries(
       // 入金/出金の方向も渡し、出金（借方）で学習したパターンが同じ摘要の入金（貸方）に
       // 流用されないようにする（借方学習と貸方学習の分離）
       const pattern = findPattern(patterns, tx.description, amount, accountCode, isDeposit ? 'deposit' : 'withdrawal')
+      // 摘要だけを覚えたパターン（返済予定表から学習したもの）は、科目・金額には使わない。
+      // 予定表に当たらなかった回＝繰上返済・金利変更なので、前回の配分を当てると必ず間違う。
+      // 科目を空のまま出して、気づいて直してもらう
+      const accPattern = pattern && !pattern.descriptionOnly ? pattern : null
 
       let entry: JournalEntry
 
       // パターンの最初の行から科目情報を取得
-      const pLine = pattern?.lines?.[0]
-      const pDebitCode = pLine?.debitCode || pattern?.debitCode || ''
-      const pDebitName = pLine?.debitName || pattern?.debitName || ''
+      const pLine = accPattern?.lines?.[0]
+      const pDebitCode = pLine?.debitCode || accPattern?.debitCode || ''
+      const pDebitName = pLine?.debitName || accPattern?.debitName || ''
       const pDebitSubCode = pLine?.debitSubCode || ''
       const pDebitSubName = pLine?.debitSubName || ''
-      const pCreditCode = pLine?.creditCode || pattern?.creditCode || ''
-      const pCreditName = pLine?.creditName || pattern?.creditName || ''
+      const pCreditCode = pLine?.creditCode || accPattern?.creditCode || ''
+      const pCreditName = pLine?.creditName || accPattern?.creditName || ''
       const pCreditSubCode = pLine?.creditSubCode || ''
       const pCreditSubName = pLine?.creditSubName || ''
-      const pTaxCode = pLine?.taxCode || pattern?.taxCode || ''
-      const pTaxCategory = pLine?.taxCategory || pattern?.taxCategory || ''
+      const pTaxCode = pLine?.taxCode || accPattern?.taxCode || ''
+      const pTaxCategory = pLine?.taxCategory || accPattern?.taxCategory || ''
       const pTaxRate = pLine?.taxRate || ''
-      const pBusinessType = pLine?.businessType || pattern?.businessType || ''
-      const isCompoundPattern = pattern?.lines && pattern.lines.length > 1
+      const pBusinessType = pLine?.businessType || accPattern?.businessType || ''
+      const isCompoundPattern = accPattern?.lines && accPattern.lines.length > 1
 
       // 内訳列の扱い: 2つ以上に数字があるときだけ「諸口経由の複合仕訳」にする。
       // 1つしか数字が無いときは複合にせず、その内訳科目を相手科目とした通常の単一仕訳にする。
@@ -160,7 +176,7 @@ export function mapTransactionsToJournalEntries(
           creditCode: accountCode,
           creditName: accountName,
           creditAmount: amount,
-          taxCode: useShoguchi ? '' : (pattern?.taxCode || ''),
+          taxCode: useShoguchi ? '' : (accPattern?.taxCode || ''),
           taxCategory: useShoguchi ? '' : pTaxCategory,
           taxRate: useShoguchi ? '' : pTaxRate,
           businessType: useShoguchi ? '' : pBusinessType,
@@ -176,26 +192,7 @@ export function mapTransactionsToJournalEntries(
       // パターンの変換後摘要・patternId・補助科目を適用
       if (pattern) {
         entry.patternId = pattern.id
-        if (pattern.convertedDescription) {
-          // 変換後摘要が明示的に設定されている場合
-          if (pattern.matchType === 'exact' || pattern.replaceEntireDescription) {
-            entry.description = pattern.convertedDescription
-          } else {
-            const mt = pattern.matchText || pattern.keyword
-            entry.description = tx.description.replace(mt, pattern.convertedDescription)
-          }
-        } else if (pattern.useLineDescriptions && pLine?.description) {
-          // 学習時に画面で直した摘要をそのまま再現する（行ごとに摘要が違う複合仕訳用）
-          entry.description = pLine.description
-        } else if (pattern.matchType === 'exact' && pattern.lines?.[0]?.description) {
-          // 完全一致で変換後摘要なし → パターンの摘要を使用
-          entry.description = pattern.lines[0].description
-        }
-        // 部分一致で変換後摘要なし → 元の摘要をそのまま保持
-        // 備考列がある場合はパターン摘要の後に連結
-        if (tx.memoText) {
-          entry.description = `${entry.description}_${tx.memoText}`.slice(0, 40)
-        }
+        entry.description = patternDescriptionFor(pattern, tx, entry.description)
         // 補助科目コードの反映（通帳口座側はアップロード設定を優先、相手科目側のみパターン適用）
         if (pDebitSubCode && entry.debitCode !== accountCode) { entry.debitSubCode = pDebitSubCode; entry.debitSubName = pDebitSubName }
         if (pCreditSubCode && entry.creditCode !== accountCode) { entry.creditSubCode = pCreditSubCode; entry.creditSubName = pCreditSubName }
@@ -204,11 +201,11 @@ export function mapTransactionsToJournalEntries(
       entries.push(entry)
 
       // パターンが複合仕訳（複数行）の場合、追加行を生成
-      if (pattern?.lines && pattern.lines.length > 1) {
-        for (let li = 1; li < pattern.lines.length; li++) {
-          const line = pattern.lines[li]
+      if (accPattern?.lines && accPattern.lines.length > 1) {
+        for (let li = 1; li < accPattern.lines.length; li++) {
+          const line = accPattern.lines[li]
           const compoundEntry = createCompoundEntry(entry)
-          compoundEntry.patternId = pattern.id
+          compoundEntry.patternId = accPattern.id
           compoundEntry.debitCode = line.debitCode
           compoundEntry.debitName = line.debitName
           compoundEntry.debitSubCode = line.debitSubCode || ''
@@ -223,7 +220,7 @@ export function mapTransactionsToJournalEntries(
           compoundEntry.debitBusinessType = line.businessType
           // 行ごとの摘要を学習しているときは各行の摘要を使う。
           // そうでなければ従来どおり1行目（変換後摘要を適用済み）と同じ摘要にそろえる
-          compoundEntry.description = (pattern.useLineDescriptions && line.description)
+          compoundEntry.description = (accPattern.useLineDescriptions && line.description)
             ? line.description
             : entry.description
           compoundEntry.originalDescription = tx.description
@@ -283,6 +280,36 @@ export function mapTransactionsToJournalEntries(
   }
 
   return entries
+}
+
+/**
+ * パターンが覚えている「変換後摘要」だけを当てる（科目・金額には触らない）。
+ * 予定表から作った仕訳にも同じ変換を使えるように、摘要の計算をここへ切り出してある。
+ */
+function patternDescriptionFor(
+  pattern: PatternEntry, tx: BankTransaction, current: string,
+): string {
+  let desc = current
+  const pLine = pattern.lines?.[0]
+  if (pattern.convertedDescription) {
+    // 変換後摘要が明示的に設定されている場合
+    if (pattern.matchType === 'exact' || pattern.replaceEntireDescription) {
+      desc = pattern.convertedDescription
+    } else {
+      const mt = pattern.matchText || pattern.keyword
+      desc = tx.description.replace(mt, pattern.convertedDescription)
+    }
+  } else if (pattern.useLineDescriptions && pLine?.description) {
+    // 学習時に画面で直した摘要をそのまま再現する（行ごとに摘要が違う複合仕訳用）
+    desc = pLine.description
+  } else if (pattern.matchType === 'exact' && pLine?.description) {
+    // 完全一致で変換後摘要なし → パターンの摘要を使用
+    desc = pLine.description
+  }
+  // 部分一致で変換後摘要なし → 元の摘要をそのまま保持
+  // 備考列がある場合はパターン摘要の後に連結
+  if (tx.memoText) desc = `${desc}_${tx.memoText}`.slice(0, 40)
+  return desc
 }
 
 /**

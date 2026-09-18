@@ -135,21 +135,27 @@ function JournalEntryRowInner({
         </td>
         {/* 学習 */}
         <td style={CB} className="text-center">
-          {/* 返済予定表から内訳を写した仕訳は小さな印だけ付ける（列や摘要は変えない） */}
-          {entry.loanScheduleId ? (
-            <span className="text-sky-600 text-xs font-bold"
-              title="借入金の返済予定表から元本・利息の内訳を写して作成">予</span>
-          ) : entry.patternId ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); onPatternClick?.(entry.patternId!) }}
-              className="text-amber-500 hover:text-amber-600 text-base font-bold"
-              title="パターン学習から生成（クリックで詳細）"
-            >
-              ★
-            </button>
-          ) : (
-            <span className="text-gray-300 text-sm">—</span>
-          )}
+          {/* 返済予定表から内訳を写した仕訳は小さな印だけ付ける（列や摘要は変えない）。
+              学習パターンも当たっていれば★も並べる（予定表＝金額と科目／パターン＝摘要） */}
+          <span className="inline-flex items-center justify-center gap-0.5">
+            {entry.loanScheduleId && (
+              <span className="text-sky-600 text-xs font-bold"
+                title="借入金の返済予定表から元本・利息の内訳を写して作成（金額と科目は予定表が優先）">予</span>
+            )}
+            {entry.patternId ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); onPatternClick?.(entry.patternId!) }}
+                className="text-amber-500 hover:text-amber-600 text-base font-bold"
+                title={entry.loanScheduleId
+                  ? 'パターン学習は摘要だけに使っています（クリックで詳細）'
+                  : 'パターン学習から生成（クリックで詳細）'}
+              >
+                ★
+              </button>
+            ) : !entry.loanScheduleId && (
+              <span className="text-gray-300 text-sm">—</span>
+            )}
+          </span>
         </td>
 
         {/* 日付 */}

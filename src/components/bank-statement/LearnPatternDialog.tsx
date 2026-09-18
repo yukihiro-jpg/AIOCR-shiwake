@@ -122,6 +122,16 @@ export default function LearnPatternDialog({
             )}
           </div>
 
+          {/* 返済予定表から作った仕訳は、金額と科目を覚えない（覚えると次回の内訳が壊れる） */}
+          {relatedEntries.length > 0 && relatedEntries.every((e) => e.loanScheduleId) && (
+            <div className="mt-2 px-3 py-2 text-xs bg-sky-50 border border-sky-200 rounded text-sky-800 leading-relaxed">
+              この仕訳は<b>借入金の返済予定表</b>から作られています（印: 予）。
+              このパターンは<b>摘要の言い換えだけ</b>を覚えます。
+              元本・利息の金額と科目は毎回<b>返済予定表から写す</b>ので、
+              今回の金額が次回に当てられることはありません。
+            </div>
+          )}
+
           {/* 行ごとの摘要をそのまま覚える案内（複合仕訳で行ごとに摘要が違うケース） */}
           {keepsLineDescs && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-800">

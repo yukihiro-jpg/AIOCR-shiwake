@@ -238,11 +238,16 @@ export function learnFromEntriesWithRange(
   )
 
   const useLineDescriptions = shouldUseLineDescriptions(lines, originalDescription)
+  // 返済予定表から作られた仕訳を学習するときは、**摘要だけ**を覚える。
+  // 元利均等は毎回1円単位で元本と利息の配分が変わるので、そのときの金額と科目を覚えて
+  // 次回に当てると必ず間違う（せっかく予定表から写した内訳が壊れる）。
+  const descriptionOnly = entries.every((e) => !!e.loanScheduleId)
 
   if (existing) {
     existing.useCount++
     existing.lines = lines
     existing.useLineDescriptions = useLineDescriptions
+    existing.descriptionOnly = descriptionOnly
     savePatterns(patterns)
     return existing.id
   } else {
@@ -255,6 +260,7 @@ export function learnFromEntriesWithRange(
       accountCode: accountCode || undefined,
       lines,
       useLineDescriptions,
+      descriptionOnly,
       useCount: 1,
     })
     savePatterns(patterns)
