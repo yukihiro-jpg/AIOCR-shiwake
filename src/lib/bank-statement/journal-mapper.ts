@@ -6,6 +6,8 @@ import type {
   AccountItem,
 } from './types'
 import { findPattern } from './pattern-store'
+import { findLoanRepayment } from './loan-schedule-store'
+import type { LoanSchedule } from './loan-schedule-store'
 
 let entryIdCounter = 0
 function generateEntryId(): string {
@@ -25,6 +27,8 @@ export function mapTransactionsToJournalEntries(
   accountMaster: AccountItem[],
   accountSubCode?: string,
   accountSubName?: string,
+  /** 借入金の返済予定表。償還額と同じ出金を見つけたら、元本と利息に分けた複合仕訳にする */
+  loanSchedules?: LoanSchedule[],
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -59,6 +63,20 @@ export function mapTransactionsToJournalEntries(
 
       const isDeposit = (tx.deposit ?? 0) > 0
       const amount = isDeposit ? tx.deposit! : tx.withdrawal!
+
+      // 借入金の返済: 予定表に「同じころの日付・同じ償還額」の回があれば、元本と利息に分ける。
+      // 内訳は通帳のどこにも書いていないので、パターン学習では原理的に当てられない
+      // （元利均等は毎回1円単位で配分が変わる）。予定表が当たったときは予定表を優先する。
+      const loan = !isDeposit && loanSchedules && loanSchedules.length
+        ? findLoanRepayment(loanSchedules, tx.date, amount)
+        : null
+      if (loan) {
+        entries.push(...buildLoanEntries(
+          tx, loan, accountCode, accountName, accountSubCode, accountSubName,
+          shoguchiCode, shoguchiName,
+        ))
+        continue
+      }
 
       // 学習パターンから科目を推定（金額も考慮）
       // 入金/出金の方向も渡し、出金（借方）で学習したパターンが同じ摘要の入金（貸方）に
@@ -265,6 +283,73 @@ export function mapTransactionsToJournalEntries(
   }
 
   return entries
+}
+
+/**
+ * 返済予定表から、1回分の返済の仕訳を組み立てる。
+ *
+ * 元本と利息の両方があるときは「諸口」を経由した複合仕訳にする。
+ * 親を「諸口 / 通帳」で償還額まるごとにすることで、**通帳側の動きは1回だけ**になり、
+ * 実際の通帳の残高推移と一致する（内訳列の複合仕訳と同じ形）。
+ * 据置期間中のように片方しか無い回は、諸口を挟まずそのまま1本の仕訳にする。
+ */
+function buildLoanEntries(
+  tx: BankTransaction,
+  loan: { schedule: LoanSchedule; row: { total: number; principal: number; interest: number } },
+  accountCode: string, accountName: string,
+  accountSubCode: string | undefined, accountSubName: string | undefined,
+  shoguchiCode: string, shoguchiName: string,
+): JournalEntry[] {
+  const s = loan.schedule
+  const legs = [
+    {
+      code: s.principalCode, name: s.principalName,
+      sub: s.principalSubCode, subName: s.principalSubName, amount: loan.row.principal,
+    },
+    {
+      code: s.interestCode, name: s.interestName,
+      sub: s.interestSubCode, subName: s.interestSubName, amount: loan.row.interest,
+    },
+  ].filter((l) => l.amount > 0)
+  const blank = { taxCode: '', taxCategory: '', businessType: '' }
+  const out: JournalEntry[] = []
+
+  if (legs.length === 1) {
+    const l = legs[0]
+    const e = createEntry(tx, {
+      debitCode: l.code, debitName: l.name, debitAmount: l.amount,
+      creditCode: accountCode, creditName: accountName, creditAmount: l.amount, ...blank,
+    })
+    e.debitSubCode = l.sub || ''
+    e.debitSubName = l.subName || ''
+    if (accountSubCode) { e.creditSubCode = accountSubCode; e.creditSubName = accountSubName || '' }
+    e.loanScheduleId = s.id
+    return [e]
+  }
+
+  const parent = createEntry(tx, {
+    debitCode: shoguchiCode, debitName: shoguchiName, debitAmount: loan.row.total,
+    creditCode: accountCode, creditName: accountName, creditAmount: loan.row.total, ...blank,
+  })
+  if (accountSubCode) { parent.creditSubCode = accountSubCode; parent.creditSubName = accountSubName || '' }
+  parent.loanScheduleId = s.id
+  out.push(parent)
+
+  for (const l of legs) {
+    const c = createCompoundEntry(parent)
+    c.debitCode = l.code
+    c.debitName = l.name
+    c.debitSubCode = l.sub || ''
+    c.debitSubName = l.subName || ''
+    c.creditCode = shoguchiCode
+    c.creditName = shoguchiName
+    c.debitAmount = l.amount
+    c.creditAmount = l.amount
+    c.originalDescription = tx.description
+    c.loanScheduleId = s.id
+    out.push(c)
+  }
+  return out
 }
 
 interface EntryParams {

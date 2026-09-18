@@ -7,6 +7,7 @@ import PatternListDialog from '@/components/bank-statement/PatternListDialog'
 import FixedJournalDialog from '@/components/bank-statement/FixedJournalDialog'
 import InvoiceRegistryDialog from '@/components/bank-statement/InvoiceRegistryDialog'
 import CardFormatDialog from '@/components/bank-statement/CardFormatDialog'
+import LoanScheduleDialog from '@/components/bank-statement/LoanScheduleDialog'
 import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog'
 import KikuchiGasRentDialog from '@/components/bank-statement/KikuchiGasRentDialog'
 import StatementViewer from '@/components/bank-statement/StatementViewer'
@@ -46,6 +47,8 @@ import { creditCardOcr, receiptOcrParallel, invoiceOcr, expandDescriptions } fro
 import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode } from '@/lib/bank-statement/account-master'
+import { loadLoanSchedules } from '@/lib/bank-statement/loan-schedule-store'
+import type { LoanSchedule } from '@/lib/bank-statement/loan-schedule-store'
 import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
@@ -136,6 +139,9 @@ export default function BankStatementContent() {
   const [showFixedJournal, setShowFixedJournal] = useState(false)
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
   const [showCardFormats, setShowCardFormats] = useState(false)
+  const [showLoanSchedules, setShowLoanSchedules] = useState(false)
+  // 借入金の返済予定表（顧問先ごと）。通帳の出金に当てて元本・利息の複合仕訳を作る
+  const [loanSchedules, setLoanSchedules] = useState<LoanSchedule[]>([])
   const [showPayroll, setShowPayroll] = useState(false)
   // キクチ・エステート専用: ガス・家賃集計表取込（顧問先名で判定して表示）
   const [showKikuchi, setShowKikuchi] = useState(false)
@@ -187,6 +193,7 @@ export default function BankStatementContent() {
     setAccountMaster(loadAccountMaster())
     setSubAccountMaster(loadSubAccountMaster())
     setAccountTaxMaster(loadAccountTaxMaster())
+    setLoanSchedules(loadLoanSchedules(client.id))
     setPages([])
     setJournalEntries([])
   }, [])
@@ -397,6 +404,7 @@ export default function BankStatementContent() {
         accountMaster,
         config.accountSubCode,
         config.accountSubName,
+        loanSchedules,
       )
       // 科目別消費税CDを自動設定（パターン学習で設定済みでないもの）
       const taxMaster = loadAccountTaxMaster()
@@ -518,7 +526,7 @@ export default function BankStatementContent() {
         }
       }
     },
-    [accountMaster, geminiModel],
+    [accountMaster, geminiModel, loanSchedules],
   )
 
   const handleUpload = useCallback(
@@ -560,7 +568,7 @@ export default function BankStatementContent() {
           const patterns = getPatterns()
           const entries = mapTransactionsToJournalEntries(
             result.pages, config.accountCode, config.accountName, patterns, accountMaster,
-            config.accountSubCode, config.accountSubName,
+            config.accountSubCode, config.accountSubName, loanSchedules,
           )
           appendEntries(entries)
           setInfo(`ゆうちょ受払通知票から${result.pages.length}件の取引を抽出しました（${elapsedSec}秒）`)
@@ -1080,6 +1088,9 @@ export default function BankStatementContent() {
           setAccountMaster(loadAccountMaster())
           setSubAccountMaster(loadSubAccountMaster())
           setAccountTaxMaster(loadAccountTaxMaster())
+        }
+        if (changedKeys.includes('loan-schedules')) {
+          setLoanSchedules(loadLoanSchedules(selectedClient.id))
         }
         if (changedKeys.includes('processing-status')) {
           setProcessingStatusVersion((v) => v + 1)
@@ -1863,6 +1874,11 @@ export default function BankStatementContent() {
                 icon: '💳',
                 onClick: () => setShowCardFormats(true),
               },
+              {
+                label: '借入金返済予定表',
+                icon: '🏦',
+                onClick: () => setShowLoanSchedules(true),
+              },
               { divider: true },
               {
                 label: 'Gemini モデル',
@@ -2229,6 +2245,15 @@ export default function BankStatementContent() {
       />
 
       {showCardFormats && <CardFormatDialog onClose={() => setShowCardFormats(false)} />}
+      {showLoanSchedules && selectedClient && (
+        <LoanScheduleDialog
+          clientId={selectedClient.id}
+          accountMaster={accountMaster}
+          subAccountMaster={subAccountMaster}
+          onSaved={setLoanSchedules}
+          onClose={() => setShowLoanSchedules(false)}
+        />
+      )}
 
       <PayrollUploadDialog
         open={showPayroll}
