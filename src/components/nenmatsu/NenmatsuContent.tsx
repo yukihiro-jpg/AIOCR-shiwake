@@ -1370,7 +1370,7 @@ function CompanyDetail({
                     )}
                     {rec?.declaration?.taxCategory === 'otsu' && (
                       <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold align-middle"
-                        title="他の会社に扶養控除等申告書を提出（乙欄）。この会社では年末調整を行わない">乙</span>
+                        title="他の会社で年末調整をする方（乙欄）。この会社では年末調整を行わない">乙</span>
                     )}
                   </td>
                   {rec?.declaration?.taxCategory === 'otsu' ? (
@@ -1507,8 +1507,8 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
     <div className="text-sm space-y-3">
       {decl.taxCategory === 'otsu' && (
         <div className="text-xs bg-slate-100 border border-slate-300 text-slate-800 rounded px-2 py-1">
-          <b>乙欄</b>：本人が「扶養控除等申告書は他の会社に提出している」を選択。
-          この会社では年末調整を行いません（扶養親族等・控除証明書は提出されていません）。
+          <b>乙欄</b>：本人が「この会社では年末調整を行わない（他の会社で行う）」を選択。
+          扶養親族等・控除証明書は提出されていません。住所は源泉徴収票用に確認済みです。
         </div>
       )}
       {!decl.isNewHire && decl.noChange && (

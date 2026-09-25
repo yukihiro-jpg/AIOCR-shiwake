@@ -183,7 +183,7 @@ export default function NenmatsuUpload() {
   function proceedToDocs() {
     if (!decl) return
     if (!decl.taxCategory) {
-      alert('扶養控除等申告書をこの会社に提出するかどうか（はい／いいえ）を選択してください。')
+      alert('この会社で年末調整を行うかどうか（はい／いいえ）を選択してください。')
       return
     }
     if (!decl.lastName || !decl.firstName) {
@@ -194,8 +194,13 @@ export default function NenmatsuUpload() {
       alert('入社日を入力してください。')
       return
     }
-    // 乙欄はこの会社で年末調整しないので、前職の確認も書類の撮影もせず、ここで送信する
+    // 乙欄はこの会社で年末調整しないので、前職の確認も書類の撮影もせず、ここで送信する。
+    // 住所だけは要る（乙欄の源泉徴収票に本人の住所を印字するため）
     if (decl.taxCategory === 'otsu') {
+      if (!decl.address) {
+        alert('住所を入力してください（源泉徴収票の作成に必要です）。')
+        return
+      }
       const d: Declaration = { ...decl, noChange: false, confirmedAt: new Date().toISOString() }
       setDecl(d)
       void submit(d)
@@ -385,8 +390,8 @@ export default function NenmatsuUpload() {
           <p className="text-sm text-gray-500">ありがとうございました。この画面は閉じて構いません。</p>
           {isOtsu ? (
             <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
-              乙欄（他の会社に扶養控除等申告書を提出）として受け付けました。<br />
-              この会社では年末調整を行いません。<b>年末調整は申告書を提出している会社で</b>行ってください。
+              乙欄（他の会社で年末調整をする方）として受け付けました。<br />
+              この会社では年末調整を行いません。<b>年末調整は主な勤務先の会社で</b>行ってください。
             </p>
           ) : (
             <p className="text-[11px] text-gray-400 mt-2">提出された画像は、提出から1年6か月後に自動削除されます。</p>
@@ -508,16 +513,16 @@ export default function NenmatsuUpload() {
                 この会社で年末調整をしないので、扶養親族の入力も控除証明書の撮影も不要 */}
             <div className={`rounded-2xl border-[1.5px] px-4 py-4 mb-4 ${decl.taxCategory ? 'bg-white border-gray-200' : 'bg-amber-50 border-amber-300'}`}>
               <h2 className="font-bold text-gray-800 text-[18px] leading-snug mb-1">
-                扶養控除等申告書は、この会社に提出しますか？
+                この会社で年末調整を行いますか？
               </h2>
               <p className="text-[14px] text-gray-600 leading-relaxed mb-3">
                 お勤め先が<b>この会社だけ</b>の方は「はい」です。
-                <b>他の会社にも勤めていて、そちらに申告書を出している</b>方（掛け持ち・副業でこの会社が2か所目以降）は「いいえ」を選んでください。
+                <b>他の会社にも勤めていて、そちらで年末調整をする</b>方（掛け持ち・副業でこの会社が2か所目以降）は「いいえ」を選んでください。
               </p>
               <div className="flex gap-2.5">
                 {([
-                  { v: 'kou', label: 'はい', sub: 'この会社が主な勤務先' },
-                  { v: 'otsu', label: 'いいえ', sub: '他の会社に提出している' },
+                  { v: 'kou', label: 'はい', sub: 'この会社で年末調整する' },
+                  { v: 'otsu', label: 'いいえ', sub: '他の会社で年末調整する' },
                 ] as { v: TaxCategory; label: string; sub: string }[]).map((o) => (
                   <button key={o.v} type="button"
                     onClick={() => setDecl({ ...decl, taxCategory: o.v })}
@@ -530,8 +535,8 @@ export default function NenmatsuUpload() {
               {decl.taxCategory === 'otsu' && (
                 <div className="mt-3 text-[14px] text-amber-900 bg-amber-50 border-[1.5px] border-amber-200 rounded-xl px-3.5 py-3 leading-relaxed">
                   「いいえ」の方（乙欄）は、<b>この会社では年末調整を行いません</b>。
-                  住所・扶養親族の入力や、控除証明書の撮影は<b>不要</b>です。下の「送信する」を押すだけで完了します。
-                  年末調整は、申告書を提出している会社のほうで行ってください。
+                  扶養親族の入力や、控除証明書の撮影は<b>不要</b>です。
+                  <b>お名前と住所</b>だけご確認のうえ、下の「送信する」を押してください（源泉徴収票の作成に住所が必要です）。
                 </div>
               )}
             </div>

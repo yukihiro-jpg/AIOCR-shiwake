@@ -179,7 +179,7 @@ export default function DeclarationForm({
     return (
       <div className="space-y-4">
         <section className="bg-white border border-gray-200 rounded-2xl px-4 py-4">
-          <H title="本人情報" sub="お名前と生年月日だけご確認ください。住所や扶養親族の入力は不要です。" />
+          <H title="本人情報" sub="お名前・生年月日・住所をご確認ください。扶養親族の入力は不要です。" />
           <L label="姓" required>
             <input className={inp} value={d.lastName} disabled={!editableName} onChange={(e) => set({ lastName: e.target.value })} />
           </L>
@@ -200,6 +200,13 @@ export default function DeclarationForm({
               <input type="date" className={dateInp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
             </L>
           )}
+          {/* 乙欄でも住所は要る（源泉徴収票に印字するため） */}
+          <L label="郵便番号" note="入力すると住所が自動で入ります。">
+            <input className={inp} inputMode="numeric" placeholder="1234567" value={d.postal} onChange={(e) => onPostal(e.target.value)} />
+          </L>
+          <L label="住所" required>
+            <input className={inp} value={d.address} onChange={(e) => set({ address: e.target.value })} />
+          </L>
         </section>
       </div>
     )

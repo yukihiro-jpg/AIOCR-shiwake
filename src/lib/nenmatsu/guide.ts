@@ -104,8 +104,8 @@ function guideSheet(o: GuideOptions): string {
       <div class="step"><div class="n">1</div><div class="tx">スマホのカメラで<b>右のQRコード</b>を読み取る（またはURLを開く）</div></div>
       <div class="step"><div class="n">2</div><div class="tx">最初の画面で <b>「在籍中の従業員の方」</b> か <b>「本年入社の方」</b>${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年に入社された方）` : ''} を選ぶ</div></div>
       <div class="step"><div class="n">3</div><div class="tx"><b>お名前と生年月日</b>でご本人を確認</div></div>
-      <div class="step"><div class="n">4</div><div class="tx">「<b>扶養控除等申告書をこの会社に提出しますか？</b>」に答える。お勤め先がこの会社だけの方は<b>「はい」</b>。
-        <b>他の会社にも勤めていて、そちらに申告書を出している方</b>（掛け持ち・副業）は<b>「いいえ」</b>→ そのまま「送信」で完了です（書類の撮影は不要）</div></div>
+      <div class="step"><div class="n">4</div><div class="tx">「<b>この会社で年末調整を行いますか？</b>」に答える。お勤め先がこの会社だけの方は<b>「はい」</b>。
+        <b>他の会社にも勤めていて、そちらで年末調整をする方</b>（掛け持ち・副業）は<b>「いいえ」</b>→ お名前と住所を確認して「送信」で完了です（書類の撮影は不要）</div></div>
       <div class="step"><div class="n">5</div><div class="tx"><b>「はい」の方：</b>在籍中の方は前年の内容が表示されます。変更（住所・扶養親族など）があれば直してください<br>
         <span class="red">本年入社の方は氏名が表示されません。</span><b>ご自身の情報を一から入力</b>していただきます（下の枠をご覧ください）</div></div>
       <div class="step"><div class="n">6</div><div class="tx"><b>「はい」の方：</b>当てはまる<b>控除証明書などを撮影</b>して「送信」を押す</div></div>
@@ -292,7 +292,7 @@ export function buildQrSheetHtml(o: QrSheetOptions): string {
       <div class="lead">
         スマートフォンのカメラで下のQRコードを読み取り、画面の案内に沿って手続きしてください。<br>
         最初の画面で「在籍中の従業員の方」か「本年入社の方」を選んでください。<br>
-        他の会社に扶養控除等申告書を提出している方（掛け持ち・副業）は、途中の質問で「いいえ」を選ぶだけで完了です（書類の撮影は不要）。
+        他の会社で年末調整をする方（掛け持ち・副業）は、途中の「この会社で年末調整を行いますか？」で「いいえ」を選び、住所を確認するだけで完了です（書類の撮影は不要）。
       </div>
       <div class="alert">
         <span class="red">本年${o.fyGregorian ? `（${esc(String(o.fyGregorian))}年）` : ''}に入社された方は氏名が表示されません。</span>
