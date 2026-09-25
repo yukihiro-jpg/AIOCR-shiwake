@@ -1368,8 +1368,14 @@ function CompanyDetail({
                     {e.isNewHire && (
                       <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold align-middle">本年入社</span>
                     )}
+                    {rec?.declaration?.taxCategory === 'otsu' && (
+                      <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px] font-bold align-middle"
+                        title="他の会社に扶養控除等申告書を提出（乙欄）。この会社では年末調整を行わない">乙</span>
+                    )}
                   </td>
-                  {rec ? (
+                  {rec?.declaration?.taxCategory === 'otsu' ? (
+                    <td colSpan={DOC_COLS.length} className="px-3 py-2 text-center text-slate-500 text-xs">乙欄・書類不要</td>
+                  ) : rec ? (
                     DOC_COLS.map((c) => {
                       const n = (rec.docs || {})[c.key] || 0
                       return (
@@ -1499,6 +1505,12 @@ function DeclarationView({ decl, fyGregorian }: { decl: Declaration; fyGregorian
   )
   return (
     <div className="text-sm space-y-3">
+      {decl.taxCategory === 'otsu' && (
+        <div className="text-xs bg-slate-100 border border-slate-300 text-slate-800 rounded px-2 py-1">
+          <b>乙欄</b>：本人が「扶養控除等申告書は他の会社に提出している」を選択。
+          この会社では年末調整を行いません（扶養親族等・控除証明書は提出されていません）。
+        </div>
+      )}
       {!decl.isNewHire && decl.noChange && (
         <div className="text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1">
           本人が「前年と相違ありません」を選択

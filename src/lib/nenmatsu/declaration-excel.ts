@@ -112,6 +112,7 @@ export async function buildDeclarationExcelBlob(
         memo.push('前職なし')
       }
     }
+    if (d.taxCategory === 'otsu') memo.push('乙欄（他社に扶養控除等申告書を提出・年末調整対象外）')
     if (d.noChange) memo.push('前年と相違なし')
     if (ent.submittedAt) memo.push(`提出 ${fmtDate(ent.submittedAt)}`)
 

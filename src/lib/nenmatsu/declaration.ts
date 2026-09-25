@@ -22,8 +22,16 @@ export interface SpouseInfo {
   income: string // 年収（円）
 }
 
+/** 扶養控除等申告書をこの会社に提出するか。
+ *  'kou'＝甲欄（主たる給与。この会社で年末調整する）
+ *  'otsu'＝乙欄（他の会社に申告書を提出している掛け持ち・副業。この会社では年末調整しない）
+ *  未設定（旧データ）は甲として扱う */
+export type TaxCategory = 'kou' | 'otsu'
+
 export interface Declaration {
   isNewHire: boolean
+  /** 甲乙の区分。乙なら扶養親族等の入力も控除証明書の撮影も不要（年末調整の対象外） */
+  taxCategory?: TaxCategory
   hireDate?: string // 入社日 YYYY-MM-DD（本年入社の場合に入力）
   hasPrevJob?: boolean // 入社年に前職があるか（本年入社の場合に必須回答）
   prevJobNoSlip?: boolean // 前職ありだが源泉徴収票をどうしても入手できない（本人が確定申告する前提で提出）

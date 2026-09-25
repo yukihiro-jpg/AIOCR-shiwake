@@ -146,11 +146,14 @@ export default function DeclarationForm({
   onChange,
   fyGregorian,
   editableName,
+  minimal,
 }: {
   value: Declaration
   onChange: (d: Declaration) => void
   fyGregorian: number
   editableName: boolean
+  /** 乙欄（他社に扶養控除等申告書を提出済み）向け。氏名・生年月日など本人の特定に要る欄だけを出す */
+  minimal?: boolean
 }) {
   const d = value
   const set = (patch: Partial<Declaration>) => onChange({ ...d, ...patch })
@@ -169,6 +172,38 @@ export default function DeclarationForm({
   const selfDisabilityOptions = DISABILITY_SELF.includes(d.selfDisability)
     ? DISABILITY_SELF
     : [...DISABILITY_SELF, d.selfDisability]
+
+  // 乙欄の方は年末調整の対象外なので、住所・扶養親族・控除の欄は出さない。
+  // 出すと「入力しなければならない」と受け取られ、不要な入力と問い合わせが増える
+  if (minimal) {
+    return (
+      <div className="space-y-4">
+        <section className="bg-white border border-gray-200 rounded-2xl px-4 py-4">
+          <H title="本人情報" sub="お名前と生年月日だけご確認ください。住所や扶養親族の入力は不要です。" />
+          <L label="姓" required>
+            <input className={inp} value={d.lastName} disabled={!editableName} onChange={(e) => set({ lastName: e.target.value })} />
+          </L>
+          <L label="名" required>
+            <input className={inp} value={d.firstName} disabled={!editableName} onChange={(e) => set({ firstName: e.target.value })} />
+          </L>
+          <L label="フリガナ（姓）">
+            <input className={inp} value={d.kanaLast} onChange={(e) => set({ kanaLast: e.target.value })} />
+          </L>
+          <L label="フリガナ（名）">
+            <input className={inp} value={d.kanaFirst} onChange={(e) => set({ kanaFirst: e.target.value })} />
+          </L>
+          <L label="生年月日" required>
+            <input type="date" className={dateInp} value={d.birth} onChange={(e) => set({ birth: e.target.value })} />
+          </L>
+          {d.isNewHire && (
+            <L label="入社日" required>
+              <input type="date" className={dateInp} value={d.hireDate || ''} onChange={(e) => set({ hireDate: e.target.value })} />
+            </L>
+          )}
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

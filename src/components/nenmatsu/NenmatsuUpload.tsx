@@ -15,7 +15,7 @@ import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import { checkPhotoQuality } from '@/lib/nenmatsu/photo-check'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
-import { emptyDeclaration, emptySpouse, emptyDependent, type Declaration } from '@/lib/nenmatsu/declaration'
+import { emptyDeclaration, emptySpouse, emptyDependent, type Declaration, type TaxCategory } from '@/lib/nenmatsu/declaration'
 import DeclarationForm from './DeclarationForm'
 
 type Phase = 'loading' | 'error' | 'select' | 'verify' | 'declare' | 'docs' | 'done'
@@ -38,6 +38,7 @@ export default function NenmatsuUpload() {
   const [verifyErr, setVerifyErr] = useState('')
   const [me, setMe] = useState<NenmatsuEmployee | null>(null)
   const [decl, setDecl] = useState<Declaration | null>(null)
+  const declState = decl
   // 前年に提出した申告内容（在籍中の方のみ）。初期表示に使い、見比べ用にも残しておく
   const [prev, setPrev] = useState<{ yearLabel: string; submittedAt: string; declaration: Declaration } | null>(null)
   const [showPrev, setShowPrev] = useState(false)
@@ -104,7 +105,8 @@ export default function NenmatsuUpload() {
   }
   function startNewHire() {
     setMe(null)
-    setDecl(emptyDeclaration(true))
+    // 甲乙は本人に選んでもらう（本年入社は掛け持ちの方が多く、既定で甲にすると気づかず進んでしまう）
+    setDecl({ ...emptyDeclaration(true), taxCategory: undefined })
     setNoChange(false)
     setPhase('declare')
   }
@@ -152,6 +154,8 @@ export default function NenmatsuUpload() {
     const d: Declaration = {
       ...base,
       isNewHire: false,
+      // 在籍中の方は前年の区分を引き継ぐ。前年の提出が無ければ甲（この会社で年末調整する）を既定にする
+      taxCategory: p?.declaration.taxCategory ?? 'kou',
       noChange: false,
       confirmedAt: undefined,
       lastName: emp.lastName,
@@ -174,14 +178,27 @@ export default function NenmatsuUpload() {
     if (phase === 'docs') { setPhase('declare'); return }
   }
 
+  const isOtsu = decl?.taxCategory === 'otsu'
+
   function proceedToDocs() {
     if (!decl) return
+    if (!decl.taxCategory) {
+      alert('扶養控除等申告書をこの会社に提出するかどうか（はい／いいえ）を選択してください。')
+      return
+    }
     if (!decl.lastName || !decl.firstName) {
       alert('氏名を入力してください。')
       return
     }
     if (decl.isNewHire && !decl.hireDate) {
       alert('入社日を入力してください。')
+      return
+    }
+    // 乙欄はこの会社で年末調整しないので、前職の確認も書類の撮影もせず、ここで送信する
+    if (decl.taxCategory === 'otsu') {
+      const d: Declaration = { ...decl, noChange: false, confirmedAt: new Date().toISOString() }
+      setDecl(d)
+      void submit(d)
       return
     }
     if (decl.isNewHire && decl.hasPrevJob === undefined) {
@@ -193,7 +210,7 @@ export default function NenmatsuUpload() {
   }
 
   // 本年入社×前職ありの場合、前職の源泉徴収票が必須（どうしても入手できない場合のみ例外）
-  const needPrevSlip = !!(decl?.isNewHire && decl?.hasPrevJob)
+  const needPrevSlip = !!(decl?.isNewHire && decl?.hasPrevJob) && !isOtsu
   const prevSlipCount = (photos['prev_withholding'] || []).length
   const [noSlipChecked, setNoSlipChecked] = useState(false)
 
@@ -225,10 +242,12 @@ export default function NenmatsuUpload() {
     setPhotos((prev) => ({ ...prev, [docKey]: (prev[docKey] || []).filter((_, i) => i !== idx) }))
   }
 
-  async function submit() {
+  async function submit(declArg?: Declaration) {
+    const decl = declArg ?? declState
     if (!params || !decl) return
-    // 前職ありで源泉徴収票が未撮影の場合は原則提出不可
-    if (needPrevSlip && prevSlipCount === 0) {
+    const otsu = decl.taxCategory === 'otsu'
+    // 前職ありで源泉徴収票が未撮影の場合は原則提出不可（乙欄は年末調整しないので対象外）
+    if (!otsu && needPrevSlip && prevSlipCount === 0) {
       if (!noSlipChecked) {
         alert(
           '前職の源泉徴収票が撮影されていません。\n\n' +
@@ -248,7 +267,7 @@ export default function NenmatsuUpload() {
       )
         return
     }
-    const declToSend: Declaration = { ...decl, prevJobNoSlip: needPrevSlip && prevSlipCount === 0 && noSlipChecked }
+    const declToSend: Declaration = { ...decl, prevJobNoSlip: !otsu && needPrevSlip && prevSlipCount === 0 && noSlipChecked }
     // 提出者（既存=me、新入社員=申告から生成）
     const emp: NenmatsuEmployee =
       me ||
@@ -263,14 +282,18 @@ export default function NenmatsuUpload() {
         birthRaw: decl.birth,
         isNewHire: true,
       }
-    const totalFiles = Object.values(photos).reduce((s, a) => s + a.length, 0)
-    if (totalFiles === 0) {
+    // 乙欄は書類を送らない（撮影の画面を通らないので photos は空）
+    const photosToSend = otsu ? {} : photos
+    const totalFiles = Object.values(photosToSend).reduce((s, a) => s + a.length, 0)
+    if (totalFiles === 0 && !otsu) {
       if (!confirm('撮影した書類がありません。「該当する書類なし」として提出しますか？')) return
     }
     try {
       const existing = await getSubmissionPublic(params.t, emp.id)
       if (existing) {
-        if (!confirm(
+        if (otsu
+          ? !confirm(`${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n\n乙欄（この会社では年末調整しない）として提出し直しますか？`)
+          : !confirm(
           `${emp.lastName} ${emp.firstName} さんは既に提出済みです（${new Date(existing.submittedAt).toLocaleString('ja-JP')}）。\n\n` +
             '再提出すると：\n' +
             '・今回撮影した書類は追加されます\n' +
@@ -290,8 +313,8 @@ export default function NenmatsuUpload() {
     try {
       const docs: Record<string, Blob[]> = {}
       let done = 0
-      for (const key of Object.keys(photos)) {
-        const files = photos[key]
+      for (const key of Object.keys(photosToSend)) {
+        const files = photosToSend[key]
         if (!files || !files.length) continue
         const blobs: Blob[] = []
         for (const f of files) {
@@ -360,12 +383,20 @@ export default function NenmatsuUpload() {
           <div className="text-4xl mb-3">✅</div>
           <p className="text-lg font-bold text-gray-800 mb-1">提出が完了しました</p>
           <p className="text-sm text-gray-500">ありがとうございました。この画面は閉じて構いません。</p>
-          <p className="text-[11px] text-gray-400 mt-2">提出された画像は、提出から1年6か月後に自動削除されます。</p>
+          {isOtsu ? (
+            <p className="text-[13px] text-gray-600 mt-3 leading-relaxed">
+              乙欄（他の会社に扶養控除等申告書を提出）として受け付けました。<br />
+              この会社では年末調整を行いません。<b>年末調整は申告書を提出している会社で</b>行ってください。
+            </p>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-2">提出された画像は、提出から1年6か月後に自動削除されます。</p>
+          )}
         </div>
       </Center>
     )
 
-  // 進み具合（全4ステップ）。どこまで来たかが分かると、途中でやめる人が減る
+  // 進み具合（甲は全4ステップ・乙は撮影が無いので3）。どこまで来たかが分かると、途中でやめる人が減る
+  const totalSteps = isOtsu ? 3 : 4
   const stepNo = phase === 'select' ? 1 : phase === 'verify' ? 2 : phase === 'declare' ? 3 : 4
   const stepName = phase === 'select' ? 'あてはまるものを選ぶ'
     : phase === 'verify' ? 'ご本人の確認'
@@ -382,12 +413,12 @@ export default function NenmatsuUpload() {
 
       <div className="max-w-md mx-auto px-4 pt-3">
         <div className="flex gap-1.5">
-          {[1, 2, 3, 4].map((n) => (
+          {Array.from({ length: totalSteps }, (_, i) => i + 1).map((n) => (
             <span key={n} className={`flex-1 h-1.5 rounded ${n <= stepNo ? 'bg-blue-600' : 'bg-blue-100'}`} />
           ))}
         </div>
         <div className="flex items-center justify-between mt-1.5">
-          <div className="text-[13px] font-semibold text-gray-600">ステップ {stepNo} / 4　{stepName}</div>
+          <div className="text-[13px] font-semibold text-gray-600">ステップ {stepNo} / {totalSteps}　{stepName}</div>
           {(phase === 'verify' || phase === 'declare' || phase === 'docs') && (
             <button onClick={goBack}
               className="text-[15px] font-bold text-blue-700 border-[1.5px] border-blue-600 rounded-lg px-3 py-1 bg-white hover:bg-blue-50">
@@ -473,6 +504,39 @@ export default function NenmatsuUpload() {
 
         {phase === 'declare' && decl && (
           <div>
+            {/* 甲乙の選択。乙（他社に扶養控除等申告書を提出している掛け持ち・副業）は
+                この会社で年末調整をしないので、扶養親族の入力も控除証明書の撮影も不要 */}
+            <div className={`rounded-2xl border-[1.5px] px-4 py-4 mb-4 ${decl.taxCategory ? 'bg-white border-gray-200' : 'bg-amber-50 border-amber-300'}`}>
+              <h2 className="font-bold text-gray-800 text-[18px] leading-snug mb-1">
+                扶養控除等申告書は、この会社に提出しますか？
+              </h2>
+              <p className="text-[14px] text-gray-600 leading-relaxed mb-3">
+                お勤め先が<b>この会社だけ</b>の方は「はい」です。
+                <b>他の会社にも勤めていて、そちらに申告書を出している</b>方（掛け持ち・副業でこの会社が2か所目以降）は「いいえ」を選んでください。
+              </p>
+              <div className="flex gap-2.5">
+                {([
+                  { v: 'kou', label: 'はい', sub: 'この会社が主な勤務先' },
+                  { v: 'otsu', label: 'いいえ', sub: '他の会社に提出している' },
+                ] as { v: TaxCategory; label: string; sub: string }[]).map((o) => (
+                  <button key={o.v} type="button"
+                    onClick={() => setDecl({ ...decl, taxCategory: o.v })}
+                    className={`flex-1 min-h-[64px] rounded-xl border-[1.5px] px-2 py-2 ${decl.taxCategory === o.v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}>
+                    <span className="block text-[18px] font-bold leading-tight">{o.label}</span>
+                    <span className={`block text-[12px] leading-tight mt-0.5 ${decl.taxCategory === o.v ? 'text-blue-100' : 'text-gray-500'}`}>{o.sub}</span>
+                  </button>
+                ))}
+              </div>
+              {decl.taxCategory === 'otsu' && (
+                <div className="mt-3 text-[14px] text-amber-900 bg-amber-50 border-[1.5px] border-amber-200 rounded-xl px-3.5 py-3 leading-relaxed">
+                  「いいえ」の方（乙欄）は、<b>この会社では年末調整を行いません</b>。
+                  住所・扶養親族の入力や、控除証明書の撮影は<b>不要</b>です。下の「送信する」を押すだけで完了します。
+                  年末調整は、申告書を提出している会社のほうで行ってください。
+                </div>
+              )}
+            </div>
+
+            {!isOtsu && (
             <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4 mb-4">
               <h1 className="font-bold text-gray-800 text-[20px] mb-1">
                 {decl.isNewHire ? '扶養控除等申告書（本年入社）' : '個人情報・扶養親族の確認'}
@@ -547,7 +611,11 @@ export default function NenmatsuUpload() {
                 </label>
               )}
             </div>
-            <DeclarationForm value={decl} onChange={setDecl} fyGregorian={fyGregorian} editableName={decl.isNewHire} />
+            )}
+            {(decl.taxCategory || !decl.isNewHire) && (
+              <DeclarationForm value={decl} onChange={setDecl} fyGregorian={fyGregorian}
+                editableName={decl.isNewHire} minimal={isOtsu} />
+            )}
           </div>
         )}
 
@@ -656,8 +724,10 @@ export default function NenmatsuUpload() {
       {phase === 'declare' && decl && (
         <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-gray-200 px-3 pt-3 pb-4">
           <div className="max-w-md mx-auto">
-            <button onClick={proceedToDocs} className="w-full h-[58px] bg-blue-600 text-white rounded-xl text-[19px] font-bold hover:bg-blue-700">
-              次へ（書類の撮影）
+            {submitErr && isOtsu && <div className="text-[14px] text-red-600 mb-2 break-words leading-relaxed">{submitErr}</div>}
+            <button onClick={proceedToDocs} disabled={submitting}
+              className={`w-full h-[58px] text-white rounded-xl text-[19px] font-bold disabled:opacity-60 ${isOtsu ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              {isOtsu ? (submitting ? progress || '送信中...' : '送信する') : '次へ（書類の撮影）'}
             </button>
           </div>
         </div>
@@ -667,7 +737,7 @@ export default function NenmatsuUpload() {
         <div className="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-gray-200 px-3 pt-3 pb-4">
           <div className="max-w-md mx-auto">
             {submitErr && <div className="text-[14px] text-red-600 mb-2 break-words leading-relaxed">{submitErr}</div>}
-            <button onClick={submit} disabled={submitting} className="w-full h-[58px] bg-green-600 text-white rounded-xl text-[19px] font-bold hover:bg-green-700 disabled:opacity-60">
+            <button onClick={() => void submit()} disabled={submitting} className="w-full h-[58px] bg-green-600 text-white rounded-xl text-[19px] font-bold hover:bg-green-700 disabled:opacity-60">
               {submitting ? progress || '送信中...' : '送信する'}
             </button>
           </div>
