@@ -3205,6 +3205,8 @@ function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNo
 //   Enter        … 右の入力欄へ。行の右端なら次の行の左端へ
 //   ←→           … 左右の入力欄へ（文字入力欄はカーソルが端にあるときだけ。欄内のカーソル移動を妨げない）
 //   ↑↓           … 同じ列の上下の行へ
+//   Tab / Shift+Tab … 次／前の入力欄へ。行の端なら次の行の左端／前の行の右端へ
+//                  （ブラウザ標準のTabだと、自動計算の価額欄・複製/削除ボタンにも止まってしまうため）
 // プルダウンは↑↓で選択肢を選べるようにそのままにし、←→とEnterで抜けられるようにする。
 // 日付欄は矢印キーが年月日の移動・増減に使われるためそのままにし、Enterで抜けられるようにする。
 (function(){
@@ -3228,7 +3230,10 @@ function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNo
     const isEnter=(k==='Enter');
     const isLR=(k==='ArrowLeft'||k==='ArrowRight');
     const isUD=(k==='ArrowUp'||k==='ArrowDown');
-    if(!isEnter&&!isLR&&!isUD) return;
+    const isTab=(k==='Tab');
+    if(!isEnter&&!isLR&&!isUD&&!isTab) return;
+    // 日本語入力の変換中は、Enter・矢印・Tabを変換操作に使うので横取りしない
+    if(e.isComposing||e.keyCode===229) return;
     if(e.altKey||e.ctrlKey||e.metaKey) return;
     const el=e.target; if(!el) return;
     const tag=el.tagName;
@@ -3238,12 +3243,23 @@ function checkNoteCell(a){ return '<td><input type="text" value="'+esc(a.checkNo
     if(!td||!tr||!table||!tr.closest('tbody')) return;
     // --- そのままにする組み合わせ ---
     if(tag==='TEXTAREA'&&isEnter) return;              // 注記などの改行
-    if(isDate(el)&&!isEnter) return;                   // 日付は矢印キーが年月日の操作に必要
+    if(isDate(el)&&!isEnter&&!isTab) return;           // 日付は矢印キーが年月日の操作に必要
     if(isSelect(el)&&isUD) return;                     // プルダウンは↑↓で選択肢を選ぶ
     if(isUD&&tag==='TEXTAREA') return;                 // 複数行の欄内移動
     if(isLR&&!isSelect(el)&&!isCheck(el)&&!atEdge(el,k)) return;
     let target=null;
-    if(isEnter||isLR){
+    if(isTab){
+      const dir=e.shiftKey?-1:1;
+      const list=focusables(tr); const i=list.indexOf(el);
+      if(i>=0) target=list[i+dir]||null;
+      // 行の端まで来たら次の行の左端（Shift+Tabは前の行の右端）へ。表の端なら標準のTabに任せる
+      if(!target){
+        let row=tr;
+        while((row=dir>0?row.nextElementSibling:row.previousElementSibling)){
+          const l=focusables(row); if(l.length){ target=dir>0?l[0]:l[l.length-1]; break; }
+        }
+      }
+    } else if(isEnter||isLR){
       const dir=(isEnter||k==='ArrowRight')?1:-1;
       const list=focusables(tr); const i=list.indexOf(el);
       if(i>=0) target=list[i+dir]||null;
