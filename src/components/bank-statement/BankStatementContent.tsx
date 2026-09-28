@@ -17,6 +17,7 @@ import InvoiceColumnMappingDialog, { type InvoiceColumnMapping } from '@/compone
 import ReceiptColumnMappingDialog, { type ReceiptColumnMapping } from '@/components/bank-statement/ReceiptColumnMappingDialog'
 import { appendTempEntries, getTempEntryCount, clearTempEntries, getTempEntries } from '@/lib/bank-statement/temp-store'
 import { addQuestionItems } from '@/lib/bank-statement/question-store'
+import { storageFullMessage } from '@/lib/bank-statement/storage-usage'
 import { generateQuestionList, downloadQuestionExcel } from '@/lib/bank-statement/question-list'
 import QuestionListDialog from '@/components/bank-statement/QuestionListDialog'
 import TempDataDialog from '@/components/bank-statement/TempDataDialog'
@@ -1719,22 +1720,40 @@ export default function BankStatementContent() {
     // 複合仕訳の最終行が0円のまま出力される穴が残らないよう、こちらへ引き継いだ。
     const completed = applyCompoundAutoAmounts(named)
     downloadCsv(completed, undefined, selectedClient?.taxType)
-    if (selectedClient) recordCsvExport(selectedClient.id)
-    // 仮払金の質問対象を蓄積ストアへ追記（CSV出力でtempはクリアされるため、ここで退避）
+    // 仮払金の質問対象（一時保存を空にする前に拾っておく）
     const kariAcc = findKaribaraiAccount(accountMaster)
-    if (kariAcc) {
-      const qItems = completed.filter(
-        (e) => (e.debitCode === kariAcc.code || e.creditCode === kariAcc.code) && e.needsQuestion !== false,
-      )
-      addQuestionItems(qItems)
-    }
+    const qItems = kariAcc
+      ? completed.filter((e) => (e.debitCode === kariAcc.code || e.creditCode === kariAcc.code) && e.needsQuestion !== false)
+      : []
+    // 【重要】CSVを書き出したら、**まず一時保存を空にする**。
+    // 以前は「出力日の記録 → 質問リストへ追記 → 空にする」の順だったため、端末の保存領域が
+    // いっぱいだと途中の書き込みが例外で止まり、CSVは落ちたのに一時保存が残る
+    // （次にまた同じ仕訳が出力され、会計大将へ二重に取り込む）事故になった。
+    // 空にするのは容量を減らす書き込みなので満杯でも通り、そのあとの書き込みの空きも作れる
     clearTempEntries()
     setTempCount(0)
+    const problems: string[] = []
+    try {
+      if (selectedClient) recordCsvExport(selectedClient.id)
+    } catch {
+      problems.push('CSV出力日の記録')
+    }
+    // 仮払金の質問対象を蓄積ストアへ追記（一時保存は空にしたので、ここで退避しておく）
+    if (qItems.length && !addQuestionItems(qItems)) {
+      problems.push(`仮払金の質問リストへの追記（${qItems.length}件）`)
+    }
     // 賃金台帳等: CSV出力後は画面クリア
     if (journalEntries.length > 0) {
       setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null)
     }
     setInfo('一時保存データをCSV出力しました。一時保存はクリアされました。')
+    if (problems.length) {
+      alert(
+        'CSV出力と一時保存のクリアは完了しましたが、次の保存ができませんでした：\n'
+        + problems.map((x) => '・' + x).join('\n')
+        + '\n\n' + storageFullMessage('上記'),
+      )
+    }
   }, [accountMaster, selectedClient])
 
   const handleTempClear = useCallback(() => {

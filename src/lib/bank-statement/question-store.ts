@@ -20,27 +20,34 @@ export function getQuestionItems(): JournalEntry[] {
   return []
 }
 
-export function saveQuestionItems(items: JournalEntry[]): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(getKey(), JSON.stringify(items))
+export function saveQuestionItems(items: JournalEntry[]): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    localStorage.setItem(getKey(), JSON.stringify(items))
+  } catch (e) {
+    // 満杯などで書けないときは例外で止めない（CSV出力の後始末を途中で止めないため）。書けたかは戻り値で返す
+    console.warn('[question-store] save failed', e)
+    return false
+  }
   const cid = getSelectedClientId()
   if (cid) {
     import('./firebase-sync').then(({ schedulePushToFirebase }) => {
       schedulePushToFirebase(cid, 'questions', items)
     }).catch(() => { /* 合言葉未設定でもローカル保存は成功 */ })
   }
+  return true
 }
 
 /** 質問対象の仮払金エントリを追記（id重複は除外） */
-export function addQuestionItems(entries: JournalEntry[]): void {
-  if (!entries || entries.length === 0) return
+export function addQuestionItems(entries: JournalEntry[]): boolean {
+  if (!entries || entries.length === 0) return true
   const existing = getQuestionItems()
   const seen = new Set(existing.map((e) => e.id))
   const merged = [...existing]
   for (const e of entries) {
     if (!seen.has(e.id)) { merged.push(e); seen.add(e.id) }
   }
-  saveQuestionItems(merged)
+  return saveQuestionItems(merged)
 }
 
 /** 蓄積をクリア（顧問先へ送付済みのとき） */

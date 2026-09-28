@@ -1,6 +1,7 @@
 import type { JournalEntry } from './types'
 import { getSelectedClientId } from './client-store'
 import { applyCompoundAutoAmounts } from './csv-generator'
+import { localStorageUsedChars as localStorageUsedBytes } from './storage-usage'
 
 function getTempKey(): string {
   const cid = getSelectedClientId()
@@ -22,18 +23,6 @@ export function getTempEntries(): JournalEntry[] {
 }
 
 /** この端末（このサイト）が localStorage をどれだけ使っているかの概算バイト数 */
-function localStorageUsedBytes(): number {
-  let n = 0
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (!k) continue
-      n += k.length + (localStorage.getItem(k) || '').length
-    }
-  } catch { /* ignore */ }
-  return n
-}
-
 function warnOnce(flag: string, message: string): void {
   const w = window as unknown as Record<string, boolean>
   if (w[flag]) return

@@ -1,5 +1,6 @@
 import type { PatternEntry, PatternLine, JournalEntry } from './types'
 import { clientStorageKey, getSelectedClientId } from './client-store'
+import { isQuotaError, storageFullMessage } from './storage-usage'
 
 function getPatternKey(): string {
   const cid = getSelectedClientId()
@@ -46,7 +47,12 @@ export function getPatterns(): PatternEntry[] {
 
 export function savePatterns(patterns: PatternEntry[]): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(getPatternKey(), JSON.stringify(patterns))
+  try {
+    localStorage.setItem(getPatternKey(), JSON.stringify(patterns))
+  } catch (e) {
+    // 満杯のときは、何が起きたか分かる文面で投げ直す（呼び出し側が画面に出す）
+    throw new Error(isQuotaError(e) ? storageFullMessage('学習パターン') : `学習パターンを保存できませんでした：${e instanceof Error ? e.message : String(e)}`)
+  }
   // Firebase 自動同期: クライアント選択中のみ debounce 付きで Push
   const cid = getSelectedClientId()
   if (cid) {

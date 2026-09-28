@@ -145,6 +145,20 @@ export default function JournalEntryTable({
   // パターン学習ダイアログ確定
   const handleLearnConfirm = useCallback(
     (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean, replaceEntireDescription?: boolean) => {
+      // 保存領域が満杯などで途中の保存が失敗すると、以前は何も表示されずボタンが効かないように見えた。
+      // 失敗したら理由を出す（ダイアログは閉じないので、入力した内容はそのまま残る）
+      try {
+        learnConfirmBody(amountMin, amountMax, applyToAll, matchType, matchText, convertedDesc, overrideExisting, replaceEntireDescription)
+      } catch (e) {
+        console.error('[learn] failed', e)
+        alert(e instanceof Error ? e.message : String(e))
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [learnDialogEntry, learnRelatedEntries, entries, onEntriesChange, bankAccountCode],
+  )
+  const learnConfirmBody =
+    (amountMin: number | null, amountMax: number | null, applyToAll: boolean, matchType?: 'exact' | 'partial', matchText?: string, convertedDesc?: string, overrideExisting?: boolean, replaceEntireDescription?: boolean) => {
       if (!learnDialogEntry || learnRelatedEntries.length === 0) return
       // 複合仕訳でもキーワードは常に親（1行目）の通帳摘要を使う
       const groupParent = learnRelatedEntries.find((x) => !x.parentId) || learnDialogEntry
@@ -241,9 +255,7 @@ export default function JournalEntryTable({
 
       setLearnDialogEntry(null)
       setLearnRelatedEntries([])
-    },
-    [learnDialogEntry, learnRelatedEntries, entries, onEntriesChange, bankAccountCode],
-  )
+    }
 
   // 反映確定
   const handleApplyConfirm = useCallback(() => {
