@@ -142,6 +142,12 @@ function JournalEntryRowInner({
               <span className="text-sky-600 text-xs font-bold"
                 title="借入金の返済予定表から元本・利息の内訳を写して作成（金額と科目は予定表が優先）">予</span>
             )}
+            {entry.bulkTransferId && (
+              <span className="text-teal-600 text-xs font-bold"
+                title={entry.payee
+                  ? `総合振込の内訳から作成（振込先：${entry.payee}）。★で、この振込先の科目を覚えます`
+                  : '総合振込の内訳から、振込先ごとに分けて作成'}>振</span>
+            )}
             {entry.patternId ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onPatternClick?.(entry.patternId!) }}
@@ -152,7 +158,7 @@ function JournalEntryRowInner({
               >
                 ★
               </button>
-            ) : !entry.loanScheduleId && (
+            ) : !entry.loanScheduleId && !entry.bulkTransferId && (
               <span className="text-gray-300 text-sm">—</span>
             )}
           </span>

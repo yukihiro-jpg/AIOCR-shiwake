@@ -21,6 +21,9 @@ import JournalEntryRow from './JournalEntryRow'
 import LearnPatternDialog from './LearnPatternDialog'
 import ApplyPatternDialog from './ApplyPatternDialog'
 import PatternDetailDialog from './PatternDetailDialog'
+import { loadPayeeDict, savePayeeDict, normalizePayee } from '@/lib/bank-statement/bulk-transfer-store'
+import type { PayeeAccount } from '@/lib/bank-statement/bulk-transfer-store'
+import { storageFullMessage } from '@/lib/bank-statement/storage-usage'
 
 interface Props {
   entries: JournalEntry[]
@@ -768,11 +771,59 @@ export default function JournalEntryTable({
     [onSubAccountUpdate],
   )
 
+  // 総合振込の振込先の行は、通帳の摘要ではなく**振込先の名前**に対して科目を覚える。
+  // 総合振込の顔ぶれは月ごとに変わるので、「フリコミカワリキン」に紐づけて覚えても役に立たないため。
+  // 行ハンドラを安定させるため、最新の props は ref 経由で読む
+  const payeeLearnRef = useRef<(entry: JournalEntry) => void>(() => {})
+  payeeLearnRef.current = (entry: JournalEntry) => {
+    if (!entry.payee) return
+    if (!clientId) { alert('顧問先を選んでから学習してください。'); return }
+    if (!entry.debitCode) {
+      alert(`「${entry.payee}」の科目を入れてから★を押してください。\nこの振込先の科目として覚え、次回から自動で入るようにします。`)
+      return
+    }
+    const key = normalizePayee(entry.payee)
+    const acc: PayeeAccount = {
+      payee: entry.payee,
+      code: entry.debitCode, name: entry.debitName,
+      subCode: entry.debitSubCode || undefined, subName: entry.debitSubName || undefined,
+      taxCode: entry.debitTaxCode || undefined, taxType: entry.debitTaxType || undefined,
+      taxRate: entry.debitTaxRate || undefined, businessType: entry.debitBusinessType || undefined,
+      // 摘要を振込先名から変えてあれば、その摘要も覚える
+      description: entry.description && entry.description !== entry.payee ? entry.description : undefined,
+      updatedAt: Date.now(),
+    }
+    const dict = loadPayeeDict(clientId)
+    dict[key] = acc
+    if (!savePayeeDict(clientId, dict)) { alert(storageFullMessage('取引先辞書')); return }
+    // 画面に同じ振込先の行があれば、そちらにも同じ科目を入れる
+    let n = 0
+    const next = entriesRef.current.map((e) => {
+      if (e.id === entry.id || !e.payee || normalizePayee(e.payee) !== key) return e
+      n++
+      return {
+        ...e,
+        debitCode: acc.code, debitName: acc.name,
+        debitSubCode: acc.subCode || '', debitSubName: acc.subName || '',
+        debitTaxCode: acc.taxCode || '', debitTaxType: acc.taxType || '',
+        debitTaxRate: acc.taxRate || '', debitBusinessType: acc.businessType || '',
+        description: acc.description || e.payee,
+      }
+    })
+    if (n) onEntriesChange(next)
+    alert(
+      `「${entry.payee}」の科目を「${acc.code} ${acc.name}${acc.subName ? '／' + acc.subName : ''}」として覚えました。\n`
+      + (n ? `画面にある同じ振込先の ${n}行にも反映しました。\n` : '')
+      + '次回から、総合振込にこの振込先が出てきたら自動で入ります。',
+    )
+  }
+
   // 行メニュー用の安定ハンドラ（id ベース）
   const handleLearnRequest = useCallback((id: string) => {
     const list = entriesRef.current
     const entry = list.find((e) => e.id === id)
     if (!entry) return
+    if (entry.payee) { payeeLearnRef.current(entry); return }
     if (!entry.originalDescription && !entry.description) return
     // 複合仕訳は子行から学習を開いても常に親（1行目）を基準にする
     // （キーワード＝通帳の元摘要は親行が持っているため）

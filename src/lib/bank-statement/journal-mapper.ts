@@ -8,6 +8,8 @@ import type {
 import { findPattern } from './pattern-store'
 import { findLoanRepayment } from './loan-schedule-store'
 import type { LoanSchedule } from './loan-schedule-store'
+import { findBulkTransfer, payeeAccountOf, bulkFeeTotal, FEE_PAYEE } from './bulk-transfer-store'
+import type { BulkTransfer, BulkMatch, PayeeDict } from './bulk-transfer-store'
 
 let entryIdCounter = 0
 function generateEntryId(): string {
@@ -29,6 +31,8 @@ export function mapTransactionsToJournalEntries(
   accountSubName?: string,
   /** 借入金の返済予定表。償還額と同じ出金を見つけたら、元本と利息に分けた複合仕訳にする */
   loanSchedules?: LoanSchedule[],
+  /** 総合振込の内訳と振込先ごとの科目。合計額と同じ出金を見つけたら、振込先ごとの複合仕訳にする */
+  bulk?: { transfers: BulkTransfer[]; payees: PayeeDict },
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -85,6 +89,26 @@ export function mapTransactionsToJournalEntries(
             e.patternId = lpat.id
             e.description = (lpat.useLineDescriptions && lpat.lines?.[i]?.description) || base
           })
+        }
+        entries.push(...built)
+        continue
+      }
+
+      // 総合振込: 内訳の明細に「同じころの日付・同じ合計額」があれば、振込先ごとに分ける。
+      // 振込先の科目は通帳の摘要ではなく振込先の名前で覚えている（顔ぶれが月ごとに変わるため）
+      const bt = !isDeposit && bulk && bulk.transfers.length
+        ? findBulkTransfer(bulk.transfers, tx.date, amount)
+        : null
+      if (bt && bulk) {
+        const built = buildBulkEntries(
+          tx, bt, bulk.payees, accountCode, accountName, accountSubCode, accountSubName,
+          shoguchiCode, shoguchiName,
+        )
+        // 親（通帳の行）の摘要だけはパターンの言い換えを当てる（「フリコミカワリキン」→「総合振込」など）
+        const bpat = findPattern(patterns, tx.description, amount, accountCode, 'withdrawal')
+        if (bpat) {
+          built[0].patternId = bpat.id
+          built[0].description = patternDescriptionFor(bpat, tx, tx.description)
         }
         entries.push(...built)
         continue
@@ -374,6 +398,55 @@ function buildLoanEntries(
     c.creditAmount = l.amount
     c.originalDescription = tx.description
     c.loanScheduleId = s.id
+    out.push(c)
+  }
+  return out
+}
+
+/**
+ * 総合振込1回分の複合仕訳を組み立てる。
+ * 親は「諸口 / 通帳」で引落額まるごと（通帳の動きは1回だけ＝残高推移と一致）、
+ * 子は振込先ごとに「振込先の科目 / 諸口」。手数料込みで引き落とされていたら手数料の行も作る。
+ * 辞書に無い振込先は科目を空欄のまま出す（勝手に仮の科目を入れない）。
+ */
+function buildBulkEntries(
+  tx: BankTransaction, bt: BulkMatch, payees: PayeeDict,
+  accountCode: string, accountName: string,
+  accountSubCode: string | undefined, accountSubName: string | undefined,
+  shoguchiCode: string, shoguchiName: string,
+): JournalEntry[] {
+  const blank = { taxCode: '', taxCategory: '', businessType: '' }
+  const total = tx.withdrawal || 0
+  const parent = createEntry(tx, {
+    debitCode: shoguchiCode, debitName: shoguchiName, debitAmount: total,
+    creditCode: accountCode, creditName: accountName, creditAmount: total, ...blank,
+  })
+  if (accountSubCode) { parent.creditSubCode = accountSubCode; parent.creditSubName = accountSubName || '' }
+  parent.bulkTransferId = bt.transfer.id
+  const out: JournalEntry[] = [parent]
+
+  const lines = bt.transfer.rows.map((r) => ({ payee: r.payee, amount: r.amount }))
+  if (bt.includesFee) lines.push({ payee: FEE_PAYEE, amount: bulkFeeTotal(bt.transfer) })
+
+  for (const l of lines) {
+    const acc = payeeAccountOf(payees, l.payee)
+    const c = createCompoundEntry(parent)
+    c.debitCode = acc?.code || ''
+    c.debitName = acc?.name || ''
+    c.debitSubCode = acc?.subCode || ''
+    c.debitSubName = acc?.subName || ''
+    c.debitTaxCode = acc?.taxCode || ''
+    c.debitTaxType = acc?.taxType || ''
+    c.debitTaxRate = acc?.taxRate || ''
+    c.debitBusinessType = acc?.businessType || ''
+    c.creditCode = shoguchiCode
+    c.creditName = shoguchiName
+    c.debitAmount = l.amount
+    c.creditAmount = l.amount
+    c.description = acc?.description || l.payee
+    c.originalDescription = l.payee
+    c.payee = l.payee
+    c.bulkTransferId = bt.transfer.id
     out.push(c)
   }
   return out

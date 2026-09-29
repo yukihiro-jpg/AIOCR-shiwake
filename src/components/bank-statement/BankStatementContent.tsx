@@ -8,6 +8,7 @@ import FixedJournalDialog from '@/components/bank-statement/FixedJournalDialog'
 import InvoiceRegistryDialog from '@/components/bank-statement/InvoiceRegistryDialog'
 import CardFormatDialog from '@/components/bank-statement/CardFormatDialog'
 import LoanScheduleDialog from '@/components/bank-statement/LoanScheduleDialog'
+import BulkTransferDialog from '@/components/bank-statement/BulkTransferDialog'
 import PayrollUploadDialog from '@/components/bank-statement/PayrollUploadDialog'
 import KikuchiGasRentDialog from '@/components/bank-statement/KikuchiGasRentDialog'
 import StatementViewer from '@/components/bank-statement/StatementViewer'
@@ -50,6 +51,7 @@ import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode, findKaribaraiAccount } from '@/lib/bank-statement/account-master'
 import { loadLoanSchedules } from '@/lib/bank-statement/loan-schedule-store'
 import type { LoanSchedule } from '@/lib/bank-statement/loan-schedule-store'
+import { loadBulkTransfers, loadPayeeDict } from '@/lib/bank-statement/bulk-transfer-store'
 import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
@@ -70,6 +72,12 @@ function fileToDataUrl(file: File): Promise<string> {
     r.onerror = () => reject(new Error('画像の読み込みに失敗しました'))
     r.readAsDataURL(file)
   })
+}
+
+/** 通帳の解析に渡す総合振込の内訳と取引先辞書（解析のたびに最新を読む＝ダイアログで直した直後でも効く） */
+function bulkForMapping(): { transfers: ReturnType<typeof loadBulkTransfers>; payees: ReturnType<typeof loadPayeeDict> } {
+  const cid = getSelectedClientId() || ''
+  return { transfers: loadBulkTransfers(cid), payees: loadPayeeDict(cid) }
 }
 
 export default function BankStatementContent() {
@@ -141,6 +149,7 @@ export default function BankStatementContent() {
   const [showInvoiceRegistry, setShowInvoiceRegistry] = useState(false)
   const [showCardFormats, setShowCardFormats] = useState(false)
   const [showLoanSchedules, setShowLoanSchedules] = useState(false)
+  const [showBulkTransfers, setShowBulkTransfers] = useState(false)
   // 借入金の返済予定表（顧問先ごと）。通帳の出金に当てて元本・利息の複合仕訳を作る
   const [loanSchedules, setLoanSchedules] = useState<LoanSchedule[]>([])
   const [showPayroll, setShowPayroll] = useState(false)
@@ -406,6 +415,7 @@ export default function BankStatementContent() {
         config.accountSubCode,
         config.accountSubName,
         loanSchedules,
+        bulkForMapping(),
       )
       // 科目別消費税CDを自動設定（パターン学習で設定済みでないもの）
       const taxMaster = loadAccountTaxMaster()
@@ -569,7 +579,7 @@ export default function BankStatementContent() {
           const patterns = getPatterns()
           const entries = mapTransactionsToJournalEntries(
             result.pages, config.accountCode, config.accountName, patterns, accountMaster,
-            config.accountSubCode, config.accountSubName, loanSchedules,
+            config.accountSubCode, config.accountSubName, loanSchedules, bulkForMapping(),
           )
           appendEntries(entries)
           setInfo(`ゆうちょ受払通知票から${result.pages.length}件の取引を抽出しました（${elapsedSec}秒）`)
@@ -1898,6 +1908,11 @@ export default function BankStatementContent() {
                 icon: '🏦',
                 onClick: () => setShowLoanSchedules(true),
               },
+              {
+                label: '総合振込の内訳',
+                icon: '💴',
+                onClick: () => setShowBulkTransfers(true),
+              },
               { divider: true },
               {
                 label: 'Gemini モデル',
@@ -2264,6 +2279,14 @@ export default function BankStatementContent() {
       />
 
       {showCardFormats && <CardFormatDialog onClose={() => setShowCardFormats(false)} />}
+      {showBulkTransfers && selectedClient && (
+        <BulkTransferDialog
+          clientId={selectedClient.id}
+          accountMaster={accountMaster}
+          subAccountMaster={subAccountMaster}
+          onClose={() => setShowBulkTransfers(false)}
+        />
+      )}
       {showLoanSchedules && selectedClient && (
         <LoanScheduleDialog
           clientId={selectedClient.id}

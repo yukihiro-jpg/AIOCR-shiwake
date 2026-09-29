@@ -82,6 +82,10 @@ export interface JournalEntry {
   /** 返済予定表（loan-schedule-store）から内訳を写して作った仕訳。画面に小さな印を出すためだけに持つ。
    *  CSV出力には出さない（会計大将へ渡す列は変えない） */
   loanScheduleId?: string
+  /** 総合振込の内訳（bulk-transfer-store）から作った仕訳。画面の小さな印のためだけに持つ（CSVには出さない） */
+  bulkTransferId?: string
+  /** 総合振込の振込先名（振込先ごとの行だけ）。★学習をこの名前に対して行う（摘要を変えても学習先がずれない） */
+  payee?: string
   naibuMonth?: string           // 会計大将の内部月。決算月に入れる仕訳だけ設定する（通常月は空欄）。NAIBU_MONTHS 参照
 }
 
