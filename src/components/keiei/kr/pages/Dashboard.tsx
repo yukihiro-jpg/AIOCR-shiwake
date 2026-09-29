@@ -8,7 +8,7 @@ import {
 import { kpiMetrics, monthKpiMetrics } from '@/lib/keiei/kr/kpi';
 import type { KpiMetric } from '@/lib/keiei/kr/kpi';
 import {
-  C, ComboChart, KpiTable, LineChart, NeedData, YearNav, useYearSelection, fmtShort,
+  C, ComboChart, KpiTable, LineChart, NeedData, YearNav, useYearSelection, fmtYen,
 } from '../ui';
 import type { KpiRow } from '../ui';
 
@@ -53,7 +53,8 @@ export default function Dashboard() {
   // ---- 主要指標の表（kpi.ts と共有。Excelの「主要指標」シートも同じ数字） ----
   const fmtMetric = (m: KpiMetric, v: number | null): string | undefined => {
     if (v === null) return undefined;
-    return m.unit === 'pct' ? `${(v * 100).toFixed(1)}%` : `${fmtShort(v)}円`;
+    // 金額は「億円・万円」に丸めず、#,###円 で出す
+    return m.unit === 'pct' ? `${(v * 100).toFixed(1)}%` : fmtYen(v);
   };
   const toRow = (m: KpiMetric): KpiRow => ({
     label: m.label,
@@ -64,9 +65,9 @@ export default function Dashboard() {
     note: m.note,
     help: m.help,
   });
-  const rows: KpiRow[] = kpiMetrics(state, y).map(toRow);
+  const rows: KpiRow[] = kpiMetrics(state, y, { fullYen: true }).map(toRow);
   // 報告月（最終実績月）の単月の数字
-  const monthRows: KpiRow[] = monthKpiMetrics(state, y).map(toRow);
+  const monthRows: KpiRow[] = monthKpiMetrics(state, y, { fullYen: true }).map(toRow);
   const rep = calYm(y, li);
 
   // ---- チャート ----

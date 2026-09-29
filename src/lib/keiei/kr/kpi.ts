@@ -30,6 +30,12 @@ const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
 
 const yenShortOf = (n: number) => `${Math.round(n / 10000).toLocaleString('ja-JP')}万円`;
 const signedYenShortOf = (n: number) => `${n >= 0 ? '+' : ''}${yenShortOf(n)}`;
+// 円単位（#,###円）。画面のダッシュボードはこちらで出す（Excelの主要指標シートは従来どおり万円）
+const yenFullOf = (n: number) => `${Math.round(n).toLocaleString('ja-JP')}円`;
+const signedYenFullOf = (n: number) => `${n >= 0 ? '+' : ''}${yenFullOf(n)}`;
+
+/** 金額の書き方。fullYen: true で「1,234,567円」、省略時は「123万円」 */
+export interface KpiFormatOptions { fullYen?: boolean }
 const signedPctOf = (r: number) => `${r >= 0 ? '+' : ''}${(r * 100).toFixed(1)}%`;
 const signedPtOf = (d: number) => `${d >= 0 ? '+' : ''}${d.toFixed(1)}pt`;
 
@@ -37,7 +43,7 @@ const signedPtOf = (d: number) => `${d >= 0 ? '+' : ''}${d.toFixed(1)}pt`;
  * 指定年度の主要指標。
  * 前期は「同じ月数（前年同期）」で比べる。前期の実績が足りない場合は比較を出さない。
  */
-export function kpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
+export function kpiMetrics(state: State, y: FiscalYearData, opts: KpiFormatOptions = {}): KpiMetric[] {
   const s = yearSeries(y);
   const li = y.lastFilledIndex;
   const prevY = prevYearOf(state, y);
@@ -48,8 +54,8 @@ export function kpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
   const ls = laborShareOf(y);
   const prevLs = prevY ? laborShareOf(prevY) : null;
 
-  const yenShort = yenShortOf;
-  const signedYenShort = signedYenShortOf;
+  const yenShort = opts.fullYen ? yenFullOf : yenShortOf;
+  const signedYenShort = opts.fullYen ? signedYenFullOf : signedYenShortOf;
   const signedPct = signedPctOf;
   const signedPt = signedPtOf;
 
@@ -145,7 +151,9 @@ export function kpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
  * 報告月（その年度の最終実績月）の「単月」の指標。
  * 累計だけでは見えない当月の動きを見るための表。前期の同じ月と比べる。
  */
-export function monthKpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
+export function monthKpiMetrics(state: State, y: FiscalYearData, opts: KpiFormatOptions = {}): KpiMetric[] {
+  const yenOf = opts.fullYen ? yenFullOf : yenShortOf;
+  const signedYenOf = opts.fullYen ? signedYenFullOf : signedYenShortOf;
   const s = yearSeries(y);
   const li = y.lastFilledIndex;
   const prevY = prevYearOf(state, y);
@@ -159,13 +167,13 @@ export function monthKpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
   const hasLast = li > 0;
 
   const deltaYen = (now: number, prev: number | null) =>
-    prev === null ? null : signedYenShortOf(now - prev);
+    prev === null ? null : signedYenOf(now - prev);
   const cmp = (now: number, prev: number | null, higherIsBetter = true): KpiMetric['tone'] => {
     if (prev === null) return 'neutral';
     return (higherIsBetter ? now >= prev : now <= prev) ? 'good' : 'bad';
   };
   const vsLast = (arr: number[]) =>
-    hasLast ? `前月 ${yenShortOf(arr[li - 1])}` : '前月の実績なし';
+    hasLast ? `前月 ${yenOf(arr[li - 1])}` : '前月の実績なし';
 
   const sales = s.sales[li];
   const prevSales = pv(x => x.sales);
@@ -191,7 +199,7 @@ export function monthKpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
       key: 'mGrossRate', label: '粗利率（単月）', unit: 'pct',
       value: rate, prev: prevRate,
       deltaText: prevRate !== null ? signedPtOf((rate - prevRate) * 100) : null,
-      tone: cmp(rate, prevRate), note: `売上総利益 ${yenShortOf(gross)}`,
+      tone: cmp(rate, prevRate), note: `売上総利益 ${yenOf(gross)}`,
       help: 'その月だけの粗利率です。単月は棚卸や仕入の計上時期によって大きく振れることがあるため、'
         + '1ヶ月の数字だけで判断せず、上の累計の粗利率とあわせて見てください。',
     },
@@ -230,8 +238,8 @@ export function monthKpiMetrics(state: State, y: FiscalYearData): KpiMetric[] {
       deltaText: hasLast ? deltaYen(dCash, prevDCash) : null,
       tone: hasLast ? cmp(dCash, prevDCash) : 'neutral',
       note: hasLast
-        ? `月末残高 ${yenShortOf(s.cash[li])}（前月末 ${yenShortOf(s.cash[li - 1])}）`
-        : `月末残高 ${yenShortOf(s.cash[li])}`,
+        ? `月末残高 ${yenOf(s.cash[li])}（前月末 ${yenOf(s.cash[li - 1])}）`
+        : `月末残高 ${yenOf(s.cash[li])}`,
       help: 'その月に現金・預金が増えたか減ったかです。利益が黒字でも、売掛金の回収が遅い月、'
         + '仕入や納税・借入返済が重なった月はマイナスになります。'
         + '「なぜ減ったのか」はCF計算書のページで営業・投資・財務のどこが原因かを確認できます。',
