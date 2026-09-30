@@ -53,7 +53,7 @@ import { loadLoanSchedules } from '@/lib/bank-statement/loan-schedule-store'
 import type { LoanSchedule } from '@/lib/bank-statement/loan-schedule-store'
 import { loadBulkTransfers, loadPayeeDict } from '@/lib/bank-statement/bulk-transfer-store'
 import type { BulkTransfer, PayeeDict } from '@/lib/bank-statement/bulk-transfer-store'
-import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
+import { getDefaultTaxCodeByName, isPL , taxCodeNeedsRate } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
 import type { Client } from '@/lib/bank-statement/client-store'
@@ -468,7 +468,9 @@ export default function BankStatementContent() {
       }
     }
     // 消費税率: 標準税率10%→4、軽減税率8%→5
-    if (!updated.debitTaxRate && updated.debitTaxCode && updated.debitTaxCode !== '0') {
+    // 税率「0」も未設定とみなす（科目別消費税マスタに税率0で登録されている科目がある）
+    if (updated.debitTaxCode && updated.debitTaxCode !== '0'
+      && (!updated.debitTaxRate || (updated.debitTaxRate === '0' && taxCodeNeedsRate(updated.debitTaxCode)))) {
       updated.debitTaxRate = '4' // デフォルトは標準税率10%（=4）
     }
     return updated

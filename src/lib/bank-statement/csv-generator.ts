@@ -1,3 +1,4 @@
+import { taxCodeNeedsRate } from './tax-codes'
 import type { JournalEntry } from './types'
 
 const CSV_HEADERS = [
@@ -25,10 +26,15 @@ const CSV_HEADERS = [
 ]
 
 // 消費税売上/仕入区分を数値に変換 (0:なし, 1:売上, 2:仕入)
+// 【「仕入」を先に見る】仕入の税区分には名前に「売上」を含むものがある
+// （課税非課税共通売上対応課税仕入＝11、非課税売上対応課税仕入＝14 など）。
+// 「売上」を先に見ると、これらが売上(1)として出力され、会計大将で取り込めない行になる。
+// 売上側の税区分の名前には「仕入」を含むものが無いので、仕入を先に判定して問題ない。
 function taxCategoryToNum(taxType: string): string {
   if (!taxType) return '0'
+  if (taxType.includes('仕入')) return '2'
   if (taxType.includes('売上') || taxType.includes('売')) return '1'
-  if (taxType.includes('仕入') || taxType.includes('仕')) return '2'
+  if (taxType.includes('仕')) return '2'
   return '0'
 }
 
@@ -70,7 +76,9 @@ function entryToRow(entry: JournalEntry, clientTaxType?: string): string[] {
     creditIndustry,                                       // 15 貸方業種コード（数値）
     creditTaxInclude,                                     // 16 貸方税込/税抜区分
     entry.debitTaxCode || '0',                             // 17 消費税コード
-    entry.debitTaxRate || '0',                             // 18 消費税率（数値）
+    // 18 消費税率（数値）。課税の行で税率が空・0のときは標準税率10%（=4）を出す
+    // （科目別消費税マスタの税率が「0」で登録されていると、課税仕入なのに税率0の行になり取り込めない）
+    (taxCodeNeedsRate(entry.debitTaxCode) && (!entry.debitTaxRate || entry.debitTaxRate === '0')) ? '4' : (entry.debitTaxRate || '0'),
     entry.debitBusinessType || '0',                        // 19 事業者取引区分
     entry.debitAmount ? String(entry.debitAmount) : '',     // 20 金額
     entry.description,                                     // 21 摘要

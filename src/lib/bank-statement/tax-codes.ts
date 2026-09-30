@@ -154,3 +154,11 @@ export function getDefaultTaxCodeByName(
 
   return null
 }
+
+/**
+ * 税率の指定が必ず要る消費税コードか（課税・課税控除 10〜16、輸入仕入 70〜74）。
+ * 非課税・不課税・輸出・特定収入など、税率を持たないコードには税率を補わない。
+ */
+export function taxCodeNeedsRate(code: string): boolean {
+  return /^(1[0-6]|7[0-4])$/.test(String(code || ''))
+}
