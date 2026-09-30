@@ -46,12 +46,13 @@ import type {
 import { parseFile, applyColumnMapping } from '@/lib/bank-statement/transaction-extractor'
 import { saveExcelMapping, loadExcelMapping } from '@/lib/bank-statement/excel-mapping-store'
 import { creditCardOcr, receiptOcrParallel, invoiceOcr, expandDescriptions } from '@/lib/bank-statement/gemini-client'
-import { mapTransactionsToJournalEntries } from '@/lib/bank-statement/journal-mapper'
+import { mapTransactionsToJournalEntries, bulkTransferToEntries } from '@/lib/bank-statement/journal-mapper'
 import { getPatterns } from '@/lib/bank-statement/pattern-store'
 import { loadAccountMaster, loadSubAccountMaster, loadAccountTaxMaster, getDefaultTaxCode, findKaribaraiAccount } from '@/lib/bank-statement/account-master'
 import { loadLoanSchedules } from '@/lib/bank-statement/loan-schedule-store'
 import type { LoanSchedule } from '@/lib/bank-statement/loan-schedule-store'
 import { loadBulkTransfers, loadPayeeDict } from '@/lib/bank-statement/bulk-transfer-store'
+import type { BulkTransfer, PayeeDict } from '@/lib/bank-statement/bulk-transfer-store'
 import { getDefaultTaxCodeByName, isPL } from '@/lib/bank-statement/tax-codes'
 import type { AccountTaxItem } from '@/lib/bank-statement/types'
 import ClientSelector from '@/components/bank-statement/ClientSelector'
@@ -74,10 +75,16 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
-/** 通帳の解析に渡す総合振込の内訳と取引先辞書（解析のたびに最新を読む＝ダイアログで直した直後でも効く） */
-function bulkForMapping(): { transfers: ReturnType<typeof loadBulkTransfers>; payees: ReturnType<typeof loadPayeeDict> } {
+/**
+ * 通帳の解析に渡す総合振込の内訳と取引先辞書（解析のたびに最新を読む＝ダイアログで直した直後でも効く）。
+ * 明細だけで仕訳済みの総合振込に当たった出金は仕訳にしないので、その旨を解析の後にまとめて知らせる。
+ */
+function bulkForMapping() {
   const cid = getSelectedClientId() || ''
-  return { transfers: loadBulkTransfers(cid), payees: loadPayeeDict(cid) }
+  const skipped: string[] = []
+  // 解析が終わってから1回だけ知らせる（行ごとに出すと解析の途中で何度も止まるため）
+  setTimeout(() => { if (skipped.length) alert(skipped.join('\n')) }, 0)
+  return { transfers: loadBulkTransfers(cid), payees: loadPayeeDict(cid), onSkip: (m: string) => { skipped.push(m) } }
 }
 
 export default function BankStatementContent() {
@@ -396,6 +403,104 @@ export default function BankStatementContent() {
 
   // 以下は顧問先選択後の処理
 
+  /**
+   * 仕訳の科目名と消費税の補完（空欄のところだけ）。
+   * 通帳の解析と、総合振込の明細だけで作る仕訳の両方で使う（同じ規則で補完するため）。
+   */
+  const completeEntryTax = useCallback((e: JournalEntry): JournalEntry => {
+    const taxMaster = loadAccountTaxMaster()
+    const updated = { ...e }
+    // 科目名が空の場合、科目チェックリストから補完
+    if (updated.debitCode && !updated.debitName) {
+      const acc = accountMaster.find((a) => a.code === updated.debitCode)
+      if (acc) updated.debitName = acc.shortName || acc.name
+    }
+    if (updated.creditCode && !updated.creditName) {
+      const acc = accountMaster.find((a) => a.code === updated.creditCode)
+      if (acc) updated.creditName = acc.shortName || acc.name
+    }
+    // 事業者取引区分: パターン学習で未設定なら0（インボイス登録事業者）をデフォルト
+    if (!updated.debitBusinessType) {
+      updated.debitBusinessType = '0'
+    }
+    // 消費税CD
+    const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
+    const needsTaxRate = !updated.debitTaxRate
+    if (needsTaxCode || needsTaxRate) {
+      const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
+      const creditAcc = accountMaster.find((a) => a.code === updated.creditCode)
+      // 科目の正残から売上/仕入区分を判定（借方・貸方どちらに来ても科目の性質で決める）。
+      // 貸方正残のPL科目＝売上系、借方正残のPL科目＝経費/仕入系。BS科目（現金等）は対象外。
+      const preferOf = (acc?: { bsPl?: string; normalBalance?: string }): 'sales' | 'purchase' | null =>
+        acc && isPL(acc.bsPl) ? (acc.normalBalance === '貸方' ? 'sales' : acc.normalBalance === '借方' ? 'purchase' : null) : null
+      // 1. 科目別消費税マスタを参照（空欄のときのみ補完。パターン等で既に設定済みの値は尊重）
+      //    売上科目を借方（売上返金）に入れても課税売上、経費科目を貸方に入れても課税仕入/対象外のまま。
+      const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode, preferOf(debitAcc))
+      const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode, preferOf(creditAcc))
+      const tax = debitTax || creditTax
+      if (tax) {
+        if (needsTaxCode) {
+          updated.debitTaxCode = tax.taxCode
+          updated.debitTaxType = tax.taxName
+        }
+        if (needsTaxRate && tax.taxRate) {
+          updated.debitTaxRate = tax.taxRate
+        }
+      } else if (needsTaxCode) {
+        // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
+        //    エントリ内のPL科目（売上/経費）を借方・貸方問わず探し、その科目の性質で判定する。
+        const debitPrefer = preferOf(debitAcc)
+        const creditPrefer = preferOf(creditAcc)
+        let category: 'sales' | 'purchase' | null = null
+        let targetName = ''
+        if (debitPrefer) {
+          category = debitPrefer
+          targetName = debitAcc?.name || debitAcc?.shortName || ''
+        } else if (creditPrefer) {
+          category = creditPrefer
+          targetName = creditAcc?.name || creditAcc?.shortName || ''
+        }
+        const nameTax = getDefaultTaxCodeByName(targetName, category)
+        if (nameTax) {
+          updated.debitTaxCode = nameTax.taxCode
+          updated.debitTaxType = nameTax.taxName
+        }
+      }
+    }
+    // 消費税率: 標準税率10%→4、軽減税率8%→5
+    if (!updated.debitTaxRate && updated.debitTaxCode && updated.debitTaxCode !== '0') {
+      updated.debitTaxRate = '4' // デフォルトは標準税率10%（=4）
+    }
+    return updated
+  }, [accountMaster])
+
+  /**
+   * 総合振込の明細だけで仕訳を作る（通帳を使わない流れ）。
+   * mode='append' は仕訳一覧に足す（確認・修正してから一時保存→CSV出力）、'csv' はそのままCSVで出す。
+   * 書けたら true（呼び出し側で「仕訳済み」を記録し、通帳の解析で二重に作らないようにする）。
+   */
+  const handleBulkJournalize = useCallback((t: BulkTransfer, payees: PayeeDict, includeFee: boolean, mode: 'append' | 'csv'): boolean => {
+    if (!t.bankCode) { alert('引落口座（貸方の科目）を選んでください。'); return false }
+    const entries = bulkTransferToEntries(
+      t, payees, accountMaster,
+      { code: t.bankCode, name: t.bankName || '', subCode: t.bankSubCode, subName: t.bankSubName },
+      includeFee,
+    ).map(completeEntryTax)
+    if (mode === 'csv') {
+      const blanks = entries.filter((e) => !e.debitCode || !e.creditCode)
+      if (blanks.length) {
+        alert(`科目が入っていない振込先が ${blanks.length}行あります。すべての振込先の科目を決めてから出力してください。\n（「仕訳一覧に追加」なら、一覧で直してから出力できます）`)
+        return false
+      }
+      downloadCsv(entries, `総合振込_${t.date}.csv`, selectedClient?.taxType)
+      setInfo(`${t.date} の総合振込（${t.rows.length}件）を仕訳にしてCSVで出力しました。`)
+    } else {
+      setJournalEntries((prev) => [...prev, ...entries])
+      setInfo(`${t.date} の総合振込（${t.rows.length}件）を仕訳一覧に追加しました。確認してから一時保存・CSV出力してください。`)
+    }
+    return true
+  }, [accountMaster, completeEntryTax, selectedClient])
+
   const applyParseResultFn = useCallback(
     (result: ParseResult, config: UploadConfig) => {
       setPages((prev) => [...prev, ...result.pages])
@@ -418,72 +523,7 @@ export default function BankStatementContent() {
         bulkForMapping(),
       )
       // 科目別消費税CDを自動設定（パターン学習で設定済みでないもの）
-      const taxMaster = loadAccountTaxMaster()
-      const entriesWithTax = entries.map((e) => {
-        const updated = { ...e }
-        // 科目名が空の場合、科目チェックリストから補完
-        if (updated.debitCode && !updated.debitName) {
-          const acc = accountMaster.find((a) => a.code === updated.debitCode)
-          if (acc) updated.debitName = acc.shortName || acc.name
-        }
-        if (updated.creditCode && !updated.creditName) {
-          const acc = accountMaster.find((a) => a.code === updated.creditCode)
-          if (acc) updated.creditName = acc.shortName || acc.name
-        }
-        // 事業者取引区分: パターン学習で未設定なら0（インボイス登録事業者）をデフォルト
-        if (!updated.debitBusinessType) {
-          updated.debitBusinessType = '0'
-        }
-        // 消費税CD
-        const needsTaxCode = !updated.debitTaxCode || updated.debitTaxCode === '0'
-        const needsTaxRate = !updated.debitTaxRate
-        if (needsTaxCode || needsTaxRate) {
-          const debitAcc = accountMaster.find((a) => a.code === updated.debitCode)
-          const creditAcc = accountMaster.find((a) => a.code === updated.creditCode)
-          // 科目の正残から売上/仕入区分を判定（借方・貸方どちらに来ても科目の性質で決める）。
-          // 貸方正残のPL科目＝売上系、借方正残のPL科目＝経費/仕入系。BS科目（現金等）は対象外。
-          const preferOf = (acc?: { bsPl?: string; normalBalance?: string }): 'sales' | 'purchase' | null =>
-            acc && isPL(acc.bsPl) ? (acc.normalBalance === '貸方' ? 'sales' : acc.normalBalance === '借方' ? 'purchase' : null) : null
-          // 1. 科目別消費税マスタを参照（空欄のときのみ補完。パターン等で既に設定済みの値は尊重）
-          //    売上科目を借方（売上返金）に入れても課税売上、経費科目を貸方に入れても課税仕入/対象外のまま。
-          const debitTax = getDefaultTaxCode(taxMaster, updated.debitCode, preferOf(debitAcc))
-          const creditTax = getDefaultTaxCode(taxMaster, updated.creditCode, preferOf(creditAcc))
-          const tax = debitTax || creditTax
-          if (tax) {
-            if (needsTaxCode) {
-              updated.debitTaxCode = tax.taxCode
-              updated.debitTaxType = tax.taxName
-            }
-            if (needsTaxRate && tax.taxRate) {
-              updated.debitTaxRate = tax.taxRate
-            }
-          } else if (needsTaxCode) {
-            // 2. 科目名ベースのデフォルト判定（パターン学習未済・マスタ未登録の場合）
-            //    エントリ内のPL科目（売上/経費）を借方・貸方問わず探し、その科目の性質で判定する。
-            const debitPrefer = preferOf(debitAcc)
-            const creditPrefer = preferOf(creditAcc)
-            let category: 'sales' | 'purchase' | null = null
-            let targetName = ''
-            if (debitPrefer) {
-              category = debitPrefer
-              targetName = debitAcc?.name || debitAcc?.shortName || ''
-            } else if (creditPrefer) {
-              category = creditPrefer
-              targetName = creditAcc?.name || creditAcc?.shortName || ''
-            }
-            const nameTax = getDefaultTaxCodeByName(targetName, category)
-            if (nameTax) {
-              updated.debitTaxCode = nameTax.taxCode
-              updated.debitTaxType = nameTax.taxName
-            }
-          }
-        }
-        // 消費税率: 標準税率10%→4、軽減税率8%→5
-        if (!updated.debitTaxRate && updated.debitTaxCode && updated.debitTaxCode !== '0') {
-          updated.debitTaxRate = '4' // デフォルトは標準税率10%（=4）
-        }
-        return updated
-      })
+      const entriesWithTax = entries.map(completeEntryTax)
       // 処理対象期間でフィルタ
       const from = config.periodFrom?.replace(/-/g, '') || ''
       const to = config.periodTo?.replace(/-/g, '') || ''
@@ -537,7 +577,7 @@ export default function BankStatementContent() {
         }
       }
     },
-    [accountMaster, geminiModel, loanSchedules],
+    [accountMaster, geminiModel, loanSchedules, completeEntryTax],
   )
 
   const handleUpload = useCallback(
@@ -2284,6 +2324,7 @@ export default function BankStatementContent() {
           clientId={selectedClient.id}
           accountMaster={accountMaster}
           subAccountMaster={subAccountMaster}
+          onJournalize={handleBulkJournalize}
           onClose={() => setShowBulkTransfers(false)}
         />
       )}

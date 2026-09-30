@@ -22,7 +22,7 @@ import LearnPatternDialog from './LearnPatternDialog'
 import ApplyPatternDialog from './ApplyPatternDialog'
 import PatternDetailDialog from './PatternDetailDialog'
 import { loadPayeeDict, savePayeeDict, normalizePayee } from '@/lib/bank-statement/bulk-transfer-store'
-import type { PayeeAccount } from '@/lib/bank-statement/bulk-transfer-store'
+import type { PayeeAccount, PayeeLine } from '@/lib/bank-statement/bulk-transfer-store'
 import { storageFullMessage } from '@/lib/bank-statement/storage-usage'
 
 interface Props {
@@ -778,6 +778,46 @@ export default function JournalEntryTable({
   payeeLearnRef.current = (entry: JournalEntry) => {
     if (!entry.payee) return
     if (!clientId) { alert('顧問先を選んでから学習してください。'); return }
+    const key0 = normalizePayee(entry.payee)
+    // 同じ総合振込の中で、この振込先が複数行に分かれていれば「複合仕訳」として覚える
+    const group = entriesRef.current.filter((e) =>
+      e.bulkTransferId === entry.bulkTransferId && e.payee && normalizePayee(e.payee) === key0)
+    if (group.length > 1) {
+      const sh = accountMasterRef.current.find((a) => a.name === '諸口' || a.shortName === '諸口' || a.code === '997')
+      const shCode = sh?.code || '997'
+      if (group.some((e) => !(e.creditCode === shCode ? e.debitCode : e.creditCode))) {
+        alert(`「${entry.payee}」のすべての行に科目を入れてから★を押してください。`)
+        return
+      }
+      // 諸口が貸方にある行＝借方の科目の行、借方にある行＝貸方の科目の行
+      const lines: PayeeLine[] = group.map((e) => {
+        const debitSide = e.creditCode === shCode
+        return {
+          side: debitSide ? 'debit' : 'credit',
+          code: debitSide ? e.debitCode : e.creditCode,
+          name: debitSide ? e.debitName : e.creditName,
+          subCode: (debitSide ? e.debitSubCode : e.creditSubCode) || undefined,
+          subName: (debitSide ? e.debitSubName : e.creditSubName) || undefined,
+          taxCode: e.debitTaxCode || undefined, taxType: e.debitTaxType || undefined,
+          taxRate: e.debitTaxRate || undefined, businessType: e.debitBusinessType || undefined,
+          amount: e.debitAmount || e.creditAmount || 0,
+          description: e.description && e.description !== e.payee ? e.description : undefined,
+        }
+      })
+      // 最初の借方の行を「差額」にする（毎回変わる本体の金額はここで吸収し、他の行は前回の金額を初期値にする）
+      const rem = lines.findIndex((l) => l.side === 'debit')
+      if (rem >= 0) lines[rem] = { ...lines[rem], amount: undefined }
+      const dict = loadPayeeDict(clientId)
+      const first = lines[rem >= 0 ? rem : 0]
+      dict[key0] = { payee: entry.payee, code: first.code, name: first.name, lines, updatedAt: Date.now() }
+      if (!savePayeeDict(clientId, dict)) { alert(storageFullMessage('取引先辞書')); return }
+      alert(
+        `「${entry.payee}」を複合仕訳（${lines.length}行）として覚えました。\n`
+        + '次回からは同じ科目の組み合わせで作り、最初の借方の行（' + first.name + '）を差額にして振込金額に合わせます。\n'
+        + '差額以外の行は今回の金額を初期値にするので、月ごとに変わる場合は「総合振込の内訳」の画面で直してください。',
+      )
+      return
+    }
     if (!entry.debitCode) {
       alert(`「${entry.payee}」の科目を入れてから★を押してください。\nこの振込先の科目として覚え、次回から自動で入るようにします。`)
       return

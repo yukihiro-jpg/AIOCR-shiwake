@@ -8,7 +8,7 @@ import type {
 import { findPattern } from './pattern-store'
 import { findLoanRepayment } from './loan-schedule-store'
 import type { LoanSchedule } from './loan-schedule-store'
-import { findBulkTransfer, payeeAccountOf, bulkFeeTotal, FEE_PAYEE } from './bulk-transfer-store'
+import { findBulkTransfer, resolvePayeeLines, bulkTotal, bulkFeeTotal, FEE_PAYEE } from './bulk-transfer-store'
 import type { BulkTransfer, BulkMatch, PayeeDict } from './bulk-transfer-store'
 
 let entryIdCounter = 0
@@ -31,8 +31,9 @@ export function mapTransactionsToJournalEntries(
   accountSubName?: string,
   /** 借入金の返済予定表。償還額と同じ出金を見つけたら、元本と利息に分けた複合仕訳にする */
   loanSchedules?: LoanSchedule[],
-  /** 総合振込の内訳と振込先ごとの科目。合計額と同じ出金を見つけたら、振込先ごとの複合仕訳にする */
-  bulk?: { transfers: BulkTransfer[]; payees: PayeeDict },
+  /** 総合振込の内訳と振込先ごとの科目。合計額と同じ出金を見つけたら、振込先ごとの複合仕訳にする。
+   *  onSkip: 明細だけで仕訳済みの総合振込に当たったとき（その出金は仕訳にしない）に知らせる */
+  bulk?: { transfers: BulkTransfer[]; payees: PayeeDict; onSkip?: (message: string) => void },
 ): JournalEntry[] {
   const entries: JournalEntry[] = []
 
@@ -99,6 +100,14 @@ export function mapTransactionsToJournalEntries(
       const bt = !isDeposit && bulk && bulk.transfers.length
         ? findBulkTransfer(bulk.transfers, tx.date, amount)
         : null
+      if (bt && bulk && bt.transfer.journalizedAt) {
+        // この総合振込は明細だけで仕訳にしてある（通帳側の貸方も含めて出力済み）。
+        // ここでも作ると引落が二重に計上されるので、この出金は仕訳にせず知らせる
+        bulk.onSkip?.(
+          `${tx.date} の「${tx.description}」${amount.toLocaleString('ja-JP')}円は、総合振込の明細から仕訳済みのため、通帳からは仕訳を作りませんでした。`,
+        )
+        continue
+      }
       if (bt && bulk) {
         const built = buildBulkEntries(
           tx, bt, bulk.payees, accountCode, accountName, accountSubCode, accountSubName,
@@ -425,31 +434,60 @@ function buildBulkEntries(
   parent.bulkTransferId = bt.transfer.id
   const out: JournalEntry[] = [parent]
 
-  const lines = bt.transfer.rows.map((r) => ({ payee: r.payee, amount: r.amount }))
-  if (bt.includesFee) lines.push({ payee: FEE_PAYEE, amount: bulkFeeTotal(bt.transfer) })
+  const rows = bt.transfer.rows.slice()
+  if (bt.includesFee) rows.push({ payee: FEE_PAYEE, amount: bulkFeeTotal(bt.transfer) })
 
-  for (const l of lines) {
-    const acc = payeeAccountOf(payees, l.payee)
-    const c = createCompoundEntry(parent)
-    c.debitCode = acc?.code || ''
-    c.debitName = acc?.name || ''
-    c.debitSubCode = acc?.subCode || ''
-    c.debitSubName = acc?.subName || ''
-    c.debitTaxCode = acc?.taxCode || ''
-    c.debitTaxType = acc?.taxType || ''
-    c.debitTaxRate = acc?.taxRate || ''
-    c.debitBusinessType = acc?.businessType || ''
-    c.creditCode = shoguchiCode
-    c.creditName = shoguchiName
-    c.debitAmount = l.amount
-    c.creditAmount = l.amount
-    c.description = acc?.description || l.payee
-    c.originalDescription = l.payee
-    c.payee = l.payee
-    c.bulkTransferId = bt.transfer.id
-    out.push(c)
+  for (const r of rows) {
+    // 振込先ごとに行へ直す（複合仕訳の振込先は複数行になる）。
+    // 貸借の合わない複合仕訳は使わず、科目空欄の1行にして気づけるようにする
+    const res = resolvePayeeLines(r, payees)
+    const lines = res.ok ? res.lines : [{ side: 'debit' as const, code: '', name: '', amount: r.amount }]
+    for (const l of lines) {
+      const c = createCompoundEntry(parent)
+      const [accSide, other] = l.side === 'debit' ? ['debit', 'credit'] as const : ['credit', 'debit'] as const
+      c[`${accSide}Code`] = l.code || ''
+      c[`${accSide}Name`] = l.name || ''
+      c[`${accSide}SubCode`] = l.subCode || ''
+      c[`${accSide}SubName`] = l.subName || ''
+      c[`${other}Code`] = shoguchiCode
+      c[`${other}Name`] = shoguchiName
+      // 消費税の欄は借方側に持つ（この画面の仕訳は消費税を借方の列で扱う）
+      c.debitTaxCode = l.taxCode || ''
+      c.debitTaxType = l.taxType || ''
+      c.debitTaxRate = l.taxRate || ''
+      c.debitBusinessType = l.businessType || ''
+      c.debitAmount = l.amount
+      c.creditAmount = l.amount
+      c.description = l.description || r.payee
+      c.originalDescription = r.payee
+      c.payee = r.payee
+      c.bulkTransferId = bt.transfer.id
+      out.push(c)
+    }
   }
   return out
+}
+
+/**
+ * 通帳を使わずに、総合振込の明細だけで仕訳を作る。
+ * 親は「諸口 / 引落口座」で合計額（手数料を含めるならその分も）、子は振込先ごと。
+ * 摘要は親が「総合振込」、子は振込先名（辞書で摘要を決めてあればそれ）。
+ */
+export function bulkTransferToEntries(
+  transfer: BulkTransfer, payees: PayeeDict, accountMaster: AccountItem[],
+  bank: { code: string; name: string; subCode?: string; subName?: string },
+  includeFee: boolean,
+): JournalEntry[] {
+  const shoguchi = accountMaster.find((a) => a.name === '諸口' || a.shortName === '諸口' || a.code === '997')
+  const total = bulkTotal(transfer) + (includeFee ? bulkFeeTotal(transfer) : 0)
+  const tx: BankTransaction = {
+    id: `tx-${transfer.id}`, pageIndex: 0, rowIndex: 0, date: transfer.date,
+    description: '総合振込', deposit: null, withdrawal: total, balance: 0,
+  }
+  return buildBulkEntries(
+    tx, { transfer, includesFee: includeFee }, payees, bank.code, bank.name, bank.subCode, bank.subName,
+    shoguchi?.code || '997', shoguchi?.shortName || shoguchi?.name || '諸口',
+  )
 }
 
 interface EntryParams {

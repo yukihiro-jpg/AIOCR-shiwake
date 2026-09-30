@@ -23,6 +23,25 @@ import { parseAmount, parseScheduleDate } from './loan-schedule-store'
 const transfersKey = (cid: string) => `bs-bulk-transfers-${cid}`
 const payeesKey = (cid: string) => `bs-payee-accounts-${cid}`
 
+/**
+ * 複合仕訳の1行（振込先1件ぶんを複数の科目に分けるとき。例：支払報酬／預り金（源泉））。
+ * 金額が空の行を1行だけ置くと、そこは「差額」になり、借方計−貸方計＝振込金額 になるよう自動で決まる。
+ */
+export interface PayeeLine {
+  side: 'debit' | 'credit'
+  code: string
+  name: string
+  subCode?: string
+  subName?: string
+  taxCode?: string
+  taxType?: string
+  taxRate?: string
+  businessType?: string
+  /** 空なら差額（1行だけ） */
+  amount?: number
+  description?: string
+}
+
 /** 総合振込1件のうちの1先 */
 export interface BulkTransferRow {
   /** 受取人名（明細の表記のまま） */
@@ -31,6 +50,8 @@ export interface BulkTransferRow {
   amount: number
   /** 振込手数料（当方負担のとき） */
   fee?: number
+  /** この回だけの複合仕訳（金額はこの回のもの）。無ければ取引先辞書の内容を使う */
+  lines?: PayeeLine[]
 }
 
 /** 総合振込1回分（明細1枚＝Excelの1シート） */
@@ -42,6 +63,13 @@ export interface BulkTransfer {
   fileName?: string
   sheetName?: string
   importedAt?: number
+  /** 引落口座（通帳を使わずにこの明細だけで仕訳にするとき、貸方に立てる科目） */
+  bankCode?: string
+  bankName?: string
+  bankSubCode?: string
+  bankSubName?: string
+  /** この明細だけで仕訳にした日時。入っていれば、通帳の解析では同じ引落を仕訳にしない（二重計上の防止） */
+  journalizedAt?: number
 }
 
 export interface BulkTransferMapping {
@@ -65,6 +93,8 @@ export interface PayeeAccount {
   businessType?: string
   /** 振込先名と違う摘要にしたいとき（空なら振込先名をそのまま摘要にする） */
   description?: string
+  /** 複合仕訳にする振込先の行（科目と、差額以外の行は前回の金額）。あればこちらを使う */
+  lines?: PayeeLine[]
   updatedAt?: number
 }
 
@@ -157,6 +187,42 @@ export function payeeAccountOf(dict: PayeeDict, payee: string): PayeeAccount | n
   return dict[normalizePayee(payee)] ?? null
 }
 
+/** 金額の決まった複合仕訳の1行 */
+export type ResolvedLine = PayeeLine & { amount: number }
+
+/**
+ * 振込先1件を、仕訳の行に直す。
+ *   この回の複合仕訳 → 取引先辞書の複合仕訳 → 取引先辞書の科目（1行） → 科目なし（空欄の1行）
+ * 複合仕訳は、金額が空の行（差額）を 借方計−貸方計＝振込金額 になるように埋める。
+ * ok=false は貸借が合わない（差額の行が無い・2行以上ある・差額がマイナス）とき。
+ */
+export function resolvePayeeLines(row: BulkTransferRow, dict: PayeeDict): { lines: ResolvedLine[]; ok: boolean } {
+  const acc = payeeAccountOf(dict, row.payee)
+  const src = row.lines?.length ? row.lines : acc?.lines?.length ? acc.lines : null
+  if (!src) {
+    return {
+      ok: true,
+      lines: [{
+        side: 'debit', code: acc?.code || '', name: acc?.name || '',
+        subCode: acc?.subCode, subName: acc?.subName,
+        taxCode: acc?.taxCode, taxType: acc?.taxType, taxRate: acc?.taxRate, businessType: acc?.businessType,
+        description: acc?.description, amount: row.amount,
+      }],
+    }
+  }
+  const blanks = src.filter((l) => l.amount == null || !Number.isFinite(l.amount))
+  const net = (ls: PayeeLine[]) => ls.reduce((s, l) => s + (l.amount || 0) * (l.side === 'debit' ? 1 : -1), 0)
+  if (blanks.length === 1) {
+    const rest = net(src.filter((l) => l !== blanks[0]))
+    // 差額の行が借方なら 振込金額−他の行の差引、貸方なら その逆
+    const amt = blanks[0].side === 'debit' ? row.amount - rest : rest - row.amount
+    const lines = src.map((l) => ({ ...l, amount: l === blanks[0] ? amt : (l.amount || 0) }))
+    return { lines, ok: amt >= 0 }
+  }
+  const lines = src.map((l) => ({ ...l, amount: l.amount || 0 }))
+  return { lines, ok: blanks.length === 0 && net(lines) === row.amount }
+}
+
 // ---------------------------------------------------------------------------
 // 取り込み（列マッピング）
 // ---------------------------------------------------------------------------
@@ -208,6 +274,12 @@ export interface BulkMatch {
   transfer: BulkTransfer
   /** 手数料を含めた額で引き落とされていた（手数料の行も作る） */
   includesFee: boolean
+}
+
+/** 通帳を使わずに明細だけで仕訳にするとき、次の明細の引落口座の初期値に使う（直近で使った口座） */
+export function lastBankOf(list: BulkTransfer[]): Pick<BulkTransfer, 'bankCode' | 'bankName' | 'bankSubCode' | 'bankSubName'> | null {
+  const t = list.filter((x) => x.bankCode).sort((a, b) => (b.importedAt || 0) - (a.importedAt || 0))[0]
+  return t ? { bankCode: t.bankCode, bankName: t.bankName, bankSubCode: t.bankSubCode, bankSubName: t.bankSubName } : null
 }
 
 /**

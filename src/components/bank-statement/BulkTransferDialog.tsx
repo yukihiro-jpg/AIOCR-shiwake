@@ -9,15 +9,15 @@
  *
  * 取り込みは通帳CSVと同じ列マッピング方式。明細1枚（Excelの1シート）が総合振込1回分。
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { parseExcel } from '@/lib/bank-statement/excel-parser'
 import {
   loadBulkTransfers, saveBulkTransfers, loadPayeeDict, savePayeeDict,
   newBulkTransferId, parseBulkSheet, normalizePayee, bulkTotal, bulkFeeTotal,
-  FEE_PAYEE, BULK_DATE_TOLERANCE,
+  resolvePayeeLines, lastBankOf, FEE_PAYEE, BULK_DATE_TOLERANCE,
 } from '@/lib/bank-statement/bulk-transfer-store'
 import type {
-  BulkTransfer, BulkTransferMapping, PayeeDict, PayeeAccount,
+  BulkTransfer, BulkTransferRow, BulkTransferMapping, PayeeDict, PayeeAccount, PayeeLine,
 } from '@/lib/bank-statement/bulk-transfer-store'
 import { storageFullMessage } from '@/lib/bank-statement/storage-usage'
 import type { RawTableRow, AccountItem, SubAccountItem } from '@/lib/bank-statement/types'
@@ -26,6 +26,8 @@ interface Props {
   clientId: string
   accountMaster: AccountItem[]
   subAccountMaster: SubAccountItem[]
+  /** 明細だけで仕訳にする（mode='append' 仕訳一覧に追加／'csv' そのままCSV出力）。できたら true */
+  onJournalize?: (t: BulkTransfer, payees: PayeeDict, includeFee: boolean, mode: 'append' | 'csv') => boolean
   onClose: () => void
 }
 
@@ -60,7 +62,7 @@ function guessMapping(rows: RawTableRow[]): BulkTransferMapping {
 
 interface SheetDraft { name: string; rows: RawTableRow[]; include: boolean; date: string }
 
-export default function BulkTransferDialog({ clientId, accountMaster, subAccountMaster, onClose }: Props) {
+export default function BulkTransferDialog({ clientId, accountMaster, subAccountMaster, onJournalize, onClose }: Props) {
   const [tab, setTab] = useState<'list' | 'dict'>('list')
   const [list, setList] = useState<BulkTransfer[]>([])
   const [dict, setDict] = useState<PayeeDict>({})
@@ -72,6 +74,10 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
   const [fileName, setFileName] = useState('')
   const [err, setErr] = useState('')
   const [q, setQ] = useState('')
+  // 複合仕訳の編集を開いている振込先（行番号）
+  const [openRow, setOpenRow] = useState<number | null>(null)
+  // 明細だけで仕訳にするとき、手数料の行も作るか（手数料込みで引き落とされる銀行の場合）
+  const [includeFee, setIncludeFee] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -135,6 +141,8 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
       added.push({
         id: newBulkTransferId(), date: s.date, rows: p.rows,
         fileName, sheetName: s.name, importedAt: Date.now(),
+        // 引落口座は前回使った口座を初期値にする（同じ口座から振り込むことが多いため）
+        ...(lastBankOf(list) || {}),
       })
     })
     if (!added.length) { setErr('登録できる明細がありません（指定日と振込金額の列を確認してください）。'); return }
@@ -149,23 +157,182 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
       const next = { ...d }
       if (patch === null) { delete next[key]; return next }
       next[key] = { ...(next[key] || { payee, code: '', name: '' }), ...patch, payee, updatedAt: Date.now() }
-      if (!next[key].code) delete next[key]
+      if (!next[key].code && !next[key].lines?.length) delete next[key]
       return next
     })
   }
 
-  const save = () => {
-    const ok1 = saveBulkTransfers(clientId, list)
+  const updateCur = (patch: Partial<BulkTransfer>) =>
+    setList((l) => l.map((t) => (t.id === sel ? { ...t, ...patch } : t)))
+
+  /** その振込先の複合仕訳（この回の分 → 辞書の分）。無ければ null＝1行の仕訳 */
+  const linesOf = (row: BulkTransferRow): PayeeLine[] | null =>
+    row.lines?.length ? row.lines : dict[normalizePayee(row.payee)]?.lines?.length ? dict[normalizePayee(row.payee)].lines! : null
+
+  /**
+   * 振込先の複合仕訳を書き換える。この回の明細（金額つき）と、取引先辞書（次回の雛形）の両方へ入れる。
+   * null で1行の仕訳に戻す。
+   */
+  const setRowLines = (rowIdx: number, lines: PayeeLine[] | null) => {
+    const t = list.find((x) => x.id === sel); if (!t) return
+    const row = t.rows[rowIdx]; if (!row) return
+    updateCur({ rows: t.rows.map((r, i) => {
+      if (i !== rowIdx) return r
+      const { lines: _drop, ...rest } = r
+      return lines ? { ...rest, lines } : rest
+    }) })
+    const key = normalizePayee(row.payee)
+    setDict((d) => {
+      const next = { ...d }
+      const base = next[key] || { payee: row.payee, code: '', name: '' }
+      if (lines) {
+        const main = lines.find((l) => l.side === 'debit') || lines[0]
+        next[key] = { ...base, payee: row.payee, code: main?.code || '', name: main?.name || '', lines, updatedAt: Date.now() }
+      } else {
+        const { lines: _drop, ...rest } = base
+        next[key] = { ...rest, updatedAt: Date.now() }
+        if (!next[key].code) delete next[key]
+      }
+      return next
+    })
+  }
+
+  /** 明細の問題点（科目の空欄・貸借が合わない複合仕訳） */
+  const problemsOf = (t: BulkTransfer): { blanks: number; unbalanced: string[] } => {
+    let blanks = 0
+    const unbalanced: string[] = []
+    for (const r of t.rows) {
+      const res = resolvePayeeLines(r, dict)
+      if (!res.ok) unbalanced.push(r.payee)
+      blanks += res.lines.filter((l) => !l.code).length
+    }
+    return { blanks, unbalanced }
+  }
+
+  /** 保存（書けなければ理由を出して false） */
+  const persist = (nextList: BulkTransfer[]): boolean => {
+    const bad = nextList.flatMap((t) => problemsOf(t).unbalanced.map((p) => `${t.date} ${p}`))
+    if (bad.length) {
+      alert('複合仕訳の貸借が合っていない振込先があります（借方計−貸方計が振込金額になっていません）：\n'
+        + bad.slice(0, 8).map((x) => '・' + x).join('\n') + '\n\n金額を直すか、どれか1行の金額を空欄（差額）にしてください。')
+      return false
+    }
+    const ok1 = saveBulkTransfers(clientId, nextList)
     const ok2 = savePayeeDict(clientId, dict)
     if (!ok1 || !ok2) {
       alert(storageFullMessage(!ok1 ? '総合振込の内訳' : '取引先辞書'))
-      return
+      return false
+    }
+    return true
+  }
+
+  /** 通帳を使わずに、この明細だけで仕訳にする */
+  const journalize = (mode: 'append' | 'csv') => {
+    if (!cur || !onJournalize) return
+    if (!cur.bankCode) { alert('引落口座（貸方に立てる預金の科目）を選んでください。'); return }
+    const { unbalanced } = problemsOf(cur)
+    if (unbalanced.length) { persist(list); return }  // 理由の表示は persist に任せる
+    if (cur.journalizedAt && !confirm(
+      `この明細は ${new Date(cur.journalizedAt).toLocaleString('ja-JP')} に仕訳済みです。もう一度作りますか？\n（会計大将へ二重に取り込まないようご注意ください）`,
+    )) return
+    if (!onJournalize(cur, dict, includeFee && bulkFeeTotal(cur) > 0, mode)) return
+    // 仕訳済みを記録する（通帳の解析で同じ引落を二重に仕訳しないため）
+    const nextList = list.map((t) => (t.id === cur.id ? { ...t, journalizedAt: Date.now() } : t))
+    setList(nextList)
+    if (!persist(nextList)) {
+      alert('仕訳は作りましたが、「仕訳済み」の記録を保存できませんでした。通帳を解析すると、この総合振込がもう一度仕訳になるのでご注意ください。')
     }
     onClose()
   }
 
-  /** 科目と補助科目のプルダウン */
-  const AccountSel = ({ payee }: { payee: string }) => {
+  const save = () => {
+    if (!persist(list)) return
+    onClose()
+  }
+
+  /** 科目と補助科目のプルダウン（値を受け取って返すだけの汎用版） */
+  const acctPick = ({ code, subCode, onPick, width = 'w-32' }: {
+    code: string; subCode?: string; width?: string
+    onPick: (v: { code: string; name: string; subCode?: string; subName?: string }) => void
+  }) => {
+    const subs = code ? subAccountMaster.filter((s) => s.parentCode === code) : []
+    const nameOf = (c: string) => { const a = accountMaster.find((x) => x.code === c); return a ? (a.shortName || a.name) : '' }
+    return (
+      <div className="flex gap-1 flex-1 min-w-0">
+        <select value={code}
+          onChange={(e) => onPick({ code: e.target.value, name: nameOf(e.target.value) })}
+          className={`flex-1 min-w-0 px-1 py-0.5 text-xs border rounded ${code ? 'border-gray-300' : 'border-amber-400 bg-amber-50'}`}>
+          <option value="">（科目を選ぶ）</option>
+          {accountMaster.map((a) => <option key={a.code} value={a.code}>{a.code}:{a.shortName || a.name}</option>)}
+        </select>
+        <select value={subCode || ''} disabled={!subs.length}
+          onChange={(e) => {
+            const sb = subs.find((x) => x.subCode === e.target.value)
+            onPick({ code, name: nameOf(code), subCode: sb?.subCode, subName: sb ? (sb.shortName || sb.name) : undefined })
+          }}
+          className={`${width} shrink-0 px-1 py-0.5 text-xs border border-gray-300 rounded disabled:bg-gray-50 disabled:text-gray-400`}>
+          <option value="">{subs.length ? '（補助なし）' : '補助なし'}</option>
+          {subs.map((sb) => <option key={sb.subCode} value={sb.subCode}>{sb.subCode}:{sb.shortName || sb.name}</option>)}
+        </select>
+      </div>
+    )
+  }
+
+  /** 複合仕訳の編集（振込先1件ぶん） */
+  const linesEditor = (row: BulkTransferRow, rowIdx: number) => {
+    const lines = linesOf(row) || []
+    const res = resolvePayeeLines({ ...row, lines }, dict)
+    const upd = (i: number, patch: Partial<PayeeLine>) =>
+      setRowLines(rowIdx, lines.map((l, j) => (j === i ? { ...l, ...patch } : l)))
+    const dSum = res.lines.filter((l) => l.side === 'debit').reduce((a, l) => a + l.amount, 0)
+    const cSum = res.lines.filter((l) => l.side === 'credit').reduce((a, l) => a + l.amount, 0)
+    return (
+      <div className="bg-teal-50/60 border border-teal-200 rounded px-2 py-2 space-y-1">
+        {lines.map((l, i) => {
+          const isRem = l.amount == null
+          return (
+            <div key={i} className="flex items-center gap-1">
+              <select value={l.side} onChange={(e) => upd(i, { side: e.target.value as PayeeLine['side'] })}
+                className="w-14 shrink-0 px-1 py-0.5 text-xs border border-gray-300 rounded">
+                <option value="debit">借方</option>
+                <option value="credit">貸方</option>
+              </select>
+              {acctPick({ code: l.code, subCode: l.subCode, width: 'w-28',
+                onPick: (v) => upd(i, { code: v.code, name: v.name, subCode: v.subCode, subName: v.subName }) })}
+              <input
+                value={isRem ? '' : String(l.amount ?? '')}
+                placeholder={isRem ? `差額 ${yen(res.lines[i]?.amount ?? 0)}` : '0'}
+                onChange={(e) => {
+                  const d = e.target.value.replace(/[^0-9]/g, '')
+                  upd(i, { amount: d === '' ? undefined : Number(d) })
+                }}
+                className={`w-28 shrink-0 px-1 py-0.5 text-xs text-right tabular-nums border rounded ${isRem ? 'border-teal-400 bg-white' : 'border-gray-300'}`}
+                title="空欄にすると差額（借方計−貸方計＝振込金額になるよう自動計算）。差額の行は1行だけにしてください" />
+              <button onClick={() => setRowLines(rowIdx, lines.filter((_, j) => j !== i))}
+                disabled={lines.length <= 1} className="px-1 text-xs text-red-500 disabled:text-gray-300">✕</button>
+            </div>
+          )
+        })}
+        <div className="flex items-center gap-2 pt-1">
+          <button onClick={() => setRowLines(rowIdx, [...lines, { side: 'debit', code: '', name: '', amount: 0 }])}
+            className="px-2 py-0.5 text-xs bg-white border border-teal-300 text-teal-700 rounded hover:bg-teal-50">＋ 行を追加</button>
+          <button onClick={() => { setRowLines(rowIdx, null); setOpenRow(null) }}
+            className="px-2 py-0.5 text-xs bg-white border border-gray-300 text-gray-600 rounded hover:bg-gray-50">1行の仕訳に戻す</button>
+          <span className={`ml-auto text-xs tabular-nums ${res.ok ? 'text-teal-700' : 'text-red-600 font-bold'}`}>
+            借方 {yen(dSum)} − 貸方 {yen(cSum)} ＝ {yen(dSum - cSum)}
+            {res.ok ? '（振込金額と一致 ✓）' : `（振込金額 ${yen(row.amount)} と合いません）`}
+          </span>
+        </div>
+        <div className="text-[10px] text-gray-500">
+          金額を<b>空欄にした行が差額</b>になり、振込金額に合うよう自動で決まります（1行だけ）。
+          科目の組み合わせと差額以外の金額は、この振込先の雛形として次回も使います。
+        </div>
+      </div>
+    )
+  }
+
+  /** 科目と補助科目のプルダウン（振込先の辞書を直接書き換える） */
+  const accountSel = (payee: string) => {
     const acc = dict[normalizePayee(payee)]
     const subs = acc?.code ? subAccountMaster.filter((s) => s.parentCode === acc.code) : []
     return (
@@ -211,7 +378,9 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
           （「フリコミカワリキン」など）を見つけたとき、<b>振込先ごとの複合仕訳</b>に自動で分けます。
           手数料込みで引き落とされている場合は、手数料の行も作ります。<br />
           科目は<b>振込先の名前で覚えます</b>（顔ぶれが月ごとに変わっても、一度決めた振込先は次から自動で入ります）。
-          初めての振込先は科目が空欄で出るので、ここか仕訳の画面で決めてください。仕訳の画面では、その行の ★ で覚えます。
+          初めての振込先は科目が空欄で出るので、ここか仕訳の画面で決めてください。仕訳の画面では、その行の ★ で覚えます。<br />
+          1件を複数の科目に分けるときは「<b>複合</b>」（例：支払報酬／預り金）。
+          通帳を使わずに<b>この明細だけで仕訳にする</b>こともできます（明細を選んで、下の「仕訳一覧に追加」または「そのままCSVで出力」）。
         </div>
 
         {sheets.length > 0 && map ? (
@@ -326,7 +495,7 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
               <div className="flex-1 overflow-hidden flex">
                 <div className="w-56 shrink-0 border-r border-gray-200 overflow-auto p-2">
                   {list.map((t) => {
-                    const unknown = t.rows.filter((r) => !dict[normalizePayee(r.payee)]).length
+                    const unknown = t.rows.filter((r) => resolvePayeeLines(r, dict).lines.some((l) => !l.code)).length
                     return (
                       <button key={t.id} onClick={() => setSel(t.id)}
                         className={`w-full text-left px-2 py-1.5 mb-1 rounded text-xs ${t.id === sel ? 'bg-blue-50 border border-blue-300' : 'hover:bg-gray-50 border border-transparent'}`}>
@@ -334,6 +503,7 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
                         <div className="text-[10px] text-gray-500 tabular-nums">
                           {yen(bulkTotal(t))}円
                           {unknown > 0 && <span className="text-amber-600 ml-1">科目未設定 {unknown}</span>}
+                          {t.journalizedAt && <span className="text-green-700 ml-1">仕訳済</span>}
                         </div>
                       </button>
                     )
@@ -374,24 +544,97 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
                             </tr>
                           </thead>
                           <tbody>
-                            {cur.rows.map((r, i) => (
-                              <tr key={i} className={dict[normalizePayee(r.payee)] ? '' : 'bg-amber-50/60'}>
-                                <td className="px-2 py-1 border-b border-gray-100">{r.payee}</td>
-                                <td className="px-2 py-1 border-b border-gray-100 text-right tabular-nums">{yen(r.amount)}</td>
-                                <td className="px-2 py-1 border-b border-gray-100 text-right tabular-nums text-gray-500">{r.fee ? yen(r.fee) : ''}</td>
-                                <td className="px-2 py-1 border-b border-gray-100"><AccountSel payee={r.payee} /></td>
-                              </tr>
-                            ))}
+                            {cur.rows.map((r, i) => {
+                              const ls = linesOf(r)
+                              const res = resolvePayeeLines(r, dict)
+                              const unset = res.lines.some((l) => !l.code)
+                              return (
+                                <Fragment key={i}>
+                                  <tr className={!res.ok ? 'bg-red-50' : unset ? 'bg-amber-50/60' : ''}>
+                                    <td className="px-2 py-1 border-b border-gray-100">{r.payee}</td>
+                                    <td className="px-2 py-1 border-b border-gray-100 text-right tabular-nums">{yen(r.amount)}</td>
+                                    <td className="px-2 py-1 border-b border-gray-100 text-right tabular-nums text-gray-500">{r.fee ? yen(r.fee) : ''}</td>
+                                    <td className="px-2 py-1 border-b border-gray-100">
+                                      <div className="flex items-center gap-1">
+                                        {ls ? (
+                                          <button onClick={() => setOpenRow(openRow === i ? null : i)}
+                                            className={`flex-1 min-w-0 text-left px-1.5 py-0.5 rounded border truncate ${res.ok ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-red-400 bg-red-50 text-red-700'}`}
+                                            title="クリックで複合仕訳を開く／閉じる">
+                                            複合 {ls.length}行：{res.lines.map((l) => `${l.side === 'debit' ? '借' : '貸'}${l.name || '（未設定）'} ${yen(l.amount)}`).join('／')}
+                                          </button>
+                                        ) : (
+                                          accountSel(r.payee)
+                                        )}
+                                        {!ls && (
+                                          <button onClick={() => {
+                                            // 今の科目を1行目（差額）にして、2行目を足した状態から始める
+                                            const acc = dict[normalizePayee(r.payee)]
+                                            setRowLines(i, [
+                                              { side: 'debit', code: acc?.code || '', name: acc?.name || '', subCode: acc?.subCode, subName: acc?.subName,
+                                                taxCode: acc?.taxCode, taxType: acc?.taxType, taxRate: acc?.taxRate, businessType: acc?.businessType },
+                                              { side: 'credit', code: '', name: '', amount: 0 },
+                                            ])
+                                            setOpenRow(i)
+                                          }} className="shrink-0 px-1.5 py-0.5 text-[11px] border border-teal-300 text-teal-700 rounded hover:bg-teal-50"
+                                            title="この振込先を複数の科目に分ける（例：支払報酬／預り金）">複合</button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {ls && openRow === i && (
+                                    <tr><td colSpan={4} className="px-2 py-1.5 border-b border-gray-100">{linesEditor(r, i)}</td></tr>
+                                  )}
+                                </Fragment>
+                              )
+                            })}
                             {bulkFeeTotal(cur) > 0 && (
                               <tr className="bg-gray-50">
                                 <td className="px-2 py-1 text-gray-600" colSpan={2}>{FEE_PAYEE}（手数料込みで引き落とされたときに使う行）</td>
                                 <td className="px-2 py-1 text-right tabular-nums text-gray-500">{yen(bulkFeeTotal(cur))}</td>
-                                <td className="px-2 py-1"><AccountSel payee={FEE_PAYEE} /></td>
+                                <td className="px-2 py-1">{accountSel(FEE_PAYEE)}</td>
                               </tr>
                             )}
                           </tbody>
                         </table>
                       </div>
+                      {/* 通帳を使わずに、この明細だけで仕訳にする */}
+                      {onJournalize && (
+                        <div className="mt-3 border border-blue-200 bg-blue-50/50 rounded px-3 py-2.5">
+                          <div className="text-xs font-bold text-gray-700 mb-1.5">
+                            この明細だけで仕訳にする
+                            <span className="font-normal text-gray-500 ml-2">通帳を取り込まずに、総合振込の仕訳だけを作ります</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs mb-2">
+                            <span className="w-20 shrink-0 text-gray-600">引落口座</span>
+                            {acctPick({ code: cur.bankCode || '', subCode: cur.bankSubCode,
+                              onPick: (v) => updateCur({ bankCode: v.code || undefined, bankName: v.name || undefined, bankSubCode: v.subCode, bankSubName: v.subName }) })}
+                          </div>
+                          {bulkFeeTotal(cur) > 0 && (
+                            <label className="flex items-center gap-1.5 text-xs text-gray-700 mb-2">
+                              <input type="checkbox" checked={includeFee} onChange={(e) => setIncludeFee(e.target.checked)} />
+                              振込手数料（{yen(bulkFeeTotal(cur))}円）も同じ引落に含める
+                              <span className="text-gray-400">（手数料が通帳で別の行に出る銀行なら外したまま）</span>
+                            </label>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => journalize('append')}
+                              className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">仕訳一覧に追加</button>
+                            <button onClick={() => journalize('csv')}
+                              className="px-3 py-1.5 text-xs bg-white border border-blue-300 text-blue-700 rounded hover:bg-blue-50">そのままCSVで出力</button>
+                            {cur.journalizedAt ? (
+                              <span className="text-xs text-green-700">
+                                ✓ {new Date(cur.journalizedAt).toLocaleString('ja-JP')} に仕訳済み（通帳の解析では、この引落を仕訳にしません）
+                                <button onClick={() => updateCur({ journalizedAt: undefined })}
+                                  className="ml-2 underline text-gray-500">未処理に戻す</button>
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-gray-500">
+                                仕訳にすると「仕訳済み」になり、あとで通帳を取り込んでも同じ引落は二重に仕訳しません。
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-2 flex gap-2">
                         <button onClick={() => {
                           if (!confirm(`${cur.date} の総合振込（${cur.rows.length}件）の明細を削除しますか？\n（取引先辞書の科目は残ります）`)) return
@@ -422,7 +665,11 @@ export default function BulkTransferDialog({ clientId, accountMaster, subAccount
                       {dictRows.map(([k, v]) => (
                         <tr key={k} className="border-b border-gray-100">
                           <td className="px-2 py-1">{v.payee}</td>
-                          <td className="px-2 py-1"><AccountSel payee={v.payee} /></td>
+                          <td className="px-2 py-1">
+                            {v.lines?.length
+                              ? <span className="text-teal-800">複合 {v.lines.length}行：{v.lines.map((l) => `${l.side === 'debit' ? '借' : '貸'}${l.name || '（未設定）'}${l.amount == null ? '（差額）' : ' ' + yen(l.amount)}`).join('／')}</span>
+                              : accountSel(v.payee)}
+                          </td>
                           <td className="px-2 py-1">
                             <input value={v.description || ''} placeholder={v.payee}
                               onChange={(e) => setPayee(v.payee, { description: e.target.value || undefined })}
