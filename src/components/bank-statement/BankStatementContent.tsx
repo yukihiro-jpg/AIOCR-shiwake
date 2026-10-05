@@ -149,6 +149,8 @@ export default function BankStatementContent() {
   }, [])
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  // 端末から外した学習パターンを読み戻し中／読み戻せなかった（local-evict.ts）
+  const [patternsState, setPatternsState] = useState<'ok' | 'loading' | 'failed'>('ok')
   const [lastPeriodFrom, setLastPeriodFrom] = useState('')
   const [lastPeriodTo, setLastPeriodTo] = useState('')
   const [showPatternList, setShowPatternList] = useState(false)
@@ -582,8 +584,25 @@ export default function BankStatementContent() {
     [accountMaster, geminiModel, loanSchedules, completeEntryTax],
   )
 
+  // 取込の直前に、この顧問先の学習パターンが端末にあるか確かめる（外してあれば読み戻す）。
+  // 読み戻せないまま取り込むと科目が自動で入らないので、続けるかを聞く
+  const ensurePatternsOrAsk = async (): Promise<boolean> => {
+    const cid = getSelectedClientId()
+    if (!cid) return true
+    const { isPatternsEvicted } = await import('@/lib/bank-statement/local-evict')
+    if (!isPatternsEvicted(cid)) return true
+    setPatternsState('loading')
+    const { ensurePatternsLoaded } = await import('@/lib/bank-statement/firebase-sync')
+    const ok = await ensurePatternsLoaded(cid)
+    setPatternsState(ok ? 'ok' : 'failed')
+    if (ok) return true
+    return confirm('この顧問先の学習パターンを共有先から読み込めませんでした（通信状態を確認してください）。\n\n'
+      + 'このまま取り込むと、科目が学習どおりに自動で入りません（学習の保存もできません）。続けますか？')
+  }
+
   const handleUpload = useCallback(
     async (config: UploadConfig) => {
+      if (!(await ensurePatternsOrAsk())) return
       setIsLoading(true)
       setLoadingProgress(10)
       setError(null)
@@ -1154,6 +1173,17 @@ export default function BankStatementContent() {
         setInfo('他の端末の変更を取り込みました')
       })
       if (cancelled) { stopFirebaseSync(); return }
+      // この顧問先の学習パターンを端末から外してあれば、作業を始める前に読み戻す
+      const { ensurePatternsLoaded } = await import('@/lib/bank-statement/firebase-sync')
+      const { isPatternsEvicted } = await import('@/lib/bank-statement/local-evict')
+      if (isPatternsEvicted(selectedClient.id)) {
+        setPatternsState('loading')
+        const ok = await ensurePatternsLoaded(selectedClient.id)
+        if (cancelled) return
+        setPatternsState(ok ? 'ok' : 'failed')
+      } else {
+        setPatternsState('ok')
+      }
       // 端末の保存領域（約5MB）が7割を超えたら、満杯で一時保存が止まる前に
       // 他の顧問先の学習パターン（同期先に同じものがあるものだけ）を端末から外しておく
       try {
@@ -2122,6 +2152,30 @@ export default function BankStatementContent() {
           >
             &times;
           </button>
+        </div>
+      )}
+
+      {/* 端末から外した学習パターンの読み戻し状況 */}
+      {patternsState !== 'ok' && (
+        <div className={`border-b px-4 py-3 text-sm flex items-center gap-3 ${patternsState === 'loading' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          <span className="flex-1">
+            {patternsState === 'loading'
+              ? 'この顧問先の学習パターンを共有先から読み込んでいます…（数秒で終わります。終わるまで取込は待ちます）'
+              : 'この顧問先の学習パターンを共有先から読み込めませんでした。このままだと科目が学習どおりに自動で入らず、学習の保存もできません。通信状態を確認して「再読込」を押してください。'}
+          </span>
+          {patternsState === 'failed' && (
+            <button
+              onClick={async () => {
+                const cid = getSelectedClientId(); if (!cid) return
+                setPatternsState('loading')
+                const { ensurePatternsLoaded } = await import('@/lib/bank-statement/firebase-sync')
+                setPatternsState((await ensurePatternsLoaded(cid)) ? 'ok' : 'failed')
+              }}
+              className="px-3 py-1 rounded border border-red-300 bg-white hover:bg-red-100 shrink-0"
+            >
+              再読込
+            </button>
+          )}
         </div>
       )}
 

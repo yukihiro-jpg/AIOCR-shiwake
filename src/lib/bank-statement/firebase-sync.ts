@@ -310,6 +310,37 @@ export async function evictOtherClientsPatterns(currentCid: string | null): Prom
   return res
 }
 
+/**
+ * 端末から外してある学習パターンを同期先から読み戻す（顧問先を開いたとき・取込の直前）。
+ * 外していなければ何もせず true。戻せなかったら false（通信できない等）。
+ * 受信（onValue）を待たずに直接読むので、開いた直後に取り込んでも科目の自動入力が漏れない。
+ */
+export async function ensurePatternsLoaded(cid: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !cid || !isPatternsEvicted(cid)) return true
+  if (!hasRoom()) return false
+  try {
+    const { ref, get } = await import('firebase/database')
+    const db = await getDb()
+    const snap = await get(ref(db, await dataPath(cid, 'patterns')))
+    if (!isPatternsEvicted(cid)) return true // 読んでいる間に受信で戻った
+    const v = snap.val()
+    const storageKey = STORAGE_KEY_MAP['patterns'](cid)
+    const json = JSON.stringify(v ?? [])
+    try {
+      localStorage.setItem(storageKey, json)
+    } catch {
+      // 満杯なら他の顧問先の分を外してから、もう一度
+      await evictOtherClientsPatterns(cid)
+      localStorage.setItem(storageKey, json)
+    }
+    unmarkPatternsEvicted(cid)
+    return true
+  } catch (e) {
+    console.warn('[firebase-sync] ensurePatternsLoaded failed', e)
+    return false
+  }
+}
+
 /** 端末から外してある学習パターンを同期先から読む（ZIPバックアップ用）。無ければ null */
 export async function fetchEvictedPatterns(cid: string): Promise<string | null> {
   if (!hasRoom() || !isPatternsEvicted(cid)) return null

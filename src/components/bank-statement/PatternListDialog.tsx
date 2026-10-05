@@ -81,7 +81,7 @@ export default function PatternListDialog({ open, onClose }: Props) {
         lines: editData.lines,
       }
     })
-    savePatterns(updated)
+    try { savePatterns(updated) } catch (e) { alert(e instanceof Error ? e.message : String(e)); return }
     setPatterns(updated)
     setEditingId(null)
     setEditData(null)
