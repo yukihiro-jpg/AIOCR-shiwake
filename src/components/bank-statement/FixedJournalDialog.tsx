@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import type { AccountItem, SubAccountItem, AccountTaxItem, JournalEntry } from '@/lib/bank-statement/types'
 import { getFixedJournals, addFixedJournal, deleteFixedJournal, updateFixedJournal, type FixedJournalEntry, type FixedJournalLine } from '@/lib/bank-statement/fixed-journal-store'
 import { createBlankEntry, createCompoundEntry } from '@/lib/bank-statement/journal-mapper'
-import { appendTempEntries } from '@/lib/bank-statement/temp-store'
+import { appendTempEntries, getTempEntryCount } from '@/lib/bank-statement/temp-store'
+import { storageFullMessage } from '@/lib/bank-statement/storage-usage'
 import { isPL } from '@/lib/bank-statement/tax-codes'
 
 interface Props {
@@ -212,8 +213,14 @@ export default function FixedJournalDialog({ open, onClose, accountMaster, subAc
   }
 
   const handleConfirmSave = () => {
+    const before = getTempEntryCount()
     const count = appendTempEntries(previewEntries)
     onTempCountChange(count)
+    if (count < before + previewEntries.length) {
+      // 保存できていないのに「保存しました」と出さない（プレビューは残す）
+      alert(storageFullMessage('定型仕訳の一時保存'))
+      return
+    }
     setShowPreview(false); setSelectedIds(new Set()); setBulkDate('')
     alert(`${previewEntries.length}件の仕訳を一時保存しました（合計${count}件）`)
   }

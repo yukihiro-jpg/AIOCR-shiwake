@@ -37,7 +37,7 @@ function warnOnce(flag: string, message: string): void {
  * 保存に失敗しても画面には増えた件数が出て、少しあとの同期受信で本当の件数に
  * 戻る（＝仕訳が消えたように見える）事故が起きた。ここで必ず読み直して確認する。
  */
-export function saveTempEntries(entries: JournalEntry[]): boolean {
+export function saveTempEntries(entries: JournalEntry[], quiet = false): boolean {
   if (typeof window === 'undefined') return false
   const json = JSON.stringify(entries)
   let ok = false
@@ -49,7 +49,8 @@ export function saveTempEntries(entries: JournalEntry[]): boolean {
     console.warn('[temp-store] localStorage save failed', e)
   }
   if (!ok) {
-    warnOnce(
+    // quiet: 呼び出し側が失敗を自分で案内する（一時保存ボタンは画面の仕訳を直接CSV出力する逃げ道を出す）
+    if (!quiet) warnOnce(
       '__bsTempWarned',
       'この端末に一時保存を書き込めませんでした（保存領域の上限、またはブラウザの設定）。\n' +
       `保存しようとした量：約${Math.round(json.length / 1024)}KB／この端末の使用量：約${Math.round(localStorageUsedBytes() / 1024)}KB（上限はおおむね5,000KB）\n` +
@@ -134,7 +135,7 @@ export function appendTempEntries(newEntries: JournalEntry[]): number {
   const applied = applyCompoundAutoAmounts(newEntries)
   const existing = getTempEntries()
   const merged = [...existing, ...applied]
-  saveTempEntries(merged)
+  saveTempEntries(merged, true)
   // 実際に保存できた件数を返す（保存に失敗したときに増えた件数を表示しないため）
   return getTempEntries().length
 }

@@ -1695,12 +1695,30 @@ export default function BankStatementContent() {
     const totalCount = appendTempEntries(completed)
     setTempCount(totalCount)
     if (totalCount < before + completed.length) {
-      alert(
-        `一時保存できませんでした（保存前${before}件 → 保存後${totalCount}件）。\n` +
-        '画面の仕訳はそのまま残しています。\n' +
-        '先に「CSV出力」で一時保存分を書き出して空にしてから、もう一度「一時保存」を押してください。',
+      // 保存領域が満杯。一時保存が空でも（＝他のデータで埋まっていても）作業を止めないよう、
+      // 画面の仕訳をそのままCSVに書き出す逃げ道を用意する
+      const full = storageFullMessage('一時保存')
+      const direct = confirm(
+        `一時保存できませんでした（保存前${before}件 → 保存後${totalCount}件）。画面の仕訳はそのまま残しています。\n\n` +
+        full + '\n\n' +
+        `［OK］画面の仕訳${completed.length}件を、一時保存を通さずにそのままCSV出力する\n` +
+        '［キャンセル］何もしない（画面の仕訳は残ります）' +
+        (before > 0 ? '\n\n※ 先に一時保存の' + before + '件を「CSV出力」で書き出して空にする方法もあります。' : ''),
       )
-      setInfo('一時保存に失敗しました。画面の仕訳は残してあります（先にCSV出力で一時保存を空にしてからお試しください）')
+      if (!direct) {
+        setInfo('一時保存に失敗しました（端末の保存領域がいっぱいです）。画面の仕訳は残してあります')
+        return
+      }
+      downloadCsv(applyCompoundAutoAmounts(completed), undefined, selectedClient?.taxType)
+      try { if (selectedClient) recordCsvExport(selectedClient.id) } catch { /* 満杯で記録できなくても出力は済んでいる */ }
+      // 書き出した分は画面から外す（残すと次の保存・出力で二重になる）
+      if (hasSelection) {
+        setJournalEntries(journalEntries.filter((e) => !targetIds.has(e.id)))
+        setSelectedEntryIds(new Set())
+      } else {
+        setPages([]); setJournalEntries([]); setUploadConfig(null); setError(null)
+      }
+      setInfo(`${completed.length}件をCSV出力しました（端末の保存領域がいっぱいのため一時保存は通していません）`)
       return
     }
 
@@ -1732,7 +1750,7 @@ export default function BankStatementContent() {
       setError(null)
       setInfo(`${journalEntries.length}件を一時保存しました（合計${totalCount}件）`)
     }
-  }, [journalEntries, selectedEntryIds, accountMaster])
+  }, [journalEntries, selectedEntryIds, accountMaster, selectedClient])
 
   // Ctrl+S（Macは⌘S）で一時保存。手をキーボードから離さずに保存できるようにする
   // （ブラウザの「ページを保存」ダイアログは抑止する）
