@@ -159,6 +159,11 @@
     署名の材料は**まるごとASCIIの行だけ**（化けた日本語から拾うと明細ごとに揺れる）。
     保存キーは `bs-card-formats-{cid}`（`STORAGE_KEY_MAP` の `card-formats`）。一覧・削除は
     ヘッダーメニュー「カード明細フォーマット」（`CardFormatDialog.tsx`）
+- **端末の保存領域（localStorage約5MB・全モジュール共通）**: 顧問先を開くたびに学習パターン（1社200〜300KB）が残り満杯になる。
+  `evictOtherClientsPatterns`（firebase-sync）が**同期先に同じ内容があると確認できた他の顧問先の分だけ**端末から外す
+  （使用量7割超で自動・一時保存の失敗時にも実行して再試行）。外した記録は `local-evict.ts`。受信で戻るまでは
+  `savePatterns` が保存を止める（一部だけで同期先を上書きしないため）。ZIPバックアップは同期先から補う。
+  それでも保存できないときは一時保存を通さず画面の仕訳を直接CSV出力できる
 - 補助科目CDは `_debitSubFull`/`_creditSubFull` で code|name を1回のsetStateで更新（連続onChangeはrefで上書きされるバグの修正済み）
 - レシートExcel/CSV列マッピング経由は常にインボイス登録事業者扱い、対象外は税CD/税率/税区分空欄
 - パターン学習: キーワード＋金額範囲＋科目コード。複合仕訳（諸口997）対応

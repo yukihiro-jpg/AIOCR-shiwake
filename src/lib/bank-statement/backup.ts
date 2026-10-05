@@ -61,7 +61,11 @@ export async function exportAllAsZip(): Promise<string> {
     if (!c || !c.id) continue
     const dir = dataDir.folder(c.id)!
     for (const key of STORAGE_KEYS) {
-      const raw = localStorage.getItem(STORAGE_KEY_MAP[key](c.id))
+      let raw = localStorage.getItem(STORAGE_KEY_MAP[key](c.id))
+      // 保存領域の整理で端末から外した学習パターンは同期先から取ってくる（バックアップから欠けないように）
+      if (raw == null && key === 'patterns') {
+        try { raw = await (await import('./firebase-sync')).fetchEvictedPatterns(c.id) } catch { /* 取れなければ欠ける */ }
+      }
       if (raw != null) dir.file(`${key}.json`, raw)
     }
   }

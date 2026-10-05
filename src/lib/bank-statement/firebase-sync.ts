@@ -13,6 +13,7 @@
 import { APP_SUBTREE } from './firebase-config'
 import { STORAGE_KEY_MAP } from './storage-keys'
 import { mergeIncomingTempEntries } from './temp-store'
+import { isPatternsEvicted, markPatternsEvicted, unmarkPatternsEvicted } from './local-evict'
 import type { JournalEntry } from './types'
 import { getDb } from '@/core/firebase'
 import { getRoomPassphrase, setRoomPassphrase, clearRoomPassphrase, hasRoom, modulePath } from '@/core/room'
@@ -243,7 +244,80 @@ function applyRemoteToLocal(clientId: string, key: string, value: unknown): bool
   const cur = localStorage.getItem(storageKey)
   if (cur === incoming) return false
   localStorage.setItem(storageKey, incoming)
+  // 端末から外していた学習パターンが戻った
+  if (key === 'patterns') unmarkPatternsEvicted(clientId)
   return true
+}
+
+// ---- 端末の保存領域の整理（他の顧問先の学習パターンを外す） ----
+
+/** RTDB を通すと null・空配列・空オブジェクトが落ち、キーは辞書順に並び替わる。その差を吸収して比べる */
+function canon(v: unknown): unknown {
+  if (Array.isArray(v)) {
+    const a = v.map(canon).filter((x) => x !== undefined)
+    return a.length ? a : undefined
+  }
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {}
+    for (const k of Object.keys(v as Record<string, unknown>).sort()) {
+      const c = canon((v as Record<string, unknown>)[k])
+      if (c !== undefined) o[k] = c
+    }
+    return Object.keys(o).length ? o : undefined
+  }
+  return v == null ? undefined : v
+}
+
+/**
+ * 選択中以外の顧問先の学習パターンを、この端末の localStorage から外す。
+ * **同期先に手元と同じ内容があると確かめられたものだけ**外す（違う・読めない・未送信のものは残す）。
+ * 外した顧問先は、開いたときに同期の受信で戻る。戻り値は外した件数と空いた量（文字数）。
+ */
+export async function evictOtherClientsPatterns(currentCid: string | null): Promise<{ count: number; freed: number }> {
+  const res = { count: 0, freed: 0 }
+  if (typeof window === 'undefined' || !hasRoom()) return res
+  const keyFn = STORAGE_KEY_MAP['patterns']
+  const prefix = keyFn('')
+  const cids: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k && k.startsWith(prefix) && k.length > prefix.length) cids.push(k.slice(prefix.length))
+  }
+  const { ref, get } = await import('firebase/database')
+  const db = await getDb()
+  for (const cid of cids) {
+    if (cid === currentCid) continue
+    const mapKey = `${cid}:patterns`
+    if (pendingPushes.has(mapKey) || inFlightPushes.has(mapKey)) continue
+    const storageKey = keyFn(cid)
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) continue
+    try {
+      const snap = await get(ref(db, await dataPath(cid, 'patterns')))
+      const remote = snap.val()
+      if (remote == null) continue
+      if (JSON.stringify(canon(JSON.parse(raw))) !== JSON.stringify(canon(remote))) continue
+      // 読んでいる間に手元が変わっていたら外さない
+      if (localStorage.getItem(storageKey) !== raw) continue
+      if (!markPatternsEvicted(cid)) continue
+      localStorage.removeItem(storageKey)
+      // 自己エコー抑止の記録が残っていると、開いたときに同じ内容の受信を捨てて戻らなくなる
+      lastPushedJson.delete(mapKey)
+      res.count++
+      res.freed += storageKey.length + raw.length
+    } catch { /* 読めなかった顧問先は残す */ }
+  }
+  return res
+}
+
+/** 端末から外してある学習パターンを同期先から読む（ZIPバックアップ用）。無ければ null */
+export async function fetchEvictedPatterns(cid: string): Promise<string | null> {
+  if (!hasRoom() || !isPatternsEvicted(cid)) return null
+  const { ref, get } = await import('firebase/database')
+  const db = await getDb()
+  const snap = await get(ref(db, await dataPath(cid, 'patterns')))
+  const v = snap.val()
+  return v == null ? null : JSON.stringify(v)
 }
 
 // 顧問先一覧は「id をキーにしたマップ」で持つ（重要・データ保全）。
@@ -401,7 +475,17 @@ export async function startFirebaseSync(
         if (!val) return
         const changed: string[] = []
         for (const key of Object.keys(val)) {
-          if (applyRemoteToLocal(clientId, key, val[key])) changed.push(key)
+          try {
+            if (applyRemoteToLocal(clientId, key, val[key])) changed.push(key)
+          } catch (e) {
+            // 端末の保存領域が満杯で書き戻せない。他の顧問先の学習パターンを外して空きを作り、もう一度だけ試す
+            console.warn('[firebase-sync] apply failed', key, e)
+            const v = val[key]
+            evictOtherClientsPatterns(clientId).then((r) => {
+              if (r.count === 0) return
+              try { if (applyRemoteToLocal(clientId, key, v)) onChange([key]) } catch { /* 次の受信で再試行 */ }
+            }).catch(() => { /* ignore */ })
+          }
         }
         if (changed.length > 0) {
           emit({ lastSyncAt: new Date() })

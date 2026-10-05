@@ -1,6 +1,7 @@
 import type { PatternEntry, PatternLine, JournalEntry } from './types'
 import { clientStorageKey, getSelectedClientId } from './client-store'
 import { isQuotaError, storageFullMessage } from './storage-usage'
+import { isPatternsEvicted } from './local-evict'
 
 function getPatternKey(): string {
   const cid = getSelectedClientId()
@@ -47,6 +48,12 @@ export function getPatterns(): PatternEntry[] {
 
 export function savePatterns(patterns: PatternEntry[]): void {
   if (typeof window === 'undefined') return
+  // 端末から外した学習パターンがまだ同期先から戻っていない。ここで保存すると
+  // 「手元の一部だけ」で同期先の全パターンを上書きしてしまうので止める（local-evict.ts）
+  const ecid = getSelectedClientId()
+  if (ecid && isPatternsEvicted(ecid)) {
+    throw new Error('この顧問先の学習パターンを同期先から読み込んでいる途中です。数秒待ってからもう一度お試しください（通信できない場合は共有の状態を確認してください）。')
+  }
   try {
     localStorage.setItem(getPatternKey(), JSON.stringify(patterns))
   } catch (e) {

@@ -1153,7 +1153,16 @@ export default function BankStatementContent() {
         }
         setInfo('他の端末の変更を取り込みました')
       })
-      if (cancelled) stopFirebaseSync()
+      if (cancelled) { stopFirebaseSync(); return }
+      // 端末の保存領域（約5MB）が7割を超えたら、満杯で一時保存が止まる前に
+      // 他の顧問先の学習パターン（同期先に同じものがあるものだけ）を端末から外しておく
+      try {
+        const { localStorageUsedChars } = await import('@/lib/bank-statement/storage-usage')
+        if (localStorageUsedChars() > 3_500_000) {
+          const { evictOtherClientsPatterns } = await import('@/lib/bank-statement/firebase-sync')
+          await evictOtherClientsPatterns(selectedClient.id)
+        }
+      } catch { /* 整理できなくても業務は続ける */ }
     })()
     return () => {
       cancelled = true
@@ -1649,7 +1658,7 @@ export default function BankStatementContent() {
   )
 
   // CSV一時保存（チェック選択がある場合は選択分のみ保存、残りは画面に残す）
-  const handleTempSave = useCallback(() => {
+  const handleTempSave = useCallback(async () => {
     if (journalEntries.length === 0) {
       alert('保存する仕訳データがありません')
       return
@@ -1686,13 +1695,29 @@ export default function BankStatementContent() {
     })
     // パターン学習（上書き保存）
     const applied = applyCompoundAutoAmounts(completed)
-    learnAllFromEntries(applied, uploadConfig?.accountCode)
+    // 学習の保存に失敗しても一時保存は続ける（以前は例外でボタンが何もしないように見えた）
+    let learnError = ''
+    try { learnAllFromEntries(applied, uploadConfig?.accountCode) } catch (e) { learnError = e instanceof Error ? e.message : String(e) }
     // 一時保存に追記
     // 【重要・データ保全】保存できた件数を確かめてから画面を消す。
     // 以前は保存の成否を確かめずに件数を表示し、そのまま画面の仕訳を消していたため、
     // 保存に失敗すると仕訳がどこにも残らず消えてしまった（実際に発生した事故）。
     const before = getTempEntryCount()
-    const totalCount = appendTempEntries(completed)
+    let totalCount = appendTempEntries(completed)
+    let evictNote = ''
+    if (totalCount < before + completed.length) {
+      // 保存領域が満杯。同期先に同じものがある他の顧問先の学習パターンを端末から外して、もう一度試す
+      try {
+        const { evictOtherClientsPatterns } = await import('@/lib/bank-statement/firebase-sync')
+        const r = await evictOtherClientsPatterns(selectedClient?.id ?? null)
+        if (r.count > 0) {
+          totalCount = appendTempEntries(completed)
+          if (totalCount >= before + completed.length) {
+            evictNote = `端末の保存領域がいっぱいだったため、他の顧問先${r.count}社の学習パターン（約${Math.round(r.freed / 1024)}KB）を端末から外しました。共有先に残っており、その顧問先を開くと戻ります。`
+          }
+        }
+      } catch { /* 整理できなければ下の案内へ */ }
+    }
     setTempCount(totalCount)
     if (totalCount < before + completed.length) {
       // 保存領域が満杯。一時保存が空でも（＝他のデータで埋まっていても）作業を止めないよう、
@@ -1750,6 +1775,8 @@ export default function BankStatementContent() {
       setError(null)
       setInfo(`${journalEntries.length}件を一時保存しました（合計${totalCount}件）`)
     }
+    if (evictNote) setInfo((p) => (p ? p + '　' : '') + evictNote)
+    if (learnError) alert('一時保存はできましたが、学習パターンを保存できませんでした。\n\n' + learnError)
   }, [journalEntries, selectedEntryIds, accountMaster, selectedClient])
 
   // Ctrl+S（Macは⌘S）で一時保存。手をキーボードから離さずに保存できるようにする
