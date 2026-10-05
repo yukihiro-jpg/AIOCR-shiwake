@@ -5115,8 +5115,8 @@ function drawReviewQr(url){
   }).catch(()=>{ box.textContent='QRを表示できません（リンクをお使いください）'; });
 }
 // お渡し用のクチコミ依頼書（A4）を印刷。デザインは3種類から選べる（選択は端末ローカルに記憶）
-const REVIEW_CARD_STYLES=[['google','Google風（カラフル・手順が見やすい）'],['apple','Apple風（シンプル・余白多め）'],['formal','事務所風（明朝・お手紙形式）']];
-function reviewCardStyle(){ try{ const v=localStorage.getItem('souzoku-review-card-style'); if(REVIEW_CARD_STYLES.some(x=>x[0]===v)) return v; }catch(e){} return 'google'; }
+const REVIEW_CARD_STYLES=[['formal','事務所風（お手紙形式）'],['google','Google風（カラフル・手順が見やすい）'],['apple','Apple風（シンプル・余白多め）']];
+function reviewCardStyle(){ try{ const v=localStorage.getItem('souzoku-review-card-style'); if(REVIEW_CARD_STYLES.some(x=>x[0]===v)) return v; }catch(e){} return 'formal'; }
 function setReviewCardStyle(v){ try{ localStorage.setItem('souzoku-review-card-style',v); }catch(e){} }
 function reviewCardHtml(style, d){
   const star=(c,sz)=>'<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" aria-hidden="true"><path fill="'+c+'" d="M12 2.6l2.9 6 6.6.8-4.9 4.6 1.3 6.5L12 17.3l-5.9 3.2 1.3-6.5L2.5 9.4l6.6-.8z"/></svg>';
@@ -5127,7 +5127,8 @@ function reviewCardHtml(style, d){
     +'@media print{body{background:#fff}.page{margin:0;box-shadow:none}}'
     +'img{display:block;width:100%;height:auto;image-rendering:pixelated}';
   const sans='"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic",Meiryo,sans-serif';
-  const head=(css)=>'<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title><style>'+base+css+'</style></head><body><div class="page">';
+  const head=(css,font)=>'<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title>'+(font||'')+'<style>'+base+css+'</style></head><body><div class="page">';
+  const notoLink='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">';
   const tail='</div></'+'body></'+'html>';
   if(style==='apple'){
     return head('.page{font-family:-apple-system,BlinkMacSystemFont,'+sans+';color:#1d1d1f;padding:30mm 24mm 20mm;text-align:center}'
@@ -5158,26 +5159,26 @@ function reviewCardHtml(style, d){
       +'<div class="url">'+url+'</div>'+tail;
   }
   if(style==='formal'){
-    return head('.page{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","Noto Serif JP","MS PMincho",serif;color:#1b2540;padding:14mm}'
+    return head('.page{font-family:'+sans+';font-weight:400;color:#1b2540;padding:14mm}'
       +'.frame{height:100%;border:1.6px solid #1b2540;padding:3px}'
       +'.inner{height:100%;border:.6px solid #b08d57;padding:16mm 16mm 12mm;position:relative}'
-      +'.date{text-align:right;font-size:12.5px}.to{font-size:14px;margin-top:6px}'
-      +'h1{text-align:center;font-size:25px;font-weight:700;letter-spacing:.12em;margin:22px 0 6px}'
+      +'.date{text-align:right;font-size:12.5px;font-weight:500}.to{font-size:14px;font-weight:500;margin-top:6px}'
+      +'h1{text-align:center;font-size:24px;font-weight:700;letter-spacing:.16em;margin:22px 0 6px}'
       +'.rule{width:62mm;margin:0 auto;height:6px;border-top:1px solid #b08d57;border-bottom:1px solid #b08d57}'
-      +'.sub{text-align:center;font-size:12px;color:#6b5a3a;letter-spacing:.3em;margin-top:8px}'
-      +'.body{font-size:13.5px;line-height:2.15;margin-top:20px;text-align:justify}'
+      +'.sub{text-align:center;font-size:11px;font-weight:500;color:#6b5a3a;letter-spacing:.35em;margin-top:8px}'
+      +'.body{font-size:13px;line-height:2.2;letter-spacing:.02em;color:#2a3350;margin-top:20px;text-align:justify}'
       +'.body p{text-indent:1em}.body .r{text-align:right;text-indent:0}'
       +'.box{margin-top:18px;border:1px solid #1b2540;display:flex}'
       +'.box .qr{flex:none;width:52mm;border-right:1px solid #1b2540;padding:10px;text-align:center}'
-      +'.box .qr .c{font-size:10.5px;margin-top:6px;letter-spacing:.1em}'
+      +'.box .qr .c{font-size:10.5px;font-weight:500;margin-top:6px;letter-spacing:.15em}'
       +'.box .how{flex:1;padding:12px 16px}'
-      +'.how h3{font-size:13.5px;letter-spacing:.2em;border-bottom:1px solid #b08d57;padding-bottom:6px;margin-bottom:8px}'
-      +'.how ol{list-style:none}.how li{font-size:12.5px;line-height:1.9;padding-left:2.2em;position:relative}'
+      +'.how h3{font-size:13px;font-weight:700;letter-spacing:.2em;border-bottom:1px solid #b08d57;padding-bottom:6px;margin-bottom:8px}'
+      +'.how ol{list-style:none}.how li{font-size:12px;line-height:1.95;color:#2a3350;padding-left:2.2em;position:relative}'
       +'.how li i{position:absolute;left:0;font-style:normal;font-weight:700;color:#8a6a35}'
-      +'.how .n{font-family:'+sans+';font-size:10.5px;color:#55607a;margin-top:6px;line-height:1.75}'
-      +'.url{margin-top:6px;font-family:'+sans+';font-size:8.5px;color:#7a8199;word-break:break-all;line-height:1.5}'
-      +'.sign{position:absolute;right:16mm;bottom:12mm;text-align:right;font-size:12px;line-height:1.85}'
-      +'.sign .o{font-size:17px;font-weight:700;letter-spacing:.08em}.sign .t{font-size:13.5px;margin-bottom:2px}')
+      +'.how .n{font-size:10.5px;color:#55607a;margin-top:6px;line-height:1.75}'
+      +'.url{margin-top:6px;font-size:8.5px;color:#7a8199;word-break:break-all;line-height:1.5}'
+      +'.sign{position:absolute;right:16mm;bottom:12mm;text-align:right;font-size:12px;line-height:1.85;color:#2a3350}'
+      +'.sign .o{font-size:17px;font-weight:700;letter-spacing:.1em;color:#1b2540}.sign .t{font-size:13.5px;font-weight:500;margin-bottom:2px}',notoLink)
       +'<div class="frame"><div class="inner">'
       +'<div class="date">'+esc(d.date)+'</div><div class="to">お客様各位</div>'
       +'<h1>クチコミご協力のお願い</h1><div class="rule"></div><div class="sub">Googleクチコミ</div>'
@@ -5197,7 +5198,7 @@ function reviewCardHtml(style, d){
       +'<div class="sign"><div class="o">'+esc(OFFICE.name)+'</div><div class="t">税理士　'+esc(OFFICE.taxName)+'</div>'+esc(OFFICE.addr)+'<br>TEL '+esc(OFFICE.tel)+(OFFICE.fax?'　FAX '+esc(OFFICE.fax):'')+'</div>'
       +'</div></div>'+tail;
   }
-  // google（既定）
+  // google
   const ok='<svg width="16" height="16" viewBox="0 0 24 24"><path fill="#34A853" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/></svg>';
   return head('.page{font-family:Roboto,'+sans+';color:#202124;padding:24mm 20mm 18mm}'
     +'.bar{position:absolute;left:0;right:0;top:0;height:6px;display:flex}.bar i{flex:1}'
@@ -5242,7 +5243,9 @@ function printReviewCard(){
   makeQrDataUrl(url,640).then(png=>{
     const html=reviewCardHtml(style,{url, png, exp, date:toWareki(new Date())});
     w.document.open(); w.document.write(html); w.document.close();
-    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+    const go=()=>{ try{ w.focus(); w.print(); }catch(e){} };
+    const fr=w.document.fonts&&w.document.fonts.ready;
+    if(fr) Promise.race([fr, new Promise(r=>setTimeout(r,3000))]).then(()=>setTimeout(go,200)); else setTimeout(go,500);
   }).catch(()=>{ try{ w.close(); }catch(e){} toast('QRの生成に失敗しました', true); });
 }
 
