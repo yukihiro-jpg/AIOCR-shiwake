@@ -5095,7 +5095,8 @@ function renderReviewLink(){
       +'<div class="btn-row" style="margin-top:8px;">'
         +'<button class="btn" onclick="copyReviewUrl()">リンクをコピー</button>'
         +'<button class="btn" onclick="window.open(\''+url+'\',\'_blank\')">開いて確認</button>'
-        +'<button class="btn" onclick="printReviewCard()">QRを印刷（お渡し用）</button>'
+        +'<select id="reviewCardStyle" onchange="setReviewCardStyle(this.value)" title="依頼書のデザイン">'+REVIEW_CARD_STYLES.map(x=>'<option value="'+x[0]+'"'+(x[0]===reviewCardStyle()?' selected':'')+'>'+esc(x[1])+'</option>').join('')+'</select>'
+        +'<button class="btn" onclick="printReviewCard()">依頼書を印刷（お渡し用）</button>'
       +'</div>'
     +'</div></div>';
   drawReviewQr(url);
@@ -5113,29 +5114,136 @@ function drawReviewQr(url){
     box.innerHTML='<img src="'+png+'" alt="QRコード" style="width:148px;height:148px;display:block;">';
   }).catch(()=>{ box.textContent='QRを表示できません（リンクをお使いください）'; });
 }
-// お渡し用のQRカードを印刷
+// お渡し用のクチコミ依頼書（A4）を印刷。デザインは3種類から選べる（選択は端末ローカルに記憶）
+const REVIEW_CARD_STYLES=[['google','Google風（カラフル・手順が見やすい）'],['apple','Apple風（シンプル・余白多め）'],['formal','事務所風（明朝・お手紙形式）']];
+function reviewCardStyle(){ try{ const v=localStorage.getItem('souzoku-review-card-style'); if(REVIEW_CARD_STYLES.some(x=>x[0]===v)) return v; }catch(e){} return 'google'; }
+function setReviewCardStyle(v){ try{ localStorage.setItem('souzoku-review-card-style',v); }catch(e){} }
+function reviewCardHtml(style, d){
+  const star=(c,sz)=>'<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" aria-hidden="true"><path fill="'+c+'" d="M12 2.6l2.9 6 6.6.8-4.9 4.6 1.3 6.5L12 17.3l-5.9 3.2 1.3-6.5L2.5 9.4l6.6-.8z"/></svg>';
+  const url=esc(d.url), exp=esc(d.exp), qr='<img src="'+d.png+'" alt="QRコード">';
+  const base='*{box-sizing:border-box;margin:0;padding:0}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'body{background:#e8eaed}@page{size:A4;margin:0}'
+    +'.page{width:210mm;height:297mm;margin:10mm auto;background:#fff;position:relative;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.12)}'
+    +'@media print{body{background:#fff}.page{margin:0;box-shadow:none}}'
+    +'img{display:block;width:100%;height:auto;image-rendering:pixelated}';
+  const sans='"Noto Sans JP","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic",Meiryo,sans-serif';
+  const head=(css)=>'<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title><style>'+base+css+'</style></head><body><div class="page">';
+  const tail='</div></'+'body></'+'html>';
+  if(style==='apple'){
+    return head('.page{font-family:-apple-system,BlinkMacSystemFont,'+sans+';color:#1d1d1f;padding:30mm 24mm 20mm;text-align:center}'
+      +'.eye{font-size:13px;font-weight:600;color:#bf4800;letter-spacing:.04em}'
+      +'h1{font-size:44px;font-weight:700;letter-spacing:-.01em;line-height:1.22;margin-top:10px}'
+      +'.lead{font-size:15px;line-height:1.9;color:#424245;margin:18px auto 0;max-width:140mm}'
+      +'.panel{margin:30px auto 0;width:96mm;background:#f5f5f7;border-radius:30px;padding:22px 22px 18px}'
+      +'.panel .q{background:#fff;border-radius:18px;padding:14px}'
+      +'.panel .cap{font-size:12.5px;color:#6e6e73;margin-top:12px}'
+      +'.steps{display:flex;justify-content:center;margin:34px auto 0;max-width:160mm}'
+      +'.steps>div{flex:1;padding:0 10px}.steps>div+div{border-left:1px solid #d2d2d7}'
+      +'.num{font-weight:200;font-size:40px;line-height:1}.t{font-size:13.5px;font-weight:600;margin-top:8px}'
+      +'.d{font-size:11.5px;color:#6e6e73;margin-top:4px;line-height:1.6}'
+      +'.fine{margin:30px auto 0;max-width:150mm;font-size:11px;color:#86868b;line-height:1.9}'
+      +'.foot{position:absolute;left:24mm;right:24mm;bottom:18mm;border-top:1px solid #d2d2d7;padding-top:12px;display:flex;justify-content:space-between;font-size:11.5px;color:#6e6e73}'
+      +'.foot b{color:#1d1d1f;font-weight:600}.url{position:absolute;left:24mm;right:24mm;bottom:11mm;font-size:8.5px;color:#a1a1a6;word-break:break-all}')
+      +'<div class="eye">Google クチコミへのご協力のお願い</div>'
+      +'<h1>ご感想を、<br>お聞かせください。</h1>'
+      +'<p class="lead">このたびは相続税申告をお任せいただき、ありがとうございました。<br>いただいた言葉は、これから相続を迎える方の道しるべになります。</p>'
+      +'<div class="panel"><div class="q">'+qr+'</div><div class="cap">スマートフォンのカメラで読み取ってください</div></div>'
+      +'<div class="steps">'
+        +'<div><div class="num">1</div><div class="t">読み取る</div><div class="d">カメラをQRコードに<br>向けるだけ。</div></div>'
+        +'<div><div class="num">2</div><div class="t">選ぶ</div><div class="d">4つの質問で、下書きが<br>自動でできます（約30秒）。</div></div>'
+        +'<div><div class="num">3</div><div class="t">投稿する</div><div class="d">コピーして、Googleに<br>貼り付けるだけ。</div></div>'
+      +'</div>'
+      +'<p class="fine">ご無理のない範囲でかまいません。相続の内容や金額を書く必要はありません。<br>下書きは自由に書き換えられます。投稿にはGoogleアカウントでのログインが必要です。</p>'
+      +'<div class="foot"><span><b>'+esc(OFFICE.name)+'</b>　'+esc(OFFICE.tel)+'</span><span>QRコードの有効期限　'+exp+'</span></div>'
+      +'<div class="url">'+url+'</div>'+tail;
+  }
+  if(style==='formal'){
+    return head('.page{font-family:"Yu Mincho","YuMincho","Hiragino Mincho ProN","Noto Serif JP","MS PMincho",serif;color:#1b2540;padding:14mm}'
+      +'.frame{height:100%;border:1.6px solid #1b2540;padding:3px}'
+      +'.inner{height:100%;border:.6px solid #b08d57;padding:16mm 16mm 12mm;position:relative}'
+      +'.date{text-align:right;font-size:12.5px}.to{font-size:14px;margin-top:6px}'
+      +'h1{text-align:center;font-size:25px;font-weight:700;letter-spacing:.12em;margin:22px 0 6px}'
+      +'.rule{width:62mm;margin:0 auto;height:6px;border-top:1px solid #b08d57;border-bottom:1px solid #b08d57}'
+      +'.sub{text-align:center;font-size:12px;color:#6b5a3a;letter-spacing:.3em;margin-top:8px}'
+      +'.body{font-size:13.5px;line-height:2.15;margin-top:20px;text-align:justify}'
+      +'.body p{text-indent:1em}.body .r{text-align:right;text-indent:0}'
+      +'.box{margin-top:18px;border:1px solid #1b2540;display:flex}'
+      +'.box .qr{flex:none;width:52mm;border-right:1px solid #1b2540;padding:10px;text-align:center}'
+      +'.box .qr .c{font-size:10.5px;margin-top:6px;letter-spacing:.1em}'
+      +'.box .how{flex:1;padding:12px 16px}'
+      +'.how h3{font-size:13.5px;letter-spacing:.2em;border-bottom:1px solid #b08d57;padding-bottom:6px;margin-bottom:8px}'
+      +'.how ol{list-style:none}.how li{font-size:12.5px;line-height:1.9;padding-left:2.2em;position:relative}'
+      +'.how li i{position:absolute;left:0;font-style:normal;font-weight:700;color:#8a6a35}'
+      +'.how .n{font-family:'+sans+';font-size:10.5px;color:#55607a;margin-top:6px;line-height:1.75}'
+      +'.url{margin-top:6px;font-family:'+sans+';font-size:8.5px;color:#7a8199;word-break:break-all;line-height:1.5}'
+      +'.sign{position:absolute;right:16mm;bottom:12mm;text-align:right;font-size:12px;line-height:1.85}'
+      +'.sign .o{font-size:17px;font-weight:700;letter-spacing:.08em}.sign .t{font-size:13.5px;margin-bottom:2px}')
+      +'<div class="frame"><div class="inner">'
+      +'<div class="date">'+esc(d.date)+'</div><div class="to">お客様各位</div>'
+      +'<h1>クチコミご協力のお願い</h1><div class="rule"></div><div class="sub">Googleクチコミ</div>'
+      +'<div class="body">'
+        +'<p>拝啓　このたびは、相続税申告のご依頼をいただき、誠にありがとうございました。皆様のご協力により、無事にお手続きを終えることができましたこと、心より御礼申し上げます。</p>'
+        +'<p>当事務所では、これから相続の手続きに臨まれる方が安心して相談先を選べるよう、ご依頼いただいた皆様のお声を大切にしております。つきましては、ご負担のない範囲で、Googleクチコミへのご感想をお寄せいただけましたら幸いに存じます。</p>'
+        +'<p class="r">敬具</p>'
+      +'</div>'
+      +'<div class="box"><div class="qr">'+qr+'<div class="c">読取用ＱＲコード</div></div>'
+        +'<div class="how"><h3>ご投稿の手順</h3><ol>'
+          +'<li><i>一</i>スマートフォンのカメラで左のＱＲコードを読み取ります。</li>'
+          +'<li><i>二</i>四つの質問にお答えいただくと、文章の下書きが自動で作成されます（約三十秒）。</li>'
+          +'<li><i>三</i>下書きをご確認のうえ、「Googleで投稿」から貼り付けてご投稿ください。</li>'
+        +'</ol><div class="n">※ 相続の内容や金額をご記入いただく必要はございません。下書きはご自由に書き換えられます。<br>※ ご投稿にはGoogleアカウントでのログインが必要です。ＱＲコードの有効期限は'+exp+'です。</div></div>'
+      +'</div>'
+      +'<div class="url">読み取れない場合は次のアドレスを入力してください：'+url+'</div>'
+      +'<div class="sign"><div class="o">'+esc(OFFICE.name)+'</div><div class="t">税理士　'+esc(OFFICE.taxName)+'</div>'+esc(OFFICE.addr)+'<br>TEL '+esc(OFFICE.tel)+(OFFICE.fax?'　FAX '+esc(OFFICE.fax):'')+'</div>'
+      +'</div></div>'+tail;
+  }
+  // google（既定）
+  const ok='<svg width="16" height="16" viewBox="0 0 24 24"><path fill="#34A853" d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/></svg>';
+  return head('.page{font-family:Roboto,'+sans+';color:#202124;padding:24mm 20mm 18mm}'
+    +'.bar{position:absolute;left:0;right:0;top:0;height:6px;display:flex}.bar i{flex:1}'
+    +'.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px 6px 10px;border:1px solid #dadce0;border-radius:999px;font-size:12.5px;font-weight:500;color:#3c4043}'
+    +'h1{font-size:34px;font-weight:700;margin:18px 0 6px;line-height:1.35}'
+    +'.lead{font-size:14px;line-height:1.95;color:#3c4043;margin-top:10px}'
+    +'.stars{display:flex;gap:4px;margin-top:16px}'
+    +'.card{margin-top:34px;background:#f8fafd;border-radius:28px;padding:30px 28px;display:flex;gap:26px;align-items:center}'
+    +'.qr{flex:none;width:72mm;padding:12px;background:#fff;border-radius:20px;box-shadow:0 1px 3px rgba(60,64,67,.15),0 4px 12px rgba(60,64,67,.08)}'
+    +'.qcap{text-align:center;font-size:11.5px;color:#5f6368;margin-top:8px;font-weight:500}'
+    +'.steps{flex:1;list-style:none;display:flex;flex-direction:column;gap:26px}'
+    +'.steps li{display:flex;gap:14px;align-items:flex-start}'
+    +'.n{flex:none;width:30px;height:30px;border-radius:50%;color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}'
+    +'.st b{display:block;font-size:16px;font-weight:700;margin-bottom:2px}.st span{font-size:12.5px;color:#5f6368;line-height:1.7}'
+    +'.notes{margin-top:34px;display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}'
+    +'.notes div{display:flex;gap:8px;font-size:13px;color:#3c4043;line-height:1.7}.notes svg{flex:none;margin-top:2px}'
+    +'.foot{position:absolute;left:20mm;right:20mm;bottom:16mm;border-top:1px solid #e8eaed;padding-top:14px}'
+    +'.foot .o{font-size:15px;font-weight:700}.foot .s{font-size:11.5px;color:#5f6368;margin-top:3px}'
+    +'.url{font-size:9.5px;color:#9aa0a6;word-break:break-all;margin-top:6px}')
+    +'<div class="bar"><i style="background:#4285F4"></i><i style="background:#EA4335"></i><i style="background:#FBBC04"></i><i style="background:#34A853"></i></div>'
+    +'<span class="chip">'+star('#FBBC04',16)+'Google クチコミ</span>'
+    +'<h1>クチコミのご協力のお願い</h1>'
+    +'<p class="lead">このたびは相続税申告のご依頼をいただき、誠にありがとうございました。<br>これから相続の手続きに向き合う方の参考になるよう、よろしければ<b>Googleクチコミ</b>でご感想をお聞かせください。</p>'
+    +'<div class="stars">'+[0,1,2,3,4].map(()=>star('#FBBC04',30)).join('')+'</div>'
+    +'<div class="card"><div class="qr">'+qr+'<div class="qcap">スマートフォンのカメラで読み取り</div></div>'
+      +'<ol class="steps">'
+        +'<li><span class="n" style="background:#4285F4">1</span><div class="st"><b>QRコードを読み取る</b><span>カメラを向けて、表示されたリンクを開きます。</span></div></li>'
+        +'<li><span class="n" style="background:#EA4335">2</span><div class="st"><b>4つの質問に答える（約30秒）</b><span>あてはまるものを選ぶと、文章の下書きが自動でできます。</span></div></li>'
+        +'<li><span class="n" style="background:#FBBC04">3</span><div class="st"><b>コピーしてGoogleに投稿</b><span>「Googleで投稿」を押し、貼り付けて星を選ぶだけです。</span></div></li>'
+      +'</ol></div>'
+    +'<div class="notes">'+['ご無理のない範囲でかまいません。','相続の内容や金額を書く必要はありません。','下書きはご自由に書き換えていただけます。','投稿にはGoogleアカウントでのログインが必要です。'].map(t=>'<div>'+ok+t+'</div>').join('')+'</div>'
+    +'<div class="foot"><div class="o">'+esc(OFFICE.name)+'</div><div class="s">TEL '+esc(OFFICE.tel)+'　｜　このQRコードは '+exp+' まで有効です</div><div class="url">'+url+'</div></div>'
+    +tail;
+}
 function printReviewCard(){
   const rv=currentCase&&currentCase.review; if(!rv||!rv.token){ toast('先に発行してください', true); return; }
+  const sel=$('reviewCardStyle'); const style=sel?sel.value:reviewCardStyle(); setReviewCardStyle(style);
   const url=reviewPageUrl(rv.token);
-  makeQrDataUrl(url,520).then(png=>{
-    const w=window.open('','_blank'); if(!w){ toast('ポップアップがブロックされました', true); return; }
-    const html='<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>クチコミのお願い</title>'
-      +'<style>@media print{@page{size:A4;margin:0}body{padding:24mm 22mm}}'
-      +'body{font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:#222;}'
-      +'h1{font-size:20px;margin:0 0 6mm;}p{font-size:13px;line-height:1.9;margin:0 0 4mm;}'
-      +'.qr{text-align:center;margin:8mm 0;}.qr img{width:60mm;height:60mm;}'
-      +'.url{font-size:11px;color:#666;word-break:break-all;text-align:center;}'
-      +'.foot{margin-top:10mm;font-size:12px;color:#444;}</style></head><body>'
-      +'<h1>クチコミのお願い</h1>'
-      +'<p>このたびは当事務所にご依頼いただき、ありがとうございました。<br>差し支えなければ、下のQRコードから<b>クチコミのご協力</b>をお願いできますと幸いです。</p>'
-      +'<p>スマートフォンで読み取り、あてはまるものを選んでいただくと<b>文章の下書きが自動でできます</b>（30秒ほど）。<br>下書きはご自由に書き換えていただけます。</p>'
-      +'<div class="qr"><img src="'+png+'" alt="QR"></div>'
-      +'<div class="url">'+esc(url)+'</div>'
-      +'<div class="foot">'+esc(OFFICE.name)+'　'+esc(OFFICE.tel)+'</div>'
-      +'</'+'body></'+'html>';
+  const exp=rv.expiresAt?formatJDate(rv.expiresAt.slice(0,10)):'';
+  // ポップアップブロックを避けるため、QR生成（非同期）の前にウィンドウを開いておく
+  const w=window.open('','_blank'); if(!w){ toast('ポップアップがブロックされました', true); return; }
+  makeQrDataUrl(url,640).then(png=>{
+    const html=reviewCardHtml(style,{url, png, exp, date:toWareki(new Date())});
     w.document.open(); w.document.write(html); w.document.close();
-    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
-  }).catch(()=>toast('QRの生成に失敗しました', true));
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+  }).catch(()=>{ try{ w.close(); }catch(e){} toast('QRの生成に失敗しました', true); });
 }
 
 
