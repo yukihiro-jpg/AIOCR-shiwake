@@ -33,7 +33,8 @@ import {
 import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint, openQrSheetPrint } from '@/lib/nenmatsu/guide'
-import { openCheckSheetPrint, openPrintWindowNow } from '@/lib/nenmatsu/check-sheet'
+import { openCheckSheetPrint, openPrintWindowNow, sortEmployeesByCode } from '@/lib/nenmatsu/check-sheet'
+import { openConfirmSheetPrint, type ConfirmSheetEmployee } from '@/lib/nenmatsu/confirm-sheet'
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
@@ -338,6 +339,79 @@ export default function NenmatsuContent() {
     setBusy(false)
   }
 
+  /**
+   * 紙で配る「年末調整の確認シート」（従業員1人1枚）。今年まだ提出していない方の分だけ作る。
+   * 印字する内容は、スマホで従業員が最初に見る内容と同じ順で選ぶ（①前年の提出 ②会社の登録内容＝CSV）。
+   */
+  async function printConfirmSheets(client: SharedClient, company: NenmatsuCompany) {
+    const pw = openPrintWindowNow('確認シートを作成しています…')
+    try {
+      const employees = await loadEmployees(yearId, company.clientId)
+      if (!employees.length) {
+        pw?.close()
+        setMsg('従業員名簿が未取込です。「CSV取込」のあとに作成してください。')
+        return
+      }
+      const now = await loadSubmissions(yearId, company.clientId).catch(() => ({} as Record<string, SubmissionRecord>))
+      const py = prevYearId(yearId)
+      let prevSubs: Record<string, SubmissionRecord> = {}
+      if (py) { try { prevSubs = await loadSubmissions(py, company.clientId) } catch { /* 前年が無ければCSVの登録内容 */ } }
+      const prevLabel = py ? `令和${py.replace(/^R/, '')}年度の提出` : ''
+      const targets = sortEmployeesByCode(employees).filter((e) => !now[e.id])
+      const skipped = employees.length - targets.length
+      if (!targets.length) {
+        pw?.close()
+        setMsg('全員が提出済みのため、確認シートは作成しませんでした。')
+        return
+      }
+      const list: ConfirmSheetEmployee[] = targets.map((e) => {
+        const nm = `${e.lastName} ${e.firstName}`.trim()
+        const kn = `${e.kanaLast} ${e.kanaFirst}`.trim()
+        const pd = prevSubs[e.id]?.declaration
+        if (pd) {
+          return {
+            code: e.code,
+            name: `${pd.lastName} ${pd.firstName}`.trim() || nm,
+            kana: `${pd.kanaLast} ${pd.kanaFirst}`.trim() || kn,
+            birth: pd.birth || e.birth || e.birthRaw,
+            postal: pd.postal || '',
+            address: pd.address || '',
+            householder: pd.householder ? `${pd.householder}（${pd.householderRelation || '本人'}）` : '',
+            spouse: pd.spouse?.exists ? { name: pd.spouse.name, kana: pd.spouse.kana, rel: '配偶者', birth: pd.spouse.birth } : null,
+            dependents: (pd.dependents || []).map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth, together: d.liveTogether ? '同居' : '別居' })),
+            source: prevLabel,
+          }
+        }
+        const pre = prefillFromCsv(e)
+        return {
+          code: e.code,
+          name: nm,
+          kana: kn,
+          birth: e.birth || e.birthRaw,
+          postal: pre.postal,
+          address: pre.address,
+          householder: '',
+          spouse: pre.spouse ? { name: pre.spouse.name, kana: pre.spouse.kana, rel: '配偶者', birth: pre.spouse.birth } : null,
+          dependents: pre.dependents.map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth })),
+          source: '会社の登録内容',
+        }
+      })
+      const ok = openConfirmSheetPrint({
+        companyName: company.name || client.name,
+        yearLabel: FY_BY_ID[yearId]?.label || yearId,
+        deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
+        employees: list,
+      }, pw)
+      setMsg(
+        !ok ? 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。'
+        : `未提出の${list.length}名分の確認シートを別ウインドウで開きました（1人1枚）。` + (skipped ? `提出済みの${skipped}名は除いています。` : ''),
+      )
+    } catch (e) {
+      pw?.close()
+      setMsg('確認シートの作成に失敗しました：' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
   /** 1社ぶんの提出状況チェック表を開く（行の「チェック表」ボタン） */
   async function printCheckSheet(client: SharedClient, company: NenmatsuCompany) {
     const pw = openPrintWindowNow('チェック表を作成しています…')
@@ -463,6 +537,7 @@ export default function NenmatsuContent() {
         <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
         <button onClick={() => setGuide({ company })} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
         <button onClick={() => printCheckSheet(client, company)} title="経理担当者用の提出状況チェック表（取込済み従業員＋手書き追加欄）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">チェック表</button>
+        <button onClick={() => printConfirmSheets(client, company)} title="紙で配る確認シート（未提出の従業員1人1枚。登録内容を印字し、変更を書き込んでもらう）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">確認シート</button>
         <button onClick={() => setImportCheck({ company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
         <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
       </>
