@@ -3,7 +3,7 @@
 // 罫線・色で本人行と家族行を見分けやすくする。
 
 import type { Declaration } from './declaration'
-import { spouseCategory, dependentCategory, numYen } from './declaration'
+import { spouseCategory, dependentCategory, numYen, normalizeDeclaration } from './declaration'
 import { diffDeclaration, changesByTarget, emptyBaseline, CHANGE_MARK, CHANGE_LABEL,
   type Baseline, type Change } from './declaration-diff'
 
@@ -88,7 +88,8 @@ export async function buildDeclarationExcelBlob(
   const allChanges: { entry: DeclarationExcelEntry; changes: Change[] }[] = []
   for (const ent of entries) {
     no++
-    const d = ent.decl
+    // 呼び出し元で補っていなくても落ちないように（扶養0人は dependents が無い状態で届く）
+    const d = normalizeDeclaration(ent.decl) || ent.decl
     // 変更前と突き合わせる。変更前が無い（本年入社など）ときは全項目を新規として扱う
     const base = ent.baseline || (ent.isNewHire || d.isNewHire ? emptyBaseline() : null)
     const changes = base ? diffDeclaration(base, d) : []

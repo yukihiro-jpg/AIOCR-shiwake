@@ -5,6 +5,7 @@
 import { getDb, serverNow } from '@/core/firebase'
 import { roomKey, modulePath } from '@/core/room'
 import { normalizeBirth, extractPostal, extractDependents } from './jdl-csv'
+import { normalizeDeclaration } from './declaration'
 
 export const NENMATSU_KEY = 'nenmatsu'
 
@@ -63,6 +64,37 @@ async function dbfns() {
   const db = await getDb()
   const m = await import('firebase/database')
   return { db, ...m }
+}
+
+/**
+ * 1回読む（つながるまで待って、だめなら数回やり直す）。
+ *
+ * スマホでカメラを開くとブラウザのタブが一時停止し、データベースとの接続が切れる。
+ * 戻った直後の get() は再接続を待たずに「Client is offline」で失敗することがあり、
+ * 年調の送信が「前回の提出内容を確認できませんでした」で止まっていた（端末によって起きる）。
+ */
+async function getRobust(path: string): Promise<unknown> {
+  const { db, ref, get, onValue, goOnline } = await dbfns()
+  let lastErr: unknown = null
+  for (let i = 0; i < 4; i++) {
+    try {
+      return (await get(ref(db, path))).val()
+    } catch (e) {
+      lastErr = e
+      console.warn('[nenmatsu] read retry', i + 1, e)
+    }
+    try { goOnline(db) } catch { /* ignore */ }
+    // つながるのを最大8秒待つ（つながったらすぐ次へ）
+    await new Promise<void>((resolve) => {
+      let done = false
+      let unsub: (() => void) | null = null
+      const finish = () => { if (done) return; done = true; clearTimeout(timer); if (unsub) unsub(); resolve() }
+      const timer = setTimeout(finish, 8000)
+      unsub = onValue(ref(db, '.info/connected'), (s) => { if (s.val() === true) setTimeout(finish, 300) })
+      if (done && unsub) unsub()
+    })
+  }
+  throw lastErr
 }
 
 /** 共有の顧問先リスト（仕訳作成と共通）を読み込む */
@@ -423,7 +455,7 @@ export async function loadPrevDeclarationPublic(
     const v = (await get(ref(db, publicPath(token, 'prev', empId)))).val() as
       { yearLabel?: string; submittedAt?: string; declaration?: import('./declaration').Declaration } | null
     if (!v || !v.declaration) return null
-    return { yearLabel: v.yearLabel || '前年', submittedAt: v.submittedAt || '', declaration: v.declaration }
+    return { yearLabel: v.yearLabel || '前年', submittedAt: v.submittedAt || '', declaration: normalizeDeclaration(v.declaration)! }
   } catch { return null }
 }
 
@@ -521,8 +553,9 @@ export async function submitDocsPublic(
   let prev: SubmissionRecord | null = null
   try {
     prev = await getSubmissionPublic(token, emp.id)
-  } catch {
-    throw new Error('前回の提出内容を確認できませんでした。通信環境をご確認のうえ、もう一度お試しください。')
+  } catch (e) {
+    const code = (e as { code?: string; message?: string })?.code || (e as Error)?.message || ''
+    throw new Error('前回の提出内容を確認できませんでした。通信環境をご確認のうえ、もう一度お試しください。' + (code ? `（${code}）` : ''))
   }
   const { st, ref: sref, uploadBytes, deleteObject } = await storageFns()
   const paths: string[] = []
@@ -562,9 +595,8 @@ export async function getSubmissionPublic(
   token: string,
   empId: string,
 ): Promise<SubmissionRecord | null> {
-  const { db, ref, get } = await dbfns()
-  const snap = await get(ref(db, publicPath(token, 'submissions', empId)))
-  return (snap.val() as SubmissionRecord) || null
+  const v = (await getRobust(publicPath(token, 'submissions', empId))) as SubmissionRecord | null
+  return v ? normalizeSubmission(v) : null
 }
 
 /** 事務所側：会社の提出記録一覧（公開領域＋旧・内部パスの両方を統合） */
@@ -585,7 +617,19 @@ export async function loadSubmissions(
       pub = ((await get(ref(db, publicPath(comp.token, 'submissions')))).val() as Record<string, SubmissionRecord>) || {}
     }
   } catch { /* ignore */ }
-  return { ...legacy, ...pub }
+  const all: Record<string, SubmissionRecord> = { ...legacy, ...pub }
+  for (const k of Object.keys(all)) all[k] = normalizeSubmission(all[k])
+  return all
+}
+
+/** RTDB が落とした空配列などを補う（扶養0人の申告内容・paths の無い記録） */
+function normalizeSubmission(r: SubmissionRecord): SubmissionRecord {
+  if (!r || typeof r !== 'object') return r
+  const out: SubmissionRecord = { ...r, docs: r.docs || {}, paths: Array.isArray(r.paths) ? r.paths : r.paths ? Object.values(r.paths as unknown as Record<string, string>) : [] }
+  const d = normalizeDeclaration(r.declaration)
+  if (d) out.declaration = d
+  else delete out.declaration
+  return out
 }
 
 /**

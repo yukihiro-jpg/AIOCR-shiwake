@@ -334,7 +334,7 @@ export default function NenmatsuUpload() {
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e)
       setSubmitErr('送信に失敗しました：' + m)
-      alert('送信に失敗しました：' + m + '\nもう一度お試しください。')
+      alert('送信に失敗しました：' + m + (m.includes('もう一度お試しください') ? '' : '\nもう一度お試しください。'))
     }
     setSubmitting(false)
     setProgress('')

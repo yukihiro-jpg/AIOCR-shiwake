@@ -79,6 +79,25 @@ export function emptyDeclaration(isNewHire: boolean): Declaration {
   }
 }
 
+/**
+ * Firebase から読んだ申告内容の欠けを埋める。
+ * RTDB は空の配列・空文字を含まないオブジェクトを保存しないので、扶養親族が0人の人は
+ * `dependents` そのものが無い状態で戻ってくる（Excel出力が forEach で落ちた原因）。
+ * 配列が「0:…,1:…」のオブジェクトで戻ることもあるので配列へ直す。
+ */
+export function normalizeDeclaration(d: Partial<Declaration> | null | undefined): Declaration | undefined {
+  if (!d || typeof d !== 'object') return undefined
+  const base = emptyDeclaration(!!d.isNewHire)
+  const rawDeps = (d as { dependents?: unknown }).dependents
+  const deps = Array.isArray(rawDeps) ? rawDeps : rawDeps && typeof rawDeps === 'object' ? Object.values(rawDeps) : []
+  return {
+    ...base,
+    ...d,
+    spouse: { ...emptySpouse(), ...(d.spouse || {}) },
+    dependents: (deps as Partial<DepInfo>[]).filter(Boolean).map((x) => ({ ...emptyDependent(), ...x })),
+  } as Declaration
+}
+
 export function numYen(x: string): number {
   return Number(String(x ?? '').replace(/[^0-9.\-]/g, '')) || 0
 }
