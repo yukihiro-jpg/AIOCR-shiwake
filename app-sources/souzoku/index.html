@@ -1537,7 +1537,8 @@ function loadSettings(){
   if(!settings.officeName) settings.officeName='日下部税理士事務所';
   if(!settings.officeAddr) settings.officeAddr='茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F';
   if(!settings.officeTel) settings.officeTel='029-215-9400';
-  if(!settings.officeFax) settings.officeFax='029-311-4151';
+  // 旧い初期値（誤り）のまま保存されている端末は正しい番号へ直す
+  if(!settings.officeFax || settings.officeFax==='029-311-4151') settings.officeFax='029-215-9477';
   if(!settings.officeMail) settings.officeMail='yukihiro@kskac.com';
   // 財産一覧の選択肢（未設定なら初期値）
   if(!Array.isArray(settings.optUnlistedEval)) settings.optUnlistedEval=['原則評価','配当還元','額面'];
@@ -5478,7 +5479,7 @@ function updSaving(id,field,val){ const s=(currentCase.savings||[]).find(x=>x.id
 // ============================================================
 //  財産診断書（PDF / Excel）
 // ============================================================
-const OFFICE={taxName:'日下部 幸広',name:'日下部税理士事務所',addr:'茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F',tel:'029-215-9400',fax:'029-311-4151',mail:'yukihiro@kskac.com'};
+const OFFICE={taxName:'日下部 幸広',name:'日下部税理士事務所',addr:'茨城県水戸市姫子1丁目820-6 ヴィラエスポワールⅠ 1F',tel:'029-215-9400',fax:'029-215-9477',mail:'yukihiro@kskac.com'};
 // 設定（事務所・税理士情報）をOFFICEへ反映
 function applyOfficeSettings(){
   if(settings.taxName) OFFICE.taxName=settings.taxName;
