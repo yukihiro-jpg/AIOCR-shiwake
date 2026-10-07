@@ -2714,6 +2714,8 @@ function assetDesc(a){
 // 財産診断書（PDF/Excel）の明細に載せる説明文。
 // assetDesc とは別にする：assetDesc の文字列はAI通帳分析の口座ラベルの突合に使っており、
 // 変えると既存案件の口座の紐付けが外れるため。
+// 一体で評価する土地の評価単位（土地のみ・前後の空白は無視）
+function evalUnitOf(a){ return (a&&a.category==='land'&&a.evalUnit)?String(a.evalUnit).trim():''; }
 function assetDescReport(a){
   const t=ASSET_BY_KEY[a.category];
   if(a.category==='building'&&a.kubun){
@@ -3106,7 +3108,7 @@ function landTableHtml(items){
       :'<span class="muted">—</span>')+'</td>')
     :'';
   let rows='';
-  const NCOL=hasShiki?26:25;
+  const NCOL=hasShiki?27:26;
   if(!items.length) rows='<tr><td colspan="'+NCOL+'" class="muted" style="text-align:center;padding:16px;">未登録です。「＋ 行を追加」から入力してください。</td></tr>';
   items.forEach(a=>{
     const koOpts=[['none','適用なし'],['residence','特定居住用(330㎡80%)'],['business','特定事業用(400㎡80%)'],['company','特定同族会社(400㎡80%)'],['rental','貸付事業用(200㎡50%)']];
@@ -3146,14 +3148,15 @@ function landTableHtml(items){
       +moneyCell(a,'landDebt','円')
       +txtCell(a,'memo','注記')
       +checkNoteCell(a)
+      +'<td><input type="text" style="width:70px;" value="'+esc(a.evalUnit||'')+'" placeholder="例：A" title="一体で評価する土地に同じ記号を入れると、財産診断書で1つにまとめて表示します" oninput="updAsset(\''+a.id+'\',\'evalUnit\',this.value)"></td>'
       +opsCell(a.id)
       +'</tr>';
   });
   const sub=items.reduce((s,a)=>s+assetVal(a),0);
-  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:'+(hasShiki?3220:3120)+'px;"><thead><tr>'
-    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th>'+(hasShiki?'<th>敷地権割合</th>':'')+'<th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>計算</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th></th>'
+  return '<div class="dtbl-wrap"><table class="dtbl" style="min-width:'+(hasShiki?3320:3220)+'px;"><thead><tr>'
+    +'<th style="min-width:280px;">所在</th><th>地番</th><th>持分</th>'+(hasShiki?'<th>敷地権割合</th>':'')+'<th>登記地目</th><th>課税地目</th><th>現況</th><th>登記地積(㎡)</th><th>課税地積(㎡)</th><th style="min-width:200px;">評価方式・単価/固評</th><th>計算</th><th>相続税評価額(円)</th><th>小規模区分</th><th>小規模面積</th><th>自用借地区分</th><th>借地権割合</th><th>側方・二方</th><th>都市計画</th><th>用途地域</th><th>正面幅員</th><th>借家権割合</th><th>賃貸割合</th><th>債務(円)</th><th>注記</th><th style="min-width:160px;">確認する事項</th><th title="一体で評価する土地に同じ記号（A・B…）">評価単位</th><th></th>'
     +'</tr></thead><tbody>'+rows+'</tbody>'
-    +'<tfoot><tr><td colspan="'+(hasShiki?11:10)+'" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="14"></td></tr></tfoot></table></div>';
+    +'<tfoot><tr><td colspan="'+(hasShiki?11:10)+'" style="text-align:right;">計</td><td class="num" id="foot-land">'+yen(sub)+'</td><td colspan="15"></td></tr></tfoot></table></div>';
 }
 function buildingTableHtml(items){
   const t=ASSET_BY_KEY['building'];
@@ -3721,7 +3724,7 @@ async function autoFetchStock(id){
 }
 function detailNote(cat){
   const notes={
-    land:'相続税評価額 ＝（路線価方式：㎡単価×課税地積／倍率方式：固定資産税評価額×倍率）×持分×利用区分の評価減。「課税地目／課税地積」は「←登記」ボタンで登記の値を引用できます。自用借地区分により評価減を自動適用します：貸宅地＝×(1−借地権割合)、借地権＝×借地権割合、貸家建付地＝×(1−借地権割合×借家権割合×賃貸割合)。借家権割合は既定30%、賃貸割合は既定100%。側方・二方／都市計画／用途地域／正面幅員は評価明細用の記録欄です（路線価の側方加算等は加味前の単価をご入力ください）。小規模宅地等の特例は区分と適用面積で減額を自動計算します。「債務」欄は記録用で評価額からは控除しません（債務は「債務」区分で計上してください）。',
+    land:'相続税評価額 ＝（路線価方式：㎡単価×課税地積／倍率方式：固定資産税評価額×倍率）×持分×利用区分の評価減。「課税地目／課税地積」は「←登記」ボタンで登記の値を引用できます。自用借地区分により評価減を自動適用します：貸宅地＝×(1−借地権割合)、借地権＝×借地権割合、貸家建付地＝×(1−借地権割合×借家権割合×賃貸割合)。借家権割合は既定30%、賃貸割合は既定100%。側方・二方／都市計画／用途地域／正面幅員は評価明細用の記録欄です（路線価の側方加算等は加味前の単価をご入力ください）。小規模宅地等の特例は区分と適用面積で減額を自動計算します。「債務」欄は記録用で評価額からは控除しません（債務は「債務」区分で計上してください）。「評価単位」は一体で評価する土地（一体利用の複数筆）に同じ記号（A・B…）を入れる欄で、財産診断書ではそれらを1つの評価単位としてまとめ、一体の評価額を表示します（評価額は各行に分けても、1行にまとめて入れても構いません）。',
     building:'相続税評価額 ＝ 固定資産税評価額 × 持分（貸家は ×(1−借家権割合30%×賃貸割合)）。種類・構造・階層・登記/課税床面積は記録欄です。',
     securities:'【上場株式・ETF・REIT】評価額 ＝ ①相続開始日終値、②当月・③前月・④前々月の終値の月平均額 のうち最も低い価額×株数。「税法上の1株単価」は①〜④のうち最も低い価額を自動表示したもので、この単価×株数が評価額になります（手入力はできません。①〜④を直せば自動で変わります）。「自動算出」で銘柄コードから株価4時点・配当・銘柄名をYahoo!ファイナンス（GAS経由）で取得します（月平均は円未満切捨。Yahoo!が不調なときはStooqから株価を自動補完）。設定のApps Scriptを高機能版にすると、実際の配当支払日も取得して未収配当金・配当期待権をより正確に判定します。配当は相続開始日(死亡日)と各日付の関係で次のとおり判定し、配当総額−源泉税(20.315%)を評価額合計に加算します：①死亡日が配当基準日以前＝なし(株価に織込み済み)、②基準日の翌日〜効力発生日(株主総会決議日)＝配当期待権、③効力発生日の翌日〜支払開始日＝未収配当金、④支払開始日より後＝なし(受領済みのため現金・預貯金に計上)。自動算出の日付は推定値です（基準日≒権利落ち日の翌日、効力発生日≒基準日の約3か月後、支払開始日≒効力発生日の約2週間後）。実際の基準日・株主総会決議日・支払開始日が分かる場合は手入力で修正してください。\n【投資信託（非上場）】種類で「投資信託」を選ぶと、評価額 ＝ 基準価額(1万口)×口数÷1万 − 信託財産留保額(基準価額×留保率) − 解約手数料。「自動算出」はISINコード＋協会コードから投資信託協会の基準価額を取得します。留保率・解約手数料は目論見書を参照し入力してください。',
     unlisted:'非上場株式は類似業種比準・純資産価額方式等で1株単価を算定し、単価×株数で価額を計算します。',
@@ -5645,6 +5648,26 @@ function downloadShindanPDFBody(){
     const items=currentCase.assets.filter(a=>a.category===t.key);
     if(!items.length) return;
     const sg=t.sign<0?-1:1; let sub=0;
+    if(t.key==='land' && items.some(a=>evalUnitOf(a))){
+      // 一体で評価する土地（評価単位が同じ行）は1つのまとまりとして表示し、一体の評価額を出す
+      const done=new Set(); let rows='';
+      items.forEach(a=>{
+        const u=evalUnitOf(a);
+        if(!u){ const v=assetVal(a); sub+=v; rows+='<tr><td>'+esc(assetDescReport(a))+'</td><td class="r">'+yen(v)+'</td></tr>'; return; }
+        if(done.has(u)) return; done.add(u);
+        const g=items.filter(x=>evalUnitOf(x)===u);
+        const gv=g.reduce((s2,x)=>s2+assetVal(x),0); sub+=gv;
+        const ar=g.reduce((s2,x)=>s2+(num(x.kazeiChiseki)||num(x.tokiChiseki)),0);
+        rows+='<tr><td colspan="2" style="background:#f3f6fa;font-weight:700;">一体評価（評価単位 '+esc(u)+'）　'+g.length+'筆'+(ar?('・地積計 '+ar.toLocaleString('ja-JP')+'㎡'):'')+'</td></tr>'
+          +g.map(x=>{ const v=assetVal(x); return '<tr><td style="padding-left:22px;">└ '+esc(assetDescReport(x))+'</td><td class="r" style="color:#666;">'+(v?yen(v):'一体評価額に含む')+'</td></tr>'; }).join('')
+          +'<tr><td style="padding-left:22px;font-weight:700;">評価単位 '+esc(u)+' の一体評価額</td><td class="r" style="font-weight:700;">'+yen(gv)+'</td></tr>';
+      });
+      detailBody+='<h3 class="blk">'+t.name+'（'+items.length+'件）</h3>'
+        +'<table class="t"><thead><tr><th>明細</th><th class="r">評価額</th></tr></thead><tbody>'+rows
+        +'<tr class="tot"><td>小計</td><td class="r">'+yen(sub)+'</td></tr></tbody></table>'
+        +'<p class="note">※ 「一体評価」は、隣接して一体として利用されている複数の筆を1つの評価単位として評価したものです（財産評価基本通達7-2）。登記・遺産分割は筆ごとに行います。</p>';
+      return;
+    }
     const rows=items.map(a=>{ const v=assetVal(a); sub+=v; let desc=assetDescReport(a);
       if(t.key==='gift' && a.giftRecipient){ const rh=currentCase.heirs.find(x=>x.id===a.giftRecipient); if(rh) desc+='　'+(rh.name||'')+' 様へ贈与'; }
       return '<tr><td>'+esc(desc)+'</td><td class="r">'+(sg<0?'△'+yen(v):yen(v))+'</td></tr>'; }).join('');
@@ -5657,7 +5680,7 @@ function downloadShindanPDFBody(){
   let heirDetail='';
   heirs.forEach(h=>{
     let rows='';
-    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
+    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+(evalUnitOf(a)?('<span style="color:#666;">　［一体評価 '+esc(evalUnitOf(a))+'］</span>'):'')+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDescReport(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
     { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows+='<tr><td>代償金</td><td>'+(cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金')+'</td><td class="r">'+(cb<0?'△'+yen(-cb):yen(cb))+'</td></tr>'; } }
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
@@ -5838,7 +5861,7 @@ async function downloadShindanExcelBody(){
         const hasShiki=items.some(a=>num(a.shikiNum)>0&&num(a.shikiDen)>0);
         const off=hasShiki?1:0;
         const CL=(n)=>{ let x=n+((n>3)?off:0)-1, t=''; do{ t=String.fromCharCode(65+x%26)+t; x=Math.floor(x/26)-1; }while(x>=0); return t; }; // 持分(3)より後ろの列を敷地権割合の分だけ右へ
-        const widths=[26,12,8,10,10,10,12,12,10,12,14,8,16,22,12,14,12,11,10,12,12,10,11,10,14,18,22];
+        const widths=[26,12,8,10,10,10,12,12,10,12,14,8,16,22,12,14,12,11,10,12,12,10,11,10,14,18,22,10];
         if(hasShiki) widths.splice(3,0,12);
         const ws=detailSheet('土地',widths);
         const r0=startRow(ws);
@@ -5856,18 +5879,18 @@ async function downloadShindanExcelBody(){
             areaT,areaKcell,isRosen?'路線価':'倍率',V(a.unitPrice),V(a.koteiValue),Vz(a.baisu),
             auto?F(valF,computeAssetValue(a)):num(a.value),
             KOBO_LABEL[k.type||'none'],Vz(k.area),redCell,
-            T(a.landUse||'自用地'),Vz(a.shakuchiRatio),T(a.sokuho),T(a.toshiKeikaku),T(a.youtoChiiki),T(a.fukuin),Vz(a.shakkaRatio),Vz(a.chintaiRatio),V(a.landDebt),T(a.memo),T(a.checkNote)];
+            T(a.landUse||'自用地'),Vz(a.shakuchiRatio),T(a.sokuho),T(a.toshiKeikaku),T(a.youtoChiiki),T(a.fukuin),Vz(a.shakkaRatio),Vz(a.chintaiRatio),V(a.landDebt),T(a.memo),T(a.checkNote),T(a.evalUnit)];
           if(hasShiki) cells.splice(3,0, hasS?(sd+'分の'+sn):'');
           return {cells};
         });
         const rl=r0+items.length-1;
-        const totCells=Array.from({length:27+off},()=>'');
+        const totCells=Array.from({length:28+off},()=>'');
         totCells[0]='計';
         totCells[12+off]=F('SUM('+CL(13)+r0+':'+CL(13)+rl+')',items.reduce((s,a)=>s+assetVal(a),0));
         totCells[15+off]=F('SUM('+CL(16)+r0+':'+CL(16)+rl+')',kb.total);
         totCells[24+off]=F('SUM('+CL(25)+r0+':'+CL(25)+rl+')',items.reduce((s,a)=>s+num(a.landDebt),0));
         rows.push({cells:totCells,kind:'tot'});
-        const headers=['所在','地番','持分','登記地目','課税地目','現況','登記地積(㎡)','課税地積(㎡)','評価方式','㎡単価(路線価)','固定資産税評価額','倍率','相続税評価額(円)','小規模区分','小規模面積(㎡)','小規模減額(円)','自用借地区分','借地権割合(%)','側方・二方','都市計画','用途地域','正面幅員','借家権割合(%)','賃貸割合(%)','債務(円)','注記','確認する事項'];
+        const headers=['所在','地番','持分','登記地目','課税地目','現況','登記地積(㎡)','課税地積(㎡)','評価方式','㎡単価(路線価)','固定資産税評価額','倍率','相続税評価額(円)','小規模区分','小規模面積(㎡)','小規模減額(円)','自用借地区分','借地権割合(%)','側方・二方','都市計画','用途地域','正面幅員','借家権割合(%)','賃貸割合(%)','債務(円)','注記','確認する事項','評価単位'];
         if(hasShiki) headers.splice(3,0,'敷地権割合');
         addTable(ws,headers,rows,[10+off,11+off,13+off,16+off,25+off]);
         ws.getColumn(3).numFmt='??/??';
