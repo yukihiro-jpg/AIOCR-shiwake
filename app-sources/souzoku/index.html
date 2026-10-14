@@ -1240,6 +1240,22 @@ function getStock_(symbol){
   </div>
 </div>
 
+<!-- AI書類読取（登記事項証明書・固定資産評価証明書・残高証明書・保険金の支払通知 → 財産一覧の下書き） -->
+<div class="modal-ov" id="adModal">
+  <div class="modal" style="max-width:1180px;">
+    <h2>書類読取（AI）</h2>
+    <div class="m-sub">登記事項証明書・固定資産評価証明書／名寄帳・残高証明書・保険金の支払通知（PDF・写真）をAIが読み取り、財産一覧の<b>下書き</b>を作ります。確認して「財産一覧へ反映」を押すまで、財産一覧は変わりません。評価額は反映後にアプリが計算します。</div>
+    <div id="adBody" style="margin-top:10px;max-height:66vh;overflow:auto"></div>
+    <div class="btn-row" style="margin-top:14px;justify-content:space-between;">
+      <div id="adFootLeft" class="muted" style="font-size:12px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="adClose()">閉じる</button>
+        <button class="btn primary" id="adApplyBtn" onclick="adApply()" style="display:none;">チェックした行を財産一覧へ反映</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- レポート解説文 AI仕上げ確認モーダル -->
 <div class="modal-ov" id="storyAiModal">
   <div class="modal" style="max-width:760px;">
@@ -2849,6 +2865,7 @@ function renderAssetDetailBody(c){
     +'<div class="dsub'+(t.sign<0?' minus':'')+'" id="catSubtotal">'+(t.sign<0?'−':'')+yen(subtotal)+'</div></div>'
     +table
     +'<div class="detail-foot"><button class="btn primary sm" onclick="addAsset(\''+currentAssetCat+'\')">＋ 行を追加</button>'
+    +(['land','building','cash','insurance'].indexOf(currentAssetCat)>=0?'<button class="btn sm" onclick="openAdModal()" title="登記事項証明書・固定資産評価証明書・残高証明書・保険金の支払通知をAIで読み取り、財産一覧の下書きを作ります" style="background:#5b3cc4;color:#fff;border-color:#5b3cc4;">📄 書類読取（AI）</button>':'')
     +(currentAssetCat==='other'?'<button class="btn sm" onclick="openCarEval()" title="車検証の読み取りまたは手入力から相続税評価額を算出して登録します">🚗 自動車の評価</button>':'')
     +(currentAssetCat==='building'?'<button class="btn sm" onclick="openKubunModal()" title="マンション等の登記事項を一括入力し、建物と敷地利用権（土地）を自動登録・評価します">🏢 区分所有建物（マンション等）…</button>':'')
     +(currentAssetCat==='securities'?'<button class="btn sm" onclick="autoFetchAllSecurities()" title="銘柄コード／ISINが入力されている行をまとめて自動取得します" style="background:#0071e3;color:#fff;border-color:#0071e3;">⚡ 一括自動算出</button>':'')
@@ -9007,6 +9024,255 @@ function szApplyAi(){ ['szmn_tax','szmn_chat','szmn_todo'].forEach(k=>{ const el
 // ============================================================
 //  AI通帳分析（通帳明細 → 要確認取引・検出パターン・推定財産/契約）
 // ============================================================
+// ============================================================
+//  書類読取（AI）：証明書類 → 財産一覧の下書き → 人が確認して反映
+//   ・AIは「書類に書いてある値」を返すだけ。評価額・税額はアプリが計算する
+//   ・AIの文字列は必ず esc() を通して表示する（細工した書類で画面にスクリプトを入れさせない）
+//   ・処理を始めた案件ID を控え、反映時に一致を確かめる（読取中の案件切替で別人の案件に入れない）
+//   ・既存の行は「空欄だけ補完」。値が違う欄は上書きせず赤で知らせる
+//   ・取込ごとに aiImports へ記録し「この取込を取り消す」で元に戻せる
+// ============================================================
+const AD_KINDS={land:'土地',building:'建物',cash:'預貯金',insurance:'保険金'};
+const AD_FIELDS=['kind','page','confidence','owner','location','chiban','kaokuNo','tokiChimoku','kazeiChimoku','tokiChiseki','kazeiChiseki','buildingType','kozo','kaiso','tokiYuka','kazeiYuka','share','koteiValue','bank','branch','depositType','accountNo','balance','interest','insurer','insType','policyNo','insAmount','note','quote'];
+const AD_SCHEMA=(function(){ const props={}; AD_FIELDS.forEach(k=>{ props[k]={type:'string'}; });
+  props.kind={type:'string',enum:['land','building','cash','insurance']}; props.confidence={type:'string',enum:['high','mid','low']};
+  return {type:'object',additionalProperties:false,required:['docType','rows','warnings'],properties:{
+    docType:{type:'string'},
+    rows:{type:'array',items:{type:'object',additionalProperties:false,required:AD_FIELDS.slice(),properties:props}},
+    warnings:{type:'array',items:{type:'string'}} }}; })();
+function _adSys(){ const d=(currentCase&&currentCase.deceased)||{};
+  return 'あなたは相続税申告の実務に精通した税理士アシスタントです。渡された書類（登記事項証明書・固定資産評価証明書・名寄帳・残高証明書・保険金の支払通知など）から、相続財産の一覧に入れる値を読み取ります。\n'
+  +'被相続人：'+(d.name||'（未入力）')+'（相続開始日 '+(d.deathDate||'未入力')+'）\n'
+  +'【最重要】書類に書いてある文字をそのまま写すこと。推測・補完・計算はしない。読めない・書いていない項目は空文字""にする。\n'
+  +'【行の作り方】1筆の土地／1棟（1つの家屋番号）の建物／1つの口座／1件の保険金ごとに rows を1行作る。kind は land/building/cash/insurance。page は書類のページ番号（1始まり、数字だけ）。confidence は読み取りの確かさ high/mid/low。\n'
+  +'【土地】location=所在（市区町村から字まで）、chiban=地番（例「123番4」）、tokiChimoku=登記の地目、tokiChiseki=登記の地積を書類の表記どおり（例「165：28」）。固定資産評価証明書・名寄帳では kazeiChimoku=課税地目、kazeiChiseki=課税地積、koteiValue=評価額（数字のみ）。\n'
+  +'【建物】location=所在、kaokuNo=家屋番号、buildingType=種類（居宅など）、kozo=構造、kaiso=階数（例「2階建」）、tokiYuka=床面積の合計（各階の合計を書類の表記どおり。各階の内訳は note へ）、評価証明書なら kazeiYuka=課税床面積、koteiValue=評価額。\n'
+  +'【持分】share=被相続人の持分を書類の表記どおり（例「2分の1」）。被相続人の単独所有なら「1」。被相続人が所有者に見当たらないときは空文字にし、note にその旨と所有者名を書く。owner=所有者（共有者がいれば全員）。区分所有建物（マンション）は kind=building とし、敷地権の内容は note に書く。\n'
+  +'【預貯金（残高証明書）】bank=金融機関名、branch=支店名、depositType=種類（普通預金・定期預金など）、accountNo=口座番号、balance=相続開始日の残高（数字のみ）、interest=既経過利息（書いてあれば数字のみ）。口座ごとに1行。\n'
+  +'【保険金（支払通知）】insurer=保険会社、insType=保険の種類、policyNo=証券番号、insAmount=支払保険金額（数字のみ）。\n'
+  +'【共通】owner=名義人・所有者。quote=根拠になった書類上の記載を30字程度まで原文のまま。note=補足（共有者、抹消された記載、読みにくい箇所など）。使わない項目は空文字。docType=書類の種類（日本語）。warnings=全体の注意点（例：所有者が被相続人でない、相続開始日と残高の基準日が違う）。\n'
+  +'【注意】乙区（抵当権など）や抹消された記載は値として採らず note に書く。金額・面積はカンマや単位を付けない。';
+}
+let _ad=null; // {caseId, files:[File], rows:[], warnings:[], running, ctl, provider, model}
+function _adState(){ if(!_ad) _ad={caseId:'',files:[],rows:[],warnings:[],running:false,ctl:null,provider:'',model:''}; return _ad; }
+function _adAiInfo(){ const s=_komonSettings(); const provider=s.aiProvider||'gemini';
+  const model=provider==='claude'?(s.claudeModel||'claude-opus-4-8'):(s.geminiModel||'gemini-2.5-flash');
+  const key=provider==='claude'?(s.claudeApiKey||'').trim():((s.geminiApiKey||'').trim()||_suiteGeminiKey());
+  return {provider,model,key}; }
+function openAdModal(){ if(!currentCase){ toast('先に案件を開いてください', true); return; }
+  const st=_adState(); if(st.caseId!==currentId){ _ad=null; _adState().caseId=currentId; }
+  adRender(); openModal('adModal'); }
+function adClose(){ if(_ad&&_ad.running&&!confirm('読み取り中です。中止して閉じますか。')) return; if(_ad&&_ad.ctl) try{_ad.ctl.abort();}catch(e){} if(_ad) _ad.running=false; closeModal('adModal'); }
+function adPick(input){ const st=_adState(); Array.from(input.files||[]).forEach(f=>st.files.push(f)); input.value=''; adRender(); }
+function adDrop(e){ e.preventDefault(); const st=_adState(); Array.from((e.dataTransfer&&e.dataTransfer.files)||[]).forEach(f=>st.files.push(f)); adRender(); }
+function adRemoveFile(i){ const st=_adState(); st.files.splice(i,1); adRender(); }
+function adSetConsent(on){ if(!currentCase) return; currentCase.aiConsent=on?new Date().toISOString().slice(0,10):''; cacheCurrentCase(); adRender(); }
+const AD_LABEL={location:'所在',chiban:'地番',tokiChimoku:'登記地目',kazeiChimoku:'課税地目',tokiChiseki:'登記地積',kazeiChiseki:'課税地積',koteiValue:'固定資産税評価額',kaokuNo:'家屋番号',subcategory:'種類',kozo:'構造',kaiso:'階層',tokiYuka:'登記床面積',kazeiYuka:'課税床面積',ownNum:'持分(分子)',ownDen:'持分(分母)',name:'名称',branch:'支店',accountNo:'口座・証券番号',value:'金額',interest:'既経過利息',insType:'保険種類'};
+// 写真は長辺2400pxのJPEGに縮めてから送る（Claudeは1枚5MBまで・送信量も減る）。PDFはそのまま
+function _adPrep(file){ const mime=_adMime(file);
+  if(!/^image\//.test(mime)) return pbReadB64(file).then(b64=>({b64,mime}));
+  return new Promise((res,rej)=>{ const url=URL.createObjectURL(file); const img=new Image();
+    img.onload=()=>{ try{ const sc=Math.min(1,2400/Math.max(img.width,img.height)); const cv=document.createElement('canvas'); cv.width=Math.round(img.width*sc); cv.height=Math.round(img.height*sc);
+        cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); const d=cv.toDataURL('image/jpeg',0.9); URL.revokeObjectURL(url); res({b64:d.slice(d.indexOf(',')+1),mime:'image/jpeg'}); }catch(e){ URL.revokeObjectURL(url); rej(e); } };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error(file.name+'：画像を読み込めませんでした')); }; img.src=url; }); }
+function _adMime(f){ const n=(f.name||'').toLowerCase(); if(f.type) return f.type; if(/\.pdf$/.test(n)) return 'application/pdf'; if(/\.png$/.test(n)) return 'image/png'; if(/\.(jpe?g)$/.test(n)) return 'image/jpeg'; if(/\.webp$/.test(n)) return 'image/webp'; return ''; }
+// ---- 正規化（AIの書き方の揺れをアプリ側で吸収する） ----
+function _adHalf(s){ return String(s==null?'':s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[，、]/g,',').replace(/[．]/g,'.').trim(); }
+// 地積・床面積：「165：28」「165:28」→ 165.28（登記の地積は「：」が小数点）
+function adNormArea(s){ let t=_adHalf(s).replace(/[㎡m²\s]/g,'').replace(/平方メートル/g,'').replace(/,/g,''); t=t.replace(/[：:]/g,'.'); return /^\d+(\.\d+)?$/.test(t)?t:''; }
+function adNormMoney(s){ const t=_adHalf(s).replace(/[円,\s￥¥]/g,''); return /^-?\d+$/.test(t)?t:''; }
+// 持分：「2分の1」「1/2」「１」→ {num,den}
+function adNormShare(s){ const t=_adHalf(s).replace(/持分|共有|\s/g,'');
+  let m=t.match(/^(\d+)分の(\d+)$/); if(m) return {num:m[2],den:m[1]};
+  m=t.match(/^(\d+)\/(\d+)$/); if(m) return {num:m[1],den:m[2]};
+  if(/^1$/.test(t)) return {num:'1',den:'1'};
+  return null; }
+function _adKeyDigits(s){ return _adHalf(s).replace(/[^0-9]/g,''); }
+function _adChibanKey(s){ return _adHalf(s).replace(/\s|番地|番|の/g,'-').replace(/-+/g,'-').replace(/-$/,''); }
+// 既存の行との突き合わせ（同じものなら新規ではなく空欄補完にする）
+function adFindExisting(r){ const as=(currentCase&&currentCase.assets)||[];
+  if(r.kind==='land'&&r.chiban){ const k=_adChibanKey(r.chiban); return as.find(a=>a.category==='land'&&a.chiban&&_adChibanKey(a.chiban)===k&&(!r.location||!a.location||_adHalf(a.location).indexOf(_adHalf(r.location).slice(-3))>=0||_adHalf(r.location).indexOf(_adHalf(a.location).slice(-3))>=0))||null; }
+  if(r.kind==='building'&&r.kaokuNo){ const k=_adChibanKey(r.kaokuNo); return as.find(a=>a.category==='building'&&a.kaokuNo&&_adChibanKey(a.kaokuNo)===k)||null; }
+  if(r.kind==='cash'&&r.accountNo){ const k=_adKeyDigits(r.accountNo); return k?(as.find(a=>a.category==='cash'&&_adKeyDigits(a.accountNo)===k)||null):null; }
+  if(r.kind==='insurance'&&r.policyNo){ const k=_adKeyDigits(r.policyNo); return k?(as.find(a=>a.category==='insurance'&&_adKeyDigits(a.accountNo)===k)||null):null; }
+  return null; }
+// 下書き1行 → 財産一覧の項目（アプリの項目名へ詰め替え）
+function adToFields(r){ const f={}; const set=(k,v)=>{ if(v!==''&&v!=null) f[k]=String(v); };
+  if(r.kind==='land'){ set('location',r.location); set('chiban',r.chiban); set('tokiChimoku',r.tokiChimoku); set('kazeiChimoku',r.kazeiChimoku);
+    set('tokiChiseki',adNormArea(r.tokiChiseki)); set('kazeiChiseki',adNormArea(r.kazeiChiseki)); set('koteiValue',adNormMoney(r.koteiValue)); }
+  else if(r.kind==='building'){ set('chiban',r.location); set('kaokuNo',r.kaokuNo); set('subcategory',r.buildingType); set('kozo',r.kozo); set('kaiso',r.kaiso);
+    set('tokiYuka',adNormArea(r.tokiYuka)); set('kazeiYuka',adNormArea(r.kazeiYuka)); set('koteiValue',adNormMoney(r.koteiValue)); }
+  else if(r.kind==='cash'){ set('name',r.bank); set('branch',r.branch); set('subcategory',r.depositType); set('accountNo',r.accountNo); set('value',adNormMoney(r.balance)); set('interest',adNormMoney(r.interest)); }
+  else if(r.kind==='insurance'){ set('name',r.insurer); set('insType',r.insType); set('accountNo',r.policyNo); set('value',adNormMoney(r.insAmount)); }
+  if(r.kind==='land'||r.kind==='building'){ const sh=adNormShare(r.share); if(sh){ f.ownNum=sh.num; f.ownDen=sh.den; } }
+  return f; }
+// 下書き1行の注意（アプリ側の検算）
+function adRowWarnings(r){ const w=[];
+  if(r.kind==='land'){ if(!r.chiban) w.push('地番が読めていません'); if(r.tokiChiseki&&!adNormArea(r.tokiChiseki)) w.push('地積を数値にできません（'+r.tokiChiseki+'）'); }
+  if(r.kind==='building'){ if(!r.kaokuNo) w.push('家屋番号が読めていません'); if(r.tokiYuka&&!adNormArea(r.tokiYuka)) w.push('床面積を数値にできません（'+r.tokiYuka+'）'); }
+  if(r.kind==='land'||r.kind==='building'){ const sh=adNormShare(r.share);
+    if(!r.share) w.push('被相続人の持分が読めていません（反映すると持分は「1/1」のまま）');
+    else if(!sh) w.push('持分を解釈できません（'+r.share+'）');
+    else if(Number(sh.num)>Number(sh.den)) w.push('持分の分子が分母より大きくなっています'); }
+  if(r.kind==='cash'&&r.balance&&!adNormMoney(r.balance)) w.push('残高を数値にできません（'+r.balance+'）');
+  if(r.kind==='insurance'&&r.insAmount&&!adNormMoney(r.insAmount)) w.push('保険金額を数値にできません（'+r.insAmount+'）');
+  if(r.confidence==='low') w.push('AIの読み取りの確かさが低い行です');
+  return w; }
+// ---- AI 呼び出し（1ファイル＝1リクエスト） ----
+async function _adCall(file, info, signal){
+  if(!/^(application\/pdf|image\/(jpeg|png|webp))$/.test(_adMime(file))) throw new Error(file.name+'：PDF・JPEG・PNG以外は読み取れません');
+  const {b64,mime}=await _adPrep(file);
+  const user='この書類から財産一覧に入れる値を読み取ってください。ファイル名：'+file.name;
+  // 構造化出力の指定が通らないモデルのときは、スキーマを文章で渡して1回だけやり直す
+  const userNoSchema=user+'\n出力は次のJSONスキーマに従うJSONオブジェクトだけにする（説明文・コードフェンスは付けない）：'+JSON.stringify(AD_SCHEMA);
+  if(info.provider==='claude'){
+    const content=[ mime==='application/pdf'?{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}}:{type:'image',source:{type:'base64',media_type:mime,data:b64}}, {type:'text',text:user} ];
+    const body={model:info.model,max_tokens:32000,system:_adSys(),messages:[{role:'user',content}],output_config:{format:{type:'json_schema',schema:AD_SCHEMA}}};
+    if(_clAlwaysThinks(info.model)) body.output_config.effort='medium';
+    const send=b=>fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal,headers:{'content-type':'application/json','x-api-key':info.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(b)});
+    let res=await send(body);
+    if(res.status===400){ const b2=JSON.parse(JSON.stringify(body)); delete b2.output_config.format; if(!Object.keys(b2.output_config).length) delete b2.output_config;
+      b2.messages[0].content[1]={type:'text',text:userNoSchema}; const r2=await send(b2); if(r2.ok) res=r2; }
+    if(!res.ok){ let msg=res.status+''; try{ const j=await res.json(); msg=(j.error&&j.error.message)||msg; }catch(_){} throw new Error('AI呼び出し失敗: '+msg); }
+    const j=await res.json();
+    if(j.stop_reason==='refusal') throw new Error('AIがこの書類の処理を断りました');
+    if(j.stop_reason==='max_tokens') throw new Error('AIの応答が出力上限に達して途中で切れました。書類を分けてお試しください');
+    const txt=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+    return pbParseJSON(txt);
+  }
+  const parts=[{text:user},{inlineData:{mimeType:mime,data:b64}}];
+  const gen={maxOutputTokens:32000,responseMimeType:'application/json',responseJsonSchema:AD_SCHEMA};
+  if(_gm3(info.model)) gen.mediaResolution='MEDIA_RESOLUTION_HIGH'; // 細かい漢字・数字を読むため高解像度で
+  const send=(ps,g)=>fetch('https://generativelanguage.googleapis.com/v1beta/models/'+info.model+':generateContent',{method:'POST',signal,headers:{'content-type':'application/json','x-goog-api-key':info.key},body:JSON.stringify({systemInstruction:{parts:[{text:_adSys()}]},contents:[{role:'user',parts:ps}],generationConfig:g})});
+  let res=await send(parts,gen);
+  if(res.status===400){ const r2=await send([{text:userNoSchema},parts[1]],{maxOutputTokens:32000,responseMimeType:'application/json'}); if(r2.ok) res=r2; }
+  if(!res.ok){ let msg=res.status+''; try{ const j=await res.json(); msg=(j.error&&j.error.message)||msg; }catch(_){} throw new Error('AI呼び出し失敗: '+msg); }
+  const j=await res.json();
+  if(j.promptFeedback&&j.promptFeedback.blockReason) throw new Error('AIが入力を拒否しました（'+j.promptFeedback.blockReason+'）');
+  const c=j.candidates&&j.candidates[0]; const txt=(((c&&c.content&&c.content.parts)||[]).filter(p=>!p.thought).map(p=>p.text||'').join('')||'').trim();
+  if(!txt){ if(c&&c.finishReason==='MAX_TOKENS') throw new Error('AIの応答が出力上限に達して途中で切れました。書類を分けてお試しください'); throw new Error('AIが空の応答を返しました'+(c&&c.finishReason?'（'+c.finishReason+'）':'')); }
+  return pbParseJSON(txt);
+}
+async function adRun(){
+  const st=_adState(); if(st.running) return;
+  if(!currentCase||st.caseId!==currentId){ toast('案件が切り替わりました。開き直してください', true); return; }
+  if(!currentCase.aiConsent){ toast('依頼者の同意の確認にチェックしてください', true); return; }
+  if(!st.files.length){ toast('書類を選んでください', true); return; }
+  const info=_adAiInfo(); if(!info.key){ toast('AIキーが未設定です（顧問先情報の設定、またはホーム画面の共通設定）', true); return; }
+  const tooBig=st.files.find(f=>f.size>(info.provider==='claude'?22:14)*1024*1024);
+  if(tooBig){ toast(tooBig.name+' が大きすぎます（'+(info.provider==='claude'?'約22':'約14')+'MBまで）。ページを分けてください', true); return; }
+  st.running=true; st.ctl=new AbortController(); st.provider=info.provider; st.model=info.model; st.errors=[];
+  const timer=setTimeout(()=>{ try{st.ctl.abort();}catch(e){} }, 300000);
+  const files=st.files.slice(); let done=0;
+  adRender('読み取り中… 0 / '+files.length+' 件');
+  try{
+    for(const f of files){
+      if(!st.running) break;
+      try{
+        const out=await _adCall(f, info, st.ctl.signal);
+        const rows=(out&&Array.isArray(out.rows))?out.rows:[];
+        rows.forEach(r=>{ const row={}; AD_FIELDS.forEach(k=>{ row[k]=String(r&&r[k]!=null?r[k]:''); });
+          if(!AD_KINDS[row.kind]) return;
+          row._id=uid(); row._file=f.name; row._doc=String(out.docType||''); row._on=true; st.rows.push(row); });
+        (out&&Array.isArray(out.warnings)?out.warnings:[]).forEach(w=>st.warnings.push(f.name+'：'+String(w)));
+        st.files.splice(st.files.indexOf(f),1); // 読めた書類は一覧から外す（失敗した書類だけ残してやり直せる）
+      }catch(e){ if(e&&e.name==='AbortError'){ st.errors.push(f.name+'：中止またはタイムアウトしました'); break; } st.errors.push(f.name+'：'+(e&&e.message||e)); }
+      done++; adRender('読み取り中… '+done+' / '+files.length+' 件');
+    }
+  } finally { clearTimeout(timer); st.running=false; st.ctl=null; }
+  adRender();
+}
+function adStop(){ const st=_adState(); st.running=false; if(st.ctl) try{st.ctl.abort();}catch(e){} }
+function adEdit(id,k,v){ const st=_adState(); const r=st.rows.find(x=>x._id===id); if(r){ r[k]=v; } }
+function adToggle(id,on){ const st=_adState(); const r=st.rows.find(x=>x._id===id); if(r) r._on=on; }
+function adDiscard(){ if(!confirm('読み取った下書きをすべて破棄しますか（財産一覧は変わりません）。')) return; const st=_adState(); st.rows=[]; st.warnings=[]; st.errors=[]; adRender(); }
+// 下書き表の1行（主な項目は手で直せる）
+function _adRowHtml(r){
+  const ex=adFindExisting(r); const fields=adToFields(r); const warns=adRowWarnings(r);
+  const conflicts=ex?Object.keys(fields).filter(k=>String(ex[k]||'')!==''&&String(ex[k])!==fields[k]&&!(k==='ownNum'&&String(ex[k])==='1')&&!(k==='ownDen'&&String(ex[k])==='1')):[];
+  const inp=(k,w)=>'<input type="text" value="'+esc(r[k])+'" style="width:'+(w||90)+'px;font-size:12px;" oninput="adEdit(\''+r._id+'\',\''+k+'\',this.value)" onchange="adRender()">';
+  let main='';
+  if(r.kind==='land') main='所在 '+inp('location',170)+' 地番 '+inp('chiban',80)+' 地目 '+inp('tokiChimoku',50)+'／'+inp('kazeiChimoku',50)+' 地積 '+inp('tokiChiseki',70)+'／'+inp('kazeiChiseki',70)+' 持分 '+inp('share',60)+' 評価額 '+inp('koteiValue',90);
+  else if(r.kind==='building') main='所在 '+inp('location',170)+' 家屋番号 '+inp('kaokuNo',80)+' 種類 '+inp('buildingType',50)+' 構造 '+inp('kozo',120)+' 床面積 '+inp('tokiYuka',70)+'／'+inp('kazeiYuka',70)+' 持分 '+inp('share',60)+' 評価額 '+inp('koteiValue',90);
+  else if(r.kind==='cash') main='金融機関 '+inp('bank',120)+' 支店 '+inp('branch',90)+' 種類 '+inp('depositType',70)+' 口座番号 '+inp('accountNo',90)+' 残高 '+inp('balance',100)+' 既経過利息 '+inp('interest',70);
+  else main='保険会社 '+inp('insurer',120)+' 種類 '+inp('insType',90)+' 証券番号 '+inp('policyNo',100)+' 保険金額 '+inp('insAmount',100);
+  const conf={high:'高',mid:'中',low:'低'}[r.confidence]||'—';
+  return '<tr style="'+(warns.length?'background:#fff8e6;':'')+'"><td style="vertical-align:top;"><input type="checkbox" '+(r._on?'checked':'')+' onchange="adToggle(\''+r._id+'\',this.checked)"></td>'
+    +'<td style="vertical-align:top;white-space:nowrap;"><b>'+esc(AD_KINDS[r.kind])+'</b><div class="muted" style="font-size:11px;">'+(ex?'<span style="color:#0b6;">既存の行の空欄を補完</span>':'新しい行')+'</div><div class="muted" style="font-size:11px;">確かさ '+conf+'</div></td>'
+    +'<td style="font-size:12px;line-height:2;">'+main
+    +(r.owner?'<div class="muted" style="font-size:11px;">所有者・名義：'+esc(r.owner)+'</div>':'')
+    +(r.note?'<div class="muted" style="font-size:11px;">補足：'+esc(r.note)+'</div>':'')
+    +(conflicts.length?'<div style="color:#c0392b;font-size:11px;">既存の行と値が違う欄（上書きしません）：'+conflicts.map(k=>esc(AD_LABEL[k]||k)+'「'+esc(ex[k])+'」→「'+esc(fields[k])+'」').join('　')+'</div>':'')
+    +(warns.length?'<div style="color:#b45309;font-size:11px;">⚠ '+warns.map(esc).join('／')+'</div>':'')
+    +'<div class="muted" style="font-size:11px;">出典：'+esc(r._file)+(r.page?' p.'+esc(r.page):'')+(r.quote?'　「'+esc(r.quote)+'」':'')+'</div></td></tr>';
+}
+function adRender(progress){
+  const el=$('adBody'); if(!el||!currentCase) return; const st=_adState(); const info=_adAiInfo();
+  const caseOk=st.caseId===currentId;
+  const imps=Object.entries((currentCase.aiImports&&typeof currentCase.aiImports==='object')?currentCase.aiImports:{}).sort((a,b)=>String(b[1].at||'').localeCompare(String(a[1].at||'')));
+  let h='';
+  if(!caseOk) h+='<div style="color:#c0392b;margin-bottom:8px;">読み取りを始めた案件と、今開いている案件が違います。閉じて開き直してください。</div>';
+  h+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;">'
+    +'<div style="flex:1;min-width:320px;"><div id="adDrop" ondragover="event.preventDefault()" ondrop="adDrop(event)" style="border:2px dashed #b9c4d6;border-radius:10px;padding:14px;text-align:center;background:#f8fafc;">'
+      +'書類（PDF・JPEG・PNG）をここにドラッグ<br><label class="btn sm" style="margin-top:6px;">ファイルを選ぶ<input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none" onchange="adPick(this)"></label></div>'
+      +(st.files.length?'<div style="margin-top:6px;font-size:12px;">'+st.files.map((f,i)=>'<div>📄 '+esc(f.name)+'（'+Math.max(1,Math.round(f.size/1024))+'KB） <a href="#" onclick="adRemoveFile('+i+');return false;">外す</a></div>').join('')+'</div>':'')
+    +'</div>'
+    +'<div style="flex:1;min-width:300px;font-size:12px;line-height:1.8;">'
+      +'<div>使用するAI：<b>'+esc(info.provider==='claude'?'Claude':'Gemini')+'</b>（'+esc(info.model)+'）<span class="muted">　…顧問先情報の設定で変更</span></div>'
+      +(info.key?'':'<div style="color:#c0392b;">AIキーが未設定です</div>')
+      +'<label style="display:block;margin-top:6px;"><input type="checkbox" '+(currentCase.aiConsent?'checked':'')+' onchange="adSetConsent(this.checked)"> 依頼者から、外部のAI（Google／Anthropic）で資料を処理することの同意を得ている'+(currentCase.aiConsent?'<span class="muted">（'+esc(currentCase.aiConsent)+' 確認）</span>':'')+'</label>'
+      +'<div class="muted">1書類あたり1〜3分ほどかかります。料金の目安は1書類（数ページ）あたり数円〜数十円です。</div>'
+      +'<div style="margin-top:8px;display:flex;gap:8px;">'
+        +(st.running?'<button class="btn" onclick="adStop()">中止</button>':'<button class="btn primary" onclick="adRun()" '+(caseOk?'':'disabled')+'>読み取り開始</button>')
+        +(st.rows.length&&!st.running?'<button class="btn" onclick="adDiscard()">下書きを破棄</button>':'')
+      +'</div>'
+      +(progress?'<div style="margin-top:6px;color:#0071e3;">'+esc(progress)+'</div>':'')
+    +'</div></div>';
+  if((st.errors||[]).length) h+='<div style="margin-top:10px;color:#c0392b;font-size:12px;">'+st.errors.map(e=>'✖ '+esc(e)).join('<br>')+'</div>';
+  if(st.warnings.length) h+='<div style="margin-top:10px;color:#b45309;font-size:12px;">'+st.warnings.map(w=>'⚠ '+esc(w)).join('<br>')+'</div>';
+  if(st.rows.length){
+    h+='<h3 style="margin:14px 0 6px;font-size:14px;">読み取り結果（下書き）'+st.rows.length+'行</h3>'
+      +'<div class="muted" style="font-size:12px;margin-bottom:6px;">原本と見比べて、違う値は直してください。チェックした行だけ反映します。既存の行と同じもの（地番・家屋番号・口座番号・証券番号が一致）は、空欄だけを埋めます。地積の「：」は小数点として、持分「2分の1」は 1／2 として入ります。</div>'
+      +'<table class="t" style="width:100%;border-collapse:collapse;"><tbody>'+st.rows.map(_adRowHtml).join('')+'</tbody></table>';
+  }
+  if(imps.length){
+    h+='<h3 style="margin:16px 0 6px;font-size:14px;">これまでの取込（この案件）</h3><div style="font-size:12px;">'
+      +imps.slice(0,10).map(([id,x])=>'<div>'+esc(String(x.at||'').replace('T',' ').slice(0,16))+'　'+esc((x.files||[]).join('、'))+'　追加 '+((x.created||[]).length)+'行・補完 '+Object.keys(x.filled||{}).length+'行　<a href="#" onclick="adUndo(\''+esc(id)+'\');return false;">この取込を取り消す</a></div>').join('')+'</div>';
+  }
+  el.innerHTML=h;
+  const btn=$('adApplyBtn'); if(btn) btn.style.display=(st.rows.length&&!st.running&&caseOk)?'':'none';
+  const fl=$('adFootLeft'); if(fl) fl.textContent=st.rows.length?('チェック '+st.rows.filter(r=>r._on).length+' / '+st.rows.length+' 行'):'';
+}
+function adApply(){
+  const st=_adState();
+  if(!currentCase||st.caseId!==currentId){ toast('読み取りを始めた案件と違う案件が開いています。反映を中止しました', true); return; }
+  const sel=st.rows.filter(r=>r._on); if(!sel.length){ toast('反映する行をチェックしてください', true); return; }
+  const imp={at:new Date().toISOString(),files:Array.from(new Set(sel.map(r=>r._file))),provider:st.provider,model:st.model,created:[],filled:{}};
+  let nNew=0,nFill=0;
+  sel.forEach(r=>{ const f=adToFields(r); const ex=adFindExisting(r);
+    if(ex){ const prev={}; Object.keys(f).forEach(k=>{ const cur=String(ex[k]==null?'':ex[k]);
+        const empty=cur===''||((k==='ownNum'||k==='ownDen')&&cur==='1'&&String(ex.ownNum||'1')==='1'&&String(ex.ownDen||'1')==='1');
+        if(empty&&cur!==f[k]){ prev[k]={before:cur,after:f[k]}; ex[k]=f[k]; } });
+      if(Object.keys(prev).length){ imp.filled[ex.id]=prev; nFill++; } }
+    else { const a=newAsset(r.kind); Object.assign(a,f); a.checkNote=''; currentCase.assets.push(a); imp.created.push(a.id); nNew++; } });
+  if(!currentCase.aiImports||typeof currentCase.aiImports!=='object'||Array.isArray(currentCase.aiImports)) currentCase.aiImports={};
+  const impId='imp'+Date.now().toString(36); currentCase.aiImports[impId]=imp;
+  st.rows=st.rows.filter(r=>!r._on);
+  cacheCurrentCase(); renderAssetNav(); renderSummary(); renderAssetDetail();
+  adRender(); toast('財産一覧へ反映しました（新しい行 '+nNew+'・空欄の補完 '+nFill+'）');
+}
+function adUndo(impId){
+  if(!currentCase||!currentCase.aiImports||!currentCase.aiImports[impId]) return;
+  const imp=currentCase.aiImports[impId];
+  if(!confirm('この取込を取り消します。\n・この取込で追加した行（'+((imp.created||[]).length)+'行）を削除\n・空欄に補完した値を元の空欄に戻す（その後に手で直した欄はそのまま）\nよろしいですか。')) return;
+  const ids=new Set(imp.created||[]);
+  currentCase.assets=currentCase.assets.filter(a=>!ids.has(a.id));
+  Object.entries(imp.filled||{}).forEach(([aid,fs])=>{ const a=currentCase.assets.find(x=>x.id===aid); if(!a) return;
+    Object.entries(fs||{}).forEach(([k,v])=>{ if(String(a[k]==null?'':a[k])===String(v.after)) a[k]=v.before; }); });
+  delete currentCase.aiImports[impId];
+  cacheCurrentCase(); renderAssetNav(); renderSummary(); renderAssetDetail(); adRender(); toast('取込を取り消しました');
+}
+
 function _pb(){ if(!currentCase) return {analyses:[]}; if(!currentCase.passbook||typeof currentCase.passbook!=='object') currentCase.passbook={analyses:[]}; if(!Array.isArray(currentCase.passbook.analyses)) currentCase.passbook.analyses=[]; return currentCase.passbook; }
 let _pbMode='paste';
 let _pbFiles={csv:null,pdf:null};
