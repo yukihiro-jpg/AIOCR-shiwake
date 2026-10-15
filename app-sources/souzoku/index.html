@@ -9079,7 +9079,8 @@ function _adMime(f){ const n=(f.name||'').toLowerCase(); if(f.type) return f.typ
 // ---- 正規化（AIの書き方の揺れをアプリ側で吸収する） ----
 function _adHalf(s){ return String(s==null?'':s).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[，、]/g,',').replace(/[．]/g,'.').trim(); }
 // 地積・床面積：「165：28」「165:28」→ 165.28（登記の地積は「：」が小数点）
-function adNormArea(s){ let t=_adHalf(s).replace(/[㎡m²\s]/g,'').replace(/平方メートル/g,'').replace(/,/g,''); t=t.replace(/[：:]/g,'.'); return /^\d+(\.\d+)?$/.test(t)?t:''; }
+// 登記の地積・床面積は「：」が小数点。「19：」（小数部が空欄）は 19㎡ のこと
+function adNormArea(s){ let t=_adHalf(s).replace(/[㎡m²\s]/g,'').replace(/平方メートル/g,'').replace(/,/g,''); t=t.replace(/[：:]/g,'.').replace(/\.$/,''); return /^\d+(\.\d+)?$/.test(t)?t:''; }
 function adNormMoney(s){ const t=_adHalf(s).replace(/[円,\s￥¥]/g,''); return /^-?\d+$/.test(t)?t:''; }
 // 持分：「2分の1」「1/2」「１」→ {num,den}
 function adNormShare(s){ const t=_adHalf(s).replace(/持分|共有|\s/g,'');
@@ -9089,13 +9090,44 @@ function adNormShare(s){ const t=_adHalf(s).replace(/持分|共有|\s/g,'');
   return null; }
 function _adKeyDigits(s){ return _adHalf(s).replace(/[^0-9]/g,''); }
 function _adChibanKey(s){ return _adHalf(s).replace(/\s|番地|番|の/g,'-').replace(/-+/g,'-').replace(/-$/,''); }
-// 既存の行との突き合わせ（同じものなら新規ではなく空欄補完にする）
-function adFindExisting(r){ const as=(currentCase&&currentCase.assets)||[];
-  if(r.kind==='land'&&r.chiban){ const k=_adChibanKey(r.chiban); return as.find(a=>a.category==='land'&&a.chiban&&_adChibanKey(a.chiban)===k&&(!r.location||!a.location||_adHalf(a.location).indexOf(_adHalf(r.location).slice(-3))>=0||_adHalf(r.location).indexOf(_adHalf(a.location).slice(-3))>=0))||null; }
-  if(r.kind==='building'&&r.kaokuNo){ const k=_adChibanKey(r.kaokuNo); return as.find(a=>a.category==='building'&&a.kaokuNo&&_adChibanKey(a.kaokuNo)===k)||null; }
-  if(r.kind==='cash'&&r.accountNo){ const k=_adKeyDigits(r.accountNo); return k?(as.find(a=>a.category==='cash'&&_adKeyDigits(a.accountNo)===k)||null):null; }
-  if(r.kind==='insurance'&&r.policyNo){ const k=_adKeyDigits(r.policyNo); return k?(as.find(a=>a.category==='insurance'&&_adKeyDigits(a.accountNo)===k)||null):null; }
-  return null; }
+// ---- 同じ財産の突き合わせ ----
+//  ・確実に同じ（地番・家屋番号の表記が一致、口座番号・証券番号の数字が一致）→ 自動でまとめる
+//  ・同じらしい（「123番4」と「123-4」のように数字だけ一致／所在・地積・地目が一致）→ 利用者に「同じですか」と聞き、
+//    「同じもの」と答えたものだけまとめる。相手は財産一覧の既存行か、先に並んでいる下書きの行（別の書類から読んだもの）
+function _adDigitsKey(s){ return (_adHalf(s).match(/\d+/g)||[]).join('-'); }
+function _adTextKey(s){ return _adHalf(s).replace(/\s/g,''); }
+function _adLocOk(a,b){ a=_adHalf(a); b=_adHalf(b); return !a||!b||a.indexOf(b.slice(-3))>=0||b.indexOf(a.slice(-3))>=0; }
+function _adAreaOf(f){ return Number(f.tokiChiseki||f.kazeiChiseki||f.tokiYuka||f.kazeiYuka||0)||0; }
+function _adChimokuOf(f){ return _adHalf(f.tokiChimoku||f.kazeiChimoku||''); }
+// r（下書き行のadToFields）と t（比較相手の項目）を比べる → 'exact' | 'probable' | ''
+function _adCompare(kind,f,t){
+  if(kind==='land'){
+    if(f.chiban&&t.chiban&&_adTextKey(f.chiban)===_adTextKey(t.chiban)&&_adLocOk(f.location,t.location)) return 'exact';
+    const dk=_adDigitsKey(f.chiban); if(dk&&dk===_adDigitsKey(t.chiban)&&_adLocOk(f.location,t.location)) return 'probable';
+    const af=_adAreaOf(f), at=_adAreaOf(t);
+    if(af>0&&af===at&&f.location&&t.location&&_adLocOk(f.location,t.location)&&(!_adChimokuOf(f)||!_adChimokuOf(t)||_adChimokuOf(f)===_adChimokuOf(t))) return 'probable';
+    return ''; }
+  if(kind==='building'){
+    if(f.kaokuNo&&t.kaokuNo&&_adTextKey(f.kaokuNo)===_adTextKey(t.kaokuNo)) return 'exact';
+    const dk=_adDigitsKey(f.kaokuNo); if(dk&&dk===_adDigitsKey(t.kaokuNo)&&_adLocOk(f.chiban,t.chiban)) return 'probable';
+    return ''; }
+  if(kind==='cash'||kind==='insurance'){ const k=_adKeyDigits(f.accountNo); return k&&k===_adKeyDigits(t.accountNo)?'exact':''; }
+  return ''; }
+// 比べる相手の一覧：財産一覧の既存行（先）＋ この行より前にある下書きの行
+function _adTargets(r){ const st=_adState(); const out=[];
+  ((currentCase&&currentCase.assets)||[]).forEach(a=>{ if(a.category===r.kind) out.push({key:'a:'+a.id,asset:a,fields:a}); });
+  for(const x of st.rows){ if(x===r) break; if(x.kind===r.kind) out.push({key:'r:'+x._id,row:x,fields:adToFields(x)}); }
+  return out; }
+// この行をどう扱うか → {mode:'exact'|'same'|'ask'|'new', target}
+function adResolve(r){ const st=_adState(); const dec=st.decisions||{}; const f=adToFields(r);
+  const ts=_adTargets(r); let ask=null;
+  for(const t of ts){ const d=dec[r._id+'|'+t.key]; if(d==='same') return {mode:'same',target:t}; }
+  for(const t of ts){ const c=_adCompare(r.kind,f,t.fields); if(c==='exact'&&dec[r._id+'|'+t.key]!=='diff') return {mode:'exact',target:t}; }
+  for(const t of ts){ if(dec[r._id+'|'+t.key]) continue; if(_adCompare(r.kind,f,t.fields)==='probable'){ ask=t; break; } }
+  return ask?{mode:'ask',target:ask}:{mode:'new',target:null}; }
+function adDecide(rowId,tkey,ans){ const st=_adState(); if(!st.decisions) st.decisions={}; st.decisions[rowId+'|'+tkey]=ans; adRender(); }
+// 互換：既存行だけを見る（以前の呼び出し元向け）
+function adFindExisting(r){ const res=adResolve(r); return (res.mode==='exact'||res.mode==='same')&&res.target&&res.target.asset?res.target.asset:null; }
 // 下書き1行 → 財産一覧の項目（アプリの項目名へ詰め替え）
 function adToFields(r){ const f={}; const set=(k,v)=>{ if(v!==''&&v!=null) f[k]=String(v); };
   if(r.kind==='land'){ set('location',r.location); set('chiban',r.chiban); set('tokiChimoku',r.tokiChimoku); set('kazeiChimoku',r.kazeiChimoku);
@@ -9173,6 +9205,7 @@ async function adRun(){
         const rows=(out&&Array.isArray(out.rows))?out.rows:[];
         rows.forEach(r=>{ const row={}; AD_FIELDS.forEach(k=>{ row[k]=String(r&&r[k]!=null?r[k]:''); });
           if(!AD_KINDS[row.kind]) return;
+          ['tokiChiseki','kazeiChiseki','tokiYuka','kazeiYuka'].forEach(k=>{ const v=adNormArea(row[k]); if(v) row[k]=v; });
           row._id=uid(); row._file=f.name; row._doc=String(out.docType||''); row._on=true; st.rows.push(row); });
         (out&&Array.isArray(out.warnings)?out.warnings:[]).forEach(w=>st.warnings.push(f.name+'：'+String(w)));
         st.files.splice(st.files.indexOf(f),1); // 読めた書類は一覧から外す（失敗した書類だけ残してやり直せる）
@@ -9185,11 +9218,15 @@ async function adRun(){
 function adStop(){ const st=_adState(); st.running=false; if(st.ctl) try{st.ctl.abort();}catch(e){} }
 function adEdit(id,k,v){ const st=_adState(); const r=st.rows.find(x=>x._id===id); if(r){ r[k]=v; } }
 function adToggle(id,on){ const st=_adState(); const r=st.rows.find(x=>x._id===id); if(r) r._on=on; }
-function adDiscard(){ if(!confirm('読み取った下書きをすべて破棄しますか（財産一覧は変わりません）。')) return; const st=_adState(); st.rows=[]; st.warnings=[]; st.errors=[]; adRender(); }
+function adDiscard(){ if(!confirm('読み取った下書きをすべて破棄しますか（財産一覧は変わりません）。')) return; const st=_adState(); st.rows=[]; st.warnings=[]; st.errors=[]; st.decisions={}; adRender(); }
 // 下書き表の1行（主な項目は手で直せる）
 function _adRowHtml(r){
-  const ex=adFindExisting(r); const fields=adToFields(r); const warns=adRowWarnings(r);
+  const res=adResolve(r); const fields=adToFields(r); const warns=adRowWarnings(r);
+  const ex=(res.mode==='exact'||res.mode==='same')&&res.target?res.target.fields:null;
   const conflicts=ex?Object.keys(fields).filter(k=>String(ex[k]||'')!==''&&String(ex[k])!==fields[k]&&!(k==='ownNum'&&String(ex[k])==='1')&&!(k==='ownDen'&&String(ex[k])==='1')):[];
+  const tgtName=t=>t?(t.asset?'財産一覧の既存の行':'上の行（'+esc(t.row._file)+'）'):'';
+  const status=res.mode==='ask'?'<span style="color:#c0392b;font-weight:700;">要確認（上の質問に回答）</span>'
+    :(res.mode==='exact'||res.mode==='same')?'<span style="color:#0b6;">'+tgtName(res.target)+'とまとめる'+(res.mode==='same'?'（確認済み）':'')+'</span>':'新しい行';
   const inp=(k,w)=>'<input type="text" value="'+esc(r[k])+'" style="width:'+(w||90)+'px;font-size:12px;" oninput="adEdit(\''+r._id+'\',\''+k+'\',this.value)" onchange="adRender()">';
   let main='';
   if(r.kind==='land') main='所在 '+inp('location',170)+' 地番 '+inp('chiban',80)+' 地目 '+inp('tokiChimoku',50)+'／'+inp('kazeiChimoku',50)+' 地積 '+inp('tokiChiseki',70)+'／'+inp('kazeiChiseki',70)+' 持分 '+inp('share',60)+' 評価額 '+inp('koteiValue',90);
@@ -9198,11 +9235,11 @@ function _adRowHtml(r){
   else main='保険会社 '+inp('insurer',120)+' 種類 '+inp('insType',90)+' 証券番号 '+inp('policyNo',100)+' 保険金額 '+inp('insAmount',100);
   const conf={high:'高',mid:'中',low:'低'}[r.confidence]||'—';
   return '<tr style="'+(warns.length?'background:#fff8e6;':'')+'"><td style="vertical-align:top;"><input type="checkbox" '+(r._on?'checked':'')+' onchange="adToggle(\''+r._id+'\',this.checked)"></td>'
-    +'<td style="vertical-align:top;white-space:nowrap;"><b>'+esc(AD_KINDS[r.kind])+'</b><div class="muted" style="font-size:11px;">'+(ex?'<span style="color:#0b6;">既存の行の空欄を補完</span>':'新しい行')+'</div><div class="muted" style="font-size:11px;">確かさ '+conf+'</div></td>'
+    +'<td style="vertical-align:top;white-space:nowrap;"><b>'+esc(AD_KINDS[r.kind])+'</b><div class="muted" style="font-size:11px;">'+status+'</div><div class="muted" style="font-size:11px;">確かさ '+conf+'</div></td>'
     +'<td style="font-size:12px;line-height:2;">'+main
     +(r.owner?'<div class="muted" style="font-size:11px;">所有者・名義：'+esc(r.owner)+'</div>':'')
     +(r.note?'<div class="muted" style="font-size:11px;">補足：'+esc(r.note)+'</div>':'')
-    +(conflicts.length?'<div style="color:#c0392b;font-size:11px;">既存の行と値が違う欄（上書きしません）：'+conflicts.map(k=>esc(AD_LABEL[k]||k)+'「'+esc(ex[k])+'」→「'+esc(fields[k])+'」').join('　')+'</div>':'')
+    +(conflicts.length?'<div style="color:#c0392b;font-size:11px;">まとめる相手と値が違う欄（上書きしません）：'+conflicts.map(k=>esc(AD_LABEL[k]||k)+'「'+esc(ex[k])+'」→「'+esc(fields[k])+'」').join('　')+'</div>':'')
     +(warns.length?'<div style="color:#b45309;font-size:11px;">⚠ '+warns.map(esc).join('／')+'</div>':'')
     +'<div class="muted" style="font-size:11px;">出典：'+esc(r._file)+(r.page?' p.'+esc(r.page):'')+(r.quote?'　「'+esc(r.quote)+'」':'')+'</div></td></tr>';
 }
@@ -9230,9 +9267,26 @@ function adRender(progress){
     +'</div></div>';
   if((st.errors||[]).length) h+='<div style="margin-top:10px;color:#c0392b;font-size:12px;">'+st.errors.map(e=>'✖ '+esc(e)).join('<br>')+'</div>';
   if(st.warnings.length) h+='<div style="margin-top:10px;color:#b45309;font-size:12px;">'+st.warnings.map(w=>'⚠ '+esc(w)).join('<br>')+'</div>';
+  const asks=st.rows.map(r=>({r,res:adResolve(r)})).filter(x=>x.res.mode==='ask');
+  if(asks.length){
+    const brief=(kind,f)=>kind==='building'
+      ?('所在 '+esc(f.chiban||'—')+'　家屋番号 '+esc(f.kaokuNo||'—')+'　種類 '+esc(f.subcategory||'—')+'　床面積 '+esc(f.tokiYuka||f.kazeiYuka||'—')+'㎡')
+      :('所在 '+esc(f.location||'—')+'　地番 '+esc(f.chiban||'—')+'　地目 '+esc(f.tokiChimoku||f.kazeiChimoku||'—')+'　地積 '+esc(f.tokiChiseki||f.kazeiChiseki||'—')+'㎡');
+    h+='<div style="margin-top:14px;border:2px solid #f0b429;background:#fffbea;border-radius:10px;padding:10px 12px;">'
+      +'<div style="font-weight:700;margin-bottom:6px;">同じ財産か確認してください（'+asks.length+'件）</div>'
+      +'<div class="muted" style="font-size:12px;margin-bottom:6px;">地番などの書き方が違うだけで、同じ財産の可能性があります。「同じもの」を選ぶと、複数の書類の値を1行にまとめます（空欄だけ補完し、違う値は上書きしません）。</div>'
+      +asks.map(({r,res})=>{ const t=res.target; const tk=t.key;
+        return '<div style="border-top:1px solid #f3e3b0;padding:8px 0;font-size:12px;line-height:1.9;">'
+          +'<div>① 読み取り：'+brief(r.kind,adToFields(r))+'<span class="muted">（'+esc(r._file)+(r.page?' p.'+esc(r.page):'')+'）</span></div>'
+          +'<div>② '+(t.asset?'財産一覧の既存の行':'別の書類の読み取り')+'：'+brief(r.kind,t.fields)+(t.row?'<span class="muted">（'+esc(t.row._file)+(t.row.page?' p.'+esc(t.row.page):'')+'）</span>':'')+'</div>'
+          +'<div style="margin-top:4px;">①と②は同じ'+esc(AD_KINDS[r.kind])+'ですか？　'
+          +'<button class="btn sm primary" onclick="adDecide(\''+r._id+'\',\''+tk+'\',\'same\')">同じもの（まとめる）</button> '
+          +'<button class="btn sm" onclick="adDecide(\''+r._id+'\',\''+tk+'\',\'diff\')">別のもの</button></div></div>'; }).join('')
+      +'</div>';
+  }
   if(st.rows.length){
     h+='<h3 style="margin:14px 0 6px;font-size:14px;">読み取り結果（下書き）'+st.rows.length+'行</h3>'
-      +'<div class="muted" style="font-size:12px;margin-bottom:6px;">原本と見比べて、違う値は直してください。チェックした行だけ反映します。既存の行と同じもの（地番・家屋番号・口座番号・証券番号が一致）は、空欄だけを埋めます。地積の「：」は小数点として、持分「2分の1」は 1／2 として入ります。</div>'
+      +'<div class="muted" style="font-size:12px;margin-bottom:6px;">原本と見比べて、違う値は直してください。チェックした行だけ反映します。同じ財産（地番・家屋番号・口座番号・証券番号が一致、または確認で「同じもの」と答えたもの）は1行にまとめ、空欄だけを埋めます。地積の「：」は小数点として（「19：」は 19）、持分「2分の1」は 1／2 として入ります。</div>'
       +'<table class="t" style="width:100%;border-collapse:collapse;"><tbody>'+st.rows.map(_adRowHtml).join('')+'</tbody></table>';
   }
   if(imps.length){
@@ -9247,14 +9301,18 @@ function adApply(){
   const st=_adState();
   if(!currentCase||st.caseId!==currentId){ toast('読み取りを始めた案件と違う案件が開いています。反映を中止しました', true); return; }
   const sel=st.rows.filter(r=>r._on); if(!sel.length){ toast('反映する行をチェックしてください', true); return; }
+  if(sel.some(r=>adResolve(r).mode==='ask')){ toast('「同じ財産か確認してください」の質問に先に答えてください', true); return; }
   const imp={at:new Date().toISOString(),files:Array.from(new Set(sel.map(r=>r._file))),provider:st.provider,model:st.model,created:[],filled:{}};
   let nNew=0,nFill=0;
-  sel.forEach(r=>{ const f=adToFields(r); const ex=adFindExisting(r);
-    if(ex){ const prev={}; Object.keys(f).forEach(k=>{ const cur=String(ex[k]==null?'':ex[k]);
+  const rowAsset={}; // 下書き行ID → 反映先の財産ID（別の書類の同じ財産をまとめるため）
+  sel.forEach(r=>{ const f=adToFields(r); const res=adResolve(r); let ex=null;
+    if(res.target&&(res.mode==='exact'||res.mode==='same')){
+      ex=res.target.asset?res.target.asset:(rowAsset[res.target.row._id]?currentCase.assets.find(a=>a.id===rowAsset[res.target.row._id]):null); }
+    if(ex){ rowAsset[r._id]=ex.id; const prev={}; Object.keys(f).forEach(k=>{ const cur=String(ex[k]==null?'':ex[k]);
         const empty=cur===''||((k==='ownNum'||k==='ownDen')&&cur==='1'&&String(ex.ownNum||'1')==='1'&&String(ex.ownDen||'1')==='1');
         if(empty&&cur!==f[k]){ prev[k]={before:cur,after:f[k]}; ex[k]=f[k]; } });
       if(Object.keys(prev).length){ imp.filled[ex.id]=prev; nFill++; } }
-    else { const a=newAsset(r.kind); Object.assign(a,f); a.checkNote=''; currentCase.assets.push(a); imp.created.push(a.id); nNew++; } });
+    else { const a=newAsset(r.kind); Object.assign(a,f); a.checkNote=''; currentCase.assets.push(a); imp.created.push(a.id); rowAsset[r._id]=a.id; nNew++; } });
   if(!currentCase.aiImports||typeof currentCase.aiImports!=='object'||Array.isArray(currentCase.aiImports)) currentCase.aiImports={};
   const impId='imp'+Date.now().toString(36); currentCase.aiImports[impId]=imp;
   st.rows=st.rows.filter(r=>!r._on);
