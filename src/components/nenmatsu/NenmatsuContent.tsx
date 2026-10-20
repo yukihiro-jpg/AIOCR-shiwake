@@ -1222,6 +1222,9 @@ function CompanyDetail({
     null,
   )
   const [declView, setDeclView] = useState<{ name: string; decl: Declaration } | null>(null)
+  /** 提出取消の確認ダイアログ（「取消」と入力したときだけ実行できる） */
+  const [cancelAsk, setCancelAsk] = useState<NenmatsuEmployee | null>(null)
+  const [cancelInput, setCancelInput] = useState('')
   const fyGregorian = FY_BY_ID[yearId]?.gregorian || new Date().getFullYear()
 
   useEffect(() => {
@@ -1294,14 +1297,11 @@ function CompanyDetail({
     }
   }
 
-  /** テスト提出・誤提出の取消（画像・申告内容を削除して未提出に戻す） */
+  /** テスト提出・誤提出の取消（画像・申告内容を削除して未提出に戻す）。
+   *  画像まで消えて戻せないので、ボタン1回では実行しない：確認ダイアログ（cancelAsk）で
+   *  「取消」と入力したときだけ実行する（氏名の入力にしないのは、髙・﨑など打ちにくい字があるため） */
   async function removeSubmission(emp: NenmatsuEmployee) {
     const name = `${emp.lastName} ${emp.firstName}`.trim()
-    if (!window.confirm(
-      `${name} さんの提出を取り消しますか？\n\n` +
-      '提出された画像と申告内容を削除し、「未提出」の状態に戻します。\n' +
-      '本人は同じURLからもう一度提出できます。この操作は元に戻せません。',
-    )) return
     setZipMsg(`${name} さんの提出を取り消しています...`)
     try {
       await deleteSubmission(yearId, company.clientId, emp.id)
@@ -1588,7 +1588,7 @@ function CompanyDetail({
                       )}
                       {rec && (
                         <button
-                          onClick={() => removeSubmission(e)}
+                          onClick={() => { setCancelAsk(e); setCancelInput('') }}
                           disabled={!!zipMsg}
                           title="テスト提出・誤提出の取消。画像と申告内容を削除して未提出に戻します"
                           className="px-3 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50"
@@ -1652,6 +1652,59 @@ function CompanyDetail({
           <DeclarationView decl={declView.decl} fyGregorian={fyGregorian} />
         </div>
       )}
+
+      {cancelAsk && (() => {
+        const emp = cancelAsk
+        const rec = subs[emp.id]
+        const name = `${emp.lastName} ${emp.firstName}`.trim()
+        const imgs = rec?.paths?.length || 0
+        const ok = cancelInput.trim() === '取消'
+        const close = () => { setCancelAsk(null); setCancelInput('') }
+        return (
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+            onMouseDown={(ev) => { if (ev.target === ev.currentTarget) close() }}
+          >
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl" onClick={(ev) => ev.stopPropagation()}>
+              <h3 className="font-bold text-red-700 mb-2">⚠ 本当に提出を取り消しますか？</h3>
+              <div className="text-sm text-gray-800 mb-3">
+                <b>{name}</b> さん{rec?.submittedAt ? `（${new Date(rec.submittedAt).toLocaleString('ja-JP')} 提出）` : ''}
+              </div>
+              <ul className="text-[13px] text-gray-700 bg-red-50 border border-red-200 rounded-lg p-3 mb-3 space-y-1 list-disc pl-6">
+                <li>提出された画像{imgs ? `（${imgs}枚）` : ''}と申告内容を<b>すべての端末から削除</b>します</li>
+                <li>この操作は<b className="text-red-700">元に戻せません</b></li>
+                <li>「未提出」の状態に戻り、本人は同じURLからもう一度提出できます</li>
+              </ul>
+              <label className="block text-[13px] text-gray-700 mb-1">
+                取り消す場合は、下の欄に <b className="text-red-700">取消</b> と入力してください
+              </label>
+              <input
+                autoFocus
+                value={cancelInput}
+                onChange={(ev) => setCancelInput(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Escape') close()
+                  if (ev.key === 'Enter' && ok) { close(); void removeSubmission(emp) }
+                }}
+                placeholder="取消"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-4"
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={close} className="px-4 py-2 bg-gray-200 text-gray-800 rounded text-sm">
+                  やめる
+                </button>
+                <button
+                  onClick={() => { if (!ok) return; close(); void removeSubmission(emp) }}
+                  disabled={!ok}
+                  className="px-4 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  提出を取り消す
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </Overlay>
   )
 }
