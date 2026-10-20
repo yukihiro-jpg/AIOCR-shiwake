@@ -4,6 +4,16 @@
 export type DisabilityType = '非該当' | '一般障害者' | '特別障害者' | '同居特別障害者'
 export type WidowType = '非該当' | '寡婦' | 'ひとり親'
 
+const DISABILITY_TYPES: DisabilityType[] = ['非該当', '一般障害者', '特別障害者', '同居特別障害者']
+const WIDOW_TYPES: WidowType[] = ['非該当', '寡婦', 'ひとり親']
+/** 文字列（公開ノードから読んだ値など）を区分に揃える。知らない値は非該当 */
+export function asDisability(v: unknown): DisabilityType {
+  return DISABILITY_TYPES.includes(v as DisabilityType) ? (v as DisabilityType) : '非該当'
+}
+export function asWidow(v: unknown): WidowType {
+  return WIDOW_TYPES.includes(v as WidowType) ? (v as WidowType) : '非該当'
+}
+
 export interface DepInfo {
   name: string
   kana: string

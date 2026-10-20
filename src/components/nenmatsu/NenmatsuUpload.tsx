@@ -15,7 +15,7 @@ import { NENMATSU_DOC_TYPES } from '@/lib/nenmatsu/document-types'
 import { compressImage } from '@/lib/nenmatsu/image-compress'
 import { checkPhotoQuality } from '@/lib/nenmatsu/photo-check'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
-import { emptyDeclaration, emptySpouse, emptyDependent, type Declaration, type TaxCategory } from '@/lib/nenmatsu/declaration'
+import { emptyDeclaration, emptySpouse, emptyDependent, asDisability, asWidow, type Declaration, type TaxCategory } from '@/lib/nenmatsu/declaration'
 import DeclarationForm from './DeclarationForm'
 
 type Phase = 'loading' | 'error' | 'select' | 'verify' | 'declare' | 'docs' | 'done'
@@ -143,10 +143,21 @@ export default function NenmatsuUpload() {
         ...emptyDeclaration(false),
         postal: csv.postal || '',
         address: csv.address || '',
+        // 本人の状態・世帯主（前年の扶養控除等申告書の内容）
+        ...(csv.self ? {
+          householder: csv.self.householder || '',
+          householderRelation: (csv.self.householder && csv.self.householderRelation) || '本人',
+          selfDisability: asDisability(csv.self.disability),
+          widow: asWidow(csv.self.widow),
+          workingStudent: !!csv.self.student,
+        } : {}),
         spouse: csv.spouse
           ? { exists: true, name: csv.spouse.name || '', kana: csv.spouse.kana || '', birth: csv.spouse.birth || '', income: csv.spouse.income || '' }
           : emptySpouse(),
-        dependents: (csv.dependents || []).map((x) => ({ ...emptyDependent(), name: x.name || '', kana: x.kana || '', relation: x.relation || '', birth: x.birth || '', income: x.income || '' })),
+        dependents: (csv.dependents || []).map((x) => ({
+          ...emptyDependent(), name: x.name || '', kana: x.kana || '', relation: x.relation || '', birth: x.birth || '', income: x.income || '',
+          disability: asDisability(x.disability),
+        })),
       }
     }
     setFromCsv(!p && !!csv)
@@ -154,8 +165,8 @@ export default function NenmatsuUpload() {
     const d: Declaration = {
       ...base,
       isNewHire: false,
-      // 在籍中の方は前年の区分を引き継ぐ。前年の提出が無ければ甲（この会社で年末調整する）を既定にする
-      taxCategory: p?.declaration.taxCategory ?? 'kou',
+      // 在籍中の方は前年の区分を引き継ぐ。前年の提出が無ければ会社の登録（CSVの税表区分）、それも無ければ甲を既定にする
+      taxCategory: p?.declaration.taxCategory ?? (csv?.self?.taxTable === 'otsu' ? 'otsu' : 'kou'),
       noChange: false,
       confirmedAt: undefined,
       lastName: emp.lastName,

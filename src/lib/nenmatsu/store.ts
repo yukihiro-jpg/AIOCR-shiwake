@@ -4,7 +4,7 @@
 
 import { getDb, serverNow } from '@/core/firebase'
 import { roomKey, modulePath } from '@/core/room'
-import { normalizeBirth, extractPostal, extractDependents } from './jdl-csv'
+import { normalizeBirth, extractPostal, extractDependents, extractSpouse, extractSelfStatus } from './jdl-csv'
 import { normalizeDeclaration } from './declaration'
 
 export const NENMATSU_KEY = 'nenmatsu'
@@ -347,7 +347,7 @@ export async function publishRoster(
   const pre: Record<string, CsvPrefill> = {}
   for (const e of employees) {
     const v = prefillFromCsv(e)
-    if (v.postal || v.address || v.spouse || v.dependents.length) pre[e.id] = v
+    if (hasCsvPrefill(v)) pre[e.id] = v
   }
   try {
     await set(ref(db, publicPath(company.token, 'pre')), Object.keys(pre).length ? pre : null)
@@ -359,17 +359,32 @@ export async function publishRoster(
 /** 取り込んだCSV（JDLの年調データ）から、従業員ページの初期表示に使う内容を作る。
  *  JDLには前年に提出された扶養控除等申告書の内容（住所・扶養親族）が入っているので、
  *  アプリでの提出実績がない初年度でも、従業員は空欄から入力せずに確認・修正だけで済む。
- *  続柄が妻・夫・配偶者のものは配偶者欄に振り分ける（申告書の様式に合わせるため）。 */
+ *  JDLでは配偶者は扶養者欄とは別の列（配偶者氏名など）にあるのでそこから取る。
+ *  扶養者欄に続柄が妻・夫・配偶者の人がいれば、それも配偶者欄に振り分ける（申告書の様式に合わせるため）。
+ *  本人の状態（障害者・寡婦／ひとり親・勤労学生）・世帯主・甲乙も前年の申告書の内容として持つ。 */
 export interface CsvPrefill {
   postal: string
   address: string
-  spouse?: { name: string; kana: string; birth: string; income: string }
-  dependents: { name: string; kana: string; relation: string; birth: string; income: string }[]
+  /** 本人の状態など。旧データ（この項目ができる前に公開した分）には無い */
+  self?: {
+    disability: string
+    widow: string
+    student: boolean
+    householder: string
+    householderRelation: string
+    /** 'kou'＝甲欄 'otsu'＝乙欄 ''＝不明 */
+    taxTable: string
+  }
+  /** income は年収（JDLには年収が無いので空）。prevIncome は前年の申告の合計所得金額（参考表示用） */
+  spouse?: { name: string; kana: string; birth: string; income: string; disability?: string; prevIncome?: string; deduction?: string }
+  dependents: { name: string; kana: string; relation: string; birth: string; income: string; disability?: string; kubun?: string }[]
 }
 export function prefillFromCsv(e: NenmatsuEmployee): CsvPrefill {
   const deps = extractDependents(e.rawCells)
   const isSpouse = (r: string) => /妻|夫|配偶/.test(r || '')
   const sp = deps.find((d) => isSpouse(d.relation))
+  const spCol = extractSpouse(e.rawCells)
+  const self = extractSelfStatus(e.rawCells)
   const str = (v: unknown) => String(v ?? '')
   // 【重要】Firebase は undefined を含む値の保存を拒否する（1人でも該当すると
   // その会社の公開処理ごと失敗する）。空文字に寄せ、配偶者が無いときはキー自体を作らない。
@@ -378,10 +393,32 @@ export function prefillFromCsv(e: NenmatsuEmployee): CsvPrefill {
     address: str(e.address),
     dependents: deps.filter((d) => !isSpouse(d.relation)).map((d) => ({
       name: str(d.name), kana: str(d.kana), relation: str(d.relation), birth: str(d.birth), income: str(d.income),
+      disability: str(d.disability || '非該当'), kubun: str(d.kubun),
     })),
   }
-  if (sp) out.spouse = { name: str(sp.name), kana: str(sp.kana), birth: str(sp.birth), income: str(sp.income) }
+  if (spCol) {
+    out.spouse = {
+      name: str(spCol.name), kana: str(spCol.kana), birth: str(spCol.birth), income: '',
+      disability: str(spCol.disability), prevIncome: str(spCol.prevIncome), deduction: str(spCol.deduction),
+    }
+  } else if (sp) {
+    out.spouse = { name: str(sp.name), kana: str(sp.kana), birth: str(sp.birth), income: str(sp.income), disability: str(sp.disability || '非該当') }
+  }
+  if (self) {
+    out.self = {
+      disability: str(self.disability), widow: str(self.widow), student: !!self.student,
+      householder: str(self.householder), householderRelation: str(self.householderRelation), taxTable: str(self.taxTable),
+    }
+  }
   return out
+}
+
+/** CSVの初期表示用データに中身があるか（無ければ公開も比較もしない） */
+export function hasCsvPrefill(v: CsvPrefill | null | undefined): boolean {
+  if (!v) return false
+  const s = v.self
+  const selfInfo = !!s && (!!s.householder || s.disability !== '非該当' || s.widow !== '非該当' || s.student || s.taxTable === 'otsu')
+  return !!(v.postal || v.address || v.spouse || (v.dependents || []).length || selfInfo)
 }
 
 /** 前年度のID（'R9' → 'R8'）。年度が1つ前に無い場合は null */
@@ -440,7 +477,7 @@ export async function loadPrefillPublic(
   try {
     const { db, ref, get } = await dbfns()
     const v = (await get(ref(db, publicPath(token, 'pre', empId)))).val() as CsvPrefill | null
-    return v && (v.postal || v.address || v.spouse || (v.dependents || []).length) ? v : null
+    return hasCsvPrefill(v) ? v : null
   } catch { return null }
 }
 

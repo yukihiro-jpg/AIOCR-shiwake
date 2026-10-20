@@ -4,6 +4,7 @@
 // 主要カラム: 社員C(0), 姓(1)+名(2), フリガナ姓(3)+名(4), 生年月日(7), 入退状況(27)。
 
 import type { NenmatsuEmployee } from './store'
+import type { DisabilityType, WidowType } from './declaration'
 
 /** ArrayBuffer を Shift_JIS として読む（不可なら UTF-8 フォールバック） */
 export function decodeShiftJis(buf: ArrayBuffer): string {
@@ -137,7 +138,24 @@ export const JDL_MAP = {
   oName: 1, // 氏名
   oKana: 2, // フリガナ
   oBirth: 3, // 生年月日
+  oKubun: 4, // 親族区分（年少扶養・一般扶養・特定扶養・老人扶養 等）
+  oDisability: 5, // 障害区分
   oIncome: 7, // 所得見積額
+  // 本人の状態・世帯主・甲乙（前年の扶養控除等申告書の内容）
+  householder: 17, // 世帯主の氏名
+  householderRelation: 18, // 社員との続柄文字（世帯主から見た続柄。本人・夫・父 等）
+  taxTable: 33, // 税表区分（甲欄・乙欄）
+  selfDisability: 35, // 本人の状態 障害者区分
+  selfWidow: 36, // 本人の状態 寡婦／ひとり親区分
+  selfStudent: 37, // 本人の状態 学生区分
+  // 配偶者は扶養者欄とは別の列にある（扶養者欄には入らない）
+  spouseIncome: 40, // 配偶者の合計所得金額（年収ではない）
+  spouseDeduction: 41, // 配偶者の控除区分（配偶者控除・配偶者特別控除・控除なし）
+  spouseRelation: 48, // 配偶者の続柄区分（妻・夫。配偶者がいなくても入っていることがある）
+  spouseName: 49,
+  spouseKana: 50,
+  spouseBirth: 51,
+  spouseDisability: 53,
 }
 
 export interface CsvDependent {
@@ -147,6 +165,90 @@ export interface CsvDependent {
   birthRaw: string
   birth: string
   income: string
+  /** 親族区分（年少扶養・一般扶養 等。空もある） */
+  kubun: string
+  disability: DisabilityType
+}
+
+export interface CsvSpouse {
+  name: string
+  kana: string
+  birthRaw: string
+  birth: string
+  disability: DisabilityType
+  /** 前年の申告での合計所得金額（円・年収ではない）と控除区分。確認シートの参考表示用 */
+  prevIncome: string
+  deduction: string
+}
+
+/** 本人の状態など（前年の扶養控除等申告書の内容） */
+export interface CsvSelfStatus {
+  disability: DisabilityType
+  widow: WidowType
+  student: boolean
+  householder: string
+  householderRelation: string
+  /** 'kou'＝甲欄 'otsu'＝乙欄 ''＝不明 */
+  taxTable: '' | 'kou' | 'otsu'
+}
+
+/** JDLの障害区分の文字を、申告内容の区分に揃える（読めないものは非該当） */
+export function jdlDisability(v: string): DisabilityType {
+  const t = jtrim(v).replace(/[\s　]/g, '')
+  if (!t || /非該当|なし/.test(t)) return '非該当'
+  if (/同居/.test(t) && /特別/.test(t)) return '同居特別障害者'
+  if (/特別/.test(t)) return '特別障害者'
+  if (/障害/.test(t) || /一般/.test(t)) return '一般障害者'
+  return '非該当'
+}
+
+/** JDLの寡婦／ひとり親区分の文字を、申告内容の区分に揃える */
+export function jdlWidow(v: string): WidowType {
+  const t = jtrim(v).replace(/[\s　]/g, '')
+  if (!t || /非該当|なし/.test(t)) return '非該当'
+  if (/ひとり親|ひとりおや/.test(t)) return 'ひとり親'
+  if (/寡婦/.test(t)) return '寡婦'
+  return '非該当'
+}
+
+/** 本人の状態などの列がJDLの並びどおりか（別形式のCSVで的外れな列を読まないため） */
+function jdlLayoutOk(cells: string[]): boolean {
+  if (cells.length < 60) return false
+  const t = jtrim(cells[JDL_MAP.taxTable] || '')
+  return !t || /^[甲乙丙](欄)?$/.test(t)
+}
+
+/** 取込済みの行データ(rawCells)から本人の状態・世帯主・甲乙を抽出 */
+export function extractSelfStatus(cells: string[] | undefined): CsvSelfStatus | null {
+  if (!cells || !jdlLayoutOk(cells)) return null
+  const tt = jtrim(cells[JDL_MAP.taxTable] || '')
+  const householder = jtrim(cells[JDL_MAP.householder] || '').replace(/[\s　]+/g, ' ')
+  const st = jtrim(cells[JDL_MAP.selfStudent] || '')
+  return {
+    disability: jdlDisability(cells[JDL_MAP.selfDisability] || ''),
+    widow: jdlWidow(cells[JDL_MAP.selfWidow] || ''),
+    student: !!st && !/非該当|なし/.test(st), // 「勤労学生」「該当」など
+    householder,
+    householderRelation: householder ? jtrim(cells[JDL_MAP.householderRelation] || '') : '',
+    taxTable: tt.startsWith('甲') ? 'kou' : tt.startsWith('乙') ? 'otsu' : '',
+  }
+}
+
+/** 取込済みの行データ(rawCells)から配偶者を抽出（氏名が無ければ配偶者なし） */
+export function extractSpouse(cells: string[] | undefined): CsvSpouse | null {
+  if (!cells || !jdlLayoutOk(cells)) return null
+  const name = jtrim(cells[JDL_MAP.spouseName] || '').replace(/[\s　]+/g, ' ')
+  if (!name) return null
+  const birthRaw = jtrim(cells[JDL_MAP.spouseBirth] || '')
+  return {
+    name,
+    kana: jtrim(cells[JDL_MAP.spouseKana] || '').replace(/[\s　]+/g, ' '),
+    birthRaw,
+    birth: normalizeBirth(birthRaw),
+    disability: jdlDisability(cells[JDL_MAP.spouseDisability] || ''),
+    prevIncome: jtrim(cells[JDL_MAP.spouseIncome] || '').replace(/[^0-9]/g, ''),
+    deduction: jtrim(cells[JDL_MAP.spouseDeduction] || ''),
+  }
 }
 
 export function extractPostal(cells: string[] | undefined): string {
@@ -174,6 +276,8 @@ export function extractDependents(cells: string[] | undefined): CsvDependent[] {
       birthRaw,
       birth: normalizeBirth(birthRaw),
       income: jtrim(cells[b + JDL_MAP.oIncome] || ''),
+      kubun: jtrim(cells[b + JDL_MAP.oKubun] || ''),
+      disability: jdlDisability(cells[b + JDL_MAP.oDisability] || ''),
     })
   }
   return out

@@ -25,12 +25,13 @@ import {
   deleteSubmission,
   prevYearId,
   prefillFromCsv,
+  hasCsvPrefill,
   type SharedClient,
   type NenmatsuCompany,
   type NenmatsuEmployee,
   type SubmissionRecord,
 } from '@/lib/nenmatsu/store'
-import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents } from '@/lib/nenmatsu/jdl-csv'
+import { decodeShiftJis, parseJdlCsv, extractPostal, extractDependents, extractSpouse, extractSelfStatus } from '@/lib/nenmatsu/jdl-csv'
 import { FY_BY_ID } from '@/lib/nenmatsu/fiscal-year'
 import { openGuidePrint, openQrSheetPrint } from '@/lib/nenmatsu/guide'
 import { openCheckSheetPrint, openPrintWindowNow, sortEmployeesByCode } from '@/lib/nenmatsu/check-sheet'
@@ -377,12 +378,22 @@ export default function NenmatsuContent() {
             postal: pd.postal || '',
             address: pd.address || '',
             householder: pd.householder ? `${pd.householder}（${pd.householderRelation || '本人'}）` : '',
+            self: { disability: pd.selfDisability || '非該当', widow: pd.widow || '非該当', student: !!pd.workingStudent },
+            taxTable: pd.taxCategory === 'otsu' ? 'otsu' : 'kou',
             spouse: pd.spouse?.exists ? { name: pd.spouse.name, kana: pd.spouse.kana, rel: '配偶者', birth: pd.spouse.birth } : null,
-            dependents: (pd.dependents || []).map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth, together: d.liveTogether ? '同居' : '別居' })),
+            dependents: (pd.dependents || []).map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth, together: d.liveTogether ? '同居' : '別居', disability: d.disability })),
             source: prevLabel,
           }
         }
+        // 前年の提出が無ければ、CSV（JDL＝前年の扶養控除等申告書）の登録内容を印字する
         const pre = prefillFromCsv(e)
+        const ps = pre.self
+        const spNote = pre.spouse
+          ? [
+              pre.spouse.prevIncome ? `前年の申告の合計所得 ${Number(pre.spouse.prevIncome).toLocaleString('ja-JP')}円` : '',
+              pre.spouse.deduction || '',
+            ].filter(Boolean).join('・')
+          : ''
         return {
           code: e.code,
           name: nm,
@@ -390,9 +401,13 @@ export default function NenmatsuContent() {
           birth: e.birth || e.birthRaw,
           postal: pre.postal,
           address: pre.address,
-          householder: '',
-          spouse: pre.spouse ? { name: pre.spouse.name, kana: pre.spouse.kana, rel: '配偶者', birth: pre.spouse.birth } : null,
-          dependents: pre.dependents.map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth })),
+          householder: ps?.householder ? `${ps.householder}（${ps.householderRelation || '本人'}）` : '',
+          self: ps ? { disability: ps.disability, widow: ps.widow, student: ps.student } : null,
+          taxTable: ps?.taxTable === 'otsu' ? 'otsu' : ps?.taxTable === 'kou' ? 'kou' : '',
+          spouse: pre.spouse
+            ? { name: pre.spouse.name, kana: pre.spouse.kana, rel: '配偶者', birth: pre.spouse.birth, disability: pre.spouse.disability, note: spNote ? `（${spNote}）` : '' }
+            : null,
+          dependents: pre.dependents.map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth, disability: d.disability, note: d.kubun })),
           source: '会社の登録内容',
         }
       })
@@ -1008,13 +1023,23 @@ function ImportCheck({
               <th className="text-left px-3 py-2">生年月日</th>
               <th className="text-left px-3 py-2">郵便番号</th>
               <th className="text-left px-3 py-2">住所</th>
-              <th className="text-left px-3 py-2">扶養親族</th>
+              <th className="text-left px-3 py-2">配偶者・扶養親族</th>
             </tr>
           </thead>
           <tbody>
             {employees.map((e) => {
               const postal = extractPostal(e.rawCells)
               const deps = extractDependents(e.rawCells)
+              const sp = extractSpouse(e.rawCells)
+              const st = extractSelfStatus(e.rawCells)
+              const stText = st
+                ? [
+                    st.taxTable === 'otsu' ? '乙欄' : '',
+                    st.disability !== '非該当' ? st.disability : '',
+                    st.widow !== '非該当' ? st.widow : '',
+                    st.student ? '勤労学生' : '',
+                  ].filter(Boolean).join('・')
+                : ''
               return (
                 <Fragment key={e.id}>
                   <tr
@@ -1037,12 +1062,27 @@ function ImportCheck({
                     <td className="px-3 py-2 text-gray-600">{postal || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">{e.address || '—'}</td>
                     <td className="px-3 py-2 text-gray-600">
-                      {deps.length ? `あり（${deps.length}名）` : 'なし'}
+                      {[sp ? '配偶者' : '', deps.length ? `扶養${deps.length}名` : ''].filter(Boolean).join('・') || 'なし'}
+                      {stText && <div className="text-[11px] text-amber-700">{stText}</div>}
                     </td>
                   </tr>
                   {openId === e.id && (
                     <tr className="bg-gray-50">
                       <td colSpan={5} className="px-3 py-2">
+                        {st && (
+                          <div className="text-[12px] text-gray-600 mb-1">
+                            本人の状態：障害者 {st.disability}／寡婦・ひとり親 {st.widow}／勤労学生 {st.student ? '該当' : '非該当'}
+                            {st.householder && <>　世帯主：{st.householder}（{st.householderRelation || '本人'}）</>}
+                            {st.taxTable && <>　{st.taxTable === 'otsu' ? '乙欄' : '甲欄'}</>}
+                          </div>
+                        )}
+                        {sp && (
+                          <div className="text-[12px] text-gray-600 mb-1">
+                            配偶者：{sp.name}{sp.kana && `（${sp.kana}）`}　{sp.birth || sp.birthRaw}
+                            {sp.disability !== '非該当' && `　${sp.disability}`}
+                            {sp.deduction && `　${sp.deduction}`}
+                          </div>
+                        )}
                         {deps.length === 0 ? (
                           <div className="text-[12px] text-gray-500">扶養親族なし</div>
                         ) : (
@@ -1052,6 +1092,7 @@ function ImportCheck({
                                 <th className="text-left py-1">続柄</th>
                                 <th className="text-left py-1">氏名</th>
                                 <th className="text-left py-1">生年月日</th>
+                                <th className="text-left py-1">区分</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1060,6 +1101,7 @@ function ImportCheck({
                                   <td className="py-1 text-gray-700">{dep.relation || '—'}</td>
                                   <td className="py-1 text-gray-800">{dep.name || '—'}</td>
                                   <td className="py-1 text-gray-700">{dep.birth || dep.birthRaw || '—'}</td>
+                                  <td className="py-1 text-gray-700">{[dep.kubun, dep.disability !== '非該当' ? dep.disability : ''].filter(Boolean).join('・') || '—'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1305,7 +1347,7 @@ function CompanyDetail({
         if (pd) baseline = baselineFromDeclaration(pd, prevLabel)
         else {
           const pre = prefillFromCsv(e)
-          if (pre.postal || pre.address || pre.spouse || pre.dependents.length) {
+          if (hasCsvPrefill(pre)) {
             baseline = baselineFromCsv(pre, '会社の登録内容', {
               lastName: e.lastName, firstName: e.firstName,
               kanaLast: e.kanaLast, kanaFirst: e.kanaFirst, birth: e.birth,

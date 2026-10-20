@@ -89,7 +89,12 @@ export function baselineFromDeclaration(d: Declaration, label: string): Baseline
 
 /** 会社の登録内容（CSV由来）を変更前に変換 */
 export function baselineFromCsv(
-  pre: { postal?: string; address?: string; spouse?: { name: string; kana: string; birth: string; income: string }; dependents?: { name: string; kana: string; relation: string; birth: string; income: string }[] },
+  pre: {
+    postal?: string; address?: string
+    self?: { disability: string; widow: string; student: boolean; householder: string; householderRelation: string }
+    spouse?: { name: string; kana: string; birth: string; income: string }
+    dependents?: { name: string; kana: string; relation: string; birth: string; income: string; disability?: string }[]
+  },
   label = '会社の登録内容',
   /** 名簿（CSV）の本人。氏名・フリガナ・生年月日の直しも変更点として拾うために使う */
   self?: { lastName?: string; firstName?: string; kanaLast?: string; kanaFirst?: string; birth?: string },
@@ -100,11 +105,20 @@ export function baselineFromCsv(
     lastName: s(self?.lastName), firstName: s(self?.firstName),
     kanaLast: s(self?.kanaLast), kanaFirst: s(self?.kanaFirst), birth: s(self?.birth),
     postal: s(pre.postal), address: s(pre.address),
+    // 本人の状態・世帯主（旧データには無いので、そのときは既定値＝比較の上では「空」のまま）
+    ...(pre.self ? {
+      householder: s(pre.self.householder),
+      householderRelation: s(pre.self.householder ? pre.self.householderRelation : ''),
+      selfDisability: s(pre.self.disability) || '非該当',
+      widow: s(pre.self.widow) || '非該当',
+      workingStudent: !!pre.self.student,
+    } : {}),
     spouse: pre.spouse
       ? { exists: true, name: s(pre.spouse.name), kana: s(pre.spouse.kana), birth: s(pre.spouse.birth), income: s(pre.spouse.income) }
       : { exists: false, name: '', kana: '', birth: '', income: '' },
     dependents: (pre.dependents || []).map((x) => ({
       name: s(x.name), kana: s(x.kana), relation: s(x.relation), birth: s(x.birth), income: s(x.income),
+      ...(x.disability ? { disability: s(x.disability) } : {}),
     })),
   }
 }

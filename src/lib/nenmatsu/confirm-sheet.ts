@@ -11,6 +11,9 @@ export interface ConfirmSheetPerson {
   rel: string // 扶養親族の続柄（配偶者では未使用）
   birth: string
   together?: string // 同居・別居（分からなければ空）
+  disability?: string // 障害者区分（非該当なら印字しない）
+  /** 補足（扶養親族＝親族区分「年少扶養」等／配偶者＝前年の申告の所得と控除区分） */
+  note?: string
 }
 
 export interface ConfirmSheetEmployee {
@@ -21,6 +24,10 @@ export interface ConfirmSheetEmployee {
   postal: string
   address: string
   householder: string // 例: 山田 太郎（本人）。不明なら空
+  /** 本人の状態（前年の申告の内容）。不明なら null（チェック欄を空のまま出す） */
+  self: { disability: string; widow: string; student: boolean } | null
+  /** 甲乙（会社の登録）。不明なら空 */
+  taxTable: '' | 'kou' | 'otsu'
   spouse: ConfirmSheetPerson | null
   dependents: ConfirmSheetPerson[]
   /** 印字の元（シートの隅に小さく出す。例: 令和7年度の提出／会社の登録内容） */
@@ -57,11 +64,41 @@ export function warekiOf(s: string): string {
 }
 
 const box = '<span class="bx"></span>'
+/** 登録内容として ✓ を印字済みのチェック欄 */
+const boxOn = '<span class="bx on">✓</span>'
+const ck = (on: boolean) => (on ? boxOn : box)
+
+const isNone = (v: string | undefined) => !v || v === '非該当'
+
+/** 本人の状態の登録内容（1行）と、該当欄のチェック */
+function selfStatus(self: ConfirmSheetEmployee['self']): string {
+  if (!self) {
+    return `<div class="mt">該当するもの：${box}障害者　${box}寡婦　${box}ひとり親　${box}勤労学生</div>`
+  }
+  const dis = !isNone(self.disability)
+  const reg = [
+    `障害者　${dis ? esc(self.disability) : '非該当'}`,
+    `寡婦・ひとり親　${isNone(self.widow) ? '非該当' : esc(self.widow)}`,
+    `勤労学生　${self.student ? '該当' : '非該当'}`,
+  ].join('／')
+  const none = !dis && isNone(self.widow) && !self.student
+  return `<div class="reg"><b>本人の状態</b>${reg}</div>
+  <div class="mt">該当するもの：${ck(dis)}障害者${dis && self.disability !== '一般障害者' ? `（${esc(self.disability)}）` : ''}　${ck(self.widow === '寡婦')}寡婦　${ck(self.widow === 'ひとり親')}ひとり親　${ck(self.student)}勤労学生　${ck(none)}どれもあてはまらない<span class="hint">✓は会社の登録内容です。変わった場合は訂正してください</span></div>`
+}
+
+function personExtra(p: ConfirmSheetPerson): string {
+  return [
+    p.together ? esc(p.together) : '',
+    !isNone(p.disability) ? `<span class="tag">${esc(p.disability as string)}</span>` : '',
+    p.note ? `<span class="note">${esc(p.note)}</span>` : '',
+  ].filter(Boolean).map((x) => `　${x}`).join('')
+}
 
 function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   const sp = e.spouse
   const deps = e.dependents
   const kana = e.kana ? `（${esc(e.kana)}）` : ''
+  const tt = e.taxTable === 'kou' ? '甲欄（この会社で年末調整）' : e.taxTable === 'otsu' ? '乙欄（他の会社で年末調整）' : ''
   return `<section class="page">
 <div class="title">
   <div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div>
@@ -71,6 +108,7 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
 </div>
 
 <div class="q"><div class="h"><i>1</i>この会社で年末調整を行いますか？</div><div class="b">
+  ${tt ? `<div class="reg"><b>会社の登録</b>${tt}</div>` : ''}
   <div class="ans"><span>${box}はい（この会社がメイン）</span><span>${box}いいえ（他社で年末調整を受ける）→ ご住所を確認のうえ、記入日と署名だけで提出してください</span></div>
 </div></div>
 
@@ -79,12 +117,12 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   <div class="reg"><b>住所</b>${e.postal ? `〒${esc(e.postal)}　` : ''}${esc(e.address) || '（未登録）'}${e.householder ? `　<b>世帯主</b>${esc(e.householder)}` : ''}</div>
   <div class="ans"><span>${box}変更なし</span><span>${box}変更あり → 正しい内容をご記入ください</span></div>
   <div class="line"></div><div class="line"></div>
-  <div class="mt">該当するもの：${box}障害者　${box}寡婦　${box}ひとり親　${box}勤労学生</div>
+  ${selfStatus(e.self)}
 </div></div>
 
 <div class="q"><div class="h"><i>3</i>配偶者の方について</div><div class="b">
   ${sp
-    ? `<div class="reg"><b>登録内容</b>${esc(sp.name)}${sp.kana ? `（${esc(sp.kana)}）` : ''}　${esc(warekiOf(sp.birth))}</div>
+    ? `<div class="reg"><b>登録内容</b>${esc(sp.name)}${sp.kana ? `（${esc(sp.kana)}）` : ''}　${esc(warekiOf(sp.birth))}${personExtra(sp)}</div>
   <div class="ans"><span>${box}変更なし</span><span>${box}変更あり（離婚・死別など）</span></div>`
     : `<div class="reg"><b>登録内容</b>配偶者の登録はありません</div>
   <div class="ans"><span>${box}配偶者はいない</span><span>${box}配偶者がいる（結婚など）→ 下にご記入ください</span></div>`}
@@ -93,7 +131,7 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
 
 <div class="q"><div class="h"><i>4</i>扶養している家族について</div><div class="b">
   ${deps.length
-    ? deps.map((d) => `<div class="reg"><b>${esc(d.rel || '扶養')}</b>${esc(d.name)}${d.kana ? `（${esc(d.kana)}）` : ''}　${esc(warekiOf(d.birth))}${d.together ? `　${esc(d.together)}` : ''}<span class="inc">今年の収入見込　＿＿＿＿＿＿円</span></div>`).join('')
+    ? deps.map((d) => `<div class="reg"><b>${esc(d.rel || '扶養')}</b>${esc(d.name)}${d.kana ? `（${esc(d.kana)}）` : ''}　${esc(warekiOf(d.birth))}${personExtra(d)}<span class="inc">今年の収入見込　＿＿＿＿＿＿円</span></div>`).join('')
     : '<div class="reg"><b>登録内容</b>扶養親族の登録はありません</div>'}
   <div class="ans"><span>${box}変更なし</span><span>${box}${deps.length ? '増えた・減った' : '扶養している家族がいる'} → 下にご記入ください</span></div>
   <div class="g2"><div><div class="lbl">氏名・フリガナ・続柄</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div><div><div class="lbl">生年月日・同居/別居・今年の収入見込</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div></div>
@@ -141,6 +179,10 @@ body{background:#e8eaed;font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",M
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:.6mm 5mm}
 .clip{margin-top:1.8mm;background:#fff7ed;border:1px solid #fdba74;border-radius:2mm;padding:1.4mm 2.5mm;font-size:9.5px;color:#7c2d12;line-height:1.6}
 .bx{display:inline-block;width:3.6mm;height:3.6mm;border:1.2px solid #374151;vertical-align:-.6mm;margin-right:1.2mm;border-radius:.6mm}
+.bx.on{font-size:9px;line-height:3.2mm;text-align:center;font-weight:700;color:#0f766e}
+.hint{display:block;font-size:8.5px;color:#6b7280}
+.reg .tag{display:inline-block;border:1px solid #f59e0b;color:#92400e;border-radius:1.5mm;padding:0 1.5mm;font-size:9px;line-height:1.5}
+.reg .note{font-size:9px;color:#4b5563}
 .sign{display:flex;gap:6mm;margin-top:3.5mm;font-size:10px;align-items:flex-end;break-inside:avoid}
 .sign div{flex:1;border-bottom:1px solid #374151;padding-bottom:1mm}
 .ft{position:absolute;left:12mm;right:12mm;bottom:6mm;display:flex;justify-content:space-between;gap:4mm;font-size:8.5px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:2mm}
