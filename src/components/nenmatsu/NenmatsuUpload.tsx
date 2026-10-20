@@ -44,6 +44,11 @@ export default function NenmatsuUpload() {
   const [showPrev, setShowPrev] = useState(false)
   // 初期表示が「事務所に登録されている内容（CSV由来）」だったか（前年の提出が無い初年度）
   const [fromCsv, setFromCsv] = useState(false)
+  // 今年すでに提出済みの場合の前回分（追加提出・出し直し）。申告内容はこれを初期表示にし、
+  // 書類欄には提出済みの枚数を出す（撮らなかった書類は前回分が残る＝mergeSubmissionPaths）
+  const [already, setAlready] = useState<{ submittedAt: string; docs: Record<string, number> } | null>(null)
+  // 初期表示が「今年すでに提出した内容」だったか
+  const [fromCur, setFromCur] = useState(false)
   const [noChange, setNoChange] = useState(false)
   const [photos, setPhotos] = useState<Record<string, File[]>>({})
   // 写真ごとのOCR適性警告（キー: docKey|name|size|lastModified）
@@ -105,6 +110,8 @@ export default function NenmatsuUpload() {
   }
   function startNewHire() {
     setMe(null)
+    setAlready(null)
+    setFromCur(false)
     // 甲乙は本人に選んでもらう（本年入社は掛け持ちの方が多く、既定で甲にすると気づかず進んでしまう）
     setDecl({ ...emptyDeclaration(true), taxCategory: undefined })
     setNoChange(false)
@@ -129,15 +136,25 @@ export default function NenmatsuUpload() {
     const { birthHash, ...rest } = emp
     void birthHash
     setMe({ ...rest, birth: input, birthRaw: input, address: '' })
-    // 初期表示は「①このアプリでの前年の提出 ②事務所に登録されている内容（JDLのCSV由来）」の順で使う。
+    // 初期表示は「⓪今年すでに提出した内容 ①このアプリでの前年の提出 ②事務所に登録されている内容（JDLのCSV由来）」の順で使う。
+    // ⓪があるのは追加提出（出し忘れた書類を後から送る）のとき。申告内容は再提出で今回の入力に置き換わるので、
+    // ⓪を出さないと、写真だけ足して送った人の申告内容が前年の状態に戻ってしまう。
     // ①が無い初年度でも、②に前年の扶養控除等申告書の内容（住所・扶養親族）が入っているので、
     // 従業員は空欄から入力せず、確認・修正だけで済む。
-    const [p, csv] = params
-      ? await Promise.all([loadPrevDeclarationPublic(params.t, emp.id), loadPrefillPublic(params.t, emp.id)])
-      : [null, null]
+    const [p, csv, cur] = params
+      ? await Promise.all([
+          loadPrevDeclarationPublic(params.t, emp.id),
+          loadPrefillPublic(params.t, emp.id),
+          getSubmissionPublic(params.t, emp.id).catch(() => null),
+        ])
+      : [null, null, null]
     setPrev(p)
     setShowPrev(false)
-    let src: Declaration | null = p ? { ...emptyDeclaration(false), ...p.declaration } : null
+    setAlready(cur ? { submittedAt: cur.submittedAt || '', docs: cur.docs || {} } : null)
+    const curDecl = cur?.declaration && !cur.declaration.isNewHire ? cur.declaration : null
+    let src: Declaration | null = curDecl
+      ? { ...emptyDeclaration(false), ...curDecl }
+      : p ? { ...emptyDeclaration(false), ...p.declaration } : null
     if (!src && csv) {
       src = {
         ...emptyDeclaration(false),
@@ -160,13 +177,14 @@ export default function NenmatsuUpload() {
         })),
       }
     }
-    setFromCsv(!p && !!csv)
+    setFromCur(!!curDecl)
+    setFromCsv(!curDecl && !p && !!csv)
     const base = src || emptyDeclaration(false)
     const d: Declaration = {
       ...base,
       isNewHire: false,
-      // 在籍中の方は前年の区分を引き継ぐ。前年の提出が無ければ会社の登録（CSVの税表区分）、それも無ければ甲を既定にする
-      taxCategory: p?.declaration.taxCategory ?? (csv?.self?.taxTable === 'otsu' ? 'otsu' : 'kou'),
+      // 今年の提出があればその区分。無ければ前年の区分を引き継ぐ。前年の提出も無ければ会社の登録（CSVの税表区分）、それも無ければ甲
+      taxCategory: curDecl?.taxCategory ?? p?.declaration.taxCategory ?? (csv?.self?.taxTable === 'otsu' ? 'otsu' : 'kou'),
       noChange: false,
       confirmedAt: undefined,
       lastName: emp.lastName,
@@ -178,7 +196,7 @@ export default function NenmatsuUpload() {
       dependents: (base.dependents || []).map((x) => ({ ...emptyDependent(), ...x })),
     }
     setDecl(d)
-    setNoChange(false)
+    setNoChange(!!curDecl?.noChange)
     setPhase('declare')
   }
 
@@ -552,6 +570,13 @@ export default function NenmatsuUpload() {
               )}
             </div>
 
+            {!decl.isNewHire && already && (
+              <div className="bg-green-50 border-[1.5px] border-green-300 rounded-2xl px-4 py-3.5 mb-4 text-[15px] leading-relaxed text-green-900">
+                <div className="font-bold mb-1">✓ 今年はすでに提出済みです{already.submittedAt ? `（${new Date(already.submittedAt).toLocaleString('ja-JP')}）` : ''}</div>
+                前回ご提出の内容を表示しています。<b>出し忘れた書類の追加</b>なら、このまま次へ進み、追加の書類だけ撮影して送ってください。
+                前回の写真はそのまま残ります。
+              </div>
+            )}
             {!isOtsu && (
             <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4 mb-4">
               <h1 className="font-bold text-gray-800 text-[20px] mb-1">
@@ -560,7 +585,9 @@ export default function NenmatsuUpload() {
               <p className="text-[14px] text-gray-500 leading-relaxed">
                 {decl.isNewHire
                   ? '本人・配偶者・扶養親族の情報を入力してください。紙の申告書のご提出は不要です。'
-                  : prev
+                  : fromCur
+                    ? '今年ご提出いただいた内容を表示しています。変更があれば直してください。'
+                    : prev
                     ? `${prev.yearLabel}にご提出いただいた内容を表示しています。変更があれば直してください。`
                     : fromCsv
                       ? '会社に登録されている内容（前年の扶養控除等申告書）を表示しています。変更があれば直してください。'
@@ -651,6 +678,12 @@ export default function NenmatsuUpload() {
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 mb-4">
               📷 カメラが開かない・撮影できないときは、LINE等のアプリ内ではなく <b>Safari / Chrome で開き直す</b>とご利用いただけます（右上メニューの「ブラウザで開く」）。
             </p>
+            {already && Object.keys(already.docs).length > 0 && (
+              <div className="text-[12px] text-green-900 bg-green-50 border border-green-300 rounded-lg px-3 py-2.5 mb-3 leading-relaxed">
+                ✓ <b>前回提出済みの書類は、撮影しなければそのまま残ります。</b>追加の書類だけ撮影してください。
+                同じ種類の書類を撮影すると、前回の写真と置き換わります。
+              </div>
+            )}
             {needPrevSlip && (
               <div className="text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3 leading-relaxed">
                 ❗ 前職があるため、<b>今年のすべての前職の「源泉徴収票」の撮影が必須</b>です。
@@ -668,6 +701,11 @@ export default function NenmatsuUpload() {
                         {required && <span className={`mr-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${list.length ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>{list.length ? '撮影済' : '必須'}</span>}
                         {dt.name}
                         {dt.note && <span className="text-[11px] text-gray-400 ml-1">（{dt.note}）</span>}
+                        {!!already?.docs?.[dt.key] && (
+                          <span className="block text-[11px] text-green-700 font-semibold mt-0.5">
+                            ✓ 提出済み {already.docs[dt.key]}枚{list.length ? '（今回の写真に置き換わります）' : ''}
+                          </span>
+                        )}
                       </span>
                       <label className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded cursor-pointer whitespace-nowrap">
                         ＋撮影・写真を追加
