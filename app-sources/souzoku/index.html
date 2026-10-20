@@ -3994,6 +3994,37 @@ function heirSelectHtml(currentId){
 }
 // 遺産分割（種類順→明細でグルーピング、相続人ごとに取得額を入力。1人目は自動算出＝評価額−他の相続人の合計）
 function amtOf(a,hid){ const e=(a.allocations||[]).find(x=>x.heirId===hid); return e?num(e.amount):0; }
+// 評価額0の財産（一体評価で他の筆に評価額をまとめた土地など）の取得者。
+// 金額では取得者を表せないので「取得」チェック（allocations[].take）で持つ。分割パターンごとに保存される。
+// チェックが無く評価単位があるときは、同じ評価単位で評価額のある行の取得者（取得額の比）を引き継ぐ。
+function zeroValTakers(a){
+  const heirs=(currentCase&&currentCase.heirs)||[];
+  const ex=heirs.filter(h=>(a.allocations||[]).some(x=>x.heirId===h.id&&x.take)).map(h=>({heirId:h.id,weight:1}));
+  if(ex.length) return {list:ex,inherited:false};
+  const u=evalUnitOf(a);
+  if(u){ const w={}; currentCase.assets.forEach(x=>{ if(x!==a&&evalUnitOf(x)===u&&assetVal(x)!==0) (x.allocations||[]).forEach(al=>{ const v=Math.abs(num(al.amount)); if(v) w[al.heirId]=(w[al.heirId]||0)+v; }); });
+    const list=heirs.filter(h=>w[h.id]).map(h=>({heirId:h.id,weight:w[h.id]}));
+    if(list.length) return {list,inherited:true,unit:u}; }
+  return {list:[],inherited:false};
+}
+function isZeroValAsset(a){ return a.category!=='gift' && assetVal(a)===0 && !(a.allocations||[]).some(x=>num(x.amount)!==0); }
+function setZeroTake(assetId,hid,on){
+  const a=currentCase.assets.find(x=>x.id===assetId); if(!a) return; ensureAllocs(a);
+  // 初めてチェックを触るときは、引き継いでいた取得者を明示のチェックとして写してから変える
+  if(!a.allocations.some(x=>x.take)){ const cur=zeroValTakers(a).list.map(x=>x.heirId); a.allocations.forEach(x=>{ if(cur.indexOf(x.heirId)>=0) x.take=true; }); }
+  const e=a.allocations.find(x=>x.heirId===hid); if(e){ if(on) e.take=true; else delete e.take; }
+  cacheCurrentCase(); renderAllocations();
+}
+// 遺産分割の画面に出す明細（土地は所在・地番・地目・地積まで）
+function allocLabel(a,t){
+  const area=v=>num(v)?num(v).toLocaleString('ja-JP',{maximumFractionDigits:2})+'㎡':'';
+  const own=()=>{ const n=num(a.ownNum||1), d=num(a.ownDen||1); return (d>0&&d!==n)?('持分'+d+'分の'+n):''; };
+  if(a.category==='land'){ const p=[a.location,a.chiban,a.kazeiChimoku||a.tokiChimoku,area(a.kazeiChiseki||a.tokiChiseki),own(),a.genkyo,evalUnitOf(a)?('評価単位'+evalUnitOf(a)):''];
+    return p.filter(Boolean).join('　')||t.name; }
+  if(a.category==='building'){ if(a.kubun) return assetDescReport(a);
+    const p=[a.chiban,a.kaokuNo?('家屋番号 '+a.kaokuNo):'',a.subcategory,a.kozo,area(a.kazeiYuka||a.tokiYuka),own()]; return p.filter(Boolean).join('　')||t.name; }
+  return [a.subcategory,a.name,a.location].filter(Boolean).join('／')||t.name;
+}
 function signOf(cat){ return ASSET_BY_KEY[cat].sign<0?-1:1; }
 function fmtAlloc(v){ return Math.round(v).toLocaleString('ja-JP'); }
 // 死亡保険金・退職手当金は「受取人固有の財産」で遺産分割協議の対象外。
@@ -4024,9 +4055,9 @@ function syncNomineeAllocs(){
 function ensureAllocs(a){
   const ids=currentCase.heirs.map(h=>h.id);
   if(applyNomineeAlloc(a)) return; // 受取人が登録済みなら、その相続人の取得で固定する
-  const m={}; (a.allocations||[]).forEach(al=>{ m[al.heirId]=num(al.amount); });
+  const m={}, tk={}; (a.allocations||[]).forEach(al=>{ m[al.heirId]=num(al.amount); if(al.take) tk[al.heirId]=true; });
   const hadAny=ids.some(id=>m[id]);
-  a.allocations=ids.map(id=>({heirId:id,amount:m[id]||0}));
+  a.allocations=ids.map(id=>tk[id]?{heirId:id,amount:m[id]||0,take:true}:{heirId:id,amount:m[id]||0});
   if(!hadAny && ids.length) a.allocations[0].amount=assetVal(a);
   recomputeHeir0(a);
 }
@@ -4317,9 +4348,17 @@ function renderAllocations(){
     const sg=t.sign<0?-1:1;
     body+='<tr class="cat-row"><td class="l"><i class="cdot" style="background:'+t.color+'"></i>'+t.name+'</td><td></td>'+heirs.map(()=>'<td></td>').join('')+'</tr>';
     items.forEach(a=>{
-      const label=[a.subcategory,a.name,a.location].filter(Boolean).join('／')||t.name;
+      const label=allocLabel(a,t);
       // 受取人が相続人として登録されている死亡保険金・退職手当金は、その人の取得で固定（受取人固有の財産）
       const nomHid=nomineeHeirId(a);
+      if(!nomHid && isZeroValAsset(a)){
+        // 評価額0の財産は金額で割り当てられないので、取得者をチェックで選ぶ（遺産分割協議書に載せるため）
+        const zt=zeroValTakers(a); const ids=zt.list.map(x=>x.heirId);
+        let zr='<tr><td class="l" style="padding-left:26px;">'+esc(label)
+          +'<div class="muted" style="font-size:11px;">評価額0のため取得者を選んでください'+(zt.inherited?'（いまは評価単位'+esc(zt.unit)+'の取得者を引き継いでいます）':'')+(ids.length?'':'　<b style="color:#c0392b;">取得者未定（協議書に載りません）</b>')+'</div></td><td class="evalcol">'+yen(0)+'</td>';
+        heirs.forEach(h=>{ zr+='<td style="text-align:center;"><label style="font-size:12px;cursor:pointer;"><input type="checkbox" '+(ids.indexOf(h.id)>=0?'checked':'')+' onchange="setZeroTake(\''+a.id+'\',\''+h.id+'\',this.checked)"> 取得</label></td>'; });
+        body+=zr+'</tr>'; return;
+      }
       let row='<tr><td class="l" style="padding-left:26px;">'+esc(label)
         +(nomHid?'<span class="muted" style="font-size:11px;margin-left:8px;padding:1px 6px;background:#eef4ff;border:1px solid #d5e2fb;border-radius:10px;" title="財産一覧の受取人に登録された相続人の取得として自動で割り当てています（受取人固有の財産のため分割対象外）。変更するときは財産一覧の受取人を直してください">受取人 '+esc(a.nominee)+'</span>':'')
         +'</td><td class="evalcol">'+(t.sign<0?'−':'')+yen(assetVal(a))+'</td>';
@@ -5697,7 +5736,9 @@ function downloadShindanPDFBody(){
   let heirDetail='';
   heirs.forEach(h=>{
     let rows='';
-    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id); if(!amt) return; rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+(evalUnitOf(a)?('<span style="color:#666;">　［一体評価 '+esc(evalUnitOf(a))+'］</span>'):'')+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
+    ASSET_TYPES.forEach(t=>{ if(t.key==='gift') return; currentCase.assets.filter(a=>a.category===t.key).forEach(a=>{ const amt=amtOf(a,h.id);
+      if(!amt){ if(isZeroValAsset(a)&&zeroValTakers(a).list.some(x=>x.heirId===h.id)) rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+(evalUnitOf(a)?('<span style="color:#666;">　［一体評価 '+esc(evalUnitOf(a))+'］</span>'):'')+'</td><td class="r" style="color:#666;">'+(evalUnitOf(a)?'一体評価額に含む':yen(0))+'</td></tr>'; return; }
+      rows+='<tr><td>'+t.name+'</td><td>'+esc(assetDescReport(a))+(evalUnitOf(a)?('<span style="color:#666;">　［一体評価 '+esc(evalUnitOf(a))+'］</span>'):'')+'</td><td class="r">'+(t.sign<0?'△'+yen(amt):yen(amt))+'</td></tr>'; }); });
     currentCase.assets.filter(a=>a.category==='gift'&&a.giftRecipient===h.id).forEach(a=>{ rows+='<tr><td>生前贈与</td><td>'+esc(assetDescReport(a))+'</td><td class="r">'+yen(assetVal(a))+'</td></tr>'; });
     { const cb=num((currentCase.compByHeir||{})[h.id]); if(cb!==0){ rows+='<tr><td>代償金</td><td>'+(cb<0?'他の相続人へ支払う代償金':'他の相続人から受け取る代償金')+'</td><td class="r">'+(cb<0?'△'+yen(-cb):yen(cb))+'</td></tr>'; } }
     if(!rows) rows='<tr><td colspan="3" style="text-align:center;color:#888;">取得財産はありません</td></tr>';
@@ -7414,8 +7455,13 @@ function buildAgreementBody(){
   const base=d.deathDate? toWarekiDate(d.deathDate):'';
   const deathY=d.deathDate? new Date(d.deathDate) : null;
   const yenN=(n)=>num(n).toLocaleString('ja-JP')+' 円';
-  const heldByCat=(key)=>currentCase.assets.filter(a=>a.category===key && (a.allocations||[]).some(al=>num(al.amount)!==0));
-  const takersOf=(a)=>heirs.map(h=>({h,amt:allocAmt(a,h)})).filter(x=>x.amt!==0);
+  // 評価額0の財産（一体評価で他の筆にまとめた土地など）も、取得者が決まっていれば協議書に載せる
+  const zeroTk=(a)=>isZeroValAsset(a)?zeroValTakers(a).list:[];
+  const heldByCat=(key)=>currentCase.assets.filter(a=>a.category===key && ((a.allocations||[]).some(al=>num(al.amount)!==0) || zeroTk(a).length));
+  const takersOf=(a)=>{ const z=zeroTk(a); if(z.length) return z.map(x=>({h:heirs.find(h=>h.id===x.heirId),amt:x.weight})).filter(x=>x.h);
+    return heirs.map(h=>({h,amt:allocAmt(a,h)})).filter(x=>x.amt!==0); };
+  { const undecided=currentCase.assets.filter(a=>(a.category==='land'||a.category==='building')&&isZeroValAsset(a)&&!zeroValTakers(a).list.length);
+    if(undecided.length) toast('評価額0で取得者が決まっていない不動産が'+undecided.length+'件あります（遺産分割＆相続税試算で「取得」を選ぶと協議書に載ります）', true); }
   // 取得割合を「d分のp」の分数で表現（割り切れないときは null）
   function niceShares(allocs){
     const total=allocs.reduce((s,x)=>s+Math.abs(x.amt),0); if(total<=0) return null;
