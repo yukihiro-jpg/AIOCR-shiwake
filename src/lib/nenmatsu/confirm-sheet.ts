@@ -2,6 +2,9 @@
 // スマホでの提出が難しい方向け。会社に登録されている内容（前年の提出、無ければCSVの登録内容）を
 // 印字しておき、質問に答える形で「変更なし／変更あり」と変更後の内容を書いてもらう。
 // 紙の運用では QR は載せない（紙で出すと決めた方に配るため）。マイナンバーは印字しない。
+// 配偶者・扶養親族の前年の収入（所得）は印字しない（今年の見込みを書いてもらう）。
+// 障害者控除の対象の方は、手帳の種類と等級を書く欄を設ける（区分は等級で決まるため）。
+// 今年入社した方用の記入シート（白紙）も、指定の枚数だけ既存社員の分のあとに続けて作れる。
 
 import { writePrintWindow } from './check-sheet'
 
@@ -12,7 +15,7 @@ export interface ConfirmSheetPerson {
   birth: string
   together?: string // 同居・別居（分からなければ空）
   disability?: string // 障害者区分（非該当なら印字しない）
-  /** 補足（扶養親族＝親族区分「年少扶養」等／配偶者＝前年の申告の所得と控除区分） */
+  /** 補足（扶養親族＝親族区分「年少扶養」等。前年の収入は入れない） */
   note?: string
 }
 
@@ -39,6 +42,8 @@ export interface ConfirmSheetOptions {
   yearLabel: string
   deadlineText: string
   employees: ConfirmSheetEmployee[]
+  /** 今年入社した方用の記入シート（白紙・記入式）の枚数 */
+  newHireCount?: number
 }
 
 const DOCS = [
@@ -76,14 +81,8 @@ function selfStatus(self: ConfirmSheetEmployee['self']): string {
     return `<div class="mt">該当するもの：${box}障害者　${box}寡婦　${box}ひとり親　${box}勤労学生</div>`
   }
   const dis = !isNone(self.disability)
-  const reg = [
-    `障害者　${dis ? esc(self.disability) : '非該当'}`,
-    `寡婦・ひとり親　${isNone(self.widow) ? '非該当' : esc(self.widow)}`,
-    `勤労学生　${self.student ? '該当' : '非該当'}`,
-  ].join('／')
   const none = !dis && isNone(self.widow) && !self.student
-  return `<div class="reg"><b>本人の状態</b>${reg}</div>
-  <div class="mt">該当するもの：${ck(dis)}障害者${dis && self.disability !== '一般障害者' ? `（${esc(self.disability)}）` : ''}　${ck(self.widow === '寡婦')}寡婦　${ck(self.widow === 'ひとり親')}ひとり親　${ck(self.student)}勤労学生　${ck(none)}どれもあてはまらない<span class="hint">✓は会社の登録内容です。変わった場合は訂正してください</span></div>`
+  return `<div class="mt">該当するもの：${ck(dis)}障害者${dis && self.disability !== '一般障害者' ? `（${esc(self.disability)}）` : ''}　${ck(self.widow === '寡婦')}寡婦　${ck(self.widow === 'ひとり親')}ひとり親　${ck(self.student)}勤労学生　${ck(none)}どれもあてはまらない<span class="hint">✓は会社の登録内容です。変わった場合は訂正してください</span></div>`
 }
 
 function personExtra(p: ConfirmSheetPerson): string {
@@ -94,17 +93,91 @@ function personExtra(p: ConfirmSheetPerson): string {
   ].filter(Boolean).map((x) => `　${x}`).join('')
 }
 
+/** 障害者手帳の種類（等級と一緒に書いてもらう。障害者控除の区分は手帳の等級で決まるため） */
+const TECHO = ['身体障害者手帳', '精神障害者手帳', '療育手帳', 'その他']
+
+interface DisPerson { name: string; rel: string; type: string }
+
+/** 障害者控除の対象となる方：手帳の種類と等級の記入欄。会社に登録のある方は氏名を印字しておく */
+function disabilityQ(n: number, known: DisPerson[]): string {
+  const rows = [...known]
+  while (rows.length < 2) rows.push({ name: '', rel: '', type: '' })
+  const td = (r: DisPerson) => r.name
+    ? `${esc(r.name)}${r.rel ? `（${esc(r.rel)}）` : ''}${r.type ? `<span class="tag">${esc(r.type)}</span>` : ''}`
+    : ''
+  return `<div class="q"><div class="h"><i>${n}</i>障害者控除の対象となる方（ご本人・配偶者・扶養親族）</div><div class="b">
+  <div class="ans"><span>${box}いない</span><span>${ck(known.length > 0)}いる → 手帳の種類に✓を付け、等級をご記入ください${known.length ? '<span class="note">（✓と氏名は会社の登録内容です）</span>' : ''}</span></div>
+  <table class="dt"><thead><tr><th style="width:31%">氏名（続柄）</th><th>手帳の種類</th><th style="width:19%">等級（療育手帳はA・Bなど）</th></tr></thead><tbody>
+  ${rows.map((r) => `<tr><td>${td(r)}</td><td>${TECHO.map((t) => `<span class="nw">${box}${t}</span>`).join('')}</td><td class="grade">級</td></tr>`).join('')}
+  </tbody></table>
+</div></div>`
+}
+
+const fld = (label: string) => `<div><div class="lbl">${label}</div><div class="line"></div></div>`
+
+const DOCS_Q = (n: number) => `<div class="q"><div class="h"><i>${n}</i>一緒に出していただく書類（あるものに✓）</div><div class="b"><div class="g3">
+  ${DOCS.map((d) => `<div>${box}${d}</div>`).join('')}<div>${box}何もない</div>
+</div>
+<div class="clip">📎 添付する書類は、<b>このシートのお名前が隠れないように</b>、<b>シートの裏側に重ねてクリップで留めて</b>ご提出ください（のり付け・ホチキス留めはしないでください）。</div>
+</div></div>`
+
+const SIGN = `<div class="sign"><span>内容に相違ありません。</span><div>記入日　　　年　　月　　日</div><div>氏名（自署）</div></div>`
+
+/** 今年入社した方用（白紙・記入式）。登録内容が無いので、全部を書いてもらう */
+function newHirePage(o: ConfirmSheetOptions, i: number, total: number): string {
+  return `<section class="page">
+<div class="title">
+  <div><div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div><h1>年末調整の記入シート</h1></div>
+  <div class="r"><div class="n">今年入社された方用</div>${o.deadlineText ? `<div class="d">提出期限　${esc(o.deadlineText)}</div>` : ''}</div>
+</div>
+
+<div class="q"><div class="h"><i>1</i>この会社で年末調整を行いますか？</div><div class="b">
+  <div class="ans"><span>${box}はい（この会社がメイン）</span><span>${box}いいえ（他社で年末調整を受ける）→ ご本人欄だけ記入し、記入日と署名をして提出してください</span></div>
+  <div class="g2 mt">${fld('この会社への入社日')}<div><div class="lbl">今年、この会社の前に勤めていた会社</div><div class="ans"><span>${box}ない</span><span>${box}ある → 前の会社の<b>源泉徴収票</b>を添付</span></div></div></div>
+</div></div>
+
+<div class="q"><div class="h"><i>2</i>ご本人について</div><div class="b">
+  <div class="g2">${fld('氏名')}${fld('フリガナ')}${fld('生年月日（昭和・平成　　年　　月　　日）')}${fld('郵便番号')}</div>
+  ${fld('住所（1月1日以降に引っ越した方は今の住所）')}
+  <div class="g2">${fld('世帯主の氏名')}${fld('世帯主から見たあなたの続柄（本人・子・妻 など）')}</div>
+  <div class="mt">該当するもの：${box}障害者　${box}寡婦　${box}ひとり親　${box}勤労学生　${box}どれもあてはまらない</div>
+</div></div>
+
+<div class="q"><div class="h"><i>3</i>配偶者の方について</div><div class="b">
+  <div class="ans"><span>${box}配偶者はいない</span><span>${box}配偶者がいる → 下にご記入ください</span></div>
+  <div class="g2">${fld('氏名・フリガナ')}${fld('生年月日')}<div><div class="lbl">配偶者の今年の収入見込（必ずご記入ください）</div><div class="line yen">円</div></div><div><div class="lbl">お住まい</div><div class="ans"><span>${box}同居</span><span>${box}別居</span></div></div></div>
+</div></div>
+
+<div class="q"><div class="h"><i>4</i>扶養している家族について</div><div class="b">
+  <div class="ans"><span>${box}いない</span><span>${box}いる → 下にご記入ください（16歳未満のお子さんも書いてください）</span></div>
+  <table class="dt"><thead><tr><th style="width:24%">氏名</th><th style="width:20%">フリガナ</th><th style="width:9%">続柄</th><th style="width:18%">生年月日</th><th style="width:11%">同居・別居</th><th>今年の収入見込</th></tr></thead><tbody>
+  ${[0, 1, 2].map(() => '<tr><td></td><td></td><td></td><td></td><td></td><td class="grade">円</td></tr>').join('')}
+  </tbody></table>
+</div></div>
+
+${disabilityQ(5, [])}
+
+${DOCS_Q(6)}
+
+${SIGN}
+<div class="ft"><span>個人情報を含みます。封筒に入れて提出してください。ご不明な点は会社のご担当者へ。</span><span>今年入社された方用（記入式）${total > 1 ? `　${i + 1}/${total}` : ''}</span></div>
+</section>`
+}
+
 function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   const sp = e.spouse
   const deps = e.dependents
   const kana = e.kana ? `（${esc(e.kana)}）` : ''
+  const known: DisPerson[] = [
+    ...(e.self && !isNone(e.self.disability) ? [{ name: e.name, rel: '本人', type: e.self.disability }] : []),
+    ...(sp && !isNone(sp.disability) ? [{ name: sp.name, rel: '配偶者', type: sp.disability as string }] : []),
+    ...deps.filter((d) => !isNone(d.disability)).map((d) => ({ name: d.name, rel: d.rel, type: d.disability as string })),
+  ]
   const tt = e.taxTable === 'kou' ? '甲欄（この会社で年末調整）' : e.taxTable === 'otsu' ? '乙欄（他の会社で年末調整）' : ''
   return `<section class="page">
 <div class="title">
-  <div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div>
-  <h1>年末調整の確認シート</h1>
-  <div class="n">${esc(e.name)} 様${e.code ? `（No.${esc(e.code)}）` : ''}</div>
-  ${o.deadlineText ? `<div class="d">提出期限　${esc(o.deadlineText)}</div>` : ''}
+  <div><div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div><h1>年末調整の確認シート</h1></div>
+  <div class="r"><div class="n">${esc(e.name)} 様${e.code ? `（No.${esc(e.code)}）` : ''}</div>${o.deadlineText ? `<div class="d">提出期限　${esc(o.deadlineText)}</div>` : ''}</div>
 </div>
 
 <div class="q"><div class="h"><i>1</i>この会社で年末調整を行いますか？</div><div class="b">
@@ -116,7 +189,7 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   <div class="reg"><b>氏名</b>${esc(e.name)}${kana}　<b>生年月日</b>${esc(warekiOf(e.birth)) || '（未登録）'}</div>
   <div class="reg"><b>住所</b>${e.postal ? `〒${esc(e.postal)}　` : ''}${esc(e.address) || '（未登録）'}${e.householder ? `　<b>世帯主</b>${esc(e.householder)}` : ''}</div>
   <div class="ans"><span>${box}変更なし</span><span>${box}変更あり → 正しい内容をご記入ください</span></div>
-  <div class="line"></div><div class="line"></div>
+  <div class="line"></div>
   ${selfStatus(e.self)}
 </div></div>
 
@@ -137,13 +210,11 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   <div class="g2"><div><div class="lbl">氏名・フリガナ・続柄</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div><div><div class="lbl">生年月日・同居/別居・今年の収入見込</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div></div>
 </div></div>
 
-<div class="q"><div class="h"><i>5</i>一緒に出していただく書類（あるものに✓）</div><div class="b"><div class="g2">
-  ${DOCS.map((d) => `<div>${box}${d}</div>`).join('')}<div>${box}何もない</div>
-</div>
-<div class="clip">📎 添付する書類は、<b>このシートのお名前が隠れないように</b>、<b>シートの裏側に重ねてクリップで留めて</b>ご提出ください（のり付け・ホチキス留めはしないでください）。</div>
-</div></div>
+${disabilityQ(5, known)}
 
-<div class="sign"><span>内容に相違ありません。</span><div>記入日　　　年　　月　　日</div><div>氏名（自署）</div></div>
+${DOCS_Q(6)}
+
+${SIGN}
 <div class="ft"><span>個人情報を含みます。封筒に入れて提出してください。ご不明な点は会社のご担当者へ。</span><span>印字の元：${esc(e.source)}</span></div>
 </section>`
 }
@@ -158,39 +229,48 @@ export function buildConfirmSheetHtml(o: ConfirmSheetOptions): string {
 html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{background:#e8eaed;font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:#1f2937}
 @page{size:A4;margin:0}
-.page{width:210mm;min-height:297mm;margin:10mm auto;background:#fff;position:relative;box-shadow:0 2px 12px rgba(0,0,0,.12);padding:9mm 12mm 16mm;break-after:page;page-break-after:always}
+.page{width:210mm;min-height:297mm;margin:10mm auto;background:#fff;position:relative;box-shadow:0 2px 12px rgba(0,0,0,.12);padding:7mm 11mm 13mm;break-after:page;page-break-after:always}
 .page:last-of-type{break-after:auto;page-break-after:auto}
 @media print{body{background:#fff}.page{margin:0;box-shadow:none}.noprint{display:none}}
-.title{background:#0f766e;color:#fff;border-radius:4mm;padding:3mm 5mm}
-.title .c{font-size:10px;opacity:.85}.title h1{font-size:20px;margin:.5mm 0}.title .n{font-size:14px;font-weight:700}
-.title .d{font-size:10px;margin-top:1.5mm;background:rgba(255,255,255,.18);display:inline-block;padding:.6mm 2.5mm;border-radius:2mm}
-.q{margin-top:2.4mm;border:1px solid #d6e4e1;border-radius:3mm;overflow:hidden;break-inside:avoid}
-.q .h{display:flex;align-items:center;gap:2.5mm;background:#ecf6f4;padding:1.4mm 3mm;font-size:11.5px;font-weight:700;color:#134e4a}
-.q .h i{font-style:normal;background:#0f766e;color:#fff;border-radius:50%;width:6mm;height:6mm;display:flex;align-items:center;justify-content:center;font-size:10.5px;flex:none}
-.q .b{padding:1.6mm 3.5mm;font-size:10px;line-height:1.65}
+.title{background:#0f766e;color:#fff;border-radius:3mm;padding:2.2mm 4.5mm;display:flex;justify-content:space-between;align-items:center;gap:4mm}
+.title .c{font-size:9.5px;opacity:.85}.title h1{font-size:18px;margin:.2mm 0 0}.title .r{text-align:right}.title .n{font-size:14px;font-weight:700}
+.title .d{font-size:10px;margin-top:.8mm;background:rgba(255,255,255,.18);display:inline-block;padding:.4mm 2.5mm;border-radius:2mm}
+.q{margin-top:1.8mm;border:1px solid #d6e4e1;border-radius:3mm;overflow:hidden;break-inside:avoid}
+.q .h{display:flex;align-items:center;gap:2.5mm;background:#ecf6f4;padding:1mm 3mm;font-size:11px;font-weight:700;color:#134e4a}
+.q .h i{font-style:normal;background:#0f766e;color:#fff;border-radius:50%;width:5.2mm;height:5.2mm;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none}
+.q .b{padding:1.2mm 3.5mm;font-size:10px;line-height:1.55}
 .ans{display:flex;flex-wrap:wrap;gap:1mm 6mm;font-size:10.5px;font-weight:500;margin-top:.8mm}
-.reg{background:#f8fafc;border-radius:2mm;padding:1.1mm 2.5mm;margin:.7mm 0;font-size:10px}
+.reg{background:#f8fafc;border-radius:2mm;padding:.8mm 2.5mm;margin:.5mm 0;font-size:10px}
 .reg b{color:#0f766e;font-weight:700;margin-right:1.5mm}
 .reg .inc{float:right;color:#374151}
-.line{border-bottom:1px solid #9ca3af;height:6mm;margin-top:.3mm}
-.line.yen{text-align:right;line-height:6.5mm}
+.line{border-bottom:1px solid #9ca3af;height:5.6mm;margin-top:.2mm}
+.line.yen{text-align:right;line-height:6mm}
 .lbl{font-size:8.5px;color:#6b7280}
 .mt{margin-top:1.2mm}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:.6mm 5mm}
-.clip{margin-top:1.8mm;background:#fff7ed;border:1px solid #fdba74;border-radius:2mm;padding:1.4mm 2.5mm;font-size:9.5px;color:#7c2d12;line-height:1.6}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:.4mm 5mm}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.2mm 3mm;font-size:9.5px}
+.clip{margin-top:1.2mm;background:#fff7ed;border:1px solid #fdba74;border-radius:2mm;padding:1mm 2.5mm;font-size:9.5px;color:#7c2d12;line-height:1.5}
 .bx{display:inline-block;width:3.6mm;height:3.6mm;border:1.2px solid #374151;vertical-align:-.6mm;margin-right:1.2mm;border-radius:.6mm}
 .bx.on{font-size:9px;line-height:3.2mm;text-align:center;font-weight:700;color:#0f766e}
 .hint{display:block;font-size:8.5px;color:#6b7280}
 .reg .tag{display:inline-block;border:1px solid #f59e0b;color:#92400e;border-radius:1.5mm;padding:0 1.5mm;font-size:9px;line-height:1.5}
-.reg .note{font-size:9px;color:#4b5563}
-.sign{display:flex;gap:6mm;margin-top:3.5mm;font-size:10px;align-items:flex-end;break-inside:avoid}
+.reg .note,.ans .note{font-size:9px;color:#4b5563;font-weight:400}
+.dt{width:100%;border-collapse:collapse;margin-top:1mm;font-size:9.5px}
+.dt th{background:#f1f5f9;color:#475569;font-weight:500;font-size:8.5px;text-align:left;padding:.4mm 1.5mm;border:1px solid #cbd5e1}
+.dt td{border:1px solid #cbd5e1;height:6.3mm;padding:0 1.5mm;vertical-align:middle}
+.dt td.grade{text-align:right;white-space:nowrap}
+.dt td.grade .lbl{display:block;text-align:right;line-height:1.2}
+.dt .nw{white-space:nowrap;margin-right:2.2mm;display:inline-block}
+.dt .tag{display:inline-block;border:1px solid #f59e0b;color:#92400e;border-radius:1.5mm;padding:0 1.5mm;font-size:8.5px;line-height:1.5;margin-left:1.5mm}
+.sign{display:flex;gap:6mm;margin-top:3mm;font-size:10px;align-items:flex-end;break-inside:avoid}
 .sign div{flex:1;border-bottom:1px solid #374151;padding-bottom:1mm}
-.ft{position:absolute;left:12mm;right:12mm;bottom:6mm;display:flex;justify-content:space-between;gap:4mm;font-size:8.5px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:2mm}
+.ft{position:absolute;left:11mm;right:11mm;bottom:5mm;display:flex;justify-content:space-between;gap:4mm;font-size:8.5px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:2mm}
 .noprint{position:fixed;top:10px;right:10px;z-index:2}
 .noprint button{font-family:inherit;font-size:13px;padding:8px 16px;background:#0f766e;color:#fff;border:none;border-radius:8px;cursor:pointer}
 </style></head><body>
 <div class="noprint"><button onclick="window.print()">🖨 印刷 / PDFに保存</button></div>
 ${o.employees.map((e) => page(o, e)).join('\n')}
+${Array.from({ length: Math.max(0, Math.floor(o.newHireCount || 0)) }, (_, i) => newHirePage(o, i, Math.floor(o.newHireCount || 0))).join('\n')}
 <script>
 (function(){
   function go(){ try{ window.focus(); window.print(); }catch(e){} }

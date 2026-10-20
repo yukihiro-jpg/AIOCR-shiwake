@@ -113,6 +113,9 @@ export default function NenmatsuContent() {
   const [detail, setDetail] = useState<{ company: NenmatsuCompany } | null>(null)
   const [importCheck, setImportCheck] = useState<{ company: NenmatsuCompany } | null>(null)
   const [guide, setGuide] = useState<{ company: NenmatsuCompany } | null>(null)
+  /** 確認シートの作成前に、新入社員用の枚数を聞く */
+  const [sheetAsk, setSheetAsk] = useState<{ client: SharedClient; company: NenmatsuCompany } | null>(null)
+  const [newHireInput, setNewHireInput] = useState('0')
   const [defaultDeadline, setDefaultDeadline] = useState('')
   const [defaultDeadlineInput, setDefaultDeadlineInput] = useState('')
   // 案内PDFの一括作成用に選んだ顧問先ID
@@ -198,7 +201,8 @@ export default function NenmatsuContent() {
               // v3: 前年の申告内容の公開を追加したので、登録済みの全社ぶんを一度だけ配り直す
               // （利用者がCSVを取り込み直さなくても、この画面を開けば従業員ページに前年分が出る）
               // v5: CSVの初期表示に本人の状態・配偶者（別列）・世帯主・甲乙を足したので配り直す
-              const migKey = `nenmatsu-roster-migrated-v5-${fy}`
+              // v6: 配偶者の前年の合計所得を公開データから外したので配り直す
+              const migKey = `nenmatsu-roster-migrated-v6-${fy}`
               if (!localStorage.getItem(migKey)) {
                 const ok = await republishRosters(fy)
                 if (ok) localStorage.setItem(migKey, '1')
@@ -344,14 +348,16 @@ export default function NenmatsuContent() {
   /**
    * 紙で配る「年末調整の確認シート」（従業員1人1枚）。今年まだ提出していない方の分だけ作る。
    * 印字する内容は、スマホで従業員が最初に見る内容と同じ順で選ぶ（①前年の提出 ②会社の登録内容＝CSV）。
+   * newHires は今年入社した方用の記入シート（白紙）の枚数。既存社員の分のあとに続けて1つの印刷にする。
    */
-  async function printConfirmSheets(client: SharedClient, company: NenmatsuCompany) {
+  async function printConfirmSheets(client: SharedClient, company: NenmatsuCompany, newHires: number) {
+    // ポップアップブロック回避のため、ウインドウはクリックの直後（awaitより前）に開く
     const pw = openPrintWindowNow('確認シートを作成しています…')
     try {
       const employees = await loadEmployees(yearId, company.clientId)
-      if (!employees.length) {
+      if (!employees.length && !newHires) {
         pw?.close()
-        setMsg('従業員名簿が未取込です。「CSV取込」のあとに作成してください。')
+        setMsg('従業員名簿が未取込です。「CSV取込」のあとに作成してください（新入社員用だけなら枚数を入れてください）。')
         return
       }
       const now = await loadSubmissions(yearId, company.clientId).catch(() => ({} as Record<string, SubmissionRecord>))
@@ -361,7 +367,7 @@ export default function NenmatsuContent() {
       const prevLabel = py ? `令和${py.replace(/^R/, '')}年度の提出` : ''
       const targets = sortEmployeesByCode(employees).filter((e) => !now[e.id])
       const skipped = employees.length - targets.length
-      if (!targets.length) {
+      if (!targets.length && !newHires) {
         pw?.close()
         setMsg('全員が提出済みのため、確認シートは作成しませんでした。')
         return
@@ -388,13 +394,8 @@ export default function NenmatsuContent() {
         }
         // 前年の提出が無ければ、CSV（JDL＝前年の扶養控除等申告書）の登録内容を印字する
         const pre = prefillFromCsv(e)
+        // 配偶者・扶養親族の前年の収入（所得）は紙には印字しない（今年の見込みを書いてもらう欄だけにする）
         const ps = pre.self
-        const spNote = pre.spouse
-          ? [
-              pre.spouse.prevIncome ? `前年の申告の合計所得 ${Number(pre.spouse.prevIncome).toLocaleString('ja-JP')}円` : '',
-              pre.spouse.deduction || '',
-            ].filter(Boolean).join('・')
-          : ''
         return {
           code: e.code,
           name: nm,
@@ -406,7 +407,7 @@ export default function NenmatsuContent() {
           self: ps ? { disability: ps.disability, widow: ps.widow, student: ps.student } : null,
           taxTable: ps?.taxTable === 'otsu' ? 'otsu' : ps?.taxTable === 'kou' ? 'kou' : '',
           spouse: pre.spouse
-            ? { name: pre.spouse.name, kana: pre.spouse.kana, rel: '配偶者', birth: pre.spouse.birth, disability: pre.spouse.disability, note: spNote ? `（${spNote}）` : '' }
+            ? { name: pre.spouse.name, kana: pre.spouse.kana, rel: '配偶者', birth: pre.spouse.birth, disability: pre.spouse.disability }
             : null,
           dependents: pre.dependents.map((d) => ({ name: d.name, kana: d.kana, rel: d.relation, birth: d.birth, disability: d.disability, note: d.kubun })),
           source: '会社の登録内容',
@@ -417,10 +418,11 @@ export default function NenmatsuContent() {
         yearLabel: FY_BY_ID[yearId]?.label || yearId,
         deadlineText: fmtDeadlineJa(company.deadline || defaultDeadline || ''),
         employees: list,
+        newHireCount: newHires,
       }, pw)
       setMsg(
         !ok ? 'ポップアップがブロックされました。ブラウザのポップアップを許可してから、もう一度押してください。'
-        : `未提出の${list.length}名分の確認シートを別ウインドウで開きました（1人1枚）。` + (skipped ? `提出済みの${skipped}名は除いています。` : ''),
+        : `確認シートを別ウインドウで開きました（未提出の${list.length}名分＋新入社員用${newHires}枚）。` + (skipped ? `提出済みの${skipped}名は除いています。` : ''),
       )
     } catch (e) {
       pw?.close()
@@ -553,7 +555,7 @@ export default function NenmatsuContent() {
         <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
         <button onClick={() => setGuide({ company })} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
         <button onClick={() => printCheckSheet(client, company)} title="経理担当者用の提出状況チェック表（取込済み従業員＋手書き追加欄）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">チェック表</button>
-        <button onClick={() => printConfirmSheets(client, company)} title="紙で配る確認シート（未提出の従業員1人1枚。登録内容を印字し、変更を書き込んでもらう）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">確認シート</button>
+        <button onClick={() => { setSheetAsk({ client, company }); setNewHireInput('0') }} title="紙で配る確認シート（未提出の従業員1人1枚。登録内容を印字し、変更を書き込んでもらう）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">確認シート</button>
         <button onClick={() => setImportCheck({ company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
         <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
       </>
@@ -789,6 +791,46 @@ export default function NenmatsuContent() {
           onClose={() => setImportCheck(null)}
         />
       )}
+
+      {sheetAsk && (() => {
+        const n = Number(newHireInput.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)))
+        const valid = Number.isInteger(n) && n >= 0 && n <= 100
+        const go = () => {
+          if (!valid) return
+          const a = sheetAsk
+          setSheetAsk(null)
+          void printConfirmSheets(a.client, a.company, n)
+        }
+        return (
+          <Overlay onClose={() => setSheetAsk(null)}>
+            <h2 className="font-bold text-gray-800 mb-1">確認シートの作成（{sheetAsk.company.name || sheetAsk.client.name}）</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              未提出の従業員は1人1枚、登録内容を印字した確認シートを作ります。
+              今年入社した方用の記入シート（白紙・記入式）も、ここで入れた枚数だけ続けて作ります。
+            </p>
+            <label className="block text-sm text-gray-700 mb-1">新入社員用は何枚印刷しますか？</label>
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                inputMode="numeric"
+                value={newHireInput}
+                onChange={(e) => setNewHireInput(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onKeyDown={(e) => { if (e.key === 'Enter') go() }}
+                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-right"
+              />
+              <span className="text-sm text-gray-600">枚</span>
+              <button
+                onClick={go}
+                disabled={!valid}
+                className="ml-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-40"
+              >作成する</button>
+            </div>
+            {!valid && <p className="text-xs text-red-600 mt-1">0〜100の数字で入れてください。</p>}
+            <p className="text-[11px] text-gray-400 mt-2">いない場合は 0 のまま「作成する」を押してください。</p>
+          </Overlay>
+        )
+      })()}
 
       {guide && (
         <GuideModal

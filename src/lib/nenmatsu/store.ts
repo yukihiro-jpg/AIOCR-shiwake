@@ -375,8 +375,8 @@ export interface CsvPrefill {
     /** 'kou'＝甲欄 'otsu'＝乙欄 ''＝不明 */
     taxTable: string
   }
-  /** income は年収（JDLには年収が無いので空）。prevIncome は前年の申告の合計所得金額（参考表示用） */
-  spouse?: { name: string; kana: string; birth: string; income: string; disability?: string; prevIncome?: string; deduction?: string }
+  /** income は年収（JDLには年収が無いので空。前年の合計所得は年収ではないので入れない） */
+  spouse?: { name: string; kana: string; birth: string; income: string; disability?: string }
   dependents: { name: string; kana: string; relation: string; birth: string; income: string; disability?: string; kubun?: string }[]
 }
 export function prefillFromCsv(e: NenmatsuEmployee): CsvPrefill {
@@ -399,7 +399,7 @@ export function prefillFromCsv(e: NenmatsuEmployee): CsvPrefill {
   if (spCol) {
     out.spouse = {
       name: str(spCol.name), kana: str(spCol.kana), birth: str(spCol.birth), income: '',
-      disability: str(spCol.disability), prevIncome: str(spCol.prevIncome), deduction: str(spCol.deduction),
+      disability: str(spCol.disability),
     }
   } else if (sp) {
     out.spouse = { name: str(sp.name), kana: str(sp.kana), birth: str(sp.birth), income: str(sp.income), disability: str(sp.disability || '非該当') }
