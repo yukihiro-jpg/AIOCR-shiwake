@@ -108,6 +108,8 @@
   .item-tbl td.dragh{cursor:grab;color:#9aa0a6;text-align:center;user-select:none;font-size:15px;line-height:1;padding:4px 0;}
   .item-tbl td.dragh:active{cursor:grabbing;}
   .item-tbl tr.dragging td{background:var(--blue-soft)!important;opacity:.6;}
+  #stepsBody tr.dragging td{background:var(--blue-soft)!important;opacity:.6;}
+  #stepsBody td.st_grip{width:28px;text-align:center;cursor:grab;color:#9ca3af;user-select:none;font-size:15px;}
   .item-tbl tr.drop-mark td{box-shadow:inset 0 2px 0 var(--blue);}
   /* 資料回収の一覧：分類ごとの集計チップと、展開したときの資料項目 */
   .catchip{display:inline-block;font-size:11.5px;border-radius:6px;padding:2px 9px;margin:2px 5px 2px 0;
@@ -590,7 +592,8 @@
   <div class="modal-head"><h3 id="stepsModalTitle">工程（列）の編集</h3><button class="icon x" onclick="closeModal('stepsModal')">✕</button></div>
   <div class="modal-body">
     <div class="row-flex" style="justify-content:space-between;margin-bottom:8px"><b>工程と期限</b><button class="sm" onclick="addStepRow()">＋ 工程を追加</button></div>
-    <table><thead><tr><th style="text-align:left">工程名</th><th style="text-align:left">期限</th><th></th></tr></thead><tbody id="stepsBody"></tbody></table>
+    <table><thead><tr><th></th><th style="text-align:left">工程名</th><th style="text-align:left">期限</th><th></th></tr></thead><tbody id="stepsBody"></tbody></table>
+    <div class="hint" style="margin-top:6px">⋮⋮ の部分（または行の余白）をつかんで上下にドラッグすると、工程の並び順を変えられます。</div>
     <div class="hint" id="stepsHint" style="margin-top:10px">ここで設定した工程・期限は、この決算月の進捗管理表に共通で適用されます。</div>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('stepsModal')">キャンセル</button><button class="primary" onclick="saveSteps()">保存</button></div>
@@ -1604,8 +1607,8 @@ function gotoFiling(M){ filingMonth=M; showPage('filing'); renderFiling(); }
 let stepsCtx={type:'filing'};
 function openSteps(){ stepsCtx={type:'filing'}; setStepsHint('ここで設定した工程・期限は、この決算月の進捗管理表に共通で適用されます。'); document.getElementById('stepsModalTitle').textContent=`工程の編集（${filingMonth}月決算）`; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getSteps(filingMonth).forEach(s=>addStepRow(s)); openModal('stepsModal'); }
 function setStepsHint(t){ const el=document.getElementById('stepsHint'); if(el)el.textContent=t||'ここで設定した工程・期限は、この画面の進捗管理表に共通で適用されます（全端末で共有）。'; }
-function addStepRow(s={}){ const tb=document.getElementById('stepsBody'); const tr=document.createElement('tr'); if(s.f)tr.dataset.f=s.f;
-  tr.innerHTML=`<td><input class="st_name" value="${esc(s.name||'')}"></td><td><input class="st_due" type="date" value="${esc(s.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`; tb.appendChild(tr); }
+function addStepRow(s={}){ const tb=document.getElementById('stepsBody'); initItemDrag('stepsBody'); const tr=document.createElement('tr'); if(s.f)tr.dataset.f=s.f;
+  tr.innerHTML=`<td class="st_grip" title="ドラッグして並べ替え">⋮⋮</td><td><input class="st_name" value="${esc(s.name||'')}"></td><td><input class="st_due" type="date" value="${esc(s.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`; tb.appendChild(tr); }
 function saveSteps(){ const steps=[...document.querySelectorAll('#stepsBody tr')].map(tr=>({name:tr.querySelector('.st_name').value.trim(),due:tr.querySelector('.st_due').value})).filter(s=>s.name);
   if(!steps.length){ toast('工程を1つ以上設定してください','err'); return; }
   if(stepsCtx.type==='module'){ getModuleStore(stepsCtx.key).steps=steps; persist(); closeModal('stepsModal'); renderModule(stepsCtx.key); toast('工程を保存しました','ok'); return; }
