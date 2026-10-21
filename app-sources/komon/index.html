@@ -245,6 +245,20 @@
   .notice{background:var(--blue-soft);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.7;color:#174ea6;margin-bottom:14px;}
   .pill-set{display:flex;flex-wrap:wrap;gap:4px;}
   .add-row-list{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;}
+  /* 年末調整：対象の顧問先を選ぶ（全体の input{width:100%} がチェックボックスを横いっぱいに広げるので個別に打ち消す） */
+  #nenchoPickModal .modal{max-width:1180px;width:96vw;}
+  #nenchoPickModal .modal-body{max-height:none;overflow:visible;}
+  .np-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}
+  .np-tools input[type=search]{flex:1;min-width:220px;}
+  .np-tools label{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;cursor:pointer;}
+  .np-tools input[type=checkbox],.np-list input[type=checkbox]{width:18px;height:18px;padding:0;margin:0;flex:none;accent-color:var(--blue);cursor:pointer;}
+  .np-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px;max-height:62vh;overflow:auto;padding:2px;align-content:start;}
+  .np-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line,#e5e7eb);border-radius:8px;cursor:pointer;font-size:14px;min-width:0;background:#fff;}
+  .np-item:hover{border-color:#9aa0a9;}
+  .np-item.on{background:#e8f0fe;border-color:#8ab4f8;}
+  .np-code{flex:none;min-width:40px;font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums;}
+  .np-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .np-tag{flex:none;font-size:11px;color:var(--muted);white-space:nowrap;}
   .add-row-list label{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer;}
   .add-row-list label:hover{background:#f8faff;}
   .multi-rows .mr{display:grid;gap:8px;margin-bottom:8px;align-items:center;}
@@ -556,16 +570,17 @@
 </div></div>
 
 <!-- 年末調整：対象の顧問先を選ぶ -->
-<div class="modal-bg" id="nenchoPickModal"><div class="modal" style="max-width:620px">
+<div class="modal-bg" id="nenchoPickModal"><div class="modal">
   <div class="modal-head"><h3>年末調整を行う顧問先を選ぶ</h3><button class="icon x" onclick="closeModal('nenchoPickModal')">✕</button></div>
   <div class="modal-body">
     <div class="hint" style="margin-bottom:8px">チェックを付けた顧問先が年末調整の一覧に出ます（顧問先情報の「年末調整（進捗管理）」が利用／未利用に切り替わります）。外しても入力済みの日付・金額は消えません。</div>
-    <div class="row-flex" style="gap:8px;margin-bottom:8px;flex-wrap:wrap">
-      <input id="nenchoPickQ" placeholder="顧問先名・フリガナ・コードで絞り込み" style="flex:1;min-width:180px;padding:6px 8px" oninput="renderNenchoPick()">
+    <div class="np-tools">
+      <input id="nenchoPickQ" type="search" placeholder="顧問先名・フリガナ・コードで絞り込み" oninput="renderNenchoPick()">
+      <label><input type="checkbox" id="nenchoPickOnly" onchange="renderNenchoPick()">選択中だけ表示</label>
       <button class="sm" onclick="nenchoPickAll(true)">表示中をすべて選択</button><button class="sm" onclick="nenchoPickAll(false)">表示中をすべて解除</button>
     </div>
-    <div id="nenchoPickCount" class="muted" style="font-size:12px;margin-bottom:6px"></div>
-    <div id="nenchoPickList" style="max-height:52vh;overflow:auto;border:1px solid var(--line,#e5e7eb);border-radius:8px"></div>
+    <div id="nenchoPickCount" class="muted" style="font-size:13px;margin-bottom:6px"></div>
+    <div id="nenchoPickList" class="np-list"></div>
   </div>
   <div class="modal-foot"><button onclick="closeModal('nenchoPickModal')">キャンセル</button><button class="primary" onclick="saveNenchoPick()">保存</button></div>
 </div></div>
@@ -2302,12 +2317,13 @@ function renderNencho(){
 /* 年末調整を行う顧問先の選択（顧問先の useProgNencho をまとめて切り替える。進捗の記録は消さない） */
 let _nenchoPick=null;
 function nenchoPickClients(){ return activeClients().slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja')); }
-function nenchoPickVisible(){ const q=(document.getElementById('nenchoPickQ').value||'').trim().toLowerCase(); return nenchoPickClients().filter(c=>!q||[c.name,c.kana,c.code].map(x=>String(x||'').toLowerCase()).some(x=>x.includes(q))); }
+function nenchoPickVisible(){ const q=(document.getElementById('nenchoPickQ').value||'').trim().toLowerCase(); const only=document.getElementById('nenchoPickOnly').checked;
+  return nenchoPickClients().filter(c=>(!only||_nenchoPick.has(c.id))&&(!q||[c.name,c.kana,c.code].map(x=>String(x||'').toLowerCase()).some(x=>x.includes(q)))); }
 function openNenchoPick(){ const cs=nenchoPickClients(); if(!cs.length){ toast('契約中の顧問先がありません','err'); return; }
-  _nenchoPick=new Set(cs.filter(c=>c.useProgNencho==='利用').map(c=>c.id)); document.getElementById('nenchoPickQ').value=''; renderNenchoPick(); openModal('nenchoPickModal'); }
+  _nenchoPick=new Set(cs.filter(c=>c.useProgNencho==='利用').map(c=>c.id)); document.getElementById('nenchoPickQ').value=''; document.getElementById('nenchoPickOnly').checked=false; renderNenchoPick(); openModal('nenchoPickModal'); }
 function nenchoPickCountText(){ const el=document.getElementById('nenchoPickCount'); if(el)el.textContent=`選択中 ${_nenchoPick.size}社 ／ 契約中 ${nenchoPickClients().length}社`; }
 function renderNenchoPick(){ if(!_nenchoPick)return; const list=nenchoPickVisible(); const el=document.getElementById('nenchoPickList');
-  el.innerHTML=list.length?list.map(c=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line,#eef0f3);cursor:pointer"><input type="checkbox" ${_nenchoPick.has(c.id)?'checked':''} onchange="toggleNenchoPick('${c.id}',this.checked)"><span class="muted" style="min-width:48px;font-size:12px">${esc(c.code||'')}</span><span style="flex:1">${esc(c.name||'')}</span><span class="muted" style="font-size:12px">${esc(c.gensenStatus||'')}${c.payrollSoftware?'・'+esc(c.payrollSoftware):''}</span></label>`).join(''):'<div class="muted" style="padding:12px">該当する顧問先がありません。</div>';
+  el.innerHTML=list.length?list.map(c=>{ const on=_nenchoPick.has(c.id); return `<label class="np-item${on?' on':''}" title="${esc((c.code?c.code+' ':'')+(c.name||''))}"><input type="checkbox" ${on?'checked':''} onchange="toggleNenchoPick('${c.id}',this.checked);this.closest('.np-item').classList.toggle('on',this.checked)"><span class="np-code">${esc(c.code||'')}</span><span class="np-name">${esc(c.name||'')}</span><span class="np-tag">${esc(c.gensenStatus||'')}</span></label>`; }).join(''):'<div class="muted" style="padding:12px">該当する顧問先がありません。</div>';
   nenchoPickCountText(); }
 function toggleNenchoPick(id,on){ if(on)_nenchoPick.add(id); else _nenchoPick.delete(id); nenchoPickCountText(); }
 function nenchoPickAll(on){ nenchoPickVisible().forEach(c=>{ if(on)_nenchoPick.add(c.id); else _nenchoPick.delete(c.id); }); renderNenchoPick(); }
