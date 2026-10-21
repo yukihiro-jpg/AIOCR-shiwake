@@ -555,6 +555,21 @@
   <div class="modal-foot"><button class="primary" onclick="closeModal('gensenMethodModal')">閉じる</button></div>
 </div></div>
 
+<!-- 年末調整：対象の顧問先を選ぶ -->
+<div class="modal-bg" id="nenchoPickModal"><div class="modal" style="max-width:620px">
+  <div class="modal-head"><h3>年末調整を行う顧問先を選ぶ</h3><button class="icon x" onclick="closeModal('nenchoPickModal')">✕</button></div>
+  <div class="modal-body">
+    <div class="hint" style="margin-bottom:8px">チェックを付けた顧問先が年末調整の一覧に出ます（顧問先情報の「年末調整（進捗管理）」が利用／未利用に切り替わります）。外しても入力済みの日付・金額は消えません。</div>
+    <div class="row-flex" style="gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <input id="nenchoPickQ" placeholder="顧問先名・フリガナ・コードで絞り込み" style="flex:1;min-width:180px;padding:6px 8px" oninput="renderNenchoPick()">
+      <button class="sm" onclick="nenchoPickAll(true)">表示中をすべて選択</button><button class="sm" onclick="nenchoPickAll(false)">表示中をすべて解除</button>
+    </div>
+    <div id="nenchoPickCount" class="muted" style="font-size:12px;margin-bottom:6px"></div>
+    <div id="nenchoPickList" style="max-height:52vh;overflow:auto;border:1px solid var(--line,#e5e7eb);border-radius:8px"></div>
+  </div>
+  <div class="modal-foot"><button onclick="closeModal('nenchoPickModal')">キャンセル</button><button class="primary" onclick="saveNenchoPick()">保存</button></div>
+</div></div>
+
 <!-- 工程編集モーダル -->
 <div class="modal-bg" id="stepsModal"><div class="modal">
   <div class="modal-head"><h3 id="stepsModalTitle">工程（列）の編集</h3><button class="icon x" onclick="closeModal('stepsModal')">✕</button></div>
@@ -2263,9 +2278,9 @@ function renderNencho(){
   const cs=activeClients().filter(c=>c.useProgNencho==='利用');
   let html=`<div class="page-head"><h2>年末調整</h2>
     <div class="year-nav"><button class="icon" onclick="changeNenchoYear(-1)">◀</button><b>${nenchoYear}年（${wareki(nenchoYear)}）</b><button class="icon" onclick="changeNenchoYear(1)">▶</button></div>
-    <div class="toolbar">${memoToggleBtn('nencho','renderNencho()')}${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
-    <div class="hint" style="margin-bottom:14px">契約中の顧問先を対象に年末調整を管理します。申告書登録・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
-  if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>契約中の顧問先がありません。</div></div>`; setViewHtml('nenchoView',html); return; }
+    <div class="toolbar"><button onclick="openNenchoPick()">🏢 対象の顧問先を選ぶ</button>${memoToggleBtn('nencho','renderNencho()')}${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
+    <div class="hint" style="margin-bottom:14px">契約中の顧問先のうち、年末調整を行う顧問先（「🏢 対象の顧問先を選ぶ」で選択）を対象に管理します。申告書登録・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
+  if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>年末調整の対象の顧問先がありません。<div style="margin-top:10px"><button class="primary" onclick="openNenchoPick()">🏢 対象の顧問先を選ぶ</button></div></div></div>`; setViewHtml('nenchoView',html); return; }
   let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th><th>申告書登録</th><th>給与登録</th><th>年調確定</th><th>源泉徴収票等送付</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
   let body=cs.map(c=>{ const r=nPeek(nenchoYear,c.id);
     const dcell=(f)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else {cls='todo';txt='未';} return pcTd('nencho|'+nenchoYear+'|'+c.id+'|'+f,`<span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span>`); };
@@ -2284,6 +2299,21 @@ function renderNencho(){
   setBulk('nencho',{colWord:'工程',valueType:'date',cols:[{name:'collect',label:'申告書登録'},{name:'payroll',label:'給与登録'},{name:'confirm',label:'年調確定'},{name:'send',label:'源泉徴収票等送付'}],cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
   enhanceGrid(document.querySelector('#nenchoView table.grid'),'nencho');
 }
+/* 年末調整を行う顧問先の選択（顧問先の useProgNencho をまとめて切り替える。進捗の記録は消さない） */
+let _nenchoPick=null;
+function nenchoPickClients(){ return activeClients().slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja')); }
+function nenchoPickVisible(){ const q=(document.getElementById('nenchoPickQ').value||'').trim().toLowerCase(); return nenchoPickClients().filter(c=>!q||[c.name,c.kana,c.code].map(x=>String(x||'').toLowerCase()).some(x=>x.includes(q))); }
+function openNenchoPick(){ const cs=nenchoPickClients(); if(!cs.length){ toast('契約中の顧問先がありません','err'); return; }
+  _nenchoPick=new Set(cs.filter(c=>c.useProgNencho==='利用').map(c=>c.id)); document.getElementById('nenchoPickQ').value=''; renderNenchoPick(); openModal('nenchoPickModal'); }
+function nenchoPickCountText(){ const el=document.getElementById('nenchoPickCount'); if(el)el.textContent=`選択中 ${_nenchoPick.size}社 ／ 契約中 ${nenchoPickClients().length}社`; }
+function renderNenchoPick(){ if(!_nenchoPick)return; const list=nenchoPickVisible(); const el=document.getElementById('nenchoPickList');
+  el.innerHTML=list.length?list.map(c=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line,#eef0f3);cursor:pointer"><input type="checkbox" ${_nenchoPick.has(c.id)?'checked':''} onchange="toggleNenchoPick('${c.id}',this.checked)"><span class="muted" style="min-width:48px;font-size:12px">${esc(c.code||'')}</span><span style="flex:1">${esc(c.name||'')}</span><span class="muted" style="font-size:12px">${esc(c.gensenStatus||'')}${c.payrollSoftware?'・'+esc(c.payrollSoftware):''}</span></label>`).join(''):'<div class="muted" style="padding:12px">該当する顧問先がありません。</div>';
+  nenchoPickCountText(); }
+function toggleNenchoPick(id,on){ if(on)_nenchoPick.add(id); else _nenchoPick.delete(id); nenchoPickCountText(); }
+function nenchoPickAll(on){ nenchoPickVisible().forEach(c=>{ if(on)_nenchoPick.add(c.id); else _nenchoPick.delete(c.id); }); renderNenchoPick(); }
+function saveNenchoPick(){ if(!_nenchoPick)return; let n=0;
+  nenchoPickClients().forEach(c=>{ const v=_nenchoPick.has(c.id)?'利用':'未利用'; if(c.useProgNencho!==v){ c.useProgNencho=v; n++; } });
+  _nenchoPick=null; closeModal('nenchoPickModal'); if(n)persist(); renderNencho(); toast(n?`年末調整の対象を${n}社変更しました`:'変更はありません','ok'); }
 function exportNencho(){ const cs=activeClients();
   const head=['コード','顧問先','区分','納付方法','備考','申告書登録','給与登録','年調確定','源泉徴収票等送付','当月源泉税額','年末調整不足額','年末調整還付額','控除未済額'];
   const aoa=[head]; cs.forEach(c=>{ const r=nPeek(nenchoYear,c.id); const dv=f=>r[f]==='対象外'?'対象外':(r[f]?fmtMD(r[f]):'');
