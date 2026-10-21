@@ -359,6 +359,9 @@
 - 年末調整・法定調書・償却資産（進捗管理）の対象は顧問先の `useProgNencho`／`useProgHotei`／`useProgShokyaku`（利用/未利用）。
   各画面の「🏢 対象の顧問先を選ぶ」（共通の `openProgPick`／`saveProgPick`・モジュールは `MODULES` の `pickField`）で
   契約中の顧問先をまとめてチェックで切り替えられる。外しても進捗の記録は消さない
+- 年末調整の工程（列）は `data.nenchoSteps`（`[{name,due,f}]`・SHINCHOKU_KEYSで同期）。「⚙ 工程を編集」で変更でき、
+  記録は名前ではなく**保存先ID `f`** で `data.nencho[年__顧問先][f]` に入る（改名・並べ替えで日付が消えない）。
+  初期4工程のIDは従来の collect/payroll/confirm/send（既存データ互換）。note/genzei/shortfall/refund は予約済み
 - 税額モーダルは「納付税額確認書から自動入力」でJDL等の確認書（PDF/Excel）を端末内解析して各欄へ反映
   （`nofuParsePages` 純関数・PDFはpdf.jsをCDN遅延読込・明細ページから県/市の名称と収入割も取得）
 - 中間申告計算: 収入割（電気供給業等）は税額モーダルの「うち収入割」に入力。収入割のある法人は

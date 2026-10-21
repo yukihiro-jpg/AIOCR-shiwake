@@ -591,7 +591,7 @@
   <div class="modal-body">
     <div class="row-flex" style="justify-content:space-between;margin-bottom:8px"><b>工程と期限</b><button class="sm" onclick="addStepRow()">＋ 工程を追加</button></div>
     <table><thead><tr><th style="text-align:left">工程名</th><th style="text-align:left">期限</th><th></th></tr></thead><tbody id="stepsBody"></tbody></table>
-    <div class="hint" style="margin-top:10px">ここで設定した工程・期限は、この決算月の進捗管理表に共通で適用されます。</div>
+    <div class="hint" id="stepsHint" style="margin-top:10px">ここで設定した工程・期限は、この決算月の進捗管理表に共通で適用されます。</div>
   </div>
   <div class="modal-foot"><button class="text" onclick="closeModal('stepsModal')">キャンセル</button><button class="primary" onclick="saveSteps()">保存</button></div>
 </div></div>
@@ -863,7 +863,7 @@ const LS_KEY='komonManagerData_v3';
 const AI_DEFAULTS={folderUrl:'',clientId:'',aiProvider:'gemini',claudeApiKey:'',claudeModel:'claude-opus-4-8',geminiApiKey:'',geminiModel:'gemini-2.5-flash',fbConfig:'',fbRoom:''};
 // スイート共通のGemini APIキー（ホーム画面で登録）。モジュール個別キーが空のときに使う
 function suiteGeminiKey(){ try{ return (localStorage.getItem('suite-gemini-api-key')||'').trim(); }catch(e){ return ''; } }
-let data={ clients:[], filings:{}, filingSteps:{}, interimDone:{}, interimCells:{}, interimSteps:null, gensenSteps:null, monthly:{}, monthlyTargets:null, modules:{}, gensen:{monthly:{},special:{}}, gensenMonthly:{}, gensenSpecial:{}, nencho:{}, sonotaTables:[], docTables:[], docTemplate:{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}, clientSummaries:{}, minutes:[], clientTombstones:{}, gensenMethods:['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問'], settings:Object.assign({},AI_DEFAULTS) };
+let data={ clients:[], filings:{}, filingSteps:{}, interimDone:{}, interimCells:{}, interimSteps:null, gensenSteps:null, nenchoSteps:null, monthly:{}, monthlyTargets:null, modules:{}, gensen:{monthly:{},special:{}}, gensenMonthly:{}, gensenSpecial:{}, nencho:{}, sonotaTables:[], docTables:[], docTemplate:{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}, clientSummaries:{}, minutes:[], clientTombstones:{}, gensenMethods:['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問'], settings:Object.assign({},AI_DEFAULTS) };
 let filingYear=new Date().getFullYear(), filingMonth=null;     // 確定申告：決算年・選択中の決算月
 let interimYear=new Date().getFullYear(), interimMonth=null;   // 中間申告：暦年・選択中の月
 let moduleYear={};                                              // 各管理モジュールの対象年
@@ -902,7 +902,7 @@ function migrateFilingSteps(){ let changed=false;
 function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); data=Object.assign(data,d); data.settings=Object.assign({},AI_DEFAULTS,d.settings||{}); ['filings','filingSteps','interimDone','interimCells','monthly','modules','gensenMonthly','gensenSpecial','nencho','clientSummaries','clientTombstones','cellMemos','memoShow','kessanMemos'].forEach(k=>{ if(!data[k])data[k]={}; }); ['sonotaTables','docTables','minutes'].forEach(k=>{ if(!Array.isArray(data[k]))data[k]=[]; }); if(!data.gensen)data.gensen={monthly:{},special:{}}; if(!Array.isArray(data.gensenMethods)||!data.gensenMethods.length)data.gensenMethods=['郵送','来所時','押印時','メール','e-tax','ゼロ納付','訪問']; migrateFilingSteps(); } }catch(e){console.warn(e);} }
 /* ===== リアルタイム共同編集（Firebase Realtime Database） ===== */
 const Realtime=(function(){
-  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes','cellMemos','kessanMemos'];
+  const SYNC_KEYS=['clients','clientTombstones','filings','filingSteps','interimDone','interimCells','interimSteps','gensenSteps','nenchoSteps','monthly','monthlyTargets','modules','gensen','gensenMonthly','gensenSpecial','gensenMethods','nencho','sonotaTables','docTables','docTemplate','clientSummaries','minutes','cellMemos','kessanMemos'];
   const BAD=/[.#$\/\[\]~]/g;
   let ref=null, ready=false, lastSnap={}, pushTimer=null, fbPending=false;
   function enc(k){ return '_'+String(k).replace(BAD,c=>'~'+c.charCodeAt(0).toString(16)); }
@@ -1602,12 +1602,14 @@ function editCell(e,cid,encName){ const step=decodeURIComponent(encName); const 
 function gotoFiling(M){ filingMonth=M; showPage('filing'); renderFiling(); }
 /* 工程編集 */
 let stepsCtx={type:'filing'};
-function openSteps(){ stepsCtx={type:'filing'}; document.getElementById('stepsModalTitle').textContent=`工程の編集（${filingMonth}月決算）`; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getSteps(filingMonth).forEach(s=>addStepRow(s)); openModal('stepsModal'); }
-function addStepRow(s={}){ const tb=document.getElementById('stepsBody'); const tr=document.createElement('tr');
+function openSteps(){ stepsCtx={type:'filing'}; setStepsHint('ここで設定した工程・期限は、この決算月の進捗管理表に共通で適用されます。'); document.getElementById('stepsModalTitle').textContent=`工程の編集（${filingMonth}月決算）`; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getSteps(filingMonth).forEach(s=>addStepRow(s)); openModal('stepsModal'); }
+function setStepsHint(t){ const el=document.getElementById('stepsHint'); if(el)el.textContent=t||'ここで設定した工程・期限は、この画面の進捗管理表に共通で適用されます（全端末で共有）。'; }
+function addStepRow(s={}){ const tb=document.getElementById('stepsBody'); const tr=document.createElement('tr'); if(s.f)tr.dataset.f=s.f;
   tr.innerHTML=`<td><input class="st_name" value="${esc(s.name||'')}"></td><td><input class="st_due" type="date" value="${esc(s.due||'')}"></td><td><button class="icon" onclick="this.closest('tr').remove()">🗑</button></td>`; tb.appendChild(tr); }
 function saveSteps(){ const steps=[...document.querySelectorAll('#stepsBody tr')].map(tr=>({name:tr.querySelector('.st_name').value.trim(),due:tr.querySelector('.st_due').value})).filter(s=>s.name);
   if(!steps.length){ toast('工程を1つ以上設定してください','err'); return; }
   if(stepsCtx.type==='module'){ getModuleStore(stepsCtx.key).steps=steps; persist(); closeModal('stepsModal'); renderModule(stepsCtx.key); toast('工程を保存しました','ok'); return; }
+  if(stepsCtx.type==='nencho'){ saveNenchoSteps(steps,[...document.querySelectorAll('#stepsBody tr')].filter(tr=>tr.querySelector('.st_name').value.trim()).map(tr=>tr.dataset.f||'')); return; }
   if(stepsCtx.type==='gensen'){ data.gensenSteps=steps; persist(); closeModal('stepsModal'); renderGensen(); toast('工程を保存しました','ok'); return; }
   if(stepsCtx.type==='interim'){ data.interimSteps=steps; persist(); closeModal('stepsModal'); renderInterimDetail(); toast('工程を保存しました','ok'); return; }
   data.filingSteps[String(filingMonth)]=steps; persist(); closeModal('stepsModal'); renderFiling(); toast('工程を保存しました','ok'); }
@@ -2074,7 +2076,7 @@ const INTERIM_FIXED=[{k:'name',label:'顧問先'},{k:'fiscal',label:'決算'},
   {k:'jigyo',label:'事業税',num:1},{k:'shi',label:'市税',num:1},{k:'cons',label:'消費税',num:1},
   {k:'consLabel',label:'消費税回'},{k:'total',label:'合計額',num:1},{k:'payMethod',label:'納付方法'}];
 function getInterimSteps(){ if(!Array.isArray(data.interimSteps))data.interimSteps=['申告書作成','申告書チェック','申告','納付'].map(n=>({name:n,due:''})); return data.interimSteps; }
-function openInterimSteps(){ stepsCtx={type:'interim'}; document.getElementById('stepsModalTitle').textContent='工程の編集（中間申告）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getInterimSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
+function openInterimSteps(){ stepsCtx={type:'interim'}; setStepsHint(); document.getElementById('stepsModalTitle').textContent='工程の編集（中間申告）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getInterimSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
 function interimKey(CY,CM,cid){ return CY+'-'+CM+'-'+cid; }
 function editInterimCell(e,cid,encStep){ const step=decodeURIComponent(encStep); const k=interimKey(interimYear,interimMonth,cid); const cur=(data.interimCells[k]||{})[step]||'';
   openCellEditor(e,cur,v=>{ if(!data.interimCells[k])data.interimCells[k]={}; if(v)data.interimCells[k][step]=v; else delete data.interimCells[k][step]; persist(); renderInterimDetail(); }); }
@@ -2128,7 +2130,7 @@ function changeModuleYear(key,d){ moduleYear[key]=getModuleYear(key)+d; renderMo
 function getModuleStore(key){ if(!data.modules[key])data.modules[key]={steps:null,data:{}}; const m=data.modules[key]; if(!m.steps)m.steps=getModuleDef(key).steps.map(n=>({name:n,due:''})); if(!m.data)m.data={}; return m; }
 function moduleRow(key,year,cid){ const m=getModuleStore(key); const k=year+'__'+cid; if(!m.data[k])m.data[k]={cells:{},note:''}; return m.data[k]; }
 function moduleClients(key){ const def=getModuleDef(key); return activeClients().filter(def.filter); }
-function openModuleSteps(key){ stepsCtx={type:'module',key}; document.getElementById('stepsModalTitle').textContent=`工程の編集（${getModuleDef(key).label}）`; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getModuleStore(key).steps.forEach(s=>addStepRow(s)); openModal('stepsModal'); }
+function openModuleSteps(key){ stepsCtx={type:'module',key}; setStepsHint(); document.getElementById('stepsModalTitle').textContent=`工程の編集（${getModuleDef(key).label}）`; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getModuleStore(key).steps.forEach(s=>addStepRow(s)); openModal('stepsModal'); }
 function editModuleCell(e,key,cid,encName){ const step=decodeURIComponent(encName); const year=getModuleYear(key); const r=moduleRow(key,year,cid); const cur=(r.cells&&r.cells[step])||'';
   openCellEditor(e,cur,v=>{ const rr=moduleRow(key,year,cid); if(!rr.cells)rr.cells={}; if(v)rr.cells[step]=v; else delete rr.cells[step]; persist(); renderModule(key); }); }
 function setModuleNote(key,cid,v){ moduleRow(key,getModuleYear(key),cid).note=v; persist(); }
@@ -2191,7 +2193,7 @@ function getGensenSteps(){ if(!Array.isArray(data.gensenSteps))data.gensenSteps=
   data.gensenSteps=data.gensenSteps.filter(s=>s&&s.name!=='システム登録').map(s=>s&&s.name==='抽出＆送信'?Object.assign({},s,{name:'今回分'}):s);
   if(!data.gensenSteps.length)data.gensenSteps=[{name:'今回分',due:''},{name:'お知らせ',due:''}];
   return data.gensenSteps; }
-function openGensenSteps(){ stepsCtx={type:'gensen'}; document.getElementById('stepsModalTitle').textContent='工程の編集（源泉税）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getGensenSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
+function openGensenSteps(){ stepsCtx={type:'gensen'}; setStepsHint(); document.getElementById('stepsModalTitle').textContent='工程の編集（源泉税）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getGensenSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
 function gmPeek(year,month,cid){ return data.gensenMonthly[year+'__'+month+'__'+cid]||{}; }
 function gmEnsure(year,month,cid){ const k=year+'__'+month+'__'+cid; if(!data.gensenMonthly[k])data.gensenMonthly[k]={}; return data.gensenMonthly[k]; }
 /* 未済繰越額＝年末調整の還付超過分（控除未済額）のうち、まだ源泉税から控除しきれていない残り。
@@ -2285,26 +2287,42 @@ function exportGensen(){ const steps=getGensenSteps(); const dv=(r,name)=>{ cons
 /* ===== 年末調整 ===== */
 let nenchoYear=new Date().getFullYear();
 function changeNenchoYear(d){ nenchoYear+=d; renderNencho(); }
+/* 年末調整の工程（列）。各工程は保存先のID（f）を持ち、記録は data.nencho[年__顧問先][f] に入る。
+   名前を変えても・並べ替えても入力済みの日付が消えないよう、名前ではなくIDで保存する。
+   初期の4工程は従来の項目名（collect/payroll/confirm/send）をそのままIDに使う（既存データとの互換） */
+const NENCHO_DEFAULT_STEPS=[{name:'申告書登録',f:'collect'},{name:'給与登録',f:'payroll'},{name:'年調確定',f:'confirm'},{name:'源泉徴収票等送付',f:'send'}];
+const NENCHO_RESERVED=['note','genzei','shortfall','refund'];
+function getNenchoSteps(){ if(!Array.isArray(data.nenchoSteps)||!data.nenchoSteps.length)data.nenchoSteps=NENCHO_DEFAULT_STEPS.map(s=>({name:s.name,due:'',f:s.f}));
+  data.nenchoSteps=data.nenchoSteps.filter(s=>s&&s.name&&s.f&&NENCHO_RESERVED.indexOf(s.f)<0); if(!data.nenchoSteps.length)data.nenchoSteps=NENCHO_DEFAULT_STEPS.map(s=>({name:s.name,due:'',f:s.f}));
+  return data.nenchoSteps; }
+function openNenchoSteps(){ stepsCtx={type:'nencho'}; setStepsHint('ここで設定した工程・期限は、年末調整の表に全年度共通で適用されます（全端末で共有）。工程の名前を変えたり削除したりしても、入力済みの日付は消えません（同じ名前で追加し直すと元の記録が戻ります）。'); document.getElementById('stepsModalTitle').textContent='工程の編集（年末調整）'; const tb=document.getElementById('stepsBody'); tb.innerHTML=''; getNenchoSteps().forEach(s=>addStepRow(s)); openModal('stepsModal'); }
+function saveNenchoSteps(steps,fs){ const prev=getNenchoSteps(); const used=new Set();
+  const out=steps.map((st,i)=>{ let f=fs[i]||'';
+    // 新しく足した行：同じ名前の工程が以前にあれば（削除→追加し直し等）その記録を引き継ぐ
+    if(!f){ const hit=prev.find(p=>p.name===st.name)||NENCHO_DEFAULT_STEPS.find(p=>p.name===st.name); if(hit&&!used.has(hit.f))f=hit.f; }
+    if(!f||used.has(f))f='s_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    used.add(f); return {name:st.name,due:st.due||'',f}; });
+  data.nenchoSteps=out; persist(); closeModal('stepsModal'); renderNencho(); toast('工程を保存しました','ok'); }
 function nPeek(year,cid){ return data.nencho[year+'__'+cid]||{}; }
 function nEnsure(year,cid){ const k=year+'__'+cid; if(!data.nencho[k])data.nencho[k]={}; return data.nencho[k]; }
 function setNenchoField(cid,field,v){ const r=nEnsure(nenchoYear,cid); v=(v==null?'':String(v).trim()); if(v)r[field]=v; else delete r[field]; persist(); }
 function setNenchoAmt(cid,field,raw){ const r=nEnsure(nenchoYear,cid); const v=String(raw).replace(/[^0-9-]/g,''); if(v)r[field]=v; else delete r[field]; persist(); renderNencho(); }
 function editNenchoCell(e,cid,field){ const r=nPeek(nenchoYear,cid); openCellEditor(e,r[field]||'',v=>{ setNenchoField(cid,field,v); renderNencho(); }); }
 function renderNencho(){
-  const cs=activeClients().filter(c=>c.useProgNencho==='利用');
+  const cs=activeClients().filter(c=>c.useProgNencho==='利用'); const steps=getNenchoSteps(); const today=new Date(); today.setHours(0,0,0,0);
   let html=`<div class="page-head"><h2>年末調整</h2>
     <div class="year-nav"><button class="icon" onclick="changeNenchoYear(-1)">◀</button><b>${nenchoYear}年（${wareki(nenchoYear)}）</b><button class="icon" onclick="changeNenchoYear(1)">▶</button></div>
-    <div class="toolbar"><button onclick="openNenchoPick()">🏢 対象の顧問先を選ぶ</button>${memoToggleBtn('nencho','renderNencho()')}${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
-    <div class="hint" style="margin-bottom:14px">契約中の顧問先のうち、年末調整を行う顧問先（「🏢 対象の顧問先を選ぶ」で選択）を対象に管理します。申告書登録・給与登録・年調確定・源泉徴収票等送付はセルクリックで日付（または対象外）を入力。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
+    <div class="toolbar"><button onclick="openNenchoPick()">🏢 対象の顧問先を選ぶ</button>${memoToggleBtn('nencho','renderNencho()')}<button onclick="openNenchoSteps()">⚙ 工程を編集</button>${bulkBtn()}<button onclick="exportNencho()">📤 Excel出力</button></div></div>
+    <div class="hint" style="margin-bottom:14px">契約中の顧問先のうち、年末調整を行う顧問先（「🏢 対象の顧問先を選ぶ」で選択）を対象に管理します。各工程はセルクリックで日付（または対象外）を入力（工程の名前・数・期限は「⚙ 工程を編集」で変更できます）。納付方法は顧問先情報から表示。ヘッダの▾で絞り込みできます。</div>`;
   if(!cs.length){ html+=`<div class="card"><div class="empty"><div class="big">🏢</div>年末調整の対象の顧問先がありません。<div style="margin-top:10px"><button class="primary" onclick="openNenchoPick()">🏢 対象の顧問先を選ぶ</button></div></div></div>`; setViewHtml('nenchoView',html); return; }
-  let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th><th>申告書登録</th><th>給与登録</th><th>年調確定</th><th>源泉徴収票等送付</th><th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
+  let head=`<tr><th class="name">顧問先</th><th>区分</th><th>納付方法</th><th>備考</th>`+steps.map(s=>`<th class="step">${esc(s.name)}${s.due?`<span class="due">${fmtMD(s.due)}</span>`:''}</th>`).join('')+`<th style="text-align:right">当月源泉税額</th><th style="text-align:right">年末調整不足額</th><th style="text-align:right">年末調整還付額</th><th style="text-align:right">控除未済額</th></tr>`;
   let body=cs.map(c=>{ const r=nPeek(nenchoYear,c.id);
-    const dcell=(f)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else {cls='todo';txt='未';} return pcTd('nencho|'+nenchoYear+'|'+c.id+'|'+f,`<span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span>`); };
+    const dcell=(f,due)=>{ const v=r[f]; let cls,txt; if(v==='対象外'){cls='na';txt='対象外';} else if(v){cls='done';txt=fmtMD(v);} else if(due){cls=(new Date(due)<today)?'over':'todo';txt='未('+fmtMD(due)+')';} else {cls='todo';txt='未';} return pcTd('nencho|'+nenchoYear+'|'+c.id+'|'+f,`<span class="cell ${cls}" onclick="editNenchoCell(event,'${c.id}','${f}')">${txt}</span>`); };
     const ded=nenchoDeductionOf(nenchoYear,c.id);
     return `<tr><td class="name">${clientLink(c)}</td>
       <td>${c.gensenStatus?`<span class="chip ${c.gensenStatus==='納期特例'?'amber':'pink'}">${esc(c.gensenStatus)}</span>`:''}</td><td>${payChip(c)}</td>
       <td><input style="min-width:110px;padding:5px 7px" value="${esc(r.note||'')}" onchange="setNenchoField('${c.id}','note',this.value)"></td>
-      ${dcell('collect')}${dcell('payroll')}${dcell('confirm')}${dcell('send')}
+      ${steps.map(s=>dcell(s.f,s.due)).join('')}
       <td style="text-align:right">${amtInput(r.genzei,`setNenchoAmt('${c.id}','genzei',this.value)`,'min-width:74px')}</td>
       <td style="text-align:right">${amtInput(r.shortfall,`setNenchoAmt('${c.id}','shortfall',this.value)`,'min-width:74px')}</td>
       <td style="text-align:right"><span class="amt-wrap"><span class="pre">△</span><input type="text" inputmode="numeric" class="amt" style="min-width:62px" value="${fmtAmt(r.refund)}" onchange="setNenchoAmt('${c.id}','refund',this.value)"></span></td>
@@ -2312,7 +2330,7 @@ function renderNencho(){
   html+=`<div class="grid-wrap"><table class="grid" style="text-align:left"><thead>${head}</thead><tbody>${body}</tbody></table></div>
     <div class="hint" style="margin-top:12px">※ 当月源泉税額・年末調整不足額・年末調整還付額は正の金額で入力します（還付額は△表示で減算）。控除未済額＝当月源泉税額＋年末調整不足額−年末調整還付額で自動計算します。この値がマイナス（還付額が上回り控除しきれない）の場合に限り、その残額が源泉税（毎月納付の翌年1月分／納期特例の1〜6月分）の未済繰越額へ連携します。</div>`;
   setViewHtml('nenchoView',html);
-  setBulk('nencho',{colWord:'工程',valueType:'date',cols:[{name:'collect',label:'申告書登録'},{name:'payroll',label:'給与登録'},{name:'confirm',label:'年調確定'},{name:'send',label:'源泉徴収票等送付'}],cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
+  setBulk('nencho',{colWord:'工程',valueType:'date',cols:steps.map(s=>({name:s.f,label:s.name})),cids:cs.map(c=>c.id),get:cid=>nEnsure(nenchoYear,cid),render:()=>renderNencho()});
   enhanceGrid(document.querySelector('#nenchoView table.grid'),'nencho');
 }
 /* 進捗管理の対象の顧問先を選ぶ（年末調整・法定調書・償却資産で共通）。
@@ -2336,10 +2354,10 @@ function progPickAll(on){ if(!_progPick)return; progPickVisible().forEach(c=>{ i
 function saveProgPick(){ if(!_progPick)return; const {field,label,sel,after}=_progPick; let n=0;
   progPickClients().forEach(c=>{ const v=sel.has(c.id)?'利用':'未利用'; if(c[field]!==v){ c[field]=v; n++; } });
   _progPick=null; closeModal('progPickModal'); if(n)persist(); if(after)after(); toast(n?`${label}の対象を${n}社変更しました`:'変更はありません','ok'); }
-function exportNencho(){ const cs=activeClients();
-  const head=['コード','顧問先','区分','納付方法','備考','申告書登録','給与登録','年調確定','源泉徴収票等送付','当月源泉税額','年末調整不足額','年末調整還付額','控除未済額'];
+function exportNencho(){ const cs=activeClients().filter(c=>c.useProgNencho==='利用'); const steps=getNenchoSteps();
+  const head=['コード','顧問先','区分','納付方法','備考',...steps.map(s=>s.name+(s.due?`(${fmtMD(s.due)})`:'')),'当月源泉税額','年末調整不足額','年末調整還付額','控除未済額'];
   const aoa=[head]; cs.forEach(c=>{ const r=nPeek(nenchoYear,c.id); const dv=f=>r[f]==='対象外'?'対象外':(r[f]?fmtMD(r[f]):'');
-    aoa.push([c.code||'',c.name,c.gensenStatus||'',c.payMethod||'',r.note||'',dv('collect'),dv('payroll'),dv('confirm'),dv('send'),num(r.genzei)||'',num(r.shortfall)||'',num(r.refund)||'',nenchoDeductionOf(nenchoYear,c.id)||'']); });
+    aoa.push([c.code||'',c.name,c.gensenStatus||'',c.payMethod||'',r.note||'',...steps.map(s=>dv(s.f)),num(r.genzei)||'',num(r.shortfall)||'',num(r.refund)||'',nenchoDeductionOf(nenchoYear,c.id)||'']); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'年末調整'); XLSX.writeFile(wb,`年末調整_${nenchoYear}年_${todayStr()}.xlsx`); toast('Excelを出力しました','ok'); }
 
 /* ===== 月次（資料回収→入力→報告／12か月一覧） ===== */
@@ -3458,7 +3476,7 @@ function saveSettings(){ data.settings.folderUrl=val('setFolderUrl'); data.setti
 function openDriveFolder(){ const url=val('setFolderUrl')||data.settings.folderUrl; if(!url){ toast('フォルダURLを入力してください','err'); return; } window.open(url,'_blank'); }
 function exportBackup(){ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='komon-manager-data.json'; a.click(); URL.revokeObjectURL(a.href); toast('データを書き出しました','ok'); }
 function importBackup(ev){ const f=ev.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{ try{ applyImportedData(JSON.parse(e.target.result)); toast('データを取り込みました','ok'); }catch(err){ toast('読み込み失敗: '+err.message,'err'); } ev.target.value=''; }; r.readAsText(f); }
-function applyImportedData(d){ data.clients=d.clients||[]; data.filings=d.filings||{}; data.filingSteps=d.filingSteps||{}; data.interimDone=d.interimDone||{}; data.modules=d.modules||{}; data.gensen=d.gensen||{monthly:{},special:{}}; data.gensenMonthly=d.gensenMonthly||{}; data.gensenSpecial=d.gensenSpecial||{}; data.nencho=d.nencho||{}; data.interimCells=d.interimCells||{}; data.interimSteps=d.interimSteps||null; data.gensenSteps=d.gensenSteps||null; data.monthly=d.monthly||{}; data.monthlyTargets=d.monthlyTargets||null; data.sonotaTables=d.sonotaTables||[]; data.docTables=d.docTables||[]; data.docTemplate=d.docTemplate||data.docTemplate||{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}; data.clientSummaries=d.clientSummaries||{}; data.minutes=d.minutes||[]; data.cellMemos=d.cellMemos||{}; if(!data.memoShow)data.memoShow={};
+function applyImportedData(d){ data.clients=d.clients||[]; data.filings=d.filings||{}; data.filingSteps=d.filingSteps||{}; data.interimDone=d.interimDone||{}; data.modules=d.modules||{}; data.gensen=d.gensen||{monthly:{},special:{}}; data.gensenMonthly=d.gensenMonthly||{}; data.gensenSpecial=d.gensenSpecial||{}; data.nencho=d.nencho||{}; data.interimCells=d.interimCells||{}; data.interimSteps=d.interimSteps||null; data.gensenSteps=d.gensenSteps||null; data.nenchoSteps=d.nenchoSteps||null; data.monthly=d.monthly||{}; data.monthlyTargets=d.monthlyTargets||null; data.sonotaTables=d.sonotaTables||[]; data.docTables=d.docTables||[]; data.docTemplate=d.docTemplate||data.docTemplate||{addr:{zip:true,addr:true,name:true,rep:true},header:'',footer:''}; data.clientSummaries=d.clientSummaries||{}; data.minutes=d.minutes||[]; data.cellMemos=d.cellMemos||{}; if(!data.memoShow)data.memoShow={};
   if(d.settings){ data.settings.folderUrl=d.settings.folderUrl||data.settings.folderUrl; data.settings.clientId=d.settings.clientId||data.settings.clientId; data.settings.claudeApiKey=d.settings.claudeApiKey||data.settings.claudeApiKey; data.settings.claudeModel=d.settings.claudeModel||data.settings.claudeModel; }
   filingMonth=null; interimMonth=null; gensenMonth=null; monthlyMonth=null; customCurrent={sonota:null,docs:null}; persist(false); restoreSettingsUI(); refreshAll(); }
 function restoreSettingsUI(){ setVal('setFolderUrl',data.settings.folderUrl); setVal('setClientId',data.settings.clientId); setVal('setAiProvider',data.settings.aiProvider||'gemini'); onProviderChange(); setVal('setFbConfig',data.settings.fbConfig||''); setVal('setFbRoom',data.settings.fbRoom||''); }
