@@ -4,7 +4,7 @@
 // 紙の運用では QR は載せない（紙で出すと決めた方に配るため）。マイナンバーは印字しない。
 // 配偶者・扶養親族の前年の収入（所得）は印字しない（今年の見込みを書いてもらう）。
 // 障害者控除の対象の方は、手帳の種類と等級を書く欄を設ける（区分は等級で決まるため）。
-// 今年入社した方用の記入シート（白紙）も、指定の枚数だけ既存社員の分のあとに続けて作れる。
+// 今年入社した方用の確認シート（白紙）も、指定の枚数だけ既存社員の分のあとに続けて作れる。
 
 import { writePrintWindow } from './check-sheet'
 
@@ -42,7 +42,7 @@ export interface ConfirmSheetOptions {
   yearLabel: string
   deadlineText: string
   employees: ConfirmSheetEmployee[]
-  /** 今年入社した方用の記入シート（白紙・記入式）の枚数 */
+  /** 今年入社した方用の確認シート（白紙・記入式）の枚数 */
   newHireCount?: number
 }
 
@@ -149,7 +149,7 @@ const SIGN = `${MYNUMBER_NOTE}<div class="sign"><span>内容に相違ありま�
 function newHirePage(o: ConfirmSheetOptions, i: number, total: number): string {
   return `<section class="page">
 <div class="title">
-  <div><div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div><h1>年末調整の記入シート</h1></div>
+  <div><div class="c">${esc(o.companyName)}　${esc(o.yearLabel)}</div><h1>年末調整の確認シート</h1></div>
   <div class="r"><div class="n">今年入社された方用</div>${o.deadlineText ? `<div class="d">提出期限　${esc(o.deadlineText)}</div>` : ''}</div>
 </div>
 

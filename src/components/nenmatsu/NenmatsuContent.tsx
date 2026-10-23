@@ -348,7 +348,7 @@ export default function NenmatsuContent() {
   /**
    * 紙で配る「年末調整の確認シート」（従業員1人1枚）。今年まだ提出していない方の分だけ作る。
    * 印字する内容は、スマホで従業員が最初に見る内容と同じ順で選ぶ（①前年の提出 ②会社の登録内容＝CSV）。
-   * newHires は今年入社した方用の記入シート（白紙）の枚数。既存社員の分のあとに続けて1つの印刷にする。
+   * newHires は今年入社した方用の確認シート（白紙）の枚数。既存社員の分のあとに続けて1つの印刷にする。
    */
   async function printConfirmSheets(client: SharedClient, company: NenmatsuCompany, newHires: number) {
     // ポップアップブロック回避のため、ウインドウはクリックの直後（awaitより前）に開く
@@ -806,7 +806,7 @@ export default function NenmatsuContent() {
             <h2 className="font-bold text-gray-800 mb-1">確認シートの作成（{sheetAsk.company.name || sheetAsk.client.name}）</h2>
             <p className="text-xs text-gray-500 mb-4">
               未提出の従業員は1人1枚、登録内容を印字した確認シートを作ります。
-              今年入社した方用の記入シート（白紙・記入式）も、ここで入れた枚数だけ続けて作ります。
+              今年入社した方用の確認シート（白紙・記入式）も、ここで入れた枚数だけ続けて作ります。
             </p>
             <label className="block text-sm text-gray-700 mb-1">新入社員用は何枚印刷しますか？</label>
             <div className="flex items-center gap-2">
