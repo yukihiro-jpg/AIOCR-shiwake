@@ -82,7 +82,7 @@ function selfStatus(self: ConfirmSheetEmployee['self']): string {
   }
   const dis = !isNone(self.disability)
   const none = !dis && isNone(self.widow) && !self.student
-  return `<div class="mt">該当するもの：${ck(dis)}障害者${dis && self.disability !== '一般障害者' ? `（${esc(self.disability)}）` : ''}　${ck(self.widow === '寡婦')}寡婦　${ck(self.widow === 'ひとり親')}ひとり親　${ck(self.student)}勤労学生　${ck(none)}どれもあてはまらない<span class="hint">✓は会社の登録内容です。変わった場合は訂正してください</span></div>`
+  return `<div class="mt">該当するもの：${ck(dis)}障害者${dis && self.disability !== '一般障害者' ? `（${esc(self.disability)}）` : ''}　${ck(self.widow === '寡婦')}寡婦　${ck(self.widow === 'ひとり親')}ひとり親　${ck(self.student)}勤労学生　${ck(none)}どれもあてはまらない<span class="hint">✓は昨年の登録内容です。変わった場合は訂正してください</span></div>`
 }
 
 function personExtra(p: ConfirmSheetPerson): string {
@@ -106,7 +106,7 @@ function disabilityQ(n: number, known: DisPerson[]): string {
     ? `${esc(r.name)}${r.rel ? `（${esc(r.rel)}）` : ''}${r.type ? `<span class="tag">${esc(r.type)}</span>` : ''}`
     : ''
   return `<div class="q"><div class="h"><i>${n}</i>障害者控除の対象となる方（ご本人・配偶者・扶養親族）</div><div class="b">
-  <div class="ans"><span>${box}いない</span><span>${ck(known.length > 0)}いる → 手帳の種類に✓を付け、等級をご記入ください${known.length ? '<span class="note">（✓と氏名は会社の登録内容です）</span>' : ''}</span></div>
+  <div class="ans"><span>${box}いない</span><span>${ck(known.length > 0)}いる → 手帳の種類に✓を付け、等級をご記入ください${known.length ? '<span class="note">（✓と氏名は昨年の登録内容です）</span>' : ''}</span></div>
   <table class="dt"><thead><tr><th style="width:31%">氏名（続柄）</th><th>手帳の種類</th><th style="width:19%">等級（療育手帳はA・Bなど）</th></tr></thead><tbody>
   ${rows.map((r) => `<tr><td>${td(r)}</td><td>${TECHO.map((t) => `<span class="nw">${box}${t}</span>`).join('')}</td><td class="grade">級</td></tr>`).join('')}
   </tbody></table>
@@ -114,14 +114,36 @@ function disabilityQ(n: number, known: DisPerson[]): string {
 }
 
 const fld = (label: string) => `<div><div class="lbl">${label}</div><div class="line"></div></div>`
+/** 生年月日の記入欄（元号に○を付けてもらう） */
+const ERA_BIRTH = '<span class="era">T・S・H・R</span>　　年　　月　　日'
+const fldBirth = (label: string) => `<div><div class="lbl">${label}（元号に○）</div><div class="line era-line">${ERA_BIRTH}</div></div>`
+const TOGETHER = `<span class="nw">${box}同居</span><span class="nw">${box}別居</span>`
+
+/** 配偶者を扶養に入れるか（配偶者控除・配偶者特別控除を受けるか）。
+ *  入れない場合も必ず✓してもらう（空欄だと控除の有無が分からず税額がずれる）。収入見込は入れる場合だけ */
+const SPOUSE_DED = `<div class="ded"><b>配偶者がいる方は、必ずどちらかに✓：</b>配偶者を扶養に入れますか？（配偶者控除・配偶者特別控除を受けるか）
+  <div class="ans"><span>${box}入れる（控除を受ける）→ 配偶者の今年の収入見込　＿＿＿＿＿＿＿円</span><span>${box}入れない（控除を受けない）</span></div>
+  <div class="warn">⚠ 入れない場合も、必ず「入れない」に✓をしてください。どちらにも✓が無いと税額の計算がずれます。</div>
+</div>`
+
+/** 扶養親族（配偶者以外）の記入表。どこに何を書くか分かるよう列見出しを付ける */
+function depWriteTable(rows: number): string {
+  return `<div class="lbl mt">生年月日は T（大正）・S（昭和）・H（平成）・R（令和）のどれかに○を付けてください</div>
+  <table class="dt dw"><thead><tr><th style="width:18%">氏名</th><th style="width:16%">フリガナ</th><th style="width:7%">続柄</th><th style="width:25%">生年月日</th><th style="width:17%">同居・別居</th><th>今年の収入見込</th></tr></thead><tbody>
+  ${Array.from({ length: rows }, () => `<tr><td></td><td></td><td></td><td class="eracell">${ERA_BIRTH}</td><td>${TOGETHER}</td><td class="grade">円</td></tr>`).join('')}
+  </tbody></table>`
+}
+
+/** 署名欄の近くに出すマイナンバーの注意 */
+const MYNUMBER_NOTE = `<div class="mynum">🪪 <b class="em">新入社員の方</b>と、新しく<b class="em">扶養親族となった方</b>は、その方のマイナンバーが必要になります。<b>マイナンバーカードのコピー</b>も添付してください。</div>`
 
 const DOCS_Q = (n: number) => `<div class="q"><div class="h"><i>${n}</i>一緒に出していただく書類（あるものに✓）</div><div class="b"><div class="g3">
   ${DOCS.map((d) => `<div>${box}${d}</div>`).join('')}<div>${box}何もない</div>
 </div>
-<div class="clip">📎 添付する書類は、<b>このシートのお名前が隠れないように</b>、<b>シートの裏側に重ねてクリップで留めて</b>ご提出ください（のり付け・ホチキス留めはしないでください）。</div>
+<div class="clip">📎 添付書類は<b>このシートのお名前が隠れないよう</b>、<b>シートの裏側に重ねてクリップで留めて</b>ください（のり付け・ホチキス留めはしないでください）。</div>
 </div></div>`
 
-const SIGN = `<div class="sign"><span>内容に相違ありません。</span><div>記入日　　　年　　月　　日</div><div>氏名（自署）</div></div>`
+const SIGN = `${MYNUMBER_NOTE}<div class="sign"><span>内容に相違ありません。</span><div>記入日　　　年　　月　　日</div><div>氏名（自署）</div></div>`
 
 /** 今年入社した方用（白紙・記入式）。登録内容が無いので、全部を書いてもらう */
 function newHirePage(o: ConfirmSheetOptions, i: number, total: number): string {
@@ -137,7 +159,7 @@ function newHirePage(o: ConfirmSheetOptions, i: number, total: number): string {
 </div></div>
 
 <div class="q"><div class="h"><i>2</i>ご本人について</div><div class="b">
-  <div class="g2">${fld('氏名')}${fld('フリガナ')}${fld('生年月日（昭和・平成　　年　　月　　日）')}${fld('郵便番号')}</div>
+  <div class="g2">${fld('氏名')}${fld('フリガナ')}${fldBirth('生年月日')}${fld('郵便番号')}</div>
   ${fld('住所（1月1日以降に引っ越した方は今の住所）')}
   <div class="g2">${fld('世帯主の氏名')}${fld('世帯主から見たあなたの続柄（本人・子・妻 など）')}</div>
   <div class="mt">該当するもの：${box}障害者　${box}寡婦　${box}ひとり親　${box}勤労学生　${box}どれもあてはまらない</div>
@@ -145,14 +167,13 @@ function newHirePage(o: ConfirmSheetOptions, i: number, total: number): string {
 
 <div class="q"><div class="h"><i>3</i>配偶者の方について</div><div class="b">
   <div class="ans"><span>${box}配偶者はいない</span><span>${box}配偶者がいる → 下にご記入ください</span></div>
-  <div class="g2">${fld('氏名・フリガナ')}${fld('生年月日')}<div><div class="lbl">配偶者の今年の収入見込（必ずご記入ください）</div><div class="line yen">円</div></div><div><div class="lbl">お住まい</div><div class="ans"><span>${box}同居</span><span>${box}別居</span></div></div></div>
+  <div class="g-sp">${fld('配偶者の氏名・フリガナ')}${fldBirth('配偶者の生年月日')}<div><div class="lbl">お住まい</div><div class="line" style="border:none">${TOGETHER}</div></div></div>
+  ${SPOUSE_DED}
 </div></div>
 
-<div class="q"><div class="h"><i>4</i>扶養している家族について</div><div class="b">
+<div class="q"><div class="h"><i>4</i>扶養している家族について（配偶者以外を記入します）</div><div class="b">
   <div class="ans"><span>${box}いない</span><span>${box}いる → 下にご記入ください（16歳未満のお子さんも書いてください）</span></div>
-  <table class="dt"><thead><tr><th style="width:24%">氏名</th><th style="width:20%">フリガナ</th><th style="width:9%">続柄</th><th style="width:18%">生年月日</th><th style="width:11%">同居・別居</th><th>今年の収入見込</th></tr></thead><tbody>
-  ${[0, 1, 2].map(() => '<tr><td></td><td></td><td></td><td></td><td></td><td class="grade">円</td></tr>').join('')}
-  </tbody></table>
+  ${depWriteTable(3)}
 </div></div>
 
 ${disabilityQ(5, [])}
@@ -199,15 +220,18 @@ function page(o: ConfirmSheetOptions, e: ConfirmSheetEmployee): string {
   <div class="ans"><span>${box}変更なし</span><span>${box}変更あり（離婚・死別など）</span></div>`
     : `<div class="reg"><b>登録内容</b>配偶者の登録はありません</div>
   <div class="ans"><span>${box}配偶者はいない</span><span>${box}配偶者がいる（結婚など）→ 下にご記入ください</span></div>`}
-  <div class="g2 mt"><div><div class="lbl">${sp ? '変更後の内容' : '氏名・フリガナ・生年月日'}</div><div class="line"></div></div><div><div class="lbl">配偶者の今年の収入見込（必ずご記入ください）</div><div class="line yen">円</div></div></div>
+  ${sp
+    ? fld('変更があった方のみ：変更後の内容（氏名・生年月日など）')
+    : `<div class="g2">${fld('配偶者の氏名・フリガナ')}${fldBirth('配偶者の生年月日')}</div>`}
+  ${SPOUSE_DED}
 </div></div>
 
-<div class="q"><div class="h"><i>4</i>扶養している家族について</div><div class="b">
+<div class="q"><div class="h"><i>4</i>扶養している家族について（配偶者以外を記入します）</div><div class="b">
   ${deps.length
     ? deps.map((d) => `<div class="reg"><b>${esc(d.rel || '扶養')}</b>${esc(d.name)}${d.kana ? `（${esc(d.kana)}）` : ''}　${esc(warekiOf(d.birth))}${personExtra(d)}<span class="inc">今年の収入見込　＿＿＿＿＿＿円</span></div>`).join('')
     : '<div class="reg"><b>登録内容</b>扶養親族の登録はありません</div>'}
-  <div class="ans"><span>${box}変更なし</span><span>${box}${deps.length ? '増えた・減った' : '扶養している家族がいる'} → 下にご記入ください</span></div>
-  <div class="g2"><div><div class="lbl">氏名・フリガナ・続柄</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div><div><div class="lbl">生年月日・同居/別居・今年の収入見込</div><div class="line"></div>${deps.length > 2 ? '' : '<div class="line"></div>'}</div></div>
+  <div class="ans"><span>${box}変更なし</span><span>${box}${deps.length ? '増えた・減った' : '扶養している家族がいる'} → 下にご記入ください（減った方は上の行に×を付けてください）</span></div>
+  ${depWriteTable(deps.length > 2 ? 1 : 2)}
 </div></div>
 
 ${disabilityQ(5, known)}
@@ -235,15 +259,15 @@ body{background:#e8eaed;font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",M
 .title{background:#0f766e;color:#fff;border-radius:3mm;padding:2.2mm 4.5mm;display:flex;justify-content:space-between;align-items:center;gap:4mm}
 .title .c{font-size:9.5px;opacity:.85}.title h1{font-size:18px;margin:.2mm 0 0}.title .r{text-align:right}.title .n{font-size:14px;font-weight:700}
 .title .d{font-size:10px;margin-top:.8mm;background:rgba(255,255,255,.18);display:inline-block;padding:.4mm 2.5mm;border-radius:2mm}
-.q{margin-top:1.8mm;border:1px solid #d6e4e1;border-radius:3mm;overflow:hidden;break-inside:avoid}
-.q .h{display:flex;align-items:center;gap:2.5mm;background:#ecf6f4;padding:1mm 3mm;font-size:11px;font-weight:700;color:#134e4a}
+.q{margin-top:1.4mm;border:1px solid #d6e4e1;border-radius:3mm;overflow:hidden;break-inside:avoid}
+.q .h{display:flex;align-items:center;gap:2.5mm;background:#ecf6f4;padding:.7mm 3mm;font-size:11px;font-weight:700;color:#134e4a}
 .q .h i{font-style:normal;background:#0f766e;color:#fff;border-radius:50%;width:5.2mm;height:5.2mm;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none}
-.q .b{padding:1.2mm 3.5mm;font-size:10px;line-height:1.55}
+.q .b{padding:1mm 3.5mm;font-size:10px;line-height:1.5}
 .ans{display:flex;flex-wrap:wrap;gap:1mm 6mm;font-size:10.5px;font-weight:500;margin-top:.8mm}
 .reg{background:#f8fafc;border-radius:2mm;padding:.8mm 2.5mm;margin:.5mm 0;font-size:10px}
 .reg b{color:#0f766e;font-weight:700;margin-right:1.5mm}
 .reg .inc{float:right;color:#374151}
-.line{border-bottom:1px solid #9ca3af;height:5.6mm;margin-top:.2mm}
+.line{border-bottom:1px solid #9ca3af;height:5.4mm;margin-top:.1mm}
 .line.yen{text-align:right;line-height:6mm}
 .lbl{font-size:8.5px;color:#6b7280}
 .mt{margin-top:1.2mm}
@@ -257,12 +281,23 @@ body{background:#e8eaed;font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",M
 .reg .note,.ans .note{font-size:9px;color:#4b5563;font-weight:400}
 .dt{width:100%;border-collapse:collapse;margin-top:1mm;font-size:9.5px}
 .dt th{background:#f1f5f9;color:#475569;font-weight:500;font-size:8.5px;text-align:left;padding:.4mm 1.5mm;border:1px solid #cbd5e1}
-.dt td{border:1px solid #cbd5e1;height:6.3mm;padding:0 1.5mm;vertical-align:middle}
+.dt td{border:1px solid #cbd5e1;height:5.8mm;padding:0 1.5mm;vertical-align:middle}
 .dt td.grade{text-align:right;white-space:nowrap}
 .dt td.grade .lbl{display:block;text-align:right;line-height:1.2}
 .dt .nw{white-space:nowrap;margin-right:2.2mm;display:inline-block}
+.nw{white-space:nowrap;margin-right:3mm;display:inline-block}
+.era{font-size:8.5px;color:#6b7280;letter-spacing:.3px}
+.era-line{font-size:10px;line-height:6mm;color:#374151;padding-left:1mm}
+.dt.dw td{height:6.2mm}
+.dt.dw .nw{margin-right:2mm}
+.g-sp{display:grid;grid-template-columns:1.1fr 1.1fr .8fr;gap:.4mm 5mm}
+.dt td.eracell{white-space:nowrap;font-size:9.5px;color:#374151}
+.ded{margin-top:1.2mm;border:1.2px solid #f59e0b;background:#fffbeb;border-radius:2mm;padding:1mm 2.5mm;font-size:10px}
+.ded .warn{font-size:9px;color:#b45309;font-weight:700;margin-top:.4mm}
+.mynum{margin-top:1.8mm;border:1.2px solid #dc2626;background:#fef2f2;border-radius:2mm;padding:.9mm 3mm;font-size:10px;line-height:1.5;color:#1f2937;break-inside:avoid}
+.mynum .em{color:#b91c1c;font-size:11px;background:#fee2e2;padding:0 1mm;border-radius:1mm;text-decoration:underline}
 .dt .tag{display:inline-block;border:1px solid #f59e0b;color:#92400e;border-radius:1.5mm;padding:0 1.5mm;font-size:8.5px;line-height:1.5;margin-left:1.5mm}
-.sign{display:flex;gap:6mm;margin-top:3mm;font-size:10px;align-items:flex-end;break-inside:avoid}
+.sign{display:flex;gap:6mm;margin-top:2.6mm;font-size:10px;align-items:flex-end;break-inside:avoid}
 .sign div{flex:1;border-bottom:1px solid #374151;padding-bottom:1mm}
 .ft{position:absolute;left:11mm;right:11mm;bottom:5mm;display:flex;justify-content:space-between;gap:4mm;font-size:8.5px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:2mm}
 .noprint{position:fixed;top:10px;right:10px;z-index:2}
