@@ -17,6 +17,8 @@ export interface Baseline {
   /** 何を基準にしたか（Excelに書く） */
   source: 'prev' | 'csv' | 'none'
   sourceLabel: string // 例: 「令和8年度の提出」「会社の登録内容」
+  /** '甲欄'／'乙欄'。分からなければ空 */
+  taxCategory: string
   lastName: string
   firstName: string
   kanaLast: string
@@ -56,7 +58,7 @@ const yen = (v: unknown) => {
 /** 空の変更前（本年入社など、比較対象が無いとき） */
 export function emptyBaseline(): Baseline {
   return {
-    source: 'none', sourceLabel: '',
+    source: 'none', sourceLabel: '', taxCategory: '',
     lastName: '', firstName: '', kanaLast: '', kanaFirst: '', birth: '',
     postal: '', address: '', householder: '', householderRelation: '',
     selfDisability: '非該当', widow: '非該当', workingStudent: false,
@@ -68,7 +70,7 @@ export function emptyBaseline(): Baseline {
 /** 前年の提出（Declaration）を変更前に変換 */
 export function baselineFromDeclaration(d: Declaration, label: string): Baseline {
   return {
-    source: 'prev', sourceLabel: label,
+    source: 'prev', sourceLabel: label, taxCategory: d.taxCategory === 'otsu' ? '乙欄' : '甲欄',
     lastName: s(d.lastName), firstName: s(d.firstName),
     kanaLast: s(d.kanaLast), kanaFirst: s(d.kanaFirst), birth: s(d.birth),
     postal: s(d.postal), address: s(d.address),
@@ -91,7 +93,7 @@ export function baselineFromDeclaration(d: Declaration, label: string): Baseline
 export function baselineFromCsv(
   pre: {
     postal?: string; address?: string
-    self?: { disability: string; widow: string; student: boolean; householder: string; householderRelation: string }
+    self?: { disability: string; widow: string; student: boolean; householder: string; householderRelation: string; taxTable?: string }
     spouse?: { name: string; kana: string; birth: string; income: string }
     dependents?: { name: string; kana: string; relation: string; birth: string; income: string; disability?: string }[]
   },
@@ -102,6 +104,7 @@ export function baselineFromCsv(
   return {
     ...emptyBaseline(),
     source: 'csv', sourceLabel: label,
+    taxCategory: pre.self?.taxTable === 'otsu' ? '乙欄' : pre.self?.taxTable === 'kou' ? '甲欄' : '',
     lastName: s(self?.lastName), firstName: s(self?.firstName),
     kanaLast: s(self?.kanaLast), kanaFirst: s(self?.kanaFirst), birth: s(self?.birth),
     postal: s(pre.postal), address: s(pre.address),
@@ -163,7 +166,7 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   }
   // 未入力のままでも既定で入る値。これを「新規に入力された」と数えると、
   // 本年入社の方の一覧が「非該当」ばかりになって肝心の変更が埋もれる
-  const DEFAULTS: Record<string, string> = { selfDisability: '非該当', widow: '非該当', workingStudent: '非該当' }
+  const DEFAULTS: Record<string, string> = { selfDisability: '非該当', widow: '非該当', workingStudent: '非該当', taxCategory: '甲欄' }
   /** 本人行の項目。値が変わっていれば修正、変更前が空なら新規（空欄に入力されたということ） */
   const cmp = (field: string, label: string, before: string, after: string) => {
     if (!s(after) || norm(before) === norm(after)) {
@@ -174,6 +177,7 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
     if (!s(before)) push('added', 'self', label, '', s(after), field)
     else push('modified', 'self', label, s(before), s(after), field)
   }
+  cmp('taxCategory', '甲欄・乙欄', base.taxCategory, d.taxCategory === 'otsu' ? '乙欄' : '甲欄')
   cmp('lastName', '姓', base.lastName, s(d.lastName))
   cmp('firstName', '名', base.firstName, s(d.firstName))
   cmp('kanaLast', 'フリガナ（姓）', base.kanaLast, s(d.kanaLast))
@@ -182,7 +186,8 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   cmp('postal', '郵便番号', base.postal, s(d.postal))
   cmp('address', '住所', base.address, s(d.address))
   cmp('householder', '世帯主', base.householder, s(d.householder))
-  cmp('householderRelation', '世帯主との続柄', base.householderRelation, s(d.householderRelation))
+  // 続柄は世帯主の氏名があるときだけ比べる（入力欄の既定値「本人」だけで「新規」と出さないため）
+  cmp('householderRelation', '世帯主との続柄', base.householder ? base.householderRelation : '', s(d.householder) ? s(d.householderRelation) : '')
   cmp('selfDisability', '本人の障害者区分', base.selfDisability, s(d.selfDisability) || '非該当')
   cmp('widow', '寡婦・ひとり親', base.widow, s(d.widow) || '非該当')
   cmp('workingStudent', '勤労学生', base.workingStudent ? '該当' : '非該当', d.workingStudent ? '該当' : '非該当')

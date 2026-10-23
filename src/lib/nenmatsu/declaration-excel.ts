@@ -1,6 +1,8 @@
 // 年末調整 申告内容のExcel出力（ExcelJS）。
 // 1社員＝1行（本人）＋配偶者・扶養親族1人につき1行。フォントは Noto Sans JP、
 // 罫線・色で本人行と家族行を見分けやすくする。
+// 本人行には「甲欄／乙欄」と「配偶者・扶養親族」のまとめも出す（家族行を追わなくても1行で分かるように）。
+// 列は COLS のキーで指定する（列を足したときに番号のずれで別の列を塗らないため）。
 
 import type { Declaration } from './declaration'
 import { spouseCategory, dependentCategory, numYen, normalizeDeclaration } from './declaration'
@@ -29,25 +31,63 @@ const MOD_INK = 'FF8A6100'
 const ADD_INK = 'FF14683A'
 const DEL_INK = 'FF7A828C'
 
-/** 本人行の項目名 → 列番号（1始まり）。修正されたセルだけを塗るために使う */
-const SELF_FIELD_COL: Record<string, number> = {
-  lastName: 3, firstName: 3, kanaLast: 4, kanaFirst: 4, birth: 6,
-  selfDisability: 8, widow: 9, workingStudent: 10, postal: 13, address: 14,
-  householder: 15, householderRelation: 15,
+type ColKey = 'no' | 'tag' | 'taxCat' | 'name' | 'kana' | 'relation' | 'birth' | 'income' | 'disability' | 'widow'
+  | 'student' | 'together' | 'category' | 'family' | 'postal' | 'address' | 'householder' | 'memo'
+type Align = 'left' | 'center' | 'right'
+// 列幅はヘッダ・データとも1行で収まる幅にする（見切れ防止）。wrap の列だけ折り返す
+const COLS: { key: ColKey; header: string; width: number; align: Align; wrap?: boolean }[] = [
+  { key: 'no', header: 'No', width: 5, align: 'center' },
+  { key: 'tag', header: '区分', width: 11, align: 'left' },
+  { key: 'taxCat', header: '甲欄・乙欄', width: 10, align: 'center' },
+  { key: 'name', header: '氏名', width: 16, align: 'left' },
+  { key: 'kana', header: 'フリガナ', width: 16, align: 'left' },
+  { key: 'relation', header: '続柄', width: 10, align: 'left' },
+  { key: 'birth', header: '生年月日', width: 12, align: 'center' },
+  { key: 'income', header: '年収（円）', width: 12, align: 'right' },
+  { key: 'disability', header: '障害者区分', width: 15, align: 'center' },
+  { key: 'widow', header: '寡婦・ひとり親', width: 15, align: 'center' },
+  { key: 'student', header: '勤労学生', width: 10, align: 'center' },
+  { key: 'together', header: '同居・別居', width: 10, align: 'center' },
+  { key: 'category', header: '控除区分（目安）', width: 36, align: 'left', wrap: true },
+  { key: 'family', header: '配偶者・扶養親族', width: 44, align: 'left', wrap: true },
+  { key: 'postal', header: '郵便番号', width: 10, align: 'center' },
+  { key: 'address', header: '住所', width: 36, align: 'left', wrap: true },
+  { key: 'householder', header: '世帯主（続柄）', width: 18, align: 'left' },
+  { key: 'memo', header: '備考', width: 32, align: 'left', wrap: true },
+]
+const HEADERS = COLS.map((c) => c.header)
+const col = (k: ColKey) => COLS.findIndex((c) => c.key === k) + 1
+type RowVals = Partial<Record<ColKey, string | number | null>>
+const rowArray = (v: RowVals) => COLS.map((c) => (v[c.key] === undefined ? '' : v[c.key]))
+
+/** 本人行の項目名 → 列。修正されたセルだけを塗るために使う */
+const SELF_FIELD_COL: Record<string, ColKey> = {
+  taxCategory: 'taxCat',
+  lastName: 'name', firstName: 'name', kanaLast: 'kana', kanaFirst: 'kana', birth: 'birth',
+  selfDisability: 'disability', widow: 'widow', workingStudent: 'student', postal: 'postal', address: 'address',
+  householder: 'householder', householderRelation: 'householder',
 }
-/** 家族行の項目名 → 列番号 */
-const FAMILY_FIELD_COL: Record<string, number> = {
-  name: 3, kana: 4, relation: 5, birth: 6, income: 7, disability: 8, liveTogether: 11,
+/** 家族行の項目名 → 列 */
+const FAMILY_FIELD_COL: Record<string, ColKey> = {
+  name: 'name', kana: 'kana', relation: 'relation', birth: 'birth', income: 'income', disability: 'disability', liveTogether: 'together',
 }
 
-const HEADERS = [
-  'No', '区分', '氏名', 'フリガナ', '続柄', '生年月日', '年収（円）',
-  '障害者区分', '寡婦・ひとり親', '勤労学生', '同居・別居', '控除区分（目安）',
-  '郵便番号', '住所', '世帯主（続柄）', '備考',
-] as const
-
-// 列幅はヘッダ・データとも1行で収まる幅にする（見切れ防止）
-const WIDTHS = [5, 11, 16, 16, 10, 12, 12, 15, 15, 10, 10, 36, 10, 36, 18, 32]
+/** 本人行に出す「配偶者・扶養親族」のまとめ（家族行と同じ内容を1セルに） */
+function familySummary(d: Declaration, fyGregorian: number): string {
+  if (d.taxCategory === 'otsu') return '（乙欄のため扶養控除の対象外）'
+  const lines: string[] = []
+  if (d.spouse.exists) {
+    lines.push(`配偶者：${d.spouse.name || '（氏名なし）'}（${spouseCategory(d.spouse)}）`)
+  }
+  d.dependents.forEach((dep, i) => {
+    const extra = [dependentCategory(dep, fyGregorian), dep.disability && dep.disability !== '非該当' ? dep.disability : '']
+      .filter(Boolean).join('・')
+    lines.push(`扶養${i + 1}：${[dep.relation, dep.name].filter(Boolean).join(' ') || '（氏名なし）'}（${extra}）`)
+  })
+  if (!lines.length) return 'なし'
+  const head = `配偶者${d.spouse.exists ? 'あり' : 'なし'}・扶養親族${d.dependents.length}人`
+  return [head, ...lines].join('\n')
+}
 
 function fmtDate(iso?: string): string {
   if (!iso) return ''
@@ -63,7 +103,7 @@ export async function buildDeclarationExcelBlob(
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('申告内容', { views: [{ state: 'frozen', ySplit: 3 }] })
-  ws.columns = WIDTHS.map((w) => ({ width: w }))
+  ws.columns = COLS.map((c) => ({ width: c.width }))
 
   // タイトル
   const title = ws.addRow([`${opts.companyName}　年末調整 申告内容一覧（${opts.fyLabel}）`])
@@ -114,58 +154,61 @@ export async function buildDeclarationExcelBlob(
       }
     }
     if (d.taxCategory === 'otsu') memo.push('乙欄（他社で年末調整・この会社では対象外）')
+    const taxCat = d.taxCategory === 'otsu' ? '乙欄' : '甲欄'
     if (d.noChange) memo.push('前年と相違なし')
     if (ent.submittedAt) memo.push(`提出 ${fmtDate(ent.submittedAt)}`)
 
     // 本人行
-    const selfRow = ws.addRow([
-      no, '本人',
-      `${d.lastName} ${d.firstName}`.trim() || ent.employeeName,
-      `${d.kanaLast} ${d.kanaFirst}`.trim(),
-      '—',
-      d.birth || '',
-      null,
-      d.selfDisability === '非該当' ? '' : d.selfDisability,
-      d.widow === '非該当' ? '' : d.widow,
-      d.workingStudent ? '該当' : '',
-      '',
-      '',
-      d.postal || '',
-      d.address || '',
-      d.householder ? `${d.householder}（${d.householderRelation}）` : '',
-      memo.join('・'),
-    ])
+    const selfRow = ws.addRow(rowArray({
+      no, tag: '本人', taxCat,
+      name: `${d.lastName} ${d.firstName}`.trim() || ent.employeeName,
+      kana: `${d.kanaLast} ${d.kanaFirst}`.trim(),
+      relation: '—',
+      birth: d.birth || '',
+      income: null,
+      disability: d.selfDisability === '非該当' ? '' : d.selfDisability,
+      widow: d.widow === '非該当' ? '' : d.widow,
+      student: d.workingStudent ? '該当' : '',
+      family: familySummary(d, opts.fyGregorian),
+      postal: d.postal || '',
+      address: d.address || '',
+      householder: d.householder ? `${d.householder}（${d.householderRelation}）` : '',
+      memo: memo.join('・'),
+    }))
     styleRow(selfRow, SELF_FILL, true)
+    // 乙欄は目立たせる（この会社では年末調整しない人を見落とさないため）
+    if (d.taxCategory === 'otsu') {
+      const c = selfRow.getCell(col('taxCat'))
+      c.font = { name: FONT, size: 9, bold: true, color: { argb: 'FFB42318' } }
+    }
     markChanges(selfRow, byTarget.get('self') || [], SELF_FIELD_COL)
 
     // 配偶者行
     if (d.spouse.exists) {
-      const r = ws.addRow([
-        '', '└ 配偶者',
-        d.spouse.name, d.spouse.kana, '配偶者',
-        d.spouse.birth || '',
-        d.spouse.income ? numYen(d.spouse.income) : null,
-        '', '', '', '',
-        spouseCategory(d.spouse),
-        '', '', '', `${`${d.lastName} ${d.firstName}`.trim() || ent.employeeName} の配偶者`,
-      ])
+      const r = ws.addRow(rowArray({
+        tag: '└ 配偶者',
+        name: d.spouse.name, kana: d.spouse.kana, relation: '配偶者',
+        birth: d.spouse.birth || '',
+        income: d.spouse.income ? numYen(d.spouse.income) : null,
+        category: spouseCategory(d.spouse),
+        memo: `${`${d.lastName} ${d.firstName}`.trim() || ent.employeeName} の配偶者`,
+      }))
       styleRow(r, FAMILY_FILL, false)
       markChanges(r, byTarget.get('spouse') || [], FAMILY_FIELD_COL)
     }
 
     // 扶養親族行
     d.dependents.forEach((dep, i) => {
-      const r = ws.addRow([
-        '', `└ 扶養${i + 1}`,
-        dep.name, dep.kana, dep.relation || '',
-        dep.birth || '',
-        dep.income ? numYen(dep.income) : null,
-        dep.disability === '非該当' ? '' : dep.disability,
-        '', '',
-        dep.liveTogether ? '同居' : '別居',
-        dependentCategory(dep, opts.fyGregorian),
-        '', '', '', `${`${d.lastName} ${d.firstName}`.trim() || ent.employeeName} の扶養親族`,
-      ])
+      const r = ws.addRow(rowArray({
+        tag: `└ 扶養${i + 1}`,
+        name: dep.name, kana: dep.kana, relation: dep.relation || '',
+        birth: dep.birth || '',
+        income: dep.income ? numYen(dep.income) : null,
+        disability: dep.disability === '非該当' ? '' : dep.disability,
+        together: dep.liveTogether ? '同居' : '別居',
+        category: dependentCategory(dep, opts.fyGregorian),
+        memo: `${`${d.lastName} ${d.firstName}`.trim() || ent.employeeName} の扶養親族`,
+      }))
       styleRow(r, FAMILY_FILL, false)
       markChanges(r, byTarget.get(`dep${i}`) || [], FAMILY_FIELD_COL)
     })
@@ -173,16 +216,18 @@ export async function buildDeclarationExcelBlob(
     // 本人が外した家族は、申告内容には行が無いので取消線のグレー行として残す
     // （「前年いたのに今年いない」を見落とさないため）
     for (const c of changes.filter((x) => x.kind === 'removed')) {
-      const r = ws.addRow(['', `${CHANGE_MARK.removed} ${c.label.startsWith('配偶者') ? '配偶者' : '扶養'}（削除）`,
-        c.before, '', '', '', null, '', '', '', '', '', '', '', '',
-        `本人が外しました（変更前: ${c.before}）`])
+      const r = ws.addRow(rowArray({
+        tag: `${CHANGE_MARK.removed} ${c.label.startsWith('配偶者') ? '配偶者' : '扶養'}（削除）`,
+        name: c.before, income: null,
+        memo: `本人が外しました（変更前: ${c.before}）`,
+      }))
       styleRow(r, DEL_FILL, false)
       for (let cc = 1; cc <= HEADERS.length; cc++) {
         const cell = r.getCell(cc)
         cell.font = { name: FONT, size: 9, color: { argb: DEL_INK }, strike: true }
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: DEL_FILL } }
       }
-      r.getCell(16).font = { name: FONT, size: 9, color: { argb: DEL_INK } }
+      r.getCell(col('memo')).font = { name: FONT, size: 9, color: { argb: DEL_INK } }
     }
   }
 
@@ -194,7 +239,7 @@ export async function buildDeclarationExcelBlob(
 
 /** 修正されたセルを黄色に、新しく追加された行を緑にする。
  *  白黒で印刷しても分かるよう、区分セルに記号（★＋）を足し、変更前の値をセルのメモに残す。 */
-function markChanges(row: import('exceljs').Row, changes: Change[], fieldCol: Record<string, number>) {
+function markChanges(row: import('exceljs').Row, changes: Change[], fieldCol: Record<string, ColKey>) {
   if (!changes.length) return
   const added = changes.find((c) => c.kind === 'added' && !c.field)
   if (added) {
@@ -203,7 +248,7 @@ function markChanges(row: import('exceljs').Row, changes: Change[], fieldCol: Re
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ADD_FILL } }
       cell.font = { ...(cell.font || { name: FONT, size: 9 }), color: { argb: ADD_INK } }
     }
-    const tag = row.getCell(2)
+    const tag = row.getCell(col('tag'))
     tag.value = `${CHANGE_MARK.added} ${String(tag.value ?? '')}`.trim()
     tag.font = { name: FONT, size: 9, bold: true, color: { argb: ADD_INK } }
     return
@@ -211,16 +256,16 @@ function markChanges(row: import('exceljs').Row, changes: Change[], fieldCol: Re
   let marked = 0
   for (const ch of changes) {
     if (!ch.field) continue
-    const col = fieldCol[ch.field]
-    if (!col) continue
-    const cell = row.getCell(col)
+    const key = fieldCol[ch.field]
+    if (!key) continue
+    const cell = row.getCell(col(key))
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MOD_FILL } }
     cell.font = { ...(cell.font || { name: FONT, size: 9 }), bold: true, color: { argb: MOD_INK } }
     cell.note = `変更前: ${ch.before || '（なし）'}`
     marked++
   }
   if (marked) {
-    const tag = row.getCell(2)
+    const tag = row.getCell(col('tag'))
     tag.value = `${CHANGE_MARK.modified} ${String(tag.value ?? '')}`.trim()
     tag.font = { name: FONT, size: 9, bold: true, color: { argb: MOD_INK } }
   }
@@ -299,16 +344,16 @@ function thinBorder(argb = 'FFD3DAE3') {
 
 function styleRow(row: import('exceljs').Row, fill: string, isSelf: boolean) {
   // 高さは固定しない（wrapTextの列はExcelが開いたときに自動で行高を広げるため、固定すると見切れる）
-  for (let c = 1; c <= HEADERS.length; c++) {
-    const cell = row.getCell(c)
-    cell.font = { name: FONT, size: 9, bold: isSelf && (c === 2 || c === 3), color: { argb: 'FF243042' } }
+  COLS.forEach((def, i) => {
+    const cell = row.getCell(i + 1)
+    cell.font = { name: FONT, size: 9, bold: isSelf && (def.key === 'tag' || def.key === 'name' || def.key === 'taxCat'), color: { argb: 'FF243042' } }
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
     cell.border = thinBorder()
-    cell.alignment = { vertical: 'middle', horizontal: c === 7 ? 'right' : c === 1 || c === 6 || (c >= 8 && c <= 11) || c === 13 ? 'center' : 'left', wrapText: c === 12 || c === 14 || c === 16 }
-    if (c === 7) cell.numFmt = '#,##0'
-  }
+    cell.alignment = { vertical: 'middle', horizontal: def.align, wrapText: !!def.wrap }
+    if (def.key === 'income') cell.numFmt = '#,##0'
+  })
   if (!isSelf) {
     // 家族行の区分セルは淡い金で「本人の下にぶら下がる家族」であることを示す
-    row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SPOUSE_TAG_FILL } }
+    row.getCell(col('tag')).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SPOUSE_TAG_FILL } }
   }
 }
