@@ -181,7 +181,7 @@ ${disabilityQ(5, [])}
 ${DOCS_Q(6)}
 
 ${SIGN}
-<div class="ft"><span>個人情報を含みます。封筒に入れて提出してください。ご不明な点は会社のご担当者へ。</span><span>今年入社された方用（記入式）${total > 1 ? `　${i + 1}/${total}` : ''}</span></div>
+<div class="ft"><span>個人情報を含みます。ご不明な点は会社のご担当者または日下部税理士事務所へ。</span><span>今年入社された方用（記入式）${total > 1 ? `　${i + 1}/${total}` : ''}</span></div>
 </section>`
 }
 
@@ -239,7 +239,7 @@ ${disabilityQ(5, known)}
 ${DOCS_Q(6)}
 
 ${SIGN}
-<div class="ft"><span>個人情報を含みます。封筒に入れて提出してください。ご不明な点は会社のご担当者へ。</span><span>印字の元：${esc(e.source)}</span></div>
+<div class="ft"><span>個人情報を含みます。ご不明な点は会社のご担当者または日下部税理士事務所へ。</span></div>
 </section>`
 }
 
