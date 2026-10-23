@@ -7,10 +7,19 @@
 
 import type { Declaration, DepInfo, SpouseInfo } from './declaration'
 
-/** 変更の種類。★＝修正 ＋＝新規 −＝削除（白黒印刷でも区別できるよう記号を付ける） */
-export type ChangeKind = 'modified' | 'added' | 'removed'
-export const CHANGE_MARK: Record<ChangeKind, string> = { modified: '★', added: '＋', removed: '−' }
-export const CHANGE_LABEL: Record<ChangeKind, string> = { modified: '修正', added: '新規', removed: '削除' }
+/** 変更の種類。★＝修正 ＋＝新規 −＝削除 ⚠＝要確認（白黒印刷でも区別できるよう記号を付ける）。
+ *  要確認＝会社の登録にあるのに申告が空欄で、しかも提出時の画面にその項目が表示されていなかったもの
+ *  （本人が外したのではないので「削除」「修正」と書かない。事務所から本人へ確認する） */
+export type ChangeKind = 'modified' | 'added' | 'removed' | 'review'
+export const CHANGE_MARK: Record<ChangeKind, string> = { modified: '★', added: '＋', removed: '−', review: '⚠' }
+export const CHANGE_LABEL: Record<ChangeKind, string> = { modified: '修正', added: '新規', removed: '削除', review: '要確認' }
+/** 要確認の「変更後」に書く文言 */
+export const REVIEW_AFTER = '申告なし（提出時の画面に表示されていませんでした）'
+
+/** 会社の登録（JDLのCSV）のうち、本人の状態・世帯主・配偶者（別列）・甲乙・扶養親族の障害者区分は
+ *  2026/10/20 から従業員ページの初期表示に出している。それより前の提出では画面に出ていなかったので、
+ *  空欄でも本人が外したとは限らない（要確認として扱う）。日付は修正を公開した日の終わり（日本時間） */
+export const CSV_SELF_PREFILL_SINCE = Date.parse('2026-10-21T00:00:00+09:00')
 
 /** 変更前の内容（従業員ページの初期表示に使ったもの） */
 export interface Baseline {
@@ -33,6 +42,8 @@ export interface Baseline {
   workingStudent: boolean
   spouse: { exists: boolean; name: string; kana: string; birth: string; income: string }
   dependents: { name: string; kana: string; relation: string; birth: string; income: string; liveTogether?: boolean; disability?: string }[]
+  /** 会社の登録が基準で、本人の状態・配偶者などが初期表示されていなかった頃の提出（CSV_SELF_PREFILL_SINCE より前） */
+  legacyCsv?: boolean
 }
 
 /** 1件の変更 */
@@ -161,6 +172,9 @@ function depText(d: { name: string; relation: string; birth: string; income: str
 export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   const out: Change[] = []
   const isNew = base.source === 'none'
+  // 提出時の画面に出ていなかった項目（会社の登録にあるのに空欄なら「要確認」）
+  const legacy = base.source === 'csv' && !!base.legacyCsv
+  const LEGACY_FIELDS = new Set(['householder', 'householderRelation', 'selfDisability', 'widow', 'workingStudent', 'taxCategory'])
   const push = (kind: ChangeKind, target: Change['target'], label: string, before: string, after: string, field?: string) => {
     out.push({ kind, target, label, before, after, field })
   }
@@ -169,6 +183,12 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   const DEFAULTS: Record<string, string> = { selfDisability: '非該当', widow: '非該当', workingStudent: '非該当', taxCategory: '甲欄' }
   /** 本人行の項目。値が変わっていれば修正、変更前が空なら新規（空欄に入力されたということ） */
   const cmp = (field: string, label: string, before: string, after: string) => {
+    if (legacy && LEGACY_FIELDS.has(field) && s(before) && norm(before) !== norm(after)
+      && (!s(after) || (DEFAULTS[field] && norm(after) === norm(DEFAULTS[field])))) {
+      if (field === 'householderRelation' && !s(d.householder)) return // 世帯主の要確認に含める
+      push('review', 'self', label, s(before), REVIEW_AFTER, field)
+      return
+    }
     if (!s(after) || norm(before) === norm(after)) {
       if (!isNew && norm(before) !== norm(after)) push('modified', 'self', label, s(before), s(after), field)
       return
@@ -195,7 +215,7 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
   // 配偶者
   const bs = base.spouse, ds: SpouseInfo = d.spouse || { exists: false, name: '', kana: '', birth: '', income: '' }
   if (!bs.exists && ds.exists) push('added', 'spouse', '配偶者', '', spouseText({ name: s(ds.name), kana: s(ds.kana), birth: s(ds.birth), income: s(ds.income) }))
-  else if (bs.exists && !ds.exists) push('removed', 'spouse', '配偶者', spouseText(bs), '')
+  else if (bs.exists && !ds.exists) push(legacy ? 'review' : 'removed', 'spouse', '配偶者', spouseText(bs), legacy ? REVIEW_AFTER : '')
   else if (bs.exists && ds.exists) {
     if (norm(bs.name) !== norm(ds.name)) push('modified', 'spouse', '配偶者の氏名', bs.name, s(ds.name), 'name')
     if (norm(bs.kana) !== norm(ds.kana)) push('modified', 'spouse', '配偶者のフリガナ', bs.kana, s(ds.kana), 'kana')
@@ -228,7 +248,9 @@ export function diffDeclaration(base: Baseline, d: Declaration): Change[] {
       push('modified', `dep${i}`, `${lab} の同居・別居`, b.liveTogether ? '同居' : '別居', dep.liveTogether ? '同居' : '別居', 'liveTogether')
     }
     if (b.disability && norm(b.disability) !== norm(dep.disability)) {
-      push('modified', `dep${i}`, `${lab} の障害者区分`, b.disability, s(dep.disability), 'disability')
+      if (legacy && b.disability !== '非該当' && (!s(dep.disability) || dep.disability === '非該当')) {
+        push('review', `dep${i}`, `${lab} の障害者区分`, b.disability, REVIEW_AFTER, 'disability')
+      } else push('modified', `dep${i}`, `${lab} の障害者区分`, b.disability, s(dep.disability), 'disability')
     }
   })
   base.dependents.forEach((b, k) => {

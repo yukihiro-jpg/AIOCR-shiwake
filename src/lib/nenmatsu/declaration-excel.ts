@@ -30,6 +30,9 @@ const DEL_FILL = 'FFEDEFF2'   // 本人が外した行（グレー）
 const MOD_INK = 'FF8A6100'
 const ADD_INK = 'FF14683A'
 const DEL_INK = 'FF7A828C'
+const REV_FILL = 'FFFFDDB8'   // 要確認（橙）
+const REV_INK = 'FFB45309'
+const REVIEW_NOTE = '会社の登録にあるのに申告が空欄です。提出時の画面にはこの項目が表示されていなかったため、本人に確認してください。'
 
 type ColKey = 'no' | 'tag' | 'taxCat' | 'name' | 'kana' | 'relation' | 'birth' | 'income' | 'disability' | 'widow'
   | 'student' | 'together' | 'category' | 'family' | 'postal' | 'address' | 'householder' | 'memo'
@@ -140,7 +143,8 @@ export async function buildDeclarationExcelBlob(
       const nMod = changes.filter((c) => c.kind === 'modified').length
       const nAdd = changes.filter((c) => c.kind === 'added').length
       const nDel = changes.filter((c) => c.kind === 'removed').length
-      const parts = [nMod ? `★修正${nMod}` : '', nAdd ? `＋新規${nAdd}` : '', nDel ? `−削除${nDel}` : ''].filter(Boolean)
+      const nRev = changes.filter((c) => c.kind === 'review').length
+      const parts = [nRev ? `⚠要確認${nRev}` : '', nMod ? `★修正${nMod}` : '', nAdd ? `＋新規${nAdd}` : '', nDel ? `−削除${nDel}` : ''].filter(Boolean)
       memo.push(parts.length ? parts.join('・') : '変更なし')
     }
     if (ent.isNewHire || d.isNewHire) {
@@ -229,6 +233,20 @@ export async function buildDeclarationExcelBlob(
       }
       r.getCell(col('memo')).font = { name: FONT, size: 9, color: { argb: DEL_INK } }
     }
+    // 会社の登録にいる配偶者が申告に無い（提出時の画面に出ていなかった）→ 要確認の行として残す
+    for (const c of changes.filter((x) => x.kind === 'review' && x.target === 'spouse' && !x.field)) {
+      const r = ws.addRow(rowArray({
+        tag: `${CHANGE_MARK.review} 配偶者（要確認）`,
+        name: c.before, income: null, relation: '配偶者',
+        memo: `会社の登録に配偶者がいますが、申告にありません（提出時の画面に表示されていなかったため、本人に確認してください）`,
+      }))
+      styleRow(r, REV_FILL, false)
+      for (let cc = 1; cc <= HEADERS.length; cc++) {
+        const cell = r.getCell(cc)
+        cell.font = { name: FONT, size: 9, bold: cc === col('tag'), color: { argb: REV_INK } }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REV_FILL } }
+      }
+    }
   }
 
   buildChangeSheet(wb, allChanges, opts)
@@ -253,21 +271,29 @@ function markChanges(row: import('exceljs').Row, changes: Change[], fieldCol: Re
     tag.font = { name: FONT, size: 9, bold: true, color: { argb: ADD_INK } }
     return
   }
-  let marked = 0
+  let marked = 0, reviewed = 0
   for (const ch of changes) {
     if (!ch.field) continue
     const key = fieldCol[ch.field]
     if (!key) continue
     const cell = row.getCell(col(key))
+    if (ch.kind === 'review') {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REV_FILL } }
+      cell.font = { ...(cell.font || { name: FONT, size: 9 }), bold: true, color: { argb: REV_INK } }
+      if (!String(cell.value ?? '').trim()) cell.value = '⚠要確認'
+      cell.note = `会社の登録: ${ch.before}\n${REVIEW_NOTE}`
+      reviewed++
+      continue
+    }
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MOD_FILL } }
     cell.font = { ...(cell.font || { name: FONT, size: 9 }), bold: true, color: { argb: MOD_INK } }
     cell.note = `変更前: ${ch.before || '（なし）'}`
     marked++
   }
-  if (marked) {
+  if (marked || reviewed) {
     const tag = row.getCell(col('tag'))
-    tag.value = `${CHANGE_MARK.modified} ${String(tag.value ?? '')}`.trim()
-    tag.font = { name: FONT, size: 9, bold: true, color: { argb: MOD_INK } }
+    tag.value = `${reviewed ? CHANGE_MARK.review : ''}${marked ? CHANGE_MARK.modified : ''} ${String(tag.value ?? '')}`.trim()
+    tag.font = { name: FONT, size: 9, bold: true, color: { argb: reviewed ? REV_INK : MOD_INK } }
   }
 }
 
@@ -288,10 +314,11 @@ function buildChangeSheet(
   title.height = 24
 
   const changed = all.filter((x) => x.changes.length > 0)
-  const sub = ws.addRow([`変更のあった方 ${changed.length}名 / 提出 ${all.length}名　（★修正・＋新規・−削除）`])
+  const nReview = all.filter((x) => x.changes.some((c) => c.kind === 'review')).length
+  const sub = ws.addRow([`変更のあった方 ${changed.length}名 / 提出 ${all.length}名${nReview ? `　うち⚠要確認 ${nReview}名` : ''}　（⚠要確認・★修正・＋新規・−削除）`])
   ws.mergeCells(2, 1, 2, HEAD.length)
   sub.getCell(1).font = { name: FONT, size: 9, color: { argb: 'FF5B6675' } }
-  const note = ws.addRow(['「変更前」は、従業員がスマホで最初に見た内容（前年の提出、無ければ会社の登録内容）です。'])
+  const note = ws.addRow(['「変更前」は、従業員がスマホで最初に見た内容（前年の提出、無ければ会社の登録内容）です。⚠要確認＝会社の登録にあるのに申告が空欄で、提出時（2026/10/20まで）の画面にその項目が表示されていなかったもの。本人に確認してください。'])
   ws.mergeCells(3, 1, 3, HEAD.length)
   note.getCell(1).font = { name: FONT, size: 9, color: { argb: 'FF5B6675' } }
 
@@ -314,8 +341,8 @@ function buildChangeSheet(
   for (const { entry, changes } of changed) {
     const name = `${entry.decl.lastName} ${entry.decl.firstName}`.trim() || entry.employeeName
     changes.forEach((c, i) => {
-      const fill = c.kind === 'modified' ? MOD_FILL : c.kind === 'added' ? ADD_FILL : DEL_FILL
-      const ink = c.kind === 'modified' ? MOD_INK : c.kind === 'added' ? ADD_INK : DEL_INK
+      const fill = c.kind === 'modified' ? MOD_FILL : c.kind === 'added' ? ADD_FILL : c.kind === 'review' ? REV_FILL : DEL_FILL
+      const ink = c.kind === 'modified' ? MOD_INK : c.kind === 'added' ? ADD_INK : c.kind === 'review' ? REV_INK : DEL_INK
       const r = ws.addRow([
         i === 0 ? name : '',
         `${CHANGE_MARK[c.kind]} ${CHANGE_LABEL[c.kind]}`,

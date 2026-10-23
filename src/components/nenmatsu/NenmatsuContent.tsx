@@ -39,7 +39,7 @@ import { openConfirmSheetPrint, type ConfirmSheetEmployee } from '@/lib/nenmatsu
 import DriveSaveDialog from '@/core/ui/DriveSaveDialog'
 import { spouseCategory, dependentCategory, numYen, type Declaration } from '@/lib/nenmatsu/declaration'
 import { buildDeclarationExcelBlob, type DeclarationExcelEntry } from '@/lib/nenmatsu/declaration-excel'
-import { baselineFromDeclaration, baselineFromCsv, type Baseline } from '@/lib/nenmatsu/declaration-diff'
+import { baselineFromDeclaration, baselineFromCsv, CSV_SELF_PREFILL_SINCE, type Baseline } from '@/lib/nenmatsu/declaration-diff'
 
 interface Row {
   client: SharedClient
@@ -1395,6 +1395,9 @@ function CompanyDetail({
               lastName: e.lastName, firstName: e.firstName,
               kanaLast: e.kanaLast, kanaFirst: e.kanaFirst, birth: e.birth,
             })
+            // 本人の状態・配偶者などが初期表示されていなかった頃の提出は、空欄を「要確認」で出す
+            const at = Date.parse(rec!.submittedAt || '')
+            if (!isNaN(at) && at < CSV_SELF_PREFILL_SINCE) baseline.legacyCsv = true
           }
         }
         return {
