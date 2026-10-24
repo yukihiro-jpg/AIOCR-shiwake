@@ -1,6 +1,7 @@
 // JDL 年末調整CSV のパーサ（Shift_JIS）。
 // 構造: 先頭4行ヘッダー → 5行目カラムヘッダー → 6行目〜データ → 末尾2行フッター。
-// 在職者のみ取り込み（入退状況区分=「在職」）。
+// 退職者を除いて取り込む（入退状況区分に「退職」を含む行＝「退職」「中途入社退職」を除外。
+// 「在職」だけでなく「中途入社」（本年の途中で入社した方）も在籍中の従業員として取り込む）。
 // 主要カラム: 社員C(0), 姓(1)+名(2), フリガナ姓(3)+名(4), 生年月日(7), 入退状況(27)。
 
 import type { NenmatsuEmployee } from './store'
@@ -56,7 +57,7 @@ const COL = {
 export interface JdlParseResult {
   employees: NenmatsuEmployee[]
   total: number // 在職フィルタ前のデータ行数
-  skipped: number // 退職等で除外した数
+  skipped: number // 退職で除外した数
 }
 
 export function parseJdlCsv(text: string): JdlParseResult {
@@ -70,8 +71,9 @@ export function parseJdlCsv(text: string): JdlParseResult {
     const code = (cells[COL.code] || '').trim()
     if (!code) continue
     const status = (cells[COL.status] || '').trim()
-    // 「在職」を含む行のみ。空欄のときは安全側で取り込む。
-    if (status && !status.includes('在職')) {
+    // 「退職」を含む行（退職・中途入社退職）だけ除外する。「在職」「中途入社」や空欄は取り込む。
+    // 以前は「在職」を含む行だけを取り込んでいたため、全員が「中途入社」の会社で0件になっていた
+    if (/退職|退社/.test(status)) {
       skipped++
       continue
     }
