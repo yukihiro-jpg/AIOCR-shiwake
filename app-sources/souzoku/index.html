@@ -510,6 +510,15 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
 .setting-row .sr-control{flex:1;}
 
 /* ---------- Modal ---------- */
+.xi-h{font-size:14px;margin:14px 0 6px;color:#1f2a37;}
+.xi-t{width:100%;border-collapse:collapse;font-size:12.5px;}
+.xi-t th{background:#f3f5f8;color:#5b6675;font-weight:600;text-align:left;padding:5px 8px;border-bottom:1px solid #dde3ea;}
+.xi-t td{padding:5px 8px;border-bottom:1px solid #eef1f4;vertical-align:top;}
+.xi-t tr.xi-rv td{background:#fff4e5;}
+.xi-new{color:#1a7f37;font-weight:600;} .xi-fill{color:#0b63c5;font-weight:600;} .xi-wtxt{color:#b45309;font-size:11px;white-space:normal;}
+.xi-alert{background:#fde8e8;border:1px solid #f5a3a3;color:#9b1c1c;border-radius:8px;padding:8px 12px;margin:6px 0;font-size:13px;}
+.xi-warn{background:#fff7e6;border:1px solid #f5c26b;color:#7a4a00;border-radius:8px;padding:8px 12px;margin:6px 0;font-size:13px;}
+.xi-skip{margin:4px 0 0 18px;font-size:12px;line-height:1.7;}
 .modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
 .modal-ov.active{display:flex;}
 .modal{background:var(--surface);border-radius:var(--radius);padding:26px;max-width:560px;width:92%;max-height:82vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);}
@@ -583,6 +592,7 @@ textarea{resize:vertical;min-height:60px;line-height:1.5;}
     <div class="topbar-right">
       <div class="drive-status" id="driveStatus"><span class="d"></span><span>未接続（ローカルのみ）</span></div>
       <span class="save-status" id="saveStatus"></span>
+      <button class="btn sm needs-case" onclick="openXiModal()" title="Claudeが相続資料から作った「相続税基礎データExcel」を、開いている案件に取り込みます（確認してから反映・取消可）">基礎データExcelを取り込む</button>
       <button class="btn primary sm needs-case" id="btnSaveTop" onclick="saveCurrentCase()">同期</button>
     </div>
   </header>
@@ -1251,6 +1261,22 @@ function getStock_(symbol){
       <div style="display:flex;gap:8px;">
         <button class="btn" onclick="adClose()">閉じる</button>
         <button class="btn primary" id="adApplyBtn" onclick="adApply()" style="display:none;">チェックした行を財産一覧へ反映</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 相続税基礎データExcel の取込 -->
+<div class="modal-ov" id="xiModal">
+  <div class="modal" style="max-width:1100px;">
+    <h2>基礎データExcelを取り込む</h2>
+    <div class="m-sub">Claudeが相続資料から作った「相続税基礎データExcel」を読み取り、取り込む内容を一覧にします。確認して「反映」を押すまで、案件は変わりません。既存の入力は上書きせず、空欄だけを埋めます。</div>
+    <div id="xiBody" style="margin-top:10px;max-height:64vh;overflow:auto"></div>
+    <div class="btn-row" style="margin-top:14px;justify-content:space-between;">
+      <div id="xiFootLeft" class="muted" style="font-size:12px;"></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="closeModal('xiModal')">閉じる</button>
+        <button class="btn primary" id="xiApplyBtn" onclick="xiApply()" style="display:none;">チェックした行を反映</button>
       </div>
     </div>
   </div>
@@ -2707,8 +2733,8 @@ function computeAssetValue(a){
   if(a.category==='funeral'){ return Math.max(0, num(a.claimAmount)-num(a.excludeAmount)); }
   return num(a.value);
 }
-// 生命保険金等の非課税枠の対象か（定期金に関する権利は対象外）
-function insExemptEligible(a){ return a.category==='insurance' && !(a.subcategory && a.subcategory.indexOf('定期金')>=0); }
+// 生命保険金等の非課税枠の対象か（定期金に関する権利・生命保険契約に関する権利は対象外＝本来の相続財産）
+function insExemptEligible(a){ return a.category==='insurance' && !/定期金|契約に関する権利/.test(a.subcategory||''); }
 function assetVal(a){ return computeAssetValue(a); }
 // 財産の識別用テキスト（登録した全情報を読みやすく連結）
 function assetDesc(a){
@@ -3214,7 +3240,7 @@ const ASSET_COLS={
   securities:[['subcategory','種類','sel'],['evalWay','評価方法','text'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','銘柄','text'],['unitPrice','単価','money'],['quantity','数量','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   unlisted:[['subcategory','種類','sel'],['evalWay','評価方法','optsel','optUnlistedEval'],['companyType','会社区分','selopt',['大会社','中会社','小会社','特定の評価会社','配当還元']],['name','会社名（銘柄）','text'],['unitPrice','単価','money'],['quantity','株数','num'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   cash:[['nominee','名義','nameSel'],['subcategory','種類','optsel','optCashType'],['name','金融機関','text'],['branch','支店','text'],['accountNo','口座番号','text'],['_value','金額(円)','value'],['interest','既経過利息','money'],['memo','注記','text']],
-  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','定期金に関する権利','その他']],['name','保険会社','text'],['insurerAddr','保険会社住所','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['payDate','支払日','date'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_calc','計算','calc'],['_value','金額(円)','value'],['memo','注記','text']],
+  insurance:[['subcategory','区分','selopt',['死亡保険金（非課税枠の対象）','生命保険契約に関する権利','定期金に関する権利','その他']],['name','保険会社','text'],['insurerAddr','保険会社住所','text'],['insType','保険種類','optsel','optInsType'],['accountNo','証券番号','text'],['nominee','受取人','nameSel'],['payDate','支払日','date'],['fxCurrency','通貨','selopt',['米ドル','豪ドル','ユーロ','NZドル','英ポンド','カナダドル','スイスフラン','その他']],['fxAmount','外貨建保険金額','num'],['fxRate','TTB(死亡日)','num'],['_calc','計算','calc'],['_value','金額(円)','value'],['memo','注記','text']],
   retirement:[['subcategory','種類','sel'],['name','支給者','text'],['nominee','受取人','nameSel'],['_value','金額(円)','value'],['memo','注記','text']],
   other:[['subcategory','細目','sel'],['name','内容','text'],['location','所在・明細','text'],['quantity','数量','num'],['unitPrice','単価','money'],['_calc','計算','calc'],['_value','価額(円)','value'],['memo','注記','text']],
   debt:[['subcategory','種類','sel'],['location','細目','text'],['name','債権者の氏名','text'],['creditorAddr','債権者住所','text'],['debtStart','債務発生年月日','date'],['debtDue','弁済期限','date'],['_value','金額(円)','value'],['memo','注記','text']],
@@ -3746,7 +3772,7 @@ function detailNote(cat){
     securities:'【上場株式・ETF・REIT】評価額 ＝ ①相続開始日終値、②当月・③前月・④前々月の終値の月平均額 のうち最も低い価額×株数。「税法上の1株単価」は①〜④のうち最も低い価額を自動表示したもので、この単価×株数が評価額になります（手入力はできません。①〜④を直せば自動で変わります）。「自動算出」で銘柄コードから株価4時点・配当・銘柄名をYahoo!ファイナンス（GAS経由）で取得します（月平均は円未満切捨。Yahoo!が不調なときはStooqから株価を自動補完）。設定のApps Scriptを高機能版にすると、実際の配当支払日も取得して未収配当金・配当期待権をより正確に判定します。配当は相続開始日(死亡日)と各日付の関係で次のとおり判定し、配当総額−源泉税(20.315%)を評価額合計に加算します：①死亡日が配当基準日以前＝なし(株価に織込み済み)、②基準日の翌日〜効力発生日(株主総会決議日)＝配当期待権、③効力発生日の翌日〜支払開始日＝未収配当金、④支払開始日より後＝なし(受領済みのため現金・預貯金に計上)。自動算出の日付は推定値です（基準日≒権利落ち日の翌日、効力発生日≒基準日の約3か月後、支払開始日≒効力発生日の約2週間後）。実際の基準日・株主総会決議日・支払開始日が分かる場合は手入力で修正してください。\n【投資信託（非上場）】種類で「投資信託」を選ぶと、評価額 ＝ 基準価額(1万口)×口数÷1万 − 信託財産留保額(基準価額×留保率) − 解約手数料。「自動算出」はISINコード＋協会コードから投資信託協会の基準価額を取得します。留保率・解約手数料は目論見書を参照し入力してください。',
     unlisted:'非上場株式は類似業種比準・純資産価額方式等で1株単価を算定し、単価×株数で価額を計算します。',
     cash:'相続開始日時点の残高を入力します。名義は被相続人や相続人から選択できます（名義預金は実質の所有者をご確認のうえ判断）。種類（普通預金/定期預金/現金 等）は自由入力です。',
-    insurance:'区分で分けて入力します。「死亡保険金（非課税枠の対象）」＝被相続人を被保険者とし相続人が受け取る保険金で、非課税限度（500万円×法定相続人数）の対象。「定期金に関する権利」＝年金保険の受給権や保険料負担者＝被相続人で被保険者が他人の保険契約に関する権利等で、非課税の対象外（全額が課税価格）。金額は解約返戻金相当額等を入力します。外貨建ての保険は、通貨・外貨建保険金額・TTB（死亡日の対顧客直物電信買相場）を入力すると、金額(円)＝外貨建保険金額×TTB が自動計算されます（自動計算中は金額(円)は手入力できません。円建てのときは外貨欄を空欄にしてください）。',
+    insurance:'区分で分けて入力します。「死亡保険金（非課税枠の対象）」＝被相続人を被保険者とし相続人が受け取る保険金で、非課税限度（500万円×法定相続人数）の対象。「生命保険契約に関する権利」＝保険料負担者が被相続人で被保険者が他人の、まだ保険事故が起きていない保険契約（解約返戻金相当額で評価）。「定期金に関する権利」＝年金保険の受給権等。この2つは本来の相続財産で、非課税の対象外（全額が課税価格）。金額は解約返戻金相当額等を入力します。外貨建ての保険は、通貨・外貨建保険金額・TTB（死亡日の対顧客直物電信買相場）を入力すると、金額(円)＝外貨建保険金額×TTB が自動計算されます（自動計算中は金額(円)は手入力できません。円建てのときは外貨欄を空欄にしてください）。',
     retirement:'死亡退職金（みなし相続財産）。非課税限度（500万円×法定相続人数）は試算で自動控除します。',
     other:'自動車・会員権・貴金属・貸付金・未収金・暗号資産等。単価×数量で計算するか、価額を直接入力します。',
     debt:'種類・細目・債権者の氏名／住所・債務発生年月日・弁済期限・金額を登録します。金額が課税価格から控除されます。',
@@ -3906,7 +3932,7 @@ function calcTax(){
     allocs.forEach(al=>{
       const amt=Number(al.amount)||0; const p=ph[al.heirId]; const frac=aVal>0?amt/aVal:1;
       if(!p){ unassigned+=amt*(t.sign<0?-1:1); return; }
-      if(a.category==='insurance'){ if(insExemptEligible(a)) p.ins=(p.ins||0)+amt; else p.acquired+=amt; } // 定期金に関する権利は非課税枠の対象外（全額課税）
+      if(a.category==='insurance'){ if(insExemptEligible(a)) p.ins=(p.ins||0)+amt; else p.acquired+=amt; } // 定期金に関する権利・生命保険契約に関する権利は非課税枠の対象外（全額課税）
       else if(a.category==='retirement') p.ret=(p.ret||0)+amt;
       else if(t.sign<0) p.debt+=amt;
       else { p.acquired+=amt; if(a.category==='land'&&kobo.byAsset[a.id]) p.kobo+=kobo.byAsset[a.id]*frac; }
@@ -4051,7 +4077,9 @@ function fmtAlloc(v){ return Math.round(v).toLocaleString('ja-JP'); }
 // 財産一覧で受取人（nominee）に相続人を登録したら、その人が取得したものとして分割へ反映する。
 // nominee は氏名の文字列（財産一覧のセレクトが被相続人＋相続人の氏名から作る）なので、氏名で相続人を引く。
 const NOMINEE_CATS=['insurance','retirement'];
-function normName(s){ return String(s==null?'':s).replace(/[\s　]/g,''); }
+// 氏名の照合用：空白を除き、異体字をそろえる（戸籍の「廣瀨」と一覧図・保険証書の「廣瀬」を同じ人として扱う）
+const NAME_VARIANTS={'瀨':'瀬','髙':'高','﨑':'崎','邊':'辺','邉':'辺','齋':'斉','齊':'斉'};
+function normName(s){ return String(s==null?'':s).replace(/[\s　]/g,'').replace(/[瀨髙﨑邊邉齋齊]/g,c=>NAME_VARIANTS[c]||c); }
 function nomineeHeirId(a){
   if(!a || NOMINEE_CATS.indexOf(a.category)<0) return '';
   const n=normName(a.nominee); if(!n) return '';
@@ -5407,7 +5435,8 @@ function totalTaxScenario(T, heirsList){
   let total=0; st.spouse.concat(st.group).forEach(h=>total+=taxByTable(Math.floor(net*st.shares[h.id]/1000)*1000));
   return {tax:Math.floor(total/100)*100, count:st.count, basic, net};
 }
-function savingsCtx(){ const r=calcTax(); const insTotal=currentCase.assets.filter(a=>a.category==='insurance').reduce((s,a)=>s+assetVal(a),0); return {T0:r.totalTaxable, n:r.n, insTotal}; }
+// 非課税枠を使うのは死亡保険金だけ（定期金・生命保険契約に関する権利は枠を使わない）
+function savingsCtx(){ const r=calcTax(); const insTotal=currentCase.assets.filter(a=>insExemptEligible(a)).reduce((s,a)=>s+assetVal(a),0); return {T0:r.totalTaxable, n:r.n, insTotal}; }
 function savingsCompute(){
   const ctx=savingsCtx(); const T0=ctx.T0;
   const rows=[]; let dTtotal=0, dnTotal=0, gTaxTotal=0;
@@ -9395,6 +9424,314 @@ function adUndo(impId){
     Object.entries(fs||{}).forEach(([k,v])=>{ if(String(a[k]==null?'':a[k])===String(v.after)) a[k]=v.before; }); });
   delete currentCase.aiImports[impId];
   cacheCurrentCase(); renderAssetNav(); renderSummary(); renderAssetDetail(); adRender(); toast('取込を取り消しました');
+}
+
+// ============================================================
+//  相続税基礎データExcel の取込（Claudeが相続資料から作る11シートのExcel）
+//  ・読込は ExcelJS（自前配信）。列は見出しの文字で探す（位置に頼らない）
+//  ・既存データは上書きしない：照合キーで既存行を見つけたら空欄だけ埋め、無ければ行を追加する
+//  ・反映は書類読取（AI）の adApply／adUndo と同じ作り：開始時の案件IDを照合し、
+//    currentCase の参照は差し替えず中身を書き換え、取込ごとに currentCase.excelImports へ記録して取り消せる
+// ============================================================
+let _xi=null; // {caseId,fileName,deceased:{...},rows:[],skipped:[],code,name,codeBlock,nameWarn,nameOk}
+const XI_SHEETS=[['2_','被相続人・相続人'],['3_','土地・建物'],['4_','預貯金'],['5_','有価証券'],['6_','保険・退職金'],['7_','その他財産'],['8_','債務・葬式費用']];
+// セルの値を文字列／数値で取り出す（数式は計算結果、リッチテキストは連結）
+function xiCell(c){
+  let v=c&&c.value; if(v==null) return '';
+  if(v instanceof Date) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  if(typeof v==='object'){
+    if(Array.isArray(v.richText)) return v.richText.map(t=>t.text||'').join('');
+    if('result' in v){ const r=v.result; if(r==null||typeof r==='object') return (r instanceof Date)? xiCell({value:r}) : ''; return r; }
+    if('formula' in v||'sharedFormula' in v) return '';
+    if('text' in v) return String(v.text||'');
+    return '';
+  }
+  return v;
+}
+function xiStr(v){ return String(v==null?'':v).replace(/\r?\n/g,' ').trim(); }
+// 補足の括弧書き（全角・半角）と「※」以降を除く
+function xiStrip(v){ return xiStr(v).replace(/※.*$/,'').replace(/（[^）]*）/g,'').replace(/\([^)]*\)/g,'').trim(); }
+function xiNum(v){ if(typeof v==='number') return v; const s=xiStr(v); if(!s) return null; const t=toHalfDigits(s).replace(/[,，円\s]/g,''); const m=t.match(/^-?\d+(\.\d+)?/); return m?Number(m[0]):null; }
+// 和暦（R8.4.15・S38.9.19・H20.4.12…後ろの「（…）」補足可）／西暦（2026-04-20）→ YYYY-MM-DD
+function xiDate(v){
+  const s=toHalfDigits(xiStr(v)); if(!s) return '';
+  let m=s.match(/([MTSHR明大昭平令])\s*(\d{1,2}|元)\s*[.\/年]\s*(\d{1,2})\s*[.\/月]\s*(\d{1,2})/);
+  if(m){ const base={M:1867,'明':1867,T:1911,'大':1911,S:1925,'昭':1925,H:1988,'平':1988,R:2018,'令':2018}[m[1]]; const y=base+(m[2]==='元'?1:Number(m[2]));
+    return y+'-'+String(m[3]).padStart(2,'0')+'-'+String(m[4]).padStart(2,'0'); }
+  m=s.match(/(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})/);
+  if(m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+  return '';
+}
+// シートを行の配列に（各行は列番号1始まりの配列）
+function xiRows(ws){ const out=[]; ws.eachRow({includeEmpty:true},(r,n)=>{ const a=[]; r.eachCell({includeEmpty:true},(c,i)=>{ a[i]=xiCell(c); }); out[n]=a; }); return out; }
+const xiNormH=s=>xiStr(s).replace(/[\s　]/g,'');
+// 見出し行（must の語をすべて含む最初の行）を探す
+function xiHeader(rows,must){ for(let n=1;n<rows.length;n++){ const r=rows[n]; if(!r) continue; const t=r.map(xiNormH); if(must.every(w=>t.some(x=>x&&x.indexOf(w)>=0))) return n; } return 0; }
+// 見出しの文字から列番号を探す（完全一致を優先し、無ければ部分一致）
+function xiColOf(head,names){ const t=head.map(xiNormH); for(const nm of names){ const i=t.findIndex(x=>x===nm); if(i>0) return i; } for(const nm of names){ const i=t.findIndex(x=>x&&x.indexOf(nm)>=0); if(i>0) return i; } return 0; }
+function xiIsTotal(s){ const t=xiStr(s); return /^(合計|計)/.test(t) || /[\s　](合計|計)$/.test(t) || /合計$/.test(t); }
+function xiIsNote(s){ const t=xiStr(s); return /^(※|参考|注|■)/.test(t); }
+function xiDigits(s){ return toHalfDigits(String(s||'')).replace(/[^0-9]/g,''); }
+function xiKeyStr(s){ return normName(toHalfDigits(String(s||''))).replace(/[‐-―−ー－\-]/g,''); }
+
+// ---- 照合キー：既存の行を見つける（同じ取込を2回しても行が増えないように） ----
+function xiAssetKey(cat,f){
+  switch(cat){
+    case 'cash': return [xiKeyStr(f.name),xiKeyStr(f.subcategory),xiDigits(f.accountNo)].join('|');
+    case 'insurance': return [xiKeyStr(f.name),xiDigits(f.accountNo)||xiKeyStr(f.nominee)].join('|');
+    case 'retirement': return [xiKeyStr(f.name),xiKeyStr(f.nominee)].join('|');
+    case 'debt': return [xiKeyStr(f.name),String(num(f.value))].join('|');
+    case 'funeral': return [xiKeyStr(f.location),String(num(f.claimAmount))].join('|');
+    case 'land': return [xiKeyStr(f.location),xiKeyStr(f.chiban)].join('|');
+    case 'building': return [xiKeyStr(f.location),xiKeyStr(f.kaokuNo)].join('|');
+    case 'securities': return [xiKeyStr(f.broker),xiKeyStr(f.name)].join('|');
+    default: return [xiKeyStr(f.subcategory),xiKeyStr(f.name)].join('|');
+  }
+}
+function xiFindAsset(cat,f){ const k=xiAssetKey(cat,f); return (currentCase.assets||[]).find(a=>a&&a.category===cat&&xiAssetKey(cat,a)===k)||null; }
+function xiFindHeir(f){ const k=normName(f.name); if(!k) return null; return (currentCase.heirs||[]).find(h=>normName(h.name)===k)||null; }
+// 名前が空の相続人だけ（新規案件の初期状態）なら、それを1人目の取込先に使う
+function xiPlaceholderHeir(){ const hs=currentCase.heirs||[]; return (hs.length===1&&!xiStr(hs[0].name))?hs[0]:null; }
+const XI_BLANK_ONE=['ownNum','ownDen'];
+function xiIsBlank(obj,k){ const cur=obj[k]; if(cur==null||cur==='') return true; if(XI_BLANK_ONE.indexOf(k)>=0) return String(obj.ownNum||'1')==='1'&&String(obj.ownDen||'1')==='1'; return false; }
+// 既存の行に対して、空欄に入れる項目だけを返す
+function xiFillable(target,f){ const out={}; Object.keys(f).forEach(k=>{ if(k==='autoCalc'||k==='isRenounced') return; const v=f[k]; if(v===''||v==null) return; if(xiIsBlank(target,k)&&String(target[k]==null?'':target[k])!==String(v)) out[k]=v; }); return out; }
+
+// ---- シートの読取 ----
+function xiParse(wb){
+  const sheets={}; wb.eachSheet(ws=>{ XI_SHEETS.forEach(([p])=>{ if(ws.name.indexOf(p)===0) sheets[p]=ws; }); });
+  const res={deceased:{},rows:[],skipped:[],code:'',name:''};
+  const add=(sheet,kind,f,o)=>{ res.rows.push(Object.assign({_id:'x'+res.rows.length,sheet,kind,f,label:'',amount:null,note:'',review:false},o)); };
+  const skip=(sheet,label,reason)=>res.skipped.push({sheet,label:xiStr(label).slice(0,80),reason});
+  // 2_被相続人・相続人
+  const ws2=sheets['2_'];
+  if(ws2){ const R=xiRows(ws2);
+    const DEC={'コード':'code','氏名':'name','ふりがな':'kana','生年月日':'birth','死亡日（相続開始日）':'deathDate','本籍':'honseki','最後の住所':'address'};
+    const hRow=xiHeader(R,['氏名','続柄']);
+    for(let n=1;n<(hRow||R.length);n++){ const r=R[n]; if(!r) continue; const k=xiNormH(r[1]); const key=DEC[k]; if(!key) continue; const v=r[2];
+      if(key==='code') res.code=xiStr(v);
+      else if(key==='birth'||key==='deathDate') res.deceased[key]=xiDate(v);
+      else if(key==='name') res.deceased.name=xiStrip(v);
+      else res.deceased[key]=xiStrip(v); }
+    res.name=res.deceased.name||'';
+    if(hRow){ const H=R[hRow]; const C={name:xiColOf(H,['氏名']),rel:xiColOf(H,['続柄・順位','続柄']),birth:xiColOf(H,['生年月日']),addr:xiColOf(H,['住所']),tel:xiColOf(H,['電話番号']),
+        ren:xiColOf(H,['相続放棄']),civil:xiColOf(H,['民法上の相続人']),count:xiColOf(H,['法定相続人の数に含める']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+      for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const nm=xiStr(r[C.name]); if(!nm) continue; if(xiIsNote(nm)) break;
+        if(xiIsTotal(nm)||/^法定相続人の数|^遺産に係る基礎控除/.test(nm)) continue;
+        const civil=/○|〇/.test(xiStr(r[C.civil])), ren=xiStr(r[C.ren]), cnt=/○|〇/.test(xiStr(r[C.count]));
+        if(!(civil||ren||cnt)){ skip('相続人',nm,'相続人ではない参考の行（民法上の相続人・相続放棄・法定相続人の数のいずれにも該当なし）'); continue; }
+        const relRaw=xiStr(r[C.rel]); const relLabel=xiRelLabel(relRaw);
+        let tel=xiStr(r[C.tel]).replace(/（[^）]*）/g,'').trim(); if(/資料なし|不明/.test(tel)) tel='';
+        const f={name:xiStrip(nm),relationLabel:relLabel,birth:xiDate(r[C.birth]),address:xiStrip(r[C.addr]),tel,isRenounced:/^放棄/.test(ren)};
+        const note=xiStr(r[C.note]);
+        add('相続人','heir',f,{label:f.name+'（'+relLabel+(f.isRenounced?'・相続放棄':'')+'）',desc:[f.birth?('生年月日 '+f.birth):'',f.address].filter(Boolean).join('　'),note,review:!!note}); } } }
+  // 3_土地・建物
+  const ws3=sheets['3_'];
+  if(ws3){ const R=xiRows(ws3); const hRow=xiHeader(R,['所在']); if(hRow){ const H=R[hRow];
+    const C={loc:xiColOf(H,['所在']),no:xiColOf(H,['地番／家屋番号','地番','家屋番号']),kind:xiColOf(H,['地目／種類','地目','種類']),area:xiColOf(H,['地積／床面積','地積','床面積']),own:xiColOf(H,['所有者・持分','持分']),kotei:xiColOf(H,['固定資産税評価額']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const loc=xiStr(r[C.loc]); if(!loc) continue; if(xiIsNote(loc)) break; if(xiIsTotal(loc)) continue;
+      if(/該当資料なし/.test(loc)){ skip('土地・建物',loc,'該当資料なし'); continue; }
+      const kind=xiStrip(r[C.kind]); const area=xiNum(r[C.area]); const kotei=xiNum(r[C.kotei]);
+      const ownS=toHalfDigits(xiStr(r[C.own])); let on='1',od='1'; let mm=ownS.match(/(\d+)\s*[\/／]\s*(\d+)/); if(mm){ on=mm[1]; od=mm[2]; } else { mm=ownS.match(/(\d+)\s*分の\s*(\d+)/); if(mm){ od=mm[1]; on=mm[2]; } }
+      const note=xiStr(r[C.note]); const no=xiStrip(r[C.no]);
+      const isLand=/宅地|田|畑|山林|原野|雑種地|池沼|牧場|墓地|公衆用道路|境内地|鉱泉地|保安林|用悪水路|ため池|堤|井溝/.test(kind);
+      const isBld=/居宅|店舗|事務所|倉庫|共同住宅|車庫|物置|工場|作業所|納屋|附属|住宅/.test(kind);
+      if(isLand){ const sub=['宅地','田','畑','山林','原野','雑種地'].find(x=>kind.indexOf(x)>=0)||'その他';
+        const f={location:loc,chiban:no,tokiChimoku:kind,subcategory:sub,tokiChiseki:area!=null?String(area):'',quantity:area!=null?String(area):'',koteiValue:kotei!=null?String(kotei):'',ownNum:on,ownDen:od};
+        add('土地・建物','land',f,{label:'土地　'+loc+' '+no,desc:[kind,area!=null?(area+'㎡'):'',(od!=='1'?('持分'+on+'/'+od):'')].filter(Boolean).join('　'),amount:kotei,amountLabel:'固定資産税評価額',note,review:!!note}); }
+      else if(isBld){ const f={location:loc,kaokuNo:no,subcategory:kind,tokiYuka:area!=null?String(area):'',quantity:area!=null?String(area):'',koteiValue:kotei!=null?String(kotei):'',ownNum:on,ownDen:od};
+        add('土地・建物','building',f,{label:'建物　'+loc+' '+no,desc:[kind,area!=null?(area+'㎡'):''].filter(Boolean).join('　'),amount:kotei,amountLabel:'固定資産税評価額',note,review:!!note}); }
+      else skip('土地・建物',loc+' '+no,'地目・種類を判定できません（'+(kind||'空欄')+'）'); } } }
+  // 4_預貯金
+  const ws4=sheets['4_'];
+  if(ws4){ const R=xiRows(ws4); const hRow=xiHeader(R,['金融機関']); if(hRow){ const H=R[hRow];
+    const C={bank:xiColOf(H,['金融機関']),br:xiColOf(H,['支店']),kind:xiColOf(H,['種類']),acct:xiColOf(H,['口座（下4桁）','口座']),bal:xiColOf(H,['相続開始日残高','残高']),int:xiColOf(H,['既経過利息（税引後）','既経過利息']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const bank=xiStr(r[C.bank]); if(!bank) continue; if(xiIsNote(bank)) break; if(xiIsTotal(bank)) continue;
+      const bal=xiNum(r[C.bal]), it=xiNum(r[C.int]); const kind=xiStr(r[C.kind]); const note=xiStr(r[C.note]);
+      const isCash=/^現金/.test(bank)||/現金/.test(kind);
+      if(!isCash && !bal && it==null){ skip('預貯金',bank+' '+kind+' '+xiStr(r[C.acct]),'残高0（解約済み口座）'); continue; }
+      const f=isCash? {subcategory:'現金',name:kind&&kind!=='現金'?kind:'現金',value:String(bal||0),nominee:''}
+                    : {name:bank,branch:xiStr(r[C.br]),subcategory:kind,accountNo:xiStr(r[C.acct]),value:String(bal||0),interest:it!=null?String(it):'',nominee:''};
+      add('預貯金','cash',f,{label:isCash?('現金　'+f.name):(bank+'　'+f.branch+'　'+kind+'　'+f.accountNo),amount:(bal||0)+(it||0),note,review:!!note}); } } }
+  // 5_有価証券
+  const ws5=sheets['5_'];
+  if(ws5){ const R=xiRows(ws5); const hRow=xiHeader(R,['銘柄']); if(hRow){ const H=R[hRow];
+    const C={broker:xiColOf(H,['証券会社・発行会社','証券会社']),name:xiColOf(H,['銘柄']),qty:xiColOf(H,['数量']),val:xiColOf(H,['評価額']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const b=xiStr(r[C.broker]); const nm=xiStr(r[C.name]); if(!b&&!nm) continue; if(xiIsNote(b)) break; if(xiIsTotal(b)) continue;
+      if(/該当資料なし/.test(b)){ skip('有価証券',b,'該当資料なし'); continue; }
+      const q=xiNum(r[C.qty]), v=xiNum(r[C.val]); const note=xiStr(r[C.note]);
+      const f={broker:b,name:nm,quantity:q!=null?String(q):'',value:v!=null?String(v):'',autoCalc:false};
+      add('有価証券','securities',f,{label:b+'　'+nm,desc:q!=null?('数量 '+q):'',amount:v,note,review:!!note}); } } }
+  // 6_保険・退職金（「■ 非課税限度額の計算」以降は読まない）
+  const ws6=sheets['6_'];
+  if(ws6){ const R=xiRows(ws6); const hRow=xiHeader(R,['区分','受取額']); if(hRow){ const H=R[hRow];
+    const C={kind:xiColOf(H,['区分']),payer:xiColOf(H,['支払者']),no:xiColOf(H,['証券番号等','証券番号']),to:xiColOf(H,['受取人']),amt:xiColOf(H,['受取額']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const k=xiStr(r[C.kind]); if(!k) continue; if(xiIsNote(k)) break; if(xiIsTotal(k)) continue;
+      const payer=xiStr(r[C.payer]); const amt=xiNum(r[C.amt]); const note=xiStr(r[C.note]); const nominee=xiStrip(r[C.to]);
+      if(/^対象外/.test(k)){ skip('保険・退職金',payer+'（'+k+'）','対象外'+(amt?('　'+yen(amt)):'')); continue; }
+      let cat='',sub='';
+      if(/死亡退職金|退職手当/.test(k)){ cat='retirement'; sub='死亡退職金'; }
+      else if(/契約に関する権利/.test(k)){ cat='insurance'; sub='生命保険契約に関する権利'; }
+      else if(/定期金/.test(k)){ cat='insurance'; sub='定期金に関する権利'; }
+      else if(/死亡保険金|保険金/.test(k)){ cat='insurance'; sub='死亡保険金（非課税枠の対象）'; }
+      else { skip('保険・退職金',payer+'（'+k+'）','区分を判定できません'); continue; }
+      const f={subcategory:sub,name:payer,nominee,value:amt!=null?String(amt):''}; if(cat==='insurance') f.accountNo=xiStr(r[C.no]).replace(/（[^）]*）/g,'').trim();
+      add('保険・退職金',cat,f,{label:(cat==='retirement'?'退職手当金　':'')+payer,desc:sub+(nominee?('　受取人 '+nominee):''),amount:amt,note,review:!!note}); } } }
+  // 7_その他財産
+  const ws7=sheets['7_'];
+  if(ws7){ const R=xiRows(ws7); const hRow=xiHeader(R,['種類','内容']); if(hRow){ const H=R[hRow];
+    const C={kind:xiColOf(H,['種類']),body:xiColOf(H,['内容']),val:xiColOf(H,['評価額']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const k=xiStr(r[C.kind]); if(!k) continue; if(xiIsNote(k)) break; if(xiIsTotal(k)) continue;
+      if(/該当資料なし/.test(k)){ skip('その他財産',k,'該当資料なし'); continue; }
+      const v=xiNum(r[C.val]); const note=xiStr(r[C.note]);
+      const f={subcategory:k,name:xiStr(r[C.body]),value:v!=null?String(v):''};
+      add('その他財産','other',f,{label:k+'　'+f.name,amount:v,note,review:!!note}); } } }
+  // 8_債務・葬式費用
+  const ws8=sheets['8_'];
+  if(ws8){ const R=xiRows(ws8); const hRow=xiHeader(R,['区分','支払先']); if(hRow){ const H=R[hRow];
+    const C={kind:xiColOf(H,['区分']),to:xiColOf(H,['支払先']),body:xiColOf(H,['内容']),date:xiColOf(H,['対象期間・日付','日付']),amt:xiColOf(H,['金額']),ok:xiColOf(H,['控除の可否']),payer:xiColOf(H,['支払者']),note:xiColOf(H,['Claudeの確認事項','確認事項'])};
+    for(let n=hRow+1;n<R.length;n++){ const r=R[n]; if(!r) continue; const k=xiStr(r[C.kind]); if(!k) continue; if(xiIsNote(k)) break; if(xiIsTotal(k)) continue;
+      const amt=xiNum(r[C.amt]); const ok=xiStr(r[C.ok]); const note=xiStr(r[C.note]); const to=xiStr(r[C.to]), body=xiStr(r[C.body]); const period=xiStr(r[C.date]);
+      const needCheck=/要確認/.test(ok);
+      if(/^債務/.test(k)){ const f={name:to,location:body,value:amt!=null?String(amt):'',memo:period?('対象期間・日付：'+period):''};
+        add('債務・葬式費用','debt',f,{label:'債務　'+to,desc:body,amount:amt,note,review:needCheck||!!note,okText:ok}); }
+      else if(/^葬式/.test(k)){ const ng=/不可/.test(ok);
+        const f={name:xiStrip(r[C.payer]),location:[to,body].filter(Boolean).join(' '),payDate:xiDate(period),claimAmount:amt!=null?String(amt):'',excludeAmount:ng&&amt!=null?String(amt):'0'};
+        add('債務・葬式費用','funeral',f,{label:'葬式費用　'+to,desc:body+(ng?'　（控除不可→含まれない金額）':''),amount:amt,note,review:needCheck||!!note,okText:ok}); }
+      else skip('債務・葬式費用',k,'区分を判定できません'); } } }
+  return res;
+}
+// 続柄の文字（「妹（被相続人の父母を同じ…）」「母（第2順位…）」）を選択肢に寄せる
+function xiRelLabel(s){ const t=xiStr(s); const labels=RELATION_OPTIONS.map(o=>o.l).sort((a,b)=>b.length-a.length);
+  const hit=labels.find(l=>t.indexOf(l)===0); if(hit) return hit;
+  const head=t.replace(/[（(].*$/,'').trim(); return RELATION_BY_LABEL[head]?head:'その他'; }
+
+// ---- 画面 ----
+function openXiModal(){
+  if(!currentCase){ toast('先に案件を開いてください', true); return; }
+  if(!_xi||_xi.caseId!==currentId) _xi={caseId:currentId};
+  xiRender(); openModal('xiModal');
+  if(!_xi.rows){ const inp=$('xiFile'); if(inp){ inp.value=''; inp.click(); } }
+}
+async function xiPick(inp){
+  const file=inp&&inp.files&&inp.files[0]; if(!file) return;
+  if(!currentCase){ toast('先に案件を開いてください', true); return; }
+  if(typeof ExcelJS==='undefined'){ toast('Excel読込ライブラリを読み込めませんでした', true); return; }
+  syncUIToCase();
+  try{
+    const wb=new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer());
+    const res=xiParse(wb);
+    if(!res.rows.length&&!res.code){ toast('相続税基礎データExcelとして読み取れませんでした（シート名「2_被相続人・相続人」などを確認してください）', true); return; }
+    const d=currentCase.deceased||{};
+    const caseCode=xiStr(d.code), xlCode=xiStr(res.code);
+    const codeBlock= !!(caseCode&&xlCode&&xiDigits(caseCode)!==xiDigits(xlCode));
+    const nameWarn= !!(res.name&&xiStr(d.name)&&normName(res.name)!==normName(d.name));
+    res.rows.forEach(r=>{ r.on=!r.review; });
+    _xi={caseId:currentId,fileName:file.name,deceased:res.deceased,rows:res.rows,skipped:res.skipped,code:xlCode,name:res.name,codeBlock,nameWarn,nameOk:false,caseCode,noCode:!xlCode};
+  }catch(e){ console.error(e); toast('Excelを読み込めませんでした：'+(e&&e.message||e), true); return; }
+  finally{ if(inp) inp.value=''; }
+  xiRender();
+}
+// 行の状態（新規／空欄の補完／登録済み）
+function xiStatus(r){
+  if(r.kind==='heir'){ const h=xiFindHeir(r.f); if(h){ const fl=xiFillable(h,xiHeirFields(r.f)); const warn=(r.f.isRenounced&&!h.isRenounced)?'（既存の相続人は放棄なし。放棄の区分は変更しません）':''; return {mode:Object.keys(fl).length?'fill':'same',n:Object.keys(fl).length,warn}; }
+    return {mode:xiPlaceholderHeir()?'fillph':'new'}; }
+  const ex=xiFindAsset(r.kind,r.f); if(!ex) return {mode:'new'};
+  const fl=xiFillable(ex,r.f); return {mode:Object.keys(fl).length?'fill':'same',n:Object.keys(fl).length};
+}
+function xiHeirFields(f){ const o=RELATION_BY_LABEL[f.relationLabel]||{};
+  return {name:f.name,relationLabel:f.relationLabel,relationType:o.t||'other',isAdopted:!!o.adopted,isDaishu:!!o.daishu,grandAdopted:!!o.grandAdopted,birth:f.birth,address:f.address,tel:f.tel,isRenounced:!!f.isRenounced}; }
+function xiToggleSheet(sheet,on){ if(!_xi||!_xi.rows) return; _xi.rows.forEach(r=>{ if(r.sheet===sheet) r.on=on; }); xiRender(); }
+function xiToggle(id,on){ if(!_xi||!_xi.rows) return; const r=_xi.rows.find(x=>x._id===id); if(r) r.on=on; xiRender(); }
+function xiSetNameOk(on){ if(_xi){ _xi.nameOk=on; xiRender(); } }
+function xiRender(){
+  const el=$('xiBody'); if(!el||!currentCase) return; const st=_xi||{};
+  let h='<input type="file" id="xiFile" accept=".xlsx" style="display:none" onchange="xiPick(this)">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"><button class="btn sm" onclick="$(\'xiFile\').click()">'+(st.rows?'別のExcelを選ぶ':'Excelファイルを選ぶ')+'</button>'
+    +(st.fileName?'<span class="muted" style="font-size:12px;">'+esc(st.fileName)+'</span>':'<span class="muted" style="font-size:12px;">ファイル名 &lt;コード&gt;_&lt;氏名&gt;_相続税基礎データ.xlsx（11シート）</span>')+'</div>';
+  const caseOk=st.caseId===currentId;
+  if(st.rows){
+    if(!caseOk) h+='<div class="xi-alert">取込を始めた案件と違う案件が開いています。もう一度Excelを選んでください。</div>';
+    if(st.codeBlock) h+='<div class="xi-alert"><b>コードが一致しません。</b>Excelのコード「'+esc(st.code)+'」と、開いている案件のコード「'+esc(st.caseCode)+'」が違うため、取り込めません。正しい案件を開いてください。</div>';
+    else if(st.noCode) h+='<div class="xi-warn">Excelにコードがありません。案件の取り違えがないか、氏名で確認してください。</div>';
+    if(!st.codeBlock&&st.nameWarn) h+='<div class="xi-warn"><b>氏名が違います。</b>Excel「'+esc(st.name)+'」／案件「'+esc(currentCase.deceased.name||'')+'」<br><label style="display:inline-flex;align-items:center;gap:6px;margin-top:4px;"><input type="checkbox" '+(st.nameOk?'checked':'')+' onchange="xiSetNameOk(this.checked)"> 同じ人であることを確認しました（このまま取り込む）</label></div>';
+    // 被相続人
+    const d=currentCase.deceased||{}; const DL={code:'コード',name:'氏名',kana:'ふりがな',birth:'生年月日',deathDate:'死亡日',honseki:'本籍',address:'最後の住所'};
+    const fillD=Object.keys(DL).filter(k=>st.deceased&&st.deceased[k]&&!xiStr(d[k])&&!(k==='code'&&!st.code)).map(k=>DL[k]+'：'+esc(k==='code'?st.code:st.deceased[k]));
+    h+='<h3 class="xi-h">被相続人</h3><div class="muted" style="font-size:12px;">'+(fillD.length?('空欄に入れる項目　'+fillD.join('　')):'入力済みのため変更しません')+'</div>';
+    const groups={}; st.rows.forEach(r=>{ (groups[r.sheet]=groups[r.sheet]||[]).push(r); });
+    Object.keys(groups).forEach(g=>{ const rs=groups[g];
+      const allOn=rs.every(r=>r.on);
+      h+='<h3 class="xi-h">'+esc(g)+'　<button class="btn sm" style="font-size:11px;padding:2px 8px;" onclick="xiToggleSheet(\''+esc(g)+'\','+(!allOn)+')">'+(allOn?'すべて外す':'すべてチェック')+'</button></h3><table class="xi-t"><thead><tr><th style="width:28px;"></th><th>内容</th><th style="text-align:right;">金額</th><th>状態</th><th>確認事項</th></tr></thead><tbody>';
+      rs.forEach(r=>{ const s=xiStatus(r); const stt={new:'<span class="xi-new">新規</span>',fillph:'<span class="xi-new">新規（空の相続人欄へ）</span>',fill:'<span class="xi-fill">空欄を補完 '+s.n+'項目</span>',same:'<span class="muted">登録済み（変更なし）</span>'}[s.mode];
+        h+='<tr class="'+(r.review?'xi-rv':'')+'"><td><input type="checkbox" '+(r.on?'checked':'')+' onchange="xiToggle(\''+r._id+'\',this.checked)"></td>'
+          +'<td><div>'+esc(r.label)+'</div>'+(r.desc?'<div class="muted" style="font-size:11.5px;">'+esc(r.desc)+'</div>':'')+'</td>'
+          +'<td style="text-align:right;white-space:nowrap;">'+(r.amount!=null?yen(r.amount):'')+'</td>'
+          +'<td style="white-space:nowrap;">'+stt+(s.warn?'<div class="xi-wtxt">'+esc(s.warn)+'</div>':'')+'</td>'
+          +'<td style="font-size:11.5px;">'+(r.okText&&/要確認/.test(r.okText)?'<b>控除の可否：要確認</b><br>':'')+esc(r.note||'')+'</td></tr>'; });
+      h+='</tbody></table>'; });
+    if(st.skipped&&st.skipped.length){ h+='<h3 class="xi-h">取込対象外</h3><ul class="xi-skip">'+st.skipped.map(s=>'<li><b>'+esc(s.sheet)+'</b>　'+esc(s.label)+'　<span class="muted">— '+esc(s.reason)+'</span></li>').join('')+'</ul>'; }
+    h+='<div class="muted" style="font-size:11.5px;margin-top:8px;">※ オレンジの行（控除の可否が「要確認」、またはClaudeの確認事項がある行）は、チェックを外した状態です。確認のうえ、取り込む行にチェックを入れてください。既存の行は上書きせず、空欄だけを埋めます。</div>';
+  }
+  // 取込の履歴（取消）
+  const imps=currentCase.excelImports&&typeof currentCase.excelImports==='object'?Object.entries(currentCase.excelImports):[];
+  if(imps.length){ h+='<h3 class="xi-h">この案件の取込履歴</h3><ul class="xi-skip">'+imps.sort((a,b)=>String(b[1].at).localeCompare(String(a[1].at))).map(([id,im])=>'<li>'+esc(new Date(im.at).toLocaleString('ja-JP'))+'　'+esc(im.fileName||'')+'　追加 '+((im.created||[]).length)+'行・補完 '+Object.keys(im.filled||{}).length+'件　<button class="btn sm" onclick="xiUndo(\''+id+'\')">取消</button></li>').join('')+'</ul>'; }
+  el.innerHTML=h;
+  const canApply=!!(st.rows&&caseOk&&!st.codeBlock&&(!st.nameWarn||st.nameOk));
+  const btn=$('xiApplyBtn'); if(btn){ btn.style.display=st.rows?'':'none'; btn.disabled=!canApply; }
+  const fl=$('xiFootLeft'); if(fl) fl.textContent=st.rows?('チェック '+st.rows.filter(r=>r.on).length+' / '+st.rows.length+' 行'):'';
+}
+function xiApply(){
+  const st=_xi;
+  if(!st||!st.rows) return;
+  if(!currentCase||st.caseId!==currentId){ toast('取込を始めた案件と違う案件が開いています。反映を中止しました', true); return; }
+  if(st.codeBlock){ toast('コードが一致しないため反映できません', true); return; }
+  if(st.nameWarn&&!st.nameOk){ toast('氏名の違いを確認してチェックを入れてください', true); return; }
+  syncUIToCase();
+  const imp={at:new Date().toISOString(),fileName:st.fileName||'',created:[],filled:{}};
+  const rec=(key,obj,fields)=>{ const prev={}; Object.keys(fields).forEach(k=>{ const before=obj[k]==null?'':obj[k]; if(String(before)===String(fields[k])) return; prev[k]={before,after:fields[k]}; obj[k]=fields[k]; }); if(Object.keys(prev).length) imp.filled[key]=prev; return Object.keys(prev).length; };
+  let nNew=0,nFill=0;
+  // 被相続人（空欄だけ）
+  const d=currentCase.deceased; const dF={};
+  ['code','name','kana','birth','deathDate','honseki','address'].forEach(k=>{ const v=k==='code'?st.code:(st.deceased||{})[k]; if(v&&!xiStr(d[k])) dF[k]=v; });
+  if(rec('d',d,dF)) nFill++;
+  // 相続人（先に入れる：受取人の照合に使うため）
+  st.rows.filter(r=>r.on&&r.kind==='heir').forEach(r=>{ const hf=xiHeirFields(r.f); const ex=xiFindHeir(r.f);
+    if(ex){ if(rec('h:'+ex.id,ex,xiFillable(ex,hf))) nFill++; return; }
+    const ph=xiPlaceholderHeir(); if(ph){ const all={}; Object.keys(hf).forEach(k=>{ all[k]=hf[k]; }); rec('h:'+ph.id,ph,all); nFill++; return; }
+    const h=newHeir(); Object.assign(h,hf); currentCase.heirs.push(h); imp.created.push(h.id); nNew++; });
+  // 財産
+  const decName=xiStr(d.name);
+  st.rows.filter(r=>r.on&&r.kind!=='heir').forEach(r=>{ const f=Object.assign({},r.f);
+    if(r.kind==='cash'&&!f.nominee&&decName) f.nominee=decName;
+    // 受取人は相続人の登録どおりの表記にそろえる（廣瀬京子→廣瀨京子。財産一覧の受取人の選択肢と一致させる）
+    if(f.nominee){ const hh=(currentCase.heirs||[]).find(x=>normName(x.name)===normName(f.nominee)); if(hh) f.nominee=hh.name; }
+    if(r.note) f.checkNote=r.note;
+    const ex=xiFindAsset(r.kind,f);
+    if(ex){ if(rec('a:'+ex.id,ex,xiFillable(ex,f))) nFill++; return; }
+    const a=newAsset(r.kind); Object.keys(f).forEach(k=>{ a[k]=f[k]; }); currentCase.assets.push(a); imp.created.push(a.id); nNew++; });
+  if(!currentCase.excelImports||typeof currentCase.excelImports!=='object'||Array.isArray(currentCase.excelImports)) currentCase.excelImports={};
+  const impId='xi'+Date.now().toString(36); currentCase.excelImports[impId]=imp;
+  ensureCaseShape(currentCase); recomputeHeirAges();
+  currentCase.assets.forEach(a=>{ if(NOMINEE_CATS.indexOf(a.category)>=0) applyNomineeAlloc(a); });
+  cacheCurrentCase(); loadCaseIntoUI();
+  _xi={caseId:currentId}; xiRender();
+  toast('基礎データExcelを取り込みました（新しい行 '+nNew+'・空欄の補完 '+nFill+'）。取り消すときは取込履歴の「取消」を押してください');
+}
+function xiUndo(impId){
+  if(!currentCase||!currentCase.excelImports||!currentCase.excelImports[impId]) return;
+  const imp=currentCase.excelImports[impId];
+  if(!confirm('この取込を取り消します。\n・この取込で追加した行（'+((imp.created||[]).length)+'行）を削除\n・空欄に補完した値を元に戻す（その後に手で直した欄はそのまま）\nよろしいですか。')) return;
+  const ids=new Set(imp.created||[]);
+  currentCase.assets=currentCase.assets.filter(a=>!ids.has(a.id));
+  currentCase.heirs=currentCase.heirs.filter(h=>!ids.has(h.id));
+  currentCase.assets.forEach(a=>{ if(Array.isArray(a.allocations)) a.allocations=a.allocations.filter(al=>!ids.has(al.heirId)); });
+  Object.entries(imp.filled||{}).forEach(([key,fs])=>{ let obj=null;
+    if(key==='d') obj=currentCase.deceased; else if(key.indexOf('h:')===0) obj=currentCase.heirs.find(h=>h.id===key.slice(2)); else if(key.indexOf('a:')===0) obj=currentCase.assets.find(a=>a.id===key.slice(2));
+    if(!obj) return; Object.entries(fs||{}).forEach(([k,v])=>{ if(String(obj[k]==null?'':obj[k])===String(v.after)) obj[k]=v.before; }); });
+  delete currentCase.excelImports[impId];
+  ensureCaseShape(currentCase); currentCase.heirs.forEach(h=>{ if(!h.birth) h.age=''; }); recomputeHeirAges();
+  cacheCurrentCase(); loadCaseIntoUI(); xiRender(); toast('取込を取り消しました');
 }
 
 function _pb(){ if(!currentCase) return {analyses:[]}; if(!currentCase.passbook||typeof currentCase.passbook!=='object') currentCase.passbook={analyses:[]}; if(!Array.isArray(currentCase.passbook.analyses)) currentCase.passbook.analyses=[]; return currentCase.passbook; }
