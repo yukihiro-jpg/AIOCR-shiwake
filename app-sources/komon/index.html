@@ -1036,7 +1036,9 @@ function initMonthSelects(){ document.getElementById('cl_fiscal').innerHTML='<op
 /* ===== 共通: 決算月・申告期日ロジック ===== */
 function fiscalMonthNum(fm){ const m=String(fm||'').match(/(\d+)/); return m?+m[1]:0; }
 function floor100(n){ return Math.floor((n||0)/100)*100; }
-function activeClients(){ return data.clients.filter(c=>c.status!=='休止'&&c.status!=='解約'); } // 契約中のみ
+// 顧問先コード順（数字として比較・同じコードは読み仮名順・コード未入力は最後）。進捗管理の各表はこの並びで出す（登録順にしない）
+function byClientCode(a,b){ return (!a.code)-(!b.code)||String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja'); }
+function activeClients(){ return data.clients.filter(c=>c.status!=='休止'&&c.status!=='解約').sort(byClientCode); } // 契約中のみ・コード順
 function clientsByFiscal(M){ return activeClients().filter(c=>fiscalMonthNum(c.fiscal)===M); }
 function getSteps(M){ const k=String(M); if(!data.filingSteps[k])data.filingSteps[k]=DEFAULT_STEPS.map(n=>({name:n,due:''})); return data.filingSteps[k]; }
 function getFiling(y,id){ return data.filings[y+'__'+id]||{cells:{},tax:{},note:''}; }
@@ -2339,7 +2341,7 @@ function renderNencho(){
 /* 進捗管理の対象の顧問先を選ぶ（年末調整・法定調書・償却資産で共通）。
    顧問先の useProgXxx（利用／未利用）をまとめて切り替える。外しても進捗の記録は消さない */
 let _progPick=null; // {field,label,sel:Set,after:function}
-function progPickClients(){ return activeClients().slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true})||String(a.kana||a.name||'').localeCompare(String(b.kana||b.name||''),'ja')); }
+function progPickClients(){ return activeClients(); }
 function progPickVisible(){ const q=(document.getElementById('progPickQ').value||'').trim().toLowerCase(); const only=document.getElementById('progPickOnly').checked;
   return progPickClients().filter(c=>(!only||_progPick.sel.has(c.id))&&(!q||[c.name,c.kana,c.code].map(x=>String(x||'').toLowerCase()).some(x=>x.includes(q)))); }
 function openProgPick(field,label,after,what){ const cs=progPickClients(); if(!cs.length){ toast('契約中の顧問先がありません','err'); return; }
@@ -2408,7 +2410,7 @@ function monthlyPending(){ const cs=monthlyClients(); let waitInput=0,waitReport
   return {waitInput,waitReport,total:waitInput+waitReport}; }
 /* 対象顧問先設定 */
 function openMonthlyTargets(){ const sel=Array.isArray(data.monthlyTargets)?data.monthlyTargets:activeClients().map(c=>c.id);
-  document.getElementById('mt_clients').innerHTML=data.clients.map(c=>`<label><input type="checkbox" class="mt_cli" value="${c.id}" ${sel.includes(c.id)?'checked':''} style="width:auto" onchange="updateMtCount()"> <b>${esc(c.code||'')}</b> ${esc(c.name)} <span class="muted">${esc(c.status||'')}</span></label>`).join('');
+  document.getElementById('mt_clients').innerHTML=data.clients.slice().sort(byClientCode).map(c=>`<label><input type="checkbox" class="mt_cli" value="${c.id}" ${sel.includes(c.id)?'checked':''} style="width:auto" onchange="updateMtCount()"> <b>${esc(c.code||'')}</b> ${esc(c.name)} <span class="muted">${esc(c.status||'')}</span></label>`).join('');
   setVal('mt_search',''); filterMtClients(); updateMtCount(); openModal('monthlyTargetModal'); }
 function filterMtClients(){ const q=(val('mt_search')||'').toLowerCase(); document.querySelectorAll('#mt_clients label').forEach(l=>{ l.style.display=l.textContent.toLowerCase().includes(q)?'':'none'; }); }
 function mtSelectAll(on){ document.querySelectorAll('#mt_clients label').forEach(l=>{ if(l.style.display!=='none')l.querySelector('input').checked=on; }); updateMtCount(); }
@@ -2696,7 +2698,7 @@ function renderSelSub(){ const type=val('cm_selType'); const box=document.getEle
   else if(type==='kind'){ box.innerHTML=`<select id="selKind"><option ${customSel.kind==='法人'?'selected':''}>法人</option><option ${customSel.kind==='個人'?'selected':''}>個人</option></select>`; }
   else if(type==='status'){ box.innerHTML=`<select id="selStatus"><option ${customSel.status==='契約中'||!customSel.status?'selected':''}>契約中</option><option ${customSel.status==='休止'?'selected':''}>休止</option><option ${customSel.status==='解約'?'selected':''}>解約</option></select>`; }
   else if(type==='gensen'){ box.innerHTML=`<select id="selGensen"><option value="毎月納付" ${customSel.gensen!=='納期特例'?'selected':''}>毎月納付</option><option value="納期特例" ${customSel.gensen==='納期特例'?'selected':''}>納期特例</option></select>`; }
-  else if(type==='manual'){ box.innerHTML=`<div class="add-row-list">`+data.clients.map(c=>`<label><input type="checkbox" style="width:auto" class="selC" value="${c.id}" ${(customSel.ids||[]).includes(c.id)?'checked':''}> <b>${esc(c.code||'')}</b> ${esc(c.name)}</label>`).join('')+`</div>`; }
+  else if(type==='manual'){ box.innerHTML=`<div class="add-row-list">`+data.clients.slice().sort(byClientCode).map(c=>`<label><input type="checkbox" style="width:auto" class="selC" value="${c.id}" ${(customSel.ids||[]).includes(c.id)?'checked':''}> <b>${esc(c.code||'')}</b> ${esc(c.name)}</label>`).join('')+`</div>`; }
   else box.innerHTML=`<div class="muted" style="font-size:13px">契約中（休止・解約を除く）のすべての顧問先が対象です。</div>`; }
 function gatherSel(){ const type=val('cm_selType'); const s={type};
   if(type==='fiscal')s.months=[...document.querySelectorAll('.selM:checked')].map(i=>+i.value);
