@@ -609,11 +609,15 @@ export async function submitDocsPublic(
   }
   const merged = mergeSubmissionPaths(prev?.paths || [], prev?.docs || {}, paths, counts)
   const { db, ref, set } = await dbfns()
+  // 提出日時はサーバー時刻で記録する。スマホの時計が過去にずれていると（例: 日付を手で変えた端末）
+  // 事務所側の保存期限清掃（1年6か月）で提出直後に「期限切れ」と判定され消えてしまうため。
+  // サーバー時刻が取れないときだけ端末の時計を使う
+  const now = (await serverNow()) ?? Date.now()
   const rec: SubmissionRecord = {
     empId: emp.id,
     name: `${emp.lastName} ${emp.firstName}`.trim(),
     kana: `${emp.kanaLast} ${emp.kanaFirst}`.trim(),
-    submittedAt: new Date().toISOString(),
+    submittedAt: new Date(now).toISOString(),
     docs: merged.docs,
     paths: merged.paths,
   }
