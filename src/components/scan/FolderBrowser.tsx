@@ -69,6 +69,8 @@ export interface FolderBrowserProps {
   onGetBlob?: (file: BrowserFile) => Promise<Blob> // 指定するとプレビュー可能に
   enableAiAsk?: boolean // ファイル選択＋AI質問を有効化（税理士側の届いた資料用）
   onAiAsk?: (files: BrowserFile[], question: string, onProgress?: (m: string) => void) => Promise<string>
+  /** チェックの状態を親へ知らせる（親の「Driveへ保存」をチェックした分だけにするため） */
+  onSelectionChange?: (ids: string[]) => void
 }
 
 // フォルダの階層をたどって「ルート / 親 / 子」の表示名を作る。
@@ -181,6 +183,7 @@ export default function FolderBrowser({
   onGetBlob,
   enableAiAsk,
   onAiAsk,
+  onSelectionChange,
 }: FolderBrowserProps) {
   const [internalId, setInternalId] = useState<string | null>(null)
   const currentId = controlledId !== undefined ? controlledId : internalId
@@ -212,6 +215,10 @@ export default function FolderBrowser({
   const [previewLoading, setPreviewLoading] = useState(false)
   // AI質問（選択）
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    onSelectionChange?.(Array.from(selected))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected])
   const [ai, setAi] = useState<{ files: BrowserFile[]; label: string } | null>(null)
   // ファイル移動
   const [movePicker, setMovePicker] = useState<BrowserFile | null>(null)

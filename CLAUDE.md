@@ -139,6 +139,8 @@
 - 年調の提出画像：**提出から1年6か月**で自動削除（`NENMATSU_RETENTION_DAYS`）
 - 削除は事務所側の各画面を開いたときに実行（サーバレス）。長期保管が必要なものは削除前に
   ZIP一括DL または「📁 Driveへ保存」（Google共有ドライブへ一括アップロード）で退避する運用。
+- 共有フォルダ（顧問先→税理士）の「Driveへ保存」は**一覧でチェックしたファイルだけ**を保存する（チェックが無ければ全件）。
+  チェックは FolderBrowser の `onSelectionChange` で親へ渡し、ダイアログを開いた時点の対象を固定する
 - Drive連携は GIS(OAuth) のブラウザ直叩き（`src/lib/google-drive.ts`＋`src/core/ui/DriveSaveDialog.tsx`）。
   クライアントIDは共通設定の `localStorage['suite-google-client-id']`（端末ローカル・同期しない）。
 

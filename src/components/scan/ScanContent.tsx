@@ -2655,7 +2655,9 @@ function FilesPanel({
 }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [driveOpen, setDriveOpen] = useState(false)
+  // Driveへ保存の対象（開いた時点のチェックを固定。チェックが無ければ全件）
+  const [driveTargets, setDriveTargets] = useState<ScanFile[] | null>(null)
+  const [officeSel, setOfficeSel] = useState<string[]>([]) // 顧問先→税理士の一覧でチェックしたファイル
   const [sentRefresh, setSentRefresh] = useState(0)
   const [senderFilter, setSenderFilter] = useState<string | null>(null) // C-1：顧問先→税理士の送信者絞り込み
   // A案：メンバー個別宛の受信ファイル（各メンバートークンの受信箱）
@@ -2730,6 +2732,7 @@ function FilesPanel({
     raw: f,
   }))
   const toOfficeFiles = senderFilter ? toOfficeFilesAll.filter((f) => senderOf((f.raw as ScanFile).member) === senderFilter) : toOfficeFilesAll
+  const checkedOffice = list.filter((f) => officeSel.includes(f.id))
 
   // 削除までの残り日数（顧問先→税理士のファイル便＝1年保存）
   function daysLeft(f: ScanFile): number {
@@ -2903,11 +2906,12 @@ function FilesPanel({
         {browseRoot === 'toOffice' && (
           <>
             <button
-              onClick={() => setDriveOpen(true)}
+              onClick={() => setDriveTargets(checkedOffice.length ? checkedOffice : list)}
               disabled={busy || list.length === 0}
+              title={checkedOffice.length ? 'チェックしたファイルだけを保存します' : 'チェックが無いときは全件を保存します（一部だけ保存するときは一覧でチェックしてください）'}
               className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50"
             >
-              📁 Driveへ保存
+              📁 Driveへ保存{checkedOffice.length ? `（チェックした${checkedOffice.length}件）` : '（全件）'}
             </button>
             <button
               onClick={downloadZip}
@@ -2929,6 +2933,7 @@ function FilesPanel({
 
       {browseRoot === 'toClient' ? (
         <FolderBrowser
+          key="toClient"
           rootKey="toClient"
           rootLabel={labelToClient}
           folders={toClientFolders}
@@ -3017,7 +3022,9 @@ function FilesPanel({
         />
       ) : (
         <FolderBrowser
+          key="toOffice"
           rootKey="toOffice"
+          onSelectionChange={setOfficeSel}
           rootLabel={labelToOffice}
           folders={toOfficeFolders}
           files={toOfficeFiles}
@@ -3079,24 +3086,24 @@ function FilesPanel({
 
       {browseRoot === 'toClient' && <SentFilesSection company={company} refresh={sentRefresh} />}
 
-      {driveOpen && (
+      {driveTargets && (
         <DriveSaveDialog
-          title={`${client.name}／ファイル便の${list.length}件を共有ドライブに保存します（フォルダ付きはサブフォルダに振り分け）`}
+          title={`${client.name}／ファイル便の${driveTargets.length === list.length ? '' : 'チェックした'}${driveTargets.length}件を共有ドライブに保存します（フォルダ付きはサブフォルダに振り分け）`}
           getFiles={async (onProgress) => {
             const out: { name: string; blob: Blob; folder?: string }[] = []
-            for (let i = 0; i < list.length; i++) {
-              onProgress(`ファイルを取得しています... (${i + 1}/${list.length}) ${list[i].name}`)
-              out.push({ name: list[i].name, blob: await getScanFileBlob(list[i]), folder: list[i].folder })
+            for (let i = 0; i < driveTargets.length; i++) {
+              onProgress(`ファイルを取得しています... (${i + 1}/${driveTargets.length}) ${driveTargets[i].name}`)
+              out.push({ name: driveTargets[i].name, blob: await getScanFileBlob(driveTargets[i]), folder: driveTargets[i].folder })
             }
             return out
           }}
           onSaved={async () => {
-            for (const f of list) {
+            for (const f of driveTargets) {
               try { await markFileDriveSaved(company.token, f.id) } catch { /* ignore */ }
             }
             await onChanged()
           }}
-          onClose={() => setDriveOpen(false)}
+          onClose={() => setDriveTargets(null)}
         />
       )}
     </div>
