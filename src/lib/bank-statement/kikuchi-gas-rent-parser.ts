@@ -7,7 +7,7 @@
 // ヘッダー行の「整理№」を起点にラベル文言から列位置を動的に特定する。
 //
 // 仕訳ルール（顧問先キクチ・エステートとの取り決め）:
-//   共通: 借方 162（補助1）。「管轄」が「1 法人」の行のみ対象。
+//   共通: 借方 162（補助1）。「管轄」が会社の行（「1 法人」／2026年9月分からの表記「会社」）のみ対象。
 //   【ガス】取引日=検針日
 //     ガス代（請求額）    → 貸方413 消費税10（課税売上・税率10%） 摘要=請求年月 ｱﾊﾟｰﾄ名 部屋№ 入居者名 ガス代
 //     保証金（請求額）    → 貸方325 消費税なし(BS)               摘要=… 保証金
@@ -60,6 +60,12 @@ function ymTo1st(v: unknown): string {
   const m = String(v).trim().match(/(\d{4})[/\-年.](\d{1,2})/)
   if (m) return fmtYmd(+m[1], +m[2], 1)
   return ''
+}
+
+/** 「管轄」が会社（法人）の行か。表記が「1 法人」→「会社」に変わったため両方を受け付ける。
+ *  「会社分 回収額 合計」「1法人・回収額 小計」等の集計行や「個人」「その他」は対象外 */
+export function isCompanyKanri(v: unknown): boolean {
+  return /^(?:\d+)?(?:法人|会社)$/.test(norm(v))
 }
 
 function cellToNum(v: unknown): number {
@@ -186,8 +192,8 @@ export function parseKikuchiGasRentBuffer(
 
     for (let r = hdr + 2; r < rows.length; r++) {
       const row = (rows[r] || []) as unknown[]
-      // 「1 法人」の行のみ対象（「1法人・回収額 小計」等の集計行は一致しないため自然に除外）
-      if (norm(row[cKanri]) !== '1法人') continue
+      // 会社（法人）の行のみ対象（集計行は一致しないため自然に除外）
+      if (!isCompanyKanri(row[cKanri])) continue
       const ymRaw = row[cYm]
       const ym1st = ymTo1st(ymRaw)
       const ymText = cleanText(ymRaw) || (ym1st ? `${ym1st.slice(0, 4)}-${ym1st.slice(4, 6)}` : '')
@@ -238,7 +244,7 @@ export function parseKikuchiGasRentBuffer(
     }
   })
 
-  if (!entries.length) warnings.push('「1 法人」の行に金額のあるデータが見つかりませんでした。')
+  if (!entries.length) warnings.push('管轄が「会社」（または「1 法人」）の行に金額のあるデータが見つかりませんでした。')
 
   // 日付順に安定ソート
   entries.sort((a, b) => a.date.localeCompare(b.date))

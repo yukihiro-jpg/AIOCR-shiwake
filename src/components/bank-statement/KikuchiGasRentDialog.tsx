@@ -60,7 +60,7 @@ export default function KikuchiGasRentDialog({ open, onClose, accountMaster, sub
           {!result ? (
             <>
               <div className="text-xs text-gray-600 leading-relaxed">
-                月次の「ガス料金・家賃 請求受領金額集計表」Excelを取り込み、<b>管轄が「1 法人」</b>の行だけを仕訳にします（AIは使いません）。<br />
+                月次の「ガス料金・家賃 請求受領金額集計表」Excelを取り込み、<b>管轄が「会社」（旧表記「1 法人」）</b>の行だけを仕訳にします（AIは使いません）。<br />
                 ガス代・保証金・灯油器具代（取引日=検針日）／家賃・礼金更新料・敷金・共益費・駐車料（取引日=請求年月の1日）。借方はすべて 162（補助1）。
               </div>
               <label
