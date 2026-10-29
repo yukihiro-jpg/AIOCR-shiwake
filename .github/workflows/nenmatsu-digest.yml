@@ -1,0 +1,57 @@
+name: nenmatsu-digest（年調の提出状況メール）
+
+# 年調データ受信の提出状況（会社ごとに N人中M人）を毎朝まとめてメールする。
+# 送るのは 11/15〜12/15 の毎朝7時ごろ、前日から新しい提出があった日だけ。
+#
+# 使う GitHub Secrets（アップロード通知メールと共通。docs/upload-notify-setup.md）:
+#   FIREBASE_SERVICE_ACCOUNT … Firebaseの管理者キー（提出状況を読む）
+#   GMAIL_USER / GMAIL_PASS  … 送信元Gmailとアプリパスワード
+#   NOTIFY_TO                … 宛先（NENMATSU_DIGEST_TO があればそちらを優先）
+#   NENMATSU_DIGEST_TO       … （任意）このメールだけ宛先を変えたいとき
+#
+# 【厳守】ログは公開されうるので、スクリプトは件数しか出さない。
+
+on:
+  schedule:
+    # 日本時間 6:50（UTCの前日21:50）に起動。GitHubの混み具合で数分〜十数分遅れて7時ごろに届く。
+    # 日本時間の 11/15〜12/15 に当たる UTC の日付だけ動かす（期間はスクリプト側でも確認する）
+    - cron: '50 21 14-30 11 *'
+    - cron: '50 21 1-14 12 *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '期間外・新着なしでも送る（動作確認用）'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools/nenmatsu-digest
+            src/lib/bank-statement
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 依存関係をインストール
+        working-directory: tools/nenmatsu-digest
+        run: npm ci --no-audit --no-fund
+
+      - name: 提出状況を集計してメール送信
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          NENMATSU_DIGEST_TO: ${{ secrets.NENMATSU_DIGEST_TO }}
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: node tools/nenmatsu-digest/digest.mjs

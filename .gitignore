@@ -47,3 +47,4 @@ service-account.json
 # ビルド時に tools/copy-vendor.mjs が生成（外部CDNの代わりに自前配信するライブラリ）
 /public/vendor/
 .harness/
+/tools/nenmatsu-digest/node_modules

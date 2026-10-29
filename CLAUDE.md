@@ -114,6 +114,11 @@
   **⚠要確認**（ChangeKind `review`・橙）: 会社の登録（CSV）基準で `CSV_SELF_PREFILL_SINCE`（2026/10/20まで）に提出された分は、
   本人の状態・世帯主・配偶者（別列）・甲乙・扶養親族の障害が当時の画面に出ていなかった。会社の登録にあるのに空欄なら
   「削除／修正」ではなく「⚠要確認（提出時の画面に表示されていませんでした）」と出す（`Baseline.legacyCsv`）
+- 年調の**提出状況まとめメール**（`tools/nenmatsu-digest/digest.mjs`＋`.github/workflows/nenmatsu-digest.yml`）:
+  11/15〜12/15 の毎朝7時ごろ（UTC 21:50起動）、前日から新しい提出があった日だけ会社ごとの「N人中M人提出（昨日から +K人）」を1通送る。
+  Firebaseの管理者キー（アップロード通知メールと共通の Secrets: FIREBASE_SERVICE_ACCOUNT・GMAIL_USER/PASS・NOTIFY_TO、
+  宛先だけ変えるなら NENMATSU_DIGEST_TO）で読むので**合言葉は使わない**。提出記録は submittedAt だけ読む。
+  **Actionsのログには件数しか出さない**（会社名・氏名を出さない）。手動実行（Actions → Run workflow）は期間外・新着なしでも送る
 - 年調の保存期限清掃・孤児画像回収は `sweepAllNenmatsu`（全年度・全登録会社・利用/未利用に関係なく、
   端末ごと6時間に1回）。孤児画像は「作成から7日超＋どの記録からも未参照」のみ削除
   （アップロード直後の記録未書き込みを誤削除しないため）
