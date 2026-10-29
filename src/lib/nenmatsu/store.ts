@@ -58,6 +58,7 @@ export interface NenmatsuCompany {
   registeredAt: string
   employeeCount?: number
   deadline?: string // 提出期限 YYYY-MM-DD（会社別の上書き。未設定なら年度の既定期限）
+  digest?: boolean // 提出状況のまとめメール（tools/nenmatsu-digest）に載せる
 }
 
 async function dbfns() {
@@ -196,6 +197,12 @@ export async function setCompanyDeadline(yearId: string, clientId: string, deadl
   if (comp && comp.token) {
     try { await publishRoster(yearId, comp, await loadEmployees(yearId, clientId)) } catch { /* ignore */ }
   }
+}
+
+/** 提出状況のまとめメールに載せるか（毎朝7時・11/15〜12/15。1社も選ばれていなければ全社を載せる） */
+export async function setCompanyDigest(yearId: string, clientId: string, on: boolean): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)), { digest: on || null })
 }
 
 /** 有効な提出期限（会社別上書き ＞ 年度既定） */

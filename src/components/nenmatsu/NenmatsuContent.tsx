@@ -22,6 +22,7 @@ import {
   loadDefaultDeadline,
   saveDefaultDeadline,
   setCompanyDeadline,
+  setCompanyDigest,
   deleteSubmission,
   prevYearId,
   prefillFromCsv,
@@ -517,6 +518,26 @@ export default function NenmatsuContent() {
         )}
       </>
     )
+    const mail = (
+      <label
+        className="inline-flex items-center gap-1 text-xs text-gray-600 cursor-pointer whitespace-nowrap"
+        title="提出状況のまとめメール（11/15〜12/15の毎朝7時ごろ・新しい提出があった日だけ）に載せる"
+      >
+        <input
+          type="checkbox"
+          checked={!!company.digest}
+          onChange={async (e) => {
+            const on = e.target.checked
+            try {
+              await setCompanyDigest(yearId, client.id, on)
+              setRows((prev) => prev.map((x) => x.client.id === client.id ? { ...x, company: { ...x.company, digest: on || undefined } } : x))
+            } catch { setMsg('メール設定の保存に失敗しました。') }
+          }}
+          className="w-4 h-4 accent-blue-600"
+        />
+        📧
+      </label>
+    )
     const deadlineEditor = (
       <div className="flex items-center gap-1.5 flex-wrap">
         <input
@@ -560,7 +581,7 @@ export default function NenmatsuContent() {
         <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
       </>
     )
-    return { check, stats, deadlineEditor, actions }
+    return { check, stats, mail, deadlineEditor, actions }
   }
 
   return (
@@ -687,7 +708,7 @@ export default function NenmatsuContent() {
                         <span className="text-gray-400 font-normal mr-1.5">{r.client.code || '—'}</span>
                         {r.client.name}
                       </div>
-                      <div className="text-xs text-gray-600 mt-1">{p.stats}</div>
+                      <div className="text-xs text-gray-600 mt-1">{p.stats}<span className="ml-2">{p.mail}</span></div>
                       <div className="mt-1.5">{p.deadlineEditor}</div>
                       <div className="flex flex-wrap gap-1.5 mt-2">{p.actions}</div>
                     </div>
@@ -712,6 +733,7 @@ export default function NenmatsuContent() {
                   <th className="text-left px-4 py-2 font-semibold">会社名</th>
                   <th className="text-left px-4 py-2 font-semibold">従業員 / 提出</th>
                   <th className="text-left px-4 py-2 font-semibold">提出期限</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap" title="提出状況のまとめメール（毎朝7時ごろ・11/15〜12/15）に載せる会社">メール</th>
                   <th className="text-right px-4 py-2 font-semibold">操作</th>
                 </tr>
               </thead>
@@ -725,6 +747,7 @@ export default function NenmatsuContent() {
                     <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{r.client.name}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.stats}</td>
                     <td className="px-4 py-3">{p.deadlineEditor}</td>
+                    <td className="px-2 py-3 text-center">{p.mail}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 justify-end flex-wrap">{p.actions}</div>
                     </td>

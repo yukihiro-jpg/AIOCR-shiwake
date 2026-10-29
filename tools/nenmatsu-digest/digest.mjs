@@ -89,6 +89,7 @@ export function buildMail(s, now) {
   }
   lines.push(
     '',
+    ...(s.unpicked ? ['※ メールに載せる会社が選ばれていないため全社を表示しています（年調データ受信の「メール」欄で選べます）。'] : []),
     '★＝昨日7時以降に新しい提出があった会社',
     '※ 新しい提出があった日だけ届きます（11/15〜12/15）。提出内容は「年調データ受信」の画面でご確認ください。',
   )
@@ -148,11 +149,14 @@ async function main() {
       for (const id of Object.keys((await get(['rooms', rk, 'nenmatsu', yearId, 'submissions', cid], true)) || {})) if (!ids.has(id)) ids.set(id, ['rooms', rk, 'nenmatsu', yearId, 'submissions', cid, id])
       const submissions = {}
       await Promise.all([...ids].map(async ([id, p]) => { submissions[id] = String((await get([...p, 'submittedAt'])) || '') }))
-      companies.push({ code: c.code || '', name: c.name || '', roster, submissions })
+      companies.push({ code: c.code || '', name: c.name || '', digest: c.digest === true, roster, submissions })
     }))
   }
 
-  const s = summarize(companies, now)
+  // 画面の「メール」欄で選んだ会社だけ載せる（1社も選ばれていなければ全社）
+  const picked = companies.filter((c) => c.digest)
+  const s = summarize(picked.length ? picked : companies, now)
+  s.unpicked = !picked.length
   console.log(`年度 ${yearId}：登録 ${s.rows.length}社・提出 ${s.done}/${s.total}人・新着 ${s.freshAny}人`)
   if (!s.freshAny && !force) {
     console.log('新しい提出が無いため送りません。')
