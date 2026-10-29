@@ -520,8 +520,8 @@ export default function NenmatsuContent() {
     )
     const mail = (
       <label
-        className="inline-flex items-center gap-1 text-xs text-gray-600 cursor-pointer whitespace-nowrap"
-        title="提出状況のまとめメール（11/15〜12/15の毎朝7時ごろ・新しい提出があった日だけ）に載せる"
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border cursor-pointer whitespace-nowrap ${company.digest ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-400'}`}
+        title="チェックすると、提出状況のまとめメール（11/15〜12/15の毎朝7時ごろ・新しい提出があった日だけ）にこの会社を載せます"
       >
         <input
           type="checkbox"
@@ -533,13 +533,13 @@ export default function NenmatsuContent() {
               setRows((prev) => prev.map((x) => x.client.id === client.id ? { ...x, company: { ...x.company, digest: on || undefined } } : x))
             } catch { setMsg('メール設定の保存に失敗しました。') }
           }}
-          className="w-4 h-4 accent-blue-600"
+          className="w-5 h-5 accent-blue-600"
         />
-        📧
+        <span className="text-xl leading-none" aria-hidden>✉️</span>
       </label>
     )
     const deadlineEditor = (
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap md:flex-nowrap">
         <input
           type="date"
           value={company.deadline || ''}
@@ -559,7 +559,7 @@ export default function NenmatsuContent() {
     )
     const actions = (
       <>
-        <label className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer whitespace-nowrap">
+        <label className="px-2.5 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 cursor-pointer whitespace-nowrap">
           CSV取込
           <input
             type="file"
@@ -572,13 +572,13 @@ export default function NenmatsuContent() {
             }}
           />
         </label>
-        <button onClick={() => copyUrl(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">URLコピー</button>
-        <button onClick={() => showQr(company)} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
-        <button onClick={() => setGuide({ company })} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
-        <button onClick={() => printCheckSheet(client, company)} title="経理担当者用の提出状況チェック表（取込済み従業員＋手書き追加欄）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">チェック表</button>
-        <button onClick={() => { setSheetAsk({ client, company }); setNewHireInput('0') }} title="紙で配る確認シート（未提出の従業員1人1枚。登録内容を印字し、変更を書き込んでもらう）" className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">確認シート</button>
-        <button onClick={() => setImportCheck({ company })} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
-        <button onClick={() => setDetail({ company })} className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
+        <button onClick={() => copyUrl(company)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">URLコピー</button>
+        <button onClick={() => showQr(company)} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">QR表示</button>
+        <button onClick={() => setGuide({ company })} className="px-2.5 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">案内PDF</button>
+        <button onClick={() => printCheckSheet(client, company)} title="経理担当者用の提出状況チェック表（取込済み従業員＋手書き追加欄）" className="px-2.5 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">チェック表</button>
+        <button onClick={() => { setSheetAsk({ client, company }); setNewHireInput('0') }} title="紙で配る確認シート（未提出の従業員1人1枚。登録内容を印字し、変更を書き込んでもらう）" className="px-2.5 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 whitespace-nowrap">確認シート</button>
+        <button onClick={() => setImportCheck({ company })} className="px-2.5 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap">取込内容確認</button>
+        <button onClick={() => setDetail({ company })} className="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap">提出状況・閲覧</button>
       </>
     )
     return { check, stats, mail, deadlineEditor, actions }
@@ -587,7 +587,7 @@ export default function NenmatsuContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <GlobalNav currentKey="nenmatsu" />
-      <div className="flex-1 p-3 md:p-6 max-w-[1500px] w-full mx-auto">
+      <div className="flex-1 p-3 md:p-6 max-w-[1900px] w-full mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <h1 className="text-base md:text-xl font-bold text-gray-800">年調データ受信 — 控除証明書・申告データの回収</h1>
           <div className="flex items-center gap-2">
@@ -717,7 +717,8 @@ export default function NenmatsuContent() {
               })}
             </ul>
 
-            <table className="hidden md:table w-full text-sm">
+            <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="px-3 py-2 w-10">
@@ -729,12 +730,12 @@ export default function NenmatsuContent() {
                       className="w-4 h-4 accent-emerald-600 align-middle"
                     />
                   </th>
-                  <th className="text-left px-4 py-2 font-semibold">コード</th>
-                  <th className="text-left px-4 py-2 font-semibold">会社名</th>
-                  <th className="text-left px-4 py-2 font-semibold">従業員 / 提出</th>
-                  <th className="text-left px-4 py-2 font-semibold">提出期限</th>
-                  <th className="px-2 py-2 font-semibold whitespace-nowrap" title="提出状況のまとめメール（毎朝7時ごろ・11/15〜12/15）に載せる会社">メール</th>
-                  <th className="text-right px-4 py-2 font-semibold">操作</th>
+                  <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">コード</th>
+                  <th className="text-left px-3 py-2 font-semibold">会社名</th>
+                  <th className="text-left px-3 py-2 font-semibold whitespace-nowrap">従業員 / 提出</th>
+                  <th className="text-left px-3 py-2 font-semibold">提出期限</th>
+                  <th className="px-2 py-2 font-semibold whitespace-nowrap" title="チェックした会社を、提出状況のまとめメール（毎朝7時ごろ・11/15〜12/15）に載せます">✉️ メール</th>
+                  <th className="text-right px-3 py-2 font-semibold">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -743,18 +744,19 @@ export default function NenmatsuContent() {
                   return (
                   <tr key={r.client.id} className={`border-t border-gray-100 ${selected.has(r.client.id) ? 'bg-emerald-50/40' : ''}`}>
                     <td className="px-3 py-3">{p.check}</td>
-                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{r.client.code || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">{r.client.name}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.stats}</td>
-                    <td className="px-4 py-3">{p.deadlineEditor}</td>
-                    <td className="px-2 py-3 text-center">{p.mail}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 justify-end flex-wrap">{p.actions}</div>
+                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{r.client.code || '—'}</td>
+                    <td className="px-3 py-2.5 font-medium text-gray-800 whitespace-nowrap">{r.client.name}</td>
+                    <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{p.stats}</td>
+                    <td className="px-3 py-2.5">{p.deadlineEditor}</td>
+                    <td className="px-2 py-2.5 text-center">{p.mail}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1.5 justify-end flex-nowrap">{p.actions}</div>
                     </td>
                   </tr>
                 )})}
               </tbody>
             </table>
+            </div>
             </>
           )}
         </div>
