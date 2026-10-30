@@ -67,9 +67,10 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
 
   const handleColumnClick = (colIndex: number) => {
     if (activeRole === 'descriptionColumn') {
-      // 摘要は複数列トグル
+      // 摘要は複数列トグル。結合の順番はクリックした順（列番号順に並べ替えない）。
+      // 外して付け直すと最後に回るので、順番を変えたいときは付け直す
       setDescColumns((prev) =>
-        prev.includes(colIndex) ? prev.filter((c) => c !== colIndex) : [...prev, colIndex].sort((a, b) => a - b)
+        prev.includes(colIndex) ? prev.filter((c) => c !== colIndex) : [...prev, colIndex]
       )
       // 他の役割から外す
       setMapping((prev) => {
@@ -370,7 +371,7 @@ export default function ColumnMappingDialog({ rawPages, initialMapping, onConfir
         )}
         <div className="p-4 flex justify-between items-center">
           <div className="text-xs">
-            {descColumns.length > 1 && <span className="text-gray-500">摘要: {descColumns.length}列を結合して摘要にします</span>}
+            {descColumns.length > 1 && <span className="text-gray-500">摘要: 列{descColumns.map((c) => c + 1).join('→列')} の順（クリックした順）に結合して摘要にします</span>}
             {hasDate && !hasAmount && (
               <span className="text-red-500 font-bold">※ {isCreditCard ? '利用金額' : '入金/出金、または金額(1列)'}の列を選択してください</span>
             )}
