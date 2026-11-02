@@ -36,13 +36,28 @@ export async function serverNow(): Promise<number | null> {
     try {
       const db = await getDb()
       const { ref, onValue } = await import('firebase/database')
+      // 【注意】.info の値が既にあると、onValue は登録の途中で（戻り値を返す前に）コールバックを
+      // 同期的に呼ぶ。コールバック内で戻り値（解除関数）を直接使うと未初期化で例外になり、
+      // resolve されず・タイマーも止まった状態で永久に待ってしまう（年調の送信が
+      // 「送信しています…」のまま進まなかった原因）。解除は登録が終わってから行う。
       serverOffsetMs = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => { off(); reject(new Error('timeout')) }, 8000)
-        const off = onValue(
+        let off: (() => void) | null = null
+        let settled = false
+        const settle = (fn: () => void) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          fn()
+          // 同期コールバックのときは off がまだ無いので、登録が終わった直後に解除する
+          setTimeout(() => { try { off?.() } catch { /* ignore */ } }, 0)
+        }
+        const timer = setTimeout(() => settle(() => reject(new Error('timeout'))), 8000)
+        off = onValue(
           ref(db, '.info/serverTimeOffset'),
-          (snap) => { clearTimeout(timer); off(); resolve(Number(snap.val()) || 0) },
-          (err) => { clearTimeout(timer); reject(err) },
+          (snap) => settle(() => resolve(Number(snap.val()) || 0)),
+          (err) => settle(() => reject(err)),
         )
+        if (settled) { try { off() } catch { /* ignore */ } }
       })
     } catch {
       return null

@@ -619,7 +619,11 @@ export async function submitDocsPublic(
   // 提出日時はサーバー時刻で記録する。スマホの時計が過去にずれていると（例: 日付を手で変えた端末）
   // 事務所側の保存期限清掃（1年6か月）で提出直後に「期限切れ」と判定され消えてしまうため。
   // サーバー時刻が取れないときだけ端末の時計を使う
-  const now = (await serverNow()) ?? Date.now()
+  // 時刻の取得で送信が止まらないよう、5秒で見切って端末の時計を使う
+  const now = (await Promise.race([
+    serverNow().catch(() => null),
+    new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+  ])) ?? Date.now()
   const rec: SubmissionRecord = {
     empId: emp.id,
     name: `${emp.lastName} ${emp.firstName}`.trim(),
