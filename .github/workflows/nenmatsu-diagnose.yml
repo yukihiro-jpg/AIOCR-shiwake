@@ -6,6 +6,11 @@ name: nenmatsu-diagnose（年調の送信の診断・読み取りのみ）
 
 on:
   workflow_dispatch:
+    inputs:
+      mail_stuck:
+        description: '止まった送信の会社名・氏名をメールで受け取る（ログには出さない）'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -32,4 +37,9 @@ jobs:
       - name: 診断
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          NENMATSU_DIGEST_TO: ${{ secrets.NENMATSU_DIGEST_TO }}
+          MAIL_STUCK: ${{ inputs.mail_stuck && 'true' || 'false' }}
         run: node tools/nenmatsu-digest/diagnose.mjs

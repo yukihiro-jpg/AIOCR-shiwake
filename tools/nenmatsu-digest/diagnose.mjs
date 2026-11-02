@@ -6,6 +6,7 @@
 //   ・画像1枚の大きさの分布
 // を数字だけ出す。何も書き換えない・削除しない。
 // 【厳守】ログは公開されうるので、トークン・会社名・氏名・ファイル名は出さない。
+//   止まった送信の会社名・氏名は、MAIL_STUCK=true のときだけメール（まとめメールと同じ宛先）で送る。
 
 import { readFileSync } from 'node:fs'
 
@@ -34,9 +35,9 @@ async function main() {
   const { initializeApp, cert } = await import('firebase-admin/app')
   const { getStorage } = await import('firebase-admin/storage')
   const app = initializeApp({ credential: cert(sa), storageBucket: bucketName })
-  const get = async (segs) => {
+  const get = async (segs, shallow = false) => {
     const tok = await app.options.credential.getAccessToken()
-    const res = await fetch(`${dbUrl}/${segs.map(encodeURIComponent).join('/')}.json`, {
+    const res = await fetch(`${dbUrl}/${segs.map(encodeURIComponent).join('/')}.json${shallow ? '?shallow=true' : ''}`, {
       headers: { Authorization: `Bearer ${tok.access_token}` },
     })
     if (!res.ok) throw new Error(`データの読み取りに失敗しました（HTTP ${res.status}）`)
@@ -59,7 +60,7 @@ async function main() {
 
   const fileSizes = []
   const ok = { count: [], bytes: [], secs: [], mbps: [] }
-  const stuck = { groups: 0, files: 0, bytes: [], secs: [], afterRecord: 0 }
+  const stuck = { groups: 0, files: 0, bytes: [], secs: [], afterRecord: 0, list: [] }
   const hours = new Map()
   for (const [key, list] of groups) {
     const [token, empId] = key.split('/')
@@ -90,6 +91,7 @@ async function main() {
       const t1 = Math.max(...orphan.map((x) => x.at))
       stuck.secs.push((t1 - t0) / 1000)
       if (recAt) stuck.afterRecord++
+      stuck.list.push({ token, empId, files: orphan.length, at: t0, resubmit: !!recAt, prevAt: recAt })
       const h = new Date(t0 + 9 * 3600 * 1000).toISOString().slice(0, 13).replace('T', ' ') + '時'
       hours.set(h, (hours.get(h) || 0) + 1)
     }
@@ -111,6 +113,59 @@ async function main() {
   dist('　容量', stuck.bytes, (b) => mb(b) + 'MB')
   dist('　届いた画像の時間幅', stuck.secs, (s) => Math.round(s) + '秒')
   console.log('　開始した日時（日本時間）：' + ([...hours].sort().map(([h, n]) => `${h}×${n}`).join('、') || 'なし'))
+
+  if (process.env.MAIL_STUCK === 'true') await mailStuck(stuck.list, get)
+}
+
+const jst = (t) => new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ').replace(/-/g, '/')
+
+/** 止まった送信の一覧（会社名・氏名）をメールで送る。ログには件数しか出さない */
+async function mailStuck(list, get) {
+  // トークン → 会社（年度ごとの登録会社から引く）
+  const rooms = Object.keys((await fetchShallow(get, ['rooms'])) || {})
+  const byToken = new Map()
+  for (const rk of rooms) {
+    const years = Object.keys((await fetchShallow(get, ['rooms', rk, 'nenmatsu'])) || {}).filter((y) => /^R\d+$/.test(y))
+    for (const y of years) {
+      const comps = (await get(['rooms', rk, 'nenmatsu', y, 'companies'])) || {}
+      for (const [cid, c] of Object.entries(comps)) if (c && c.token) byToken.set(c.token, { rk, y, cid, name: c.name || '', code: c.code || '' })
+    }
+  }
+  const lines = []
+  for (const x of list.sort((a, b) => a.at - b.at)) {
+    const comp = byToken.get(x.token)
+    let who = '（名簿にない方・新入社員として入力）'
+    if (comp) {
+      const e = await get(['rooms', comp.rk, 'nenmatsu', comp.y, 'employees', comp.cid, x.empId])
+      if (e) who = `${e.lastName || ''} ${e.firstName || ''}`.trim() + (e.code ? `（社員コード ${e.code}）` : '')
+    }
+    lines.push(
+      `・${comp ? (comp.code ? comp.code + ' ' : '') + comp.name : '（会社不明）'}　${who}`,
+      `　　送信した日時：${jst(x.at)}ごろ・写真 ${x.files}枚` +
+        (x.resubmit ? `\n　　※再提出の途中で止まりました（${jst(x.prevAt)}に提出した分は届いています）` : '\n　　※提出は記録されていません（未提出の扱い）'),
+    )
+  }
+  const text = [
+    '「送信しています…」のまま止まった送信の一覧です（写真は届いたが、提出の記録まで進まなかったもの）。',
+    '11/2 に不具合を修正済みです。下記の方に、QRコードから開き直して再送信をお願いしてください。',
+    '',
+    ...(lines.length ? lines : ['該当なし']),
+    '',
+    '※ 写真は記録が無いため、7日ほどで自動的に片付きます。再送信していただければ問題ありません。',
+  ].join('\n')
+  const nodemailer = (await import('nodemailer')).default
+  const t = nodemailer.createTransport({ service: 'gmail', auth: { user: need('GMAIL_USER'), pass: need('GMAIL_PASS') } })
+  await t.sendMail({
+    from: `年調データ受信 <${need('GMAIL_USER')}>`,
+    to: process.env.NENMATSU_DIGEST_TO || need('NOTIFY_TO'),
+    subject: `【年調】送信が止まっていた方の一覧（${list.length}人）`,
+    text,
+  })
+  console.log(`止まった送信の一覧（${list.length}人）をメールで送りました。`)
+}
+
+async function fetchShallow(get, segs) {
+  return get(segs, true)
 }
 
 main().catch((e) => {
