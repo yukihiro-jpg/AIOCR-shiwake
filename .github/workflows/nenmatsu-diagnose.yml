@@ -1,0 +1,35 @@
+name: nenmatsu-diagnose（年調の送信の診断・読み取りのみ）
+
+# 「送信しています…から進まない」などの調査用。提出画像と提出記録を突き合わせて
+# 件数・容量・時間だけをログに出す（何も書き換えない）。手動実行のみ。
+# 使う Secrets は FIREBASE_SERVICE_ACCOUNT だけ（まとめメールと共通）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools/nenmatsu-digest
+            src/lib/bank-statement
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 依存関係をインストール
+        working-directory: tools/nenmatsu-digest
+        run: npm ci --no-audit --no-fund
+
+      - name: 診断
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node tools/nenmatsu-digest/diagnose.mjs
