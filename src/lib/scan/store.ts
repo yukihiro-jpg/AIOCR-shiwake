@@ -684,6 +684,12 @@ export async function markFileDownloaded(token: string, id: string): Promise<voi
 }
 
 /** 事務所がGoogleドライブへ保存した印を付ける */
+/** スマホ撮影のバッチを「Drive済」にする（手動の Driveへ保存。自動保存と同じ印で二重保存を防ぐ） */
+export async function markBatchDriveSaved(token: string, id: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'batches', id)), { driveSavedAt: new Date().toISOString() })
+}
+
 export async function markFileDriveSaved(token: string, id: string): Promise<void> {
   const { db, ref, update } = await dbfns()
   await update(ref(db, publicPath(token, 'files', id)), { driveSavedAt: new Date().toISOString() })

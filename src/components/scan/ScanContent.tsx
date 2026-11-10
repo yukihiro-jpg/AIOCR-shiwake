@@ -68,6 +68,7 @@ import {
   saveDriveAuto,
   requestDriveAutoRun,
   clearDriveAuto,
+  markBatchDriveSaved,
 } from '@/lib/scan/store'
 import { analyzeBatchAndSave, analyzeOnePage, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
@@ -1844,6 +1845,9 @@ function BatchDetail({
               const blobs = await getBatchImageBlobs(company.token, batch)
               const base = `${safe(client.name)}_${safe(batch.docType)}_${batch.submittedAt.slice(0, 10)}`
               return blobs.map((b, i) => ({ name: `${base}_${i + 1}.jpg`, blob: b.blob }))
+            }}
+            onSaved={async () => {
+              try { await markBatchDriveSaved(company.token, batch.id) } catch { /* ignore */ }
             }}
             onClose={() => setDriveOpen(false)}
           />
