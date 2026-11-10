@@ -1060,7 +1060,7 @@ export interface DriveAutoConfig {
   req?: number
   status?: DriveAutoStatus
   /** 共有フォルダの全ファイルの一括保存（1回だけ・Drive済も含む） */
-  full?: { requestedAt: number; total?: number; doneCount?: number; saved?: number; skipped?: number; finishedAt?: string }
+  full?: { requestedAt: number; total?: number; doneCount?: number; saved?: number; skipped?: number; finishedAt?: string; updatedAt?: number }
 }
 
 /** ドライブのフォルダURL（またはID）からフォルダIDを取り出す。取り出せなければ '' */

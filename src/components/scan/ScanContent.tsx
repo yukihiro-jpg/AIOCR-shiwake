@@ -466,6 +466,12 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const st = cfg?.status
+  // 一括保存が10分以上進んでいなければ「止まった」とみなして、もう一度押せるようにする
+  // （同じ場所に同じファイルがあれば入れないので、押し直しても二重にはならない）
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 30000); return () => clearInterval(t) }, [])
+  const fullRunning = !!cfg?.full && !cfg.full.finishedAt
+  const fullStalled = fullRunning && nowTick - (cfg?.full?.updatedAt || cfg?.full?.requestedAt || 0) > 10 * 60 * 1000
   const changed = !cfg || url.trim() !== (cfg.url || '')
   const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString('ja-JP') : '')
   async function save() {
@@ -518,7 +524,7 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
               <span><b>共有フォルダの全ファイルを一括保存</b>（Drive済のものも含め、今のフォルダ構成のまま保存。同じ場所に同じファイルがあれば入れません）</span>
               <button
                 onClick={async () => { if (confirm('共有フォルダ（顧問先→税理士）の全ファイルを、今のフォルダ構成のままドライブへ保存します。よろしいですか？')) await requestDriveFullExport(token) }}
-                disabled={!!cfg.full && !cfg.full.finishedAt}
+                disabled={fullRunning && !fullStalled}
                 className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
               >
                 一括保存する
@@ -528,7 +534,9 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
               <div className="mt-1.5">
                 {cfg.full.finishedAt
                   ? `✅ 一括保存が終わりました（${fmt(cfg.full.finishedAt)}）：保存 ${cfg.full.saved || 0}件・既にあったため省略 ${cfg.full.skipped || 0}件`
-                  : `⏳ 一括保存中… ${cfg.full.doneCount || 0}${cfg.full.total ? ` / ${cfg.full.total}` : ''}件（画面を閉じても続きます。件数が多いと数分〜十数分かかります）`}
+                  : fullStalled
+                    ? `⚠ 一括保存が止まっているようです（${cfg.full.doneCount || 0}${cfg.full.total ? ` / ${cfg.full.total}` : ''}件で停止）。もう一度「一括保存する」を押すと、続きから保存します（保存済みのものは省きます）。`
+                    : `⏳ 一括保存中… ${cfg.full.doneCount || 0}${cfg.full.total ? ` / ${cfg.full.total}` : ''}件（保存 ${cfg.full.saved || 0}・省略 ${cfg.full.skipped || 0}）　画面を閉じても続きます。終わるとここに「✅ 終わりました」と出ます`}
               </div>
             )}
           </div>

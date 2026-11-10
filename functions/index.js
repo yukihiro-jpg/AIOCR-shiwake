@@ -320,6 +320,12 @@ async function autoSaveToDrive(token, opts = {}) {
     if (full && full.requestedAt && !full.finishedAt) {
       const done = full.done || {}
       const all = Object.values(files).filter((f) => f && f.path)
+      const fullRef = db.ref(`${base}/driveAuto/full`)
+      // 進み具合は1件ごとに書く（画面の「○ / ○件」がその場で進む。updatedAt は止まったかどうかの判定に使う）
+      let doneCount = Object.keys(done).length
+      let savedTotal = full.saved || 0
+      let skippedTotal = full.skipped || 0
+      await fullRef.update({ total: all.length, doneCount, updatedAt: Date.now() })
       let moved = 0
       let skipped = 0
       let rest = false // 時間切れで残りがある（自分をもう一度呼ぶ）
@@ -341,19 +347,19 @@ async function autoSaveToDrive(token, opts = {}) {
           }
           await db.ref(`${base}/files/${f.id}`).update({ driveSavedAt: f.driveSavedAt || new Date().toISOString(), driveAutoAt: null })
           await db.ref(`${base}/driveAuto/full/done/${f.id}`).set(true)
+          doneCount++
+          await fullRef.update({ doneCount, saved: savedTotal + moved, skipped: skippedTotal + skipped, updatedAt: Date.now() })
         } catch (e) {
           await lock.remove().catch(() => {})
           throw e
         }
       }
-      const fullRef = db.ref(`${base}/driveAuto/full`)
-      const prev = (await fullRef.get()).val() || {}
-      const doneCount = Object.keys(prev.done || {}).length
       await fullRef.update({
         total: all.length,
         doneCount,
-        saved: (prev.saved || 0) + moved,
-        skipped: (prev.skipped || 0) + skipped,
+        saved: savedTotal + moved,
+        skipped: skippedTotal + skipped,
+        updatedAt: Date.now(),
         ...(rest || busy ? {} : { finishedAt: new Date().toISOString() }),
       })
       count += moved
