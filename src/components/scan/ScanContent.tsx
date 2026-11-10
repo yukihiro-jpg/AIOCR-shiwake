@@ -479,9 +479,10 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
         <h3 className="font-bold text-gray-800 mb-1">📁 Googleドライブへの自動保存（{clientName}）</h3>
         <p className="text-xs text-gray-500 mb-3 leading-relaxed">
           <b>共有フォルダ（{clientName} → 税理士）</b>のファイルと<b>スマホ撮影</b>の画像を、届いたときに下のフォルダへ自動で保存します。
-          共有フォルダは顧問先のフォルダ構成のまま、スマホ撮影は「スマホ撮影」フォルダに入ります。保存したものには「Drive済」が付きます。
+          登録したフォルダの中に<b>アップロードされた年月のフォルダ（例：2026-11）</b>を自動で作り、その中に共有フォルダは顧問先のフォルダ構成のまま、
+          スマホ撮影は「スマホ撮影」フォルダに入れます（例：受領資料／2026-11／決算資料／○○.pdf）。保存したものには「Drive済」が付きます。
         </p>
-        <label className="block text-xs font-semibold text-gray-600 mb-1">保存先フォルダのURL（共有ドライブの中のフォルダ）</label>
+        <label className="block text-xs font-semibold text-gray-600 mb-1">保存先フォルダのURL（共有ドライブの中のフォルダ。例：顧問先／月次／受領資料）</label>
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
