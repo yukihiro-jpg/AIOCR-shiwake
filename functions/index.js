@@ -104,9 +104,8 @@ exports.notifyScanUpload = onValueCreated(
 
 // ============================================================
 // Googleドライブへの自動保存
-//   顧問先ごとに登録した保存先フォルダ（scan-public/{token}/driveAuto。例：顧問先／月次／受領資料）の下に
-//   アップロード年月のフォルダ（2026-11 など・日本時間）を自動で作り、その中へ
-//   共有フォルダ（顧問先→税理士）のファイルとスマホ撮影の画像を保存する。
+//   顧問先ごとに登録した保存先フォルダ（scan-public/{token}/driveAuto。例：顧問先／月次／受領資料）の中へ、
+//   共有フォルダ（顧問先→税理士）のファイルを顧問先のフォルダ構成のまま、スマホ撮影の画像を「スマホ撮影」へ保存する。
 //   ・アップロードのたびに（notifyScanUpload から）呼ばれ、未保存分をまとめて保存する
 //   ・画面で保存先を登録したとき／「今すぐ保存」を押したときは driveAuto/req の書き込みで呼ばれる
 //   ・保存したものには driveSavedAt を付ける（画面の「Drive済」と同じ印。手動保存済みも二重に保存しない）
@@ -176,7 +175,7 @@ async function dapi(tok, path, opt = {}) {
 async function ensureFolder(tok, parentId, name, cache) {
   const key = parentId + '/' + name
   if (cache.has(key)) return cache.get(key)
-  const q = encodeURIComponent(`'${parentId}' in parents and name='${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)
+  const q = encodeURIComponent(`'${parentId}' in parents and name='${qstr(name)}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)
   const found = await dapi(tok, `files?q=${q}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id)&pageSize=1`)
   let id = (found.files || [])[0]?.id
   if (!id) {
@@ -224,14 +223,20 @@ const jstStamp = (iso) => {
   const d = new Date(Date.parse(iso || '') + 9 * 3600 * 1000)
   return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 16).replace('T', '_').replace(':', '')
 }
-// アップロードされた年月（日本時間）。登録フォルダの下に「2026-11」のような月別フォルダを作って入れる
-const jstMonth = (iso) => {
-  const d = new Date(Date.parse(iso || '') + 9 * 3600 * 1000)
-  return isNaN(d.getTime()) ? '日付不明' : d.toISOString().slice(0, 7)
-}
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|\r\n]/g, '_').trim().slice(0, 80)
+const qstr = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+
+/** 同じフォルダに同じ名前・同じ大きさのファイルが既にあるか（一括保存で二重に入れないため） */
+async function existsSame(tok, parentId, name, size) {
+  const q = encodeURIComponent(`'${parentId}' in parents and name='${qstr(name)}' and trashed=false`)
+  const r = await dapi(tok, `files?q=${q}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,size)&pageSize=10`)
+  return (r.files || []).some((x) => Number(x.size) === Number(size))
+}
+
+const FULL_BUDGET_MS = 420 * 1000 // 一括保存は1回の実行で7分まで。残りは自分をもう一度呼んで続ける
 
 async function autoSaveToDrive(token, opts = {}) {
+  const startedAt = Date.now()
   const db = getDatabase()
   const base = `scan-public/${token}`
   const cfg = (await db.ref(`${base}/driveAuto`).get()).val()
@@ -254,7 +259,8 @@ async function autoSaveToDrive(token, opts = {}) {
     const cache = new Map()
     let count = 0
 
-    // ① 共有フォルダ（顧問先→税理士）：登録フォルダ／アップロード年月（2026-11）／顧問先のフォルダ構成 の順に作って入れる
+    // ① 共有フォルダ（顧問先→税理士）：登録フォルダの中に、顧問先のフォルダ構成をそのまま作って入れる
+    //    （例：受領資料／ガス問屋／10月／○○.pdf。顧問先が新しく作ったフォルダもドライブ側に作る）
     const files = (await db.ref(`${base}/files`).get()).val() || {}
     const folders = (await db.ref(`${base}/folders`).get()).val() || {}
     const chainOf = (fid) => {
@@ -263,14 +269,18 @@ async function autoSaveToDrive(token, opts = {}) {
       for (let i = 0; cur && i < 20; i++) { names.unshift(safeName(cur.name)); cur = cur.parentId ? folders[cur.parentId] : null }
       return names
     }
+    const parentOf = async (f) => {
+      const names = f.folderId ? chainOf(f.folderId) : f.folder ? [safeName(f.folder)] : []
+      let parent = cfg.folderId
+      for (const n of names) if (n) parent = await ensureFolder(tok, parent, n, cache)
+      return parent
+    }
     for (const f of Object.values(files)) {
       if (!fresh(f) || !f.path) continue
       const lock = db.ref(`${base}/files/${f.id}/driveAutoAt`)
       if (!(await takeLock(lock))) continue
       try {
-        const names = f.folderId ? chainOf(f.folderId) : f.folder ? [safeName(f.folder)] : []
-        let parent = await ensureFolder(tok, cfg.folderId, jstMonth(f.submittedAt), cache)
-        for (const n of names) if (n) parent = await ensureFolder(tok, parent, n, cache)
+        const parent = await parentOf(f)
         const [buf] = await bucket.file(f.path).download()
         await uploadFile(tok, parent, safeName(f.name) || 'file', buf, f.mimeType)
         await db.ref(`${base}/files/${f.id}`).update({ driveSavedAt: new Date().toISOString(), driveAutoAt: null })
@@ -281,15 +291,14 @@ async function autoSaveToDrive(token, opts = {}) {
       }
     }
 
-    // ② スマホ撮影：登録フォルダ／アップロード年月／スマホ撮影 に 書類の種類_日時_番号.jpg で入れる
+    // ② スマホ撮影：登録フォルダ／スマホ撮影 に 書類の種類_日時_番号.jpg で入れる
     const batches = (await db.ref(`${base}/batches`).get()).val() || {}
     for (const b of Object.values(batches)) {
       if (!fresh(b) || !Array.isArray(b.paths) || !b.paths.length) continue
       const lock = db.ref(`${base}/batches/${b.id}/driveAutoAt`)
       if (!(await takeLock(lock))) continue
       try {
-        const month = await ensureFolder(tok, cfg.folderId, jstMonth(b.submittedAt), cache)
-        const parent = await ensureFolder(tok, month, 'スマホ撮影', cache)
+        const parent = await ensureFolder(tok, cfg.folderId, 'スマホ撮影', cache)
         const head = [safeName(b.docType) || '書類', b.bankName ? safeName(b.bankName) : '', jstStamp(b.submittedAt)].filter(Boolean).join('_')
         for (let i = 0; i < b.paths.length; i++) {
           const [buf] = await bucket.file(b.paths[i]).download()
@@ -301,6 +310,54 @@ async function autoSaveToDrive(token, opts = {}) {
         await lock.remove().catch(() => {})
         throw e
       }
+    }
+
+    // ③ 一括保存（画面の「共有フォルダの全ファイルを保存」・1回だけ）：Drive済かどうかに関係なく、
+    //    共有フォルダ（顧問先→税理士）の全ファイルを同じフォルダ構成で入れる。
+    //    同じ場所に同じ名前・同じ大きさのファイルが既にあれば入れない（何度押しても二重にならない）。
+    //    件数が多いときは7分ごとに区切り、自分をもう一度呼んで続きから行う。
+    const full = cfg.full
+    if (full && full.requestedAt && !full.finishedAt) {
+      const done = full.done || {}
+      const all = Object.values(files).filter((f) => f && f.path)
+      let moved = 0
+      let skipped = 0
+      let rest = false // 時間切れで残りがある（自分をもう一度呼ぶ）
+      let busy = 0 // 別の保存が処理中だったもの（次のアップロード／再実行のときに続ける。すぐには呼び直さない）
+      for (const f of all) {
+        if (done[f.id]) continue
+        if (Date.now() - startedAt > FULL_BUDGET_MS) { rest = true; break }
+        const lock = db.ref(`${base}/files/${f.id}/driveAutoAt`)
+        if (!(await takeLock(lock))) { busy++; continue }
+        try {
+          const parent = await parentOf(f)
+          const name = safeName(f.name) || 'file'
+          if (await existsSame(tok, parent, name, f.size)) {
+            skipped++
+          } else {
+            const [buf] = await bucket.file(f.path).download()
+            await uploadFile(tok, parent, name, buf, f.mimeType)
+            moved++
+          }
+          await db.ref(`${base}/files/${f.id}`).update({ driveSavedAt: f.driveSavedAt || new Date().toISOString(), driveAutoAt: null })
+          await db.ref(`${base}/driveAuto/full/done/${f.id}`).set(true)
+        } catch (e) {
+          await lock.remove().catch(() => {})
+          throw e
+        }
+      }
+      const fullRef = db.ref(`${base}/driveAuto/full`)
+      const prev = (await fullRef.get()).val() || {}
+      const doneCount = Object.keys(prev.done || {}).length
+      await fullRef.update({
+        total: all.length,
+        doneCount,
+        saved: (prev.saved || 0) + moved,
+        skipped: (prev.skipped || 0) + skipped,
+        ...(rest || busy ? {} : { finishedAt: new Date().toISOString() }),
+      })
+      count += moved
+      if (rest) await db.ref(`${base}/driveAuto/req`).set(Date.now()) // 続きを別の実行で行う
     }
 
     if (count || opts.check) {

@@ -69,6 +69,7 @@ import {
   requestDriveAutoRun,
   clearDriveAuto,
   markBatchDriveSaved,
+  requestDriveFullExport,
 } from '@/lib/scan/store'
 import { analyzeBatchAndSave, analyzeOnePage, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
@@ -479,8 +480,8 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
         <h3 className="font-bold text-gray-800 mb-1">📁 Googleドライブへの自動保存（{clientName}）</h3>
         <p className="text-xs text-gray-500 mb-3 leading-relaxed">
           <b>共有フォルダ（{clientName} → 税理士）</b>のファイルと<b>スマホ撮影</b>の画像を、届いたときに下のフォルダへ自動で保存します。
-          登録したフォルダの中に<b>アップロードされた年月のフォルダ（例：2026-11）</b>を自動で作り、その中に共有フォルダは顧問先のフォルダ構成のまま、
-          スマホ撮影は「スマホ撮影」フォルダに入れます（例：受領資料／2026-11／決算資料／○○.pdf）。保存したものには「Drive済」が付きます。
+          登録したフォルダの中に、共有フォルダは<b>顧問先のフォルダ構成のまま</b>（例：受領資料／ガス問屋／10月／○○.pdf。顧問先が新しく作ったフォルダもドライブ側に作ります）、
+          スマホ撮影は「スマホ撮影」フォルダに入れます。保存したものには「Drive済」が付きます。
         </p>
         <label className="block text-xs font-semibold text-gray-600 mb-1">保存先フォルダのURL（共有ドライブの中のフォルダ。例：顧問先／月次／受領資料）</label>
         <input
@@ -506,6 +507,28 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
               <div className="mt-1.5 text-gray-600">
                 保存に使うアカウント：<code className="bg-white border border-gray-200 rounded px-1 select-all break-all">{st.saEmail}</code>
                 <div className="text-[11px] text-gray-500 mt-0.5">共有ドライブ（またはこのフォルダ）の「メンバーを管理」で、このアドレスを<b>コンテンツ管理者</b>として追加してください。</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {cfg?.folderId && st?.ok && !changed && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 mb-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span><b>共有フォルダの全ファイルを一括保存</b>（Drive済のものも含め、今のフォルダ構成のまま保存。同じ場所に同じファイルがあれば入れません）</span>
+              <button
+                onClick={async () => { if (confirm('共有フォルダ（顧問先→税理士）の全ファイルを、今のフォルダ構成のままドライブへ保存します。よろしいですか？')) await requestDriveFullExport(token) }}
+                disabled={!!cfg.full && !cfg.full.finishedAt}
+                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+              >
+                一括保存する
+              </button>
+            </div>
+            {cfg.full && (
+              <div className="mt-1.5">
+                {cfg.full.finishedAt
+                  ? `✅ 一括保存が終わりました（${fmt(cfg.full.finishedAt)}）：保存 ${cfg.full.saved || 0}件・既にあったため省略 ${cfg.full.skipped || 0}件`
+                  : `⏳ 一括保存中… ${cfg.full.doneCount || 0}${cfg.full.total ? ` / ${cfg.full.total}` : ''}件（画面を閉じても続きます。件数が多いと数分〜十数分かかります）`}
               </div>
             )}
           </div>

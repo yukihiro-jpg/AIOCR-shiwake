@@ -1059,6 +1059,8 @@ export interface DriveAutoConfig {
   setAt: string
   req?: number
   status?: DriveAutoStatus
+  /** 共有フォルダの全ファイルの一括保存（1回だけ・Drive済も含む） */
+  full?: { requestedAt: number; total?: number; doneCount?: number; saved?: number; skipped?: number; finishedAt?: string }
 }
 
 /** ドライブのフォルダURL（またはID）からフォルダIDを取り出す。取り出せなければ '' */
@@ -1089,6 +1091,13 @@ export async function saveDriveAuto(token: string, url: string, includePast: boo
 export async function requestDriveAutoRun(token: string): Promise<void> {
   const { db, ref, update } = await dbfns()
   await update(ref(db, publicPath(token, 'driveAuto')), { req: Date.now() })
+}
+
+/** 共有フォルダ（顧問先→税理士）の全ファイルを、今のフォルダ構成のままドライブへ一括保存する（Drive済も含む）。
+ *  同じ場所に同じ名前・同じ大きさのファイルがあれば入れないので、何度押しても二重にならない */
+export async function requestDriveFullExport(token: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'driveAuto')), { full: { requestedAt: Date.now() }, req: Date.now() })
 }
 
 /** 自動保存をやめる（保存済みのドライブのファイルはそのまま） */
