@@ -63,6 +63,11 @@ import {
   type ScanBatch,
   type ScanCashEntry,
   type ScanStatus,
+  type DriveAutoConfig,
+  watchDriveAuto,
+  saveDriveAuto,
+  requestDriveAutoRun,
+  clearDriveAuto,
 } from '@/lib/scan/store'
 import { analyzeBatchAndSave, analyzeOnePage, subscribeEngineStatus, docTypeToKind } from '@/lib/scan/auto-analyzer'
 import { getClients as getBsClients, setSelectedClientId } from '@/lib/bank-statement/client-store'
@@ -452,6 +457,88 @@ function Overlay({ children, onClose, wide }: { children: React.ReactNode; onClo
   )
 }
 
+/** Googleドライブへの自動保存の設定（顧問先ごと）。保存は Cloud Functions が行い、結果を status に書き戻す */
+function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: string; token: string; cfg: DriveAutoConfig | null; onClose: () => void }) {
+  const [url, setUrl] = useState(cfg?.url || '')
+  const [includePast, setIncludePast] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const st = cfg?.status
+  const changed = !cfg || url.trim() !== (cfg.url || '')
+  const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleString('ja-JP') : '')
+  async function save() {
+    setErr('')
+    setBusy(true)
+    try { await saveDriveAuto(token, url, includePast) } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
+    setBusy(false)
+  }
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-5 text-sm text-gray-700" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="font-bold text-gray-800 mb-1">📁 Googleドライブへの自動保存（{clientName}）</h3>
+        <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+          <b>共有フォルダ（{clientName} → 税理士）</b>のファイルと<b>スマホ撮影</b>の画像を、届いたときに下のフォルダへ自動で保存します。
+          共有フォルダは顧問先のフォルダ構成のまま、スマホ撮影は「スマホ撮影」フォルダに入ります。保存したものには「Drive済」が付きます。
+        </p>
+        <label className="block text-xs font-semibold text-gray-600 mb-1">保存先フォルダのURL（共有ドライブの中のフォルダ）</label>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://drive.google.com/drive/folders/…"
+          className="w-full px-3 py-2 border border-gray-300 rounded text-sm mb-2"
+        />
+        {changed && (
+          <label className="flex items-center gap-2 text-xs text-gray-600 mb-2">
+            <input type="checkbox" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} />
+            これまでに届いていて、まだDriveに保存していない分もまとめて保存する
+          </label>
+        )}
+        {err && <div className="text-xs text-red-600 mb-2">{err}</div>}
+
+        {cfg?.folderId && (
+          <div className={`rounded-lg border px-3 py-2 text-xs mb-3 ${st?.ok === false ? 'border-red-200 bg-red-50 text-red-800' : st?.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+            {!st && <div>⏳ 保存先を確認しています…（数秒〜1分）</div>}
+            {st?.ok && <div>✅ 保存先「{st.folderName}」に保存できます。{st.lastSavedAt ? `最後の保存：${fmt(st.lastSavedAt)}（${st.lastCount}件）` : ''}</div>}
+            {st?.ok === false && <div>⚠ {st.error}</div>}
+            {st?.saEmail && (
+              <div className="mt-1.5 text-gray-600">
+                保存に使うアカウント：<code className="bg-white border border-gray-200 rounded px-1 select-all break-all">{st.saEmail}</code>
+                <div className="text-[11px] text-gray-500 mt-0.5">共有ドライブ（またはこのフォルダ）の「メンバーを管理」で、このアドレスを<b>コンテンツ管理者</b>として追加してください。</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex gap-2">
+            {cfg?.folderId && (
+              <button
+                onClick={async () => { if (confirm('自動保存をやめますか？（Driveに保存済みのファイルはそのまま残ります）')) { await clearDriveAuto(token); setUrl('') } }}
+                className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50"
+              >
+                自動保存をやめる
+              </button>
+            )}
+            {cfg?.folderId && !changed && (
+              <button onClick={() => requestDriveAutoRun(token)} className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50" title="権限を直したあとや、保存に失敗した分をもう一度保存するとき">
+                確認して未保存分を保存
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50">閉じる</button>
+            {changed && (
+              <button onClick={save} disabled={busy || !url.trim()} className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
+                {busy ? '保存中…' : '保存先を登録'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function InboxModal({
   client,
   company,
@@ -468,6 +555,15 @@ export function InboxModal({
   fullPage?: boolean // 新規タブで全画面表示するとき
 }) {
   const [view, setView] = useState<'files' | 'batches' | 'cash'>('files')
+  // Googleドライブへの自動保存の設定（画面を開いている間は状態の変化をそのまま表示）
+  const [driveAuto, setDriveAuto] = useState<DriveAutoConfig | null>(null)
+  const [driveAutoOpen, setDriveAutoOpen] = useState(false)
+  useEffect(() => {
+    let off: (() => void) | null = null
+    let alive = true
+    watchDriveAuto(company.token, (v) => { if (alive) setDriveAuto(v) }).then((u) => { if (alive) off = u; else u() }).catch(() => {})
+    return () => { alive = false; off?.() }
+  }, [company.token])
   const [batches, setBatches] = useState<Record<string, ScanBatch>>({})
   const [cash, setCash] = useState<Record<string, ScanCashEntry>>({})
   const [files, setFiles] = useState<Record<string, ScanFile>>({})
@@ -661,6 +757,13 @@ export function InboxModal({
             <div className="font-bold text-base md:text-lg truncate">{client.name}</div>
           </div>
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            <button
+              onClick={() => setDriveAutoOpen(true)}
+              title="共有フォルダ（顧問先→税理士）とスマホ撮影の画像を、届いたときにGoogleドライブの指定フォルダへ自動で保存します"
+              className={`px-2.5 py-1 text-xs rounded border whitespace-nowrap ${driveAuto?.folderId ? (driveAuto.status?.ok === false ? 'border-red-300 bg-red-500/20 text-red-100' : 'border-emerald-300 bg-emerald-500/20 text-emerald-100') : 'border-slate-400 text-slate-200 hover:bg-white/10'}`}
+            >
+              📁 <span className="hidden md:inline">Drive自動保存：</span>{driveAuto?.folderId ? (driveAuto.status?.ok === false ? '⚠ エラー' : '設定済み') : '未設定'}
+            </button>
             <label className="flex items-center gap-1.5 text-xs text-slate-200 whitespace-nowrap">
               <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
               <span className="hidden md:inline">処理済みも表示</span>
@@ -669,6 +772,9 @@ export function InboxModal({
             <button onClick={onClose} className="text-slate-200 hover:text-white text-2xl leading-none px-1" aria-label="閉じる">×</button>
           </div>
         </header>
+        {driveAutoOpen && (
+          <DriveAutoDialog clientName={client.name} token={company.token} cfg={driveAuto} onClose={() => setDriveAutoOpen(false)} />
+        )}
 
         <div className="flex-1 flex flex-col md:flex-row min-h-0">
           {/* スマホ：上部の3ボタン（PCは下の左サイドバー。狭い画面でサイドバーに幅を取られないため） */}
@@ -839,6 +945,9 @@ export function InboxModal({
                           {b.bankName ? `（${b.bankName} ${b.accountNumber || ''}）` : ''}
                           {b.userName ? `（${b.userName}）` : ''}
                           {b.member && <span className="ml-1 text-[10px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5">👤{b.member}</span>}
+                          {b.driveSavedAt && (
+                            <span className="ml-1 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5" title={`Drive保存: ${new Date(b.driveSavedAt).toLocaleString('ja-JP')}`}>📁 Drive済</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-gray-600">{b.pageCount}枚</td>
                         <td className="px-3 py-2">

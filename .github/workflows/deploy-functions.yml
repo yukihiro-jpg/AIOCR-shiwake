@@ -1,4 +1,4 @@
-name: deploy-functions（アップロード通知メール）
+name: deploy-functions（アップロード通知メール・Drive自動保存）
 
 # 書類スキャン受信のアップロード通知メール（Cloud Functions）を配置する。
 # functions/ を変更して push すると自動で配置される。手動実行も可。
@@ -65,10 +65,13 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           NOTIFY_TO: ${{ secrets.NOTIFY_TO }}
+          # Googleドライブへの自動保存に使う鍵（Firebaseの管理者キーをそのまま使う。保存先の共有ドライブに
+          # このキーのアドレス client_email をメンバーとして追加してもらう）
+          DRIVE_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           PID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
           set -e
-          for KEY in GMAIL_USER GMAIL_PASS NOTIFY_TO; do
+          for KEY in GMAIL_USER GMAIL_PASS NOTIFY_TO DRIVE_SA_KEY; do
             VALUE="${!KEY}"
             if [ -z "$VALUE" ]; then
               echo "::error::GitHub Secrets の $KEY が未設定です。docs/upload-notify-setup.md の手順4をご確認ください。"; exit 1

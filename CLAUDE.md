@@ -149,6 +149,11 @@
   ZIP一括DL または「📁 Driveへ保存」（Google共有ドライブへ一括アップロード）で退避する運用。
 - 共有フォルダ（顧問先→税理士）の「Driveへ保存」は**一覧でチェックしたファイルだけ**を保存する（チェックが無ければ全件）。
   チェックは FolderBrowser の `onSelectionChange` で親へ渡し、ダイアログを開いた時点の対象を固定する
+- **Googleドライブへの自動保存**（共有フォルダ顧問先→税理士＋スマホ撮影・顧問先ごと）: 設定は `scan-public/{token}/driveAuto`
+  （`saveDriveAuto`／`watchDriveAuto`・画面は顧問先を開いた上部の「📁 Drive自動保存」）。保存は Cloud Functions（`functions/index.js` の
+  `autoSaveToDrive`）が行い、アップロード通知（notify）のたびと `driveAuto/req` の書き込み時に未保存分をまとめて保存して `driveSavedAt` を付ける。
+  鍵は Secret `DRIVE_SA_KEY`（＝FIREBASE_SERVICE_ACCOUNT。deploy-functions が反映）。**保存先は共有ドライブのフォルダのみ**
+  （サービスアカウントはマイドライブの容量を持たない）。二重保存は `driveAutoAt` のトランザクションで防ぐ。設定手順は docs/upload-notify-setup.md
 - Drive連携は GIS(OAuth) のブラウザ直叩き（`src/lib/google-drive.ts`＋`src/core/ui/DriveSaveDialog.tsx`）。
   クライアントIDは共通設定の `localStorage['suite-google-client-id']`（端末ローカル・同期しない）。
 

@@ -44,6 +44,7 @@ export interface ScanBatch {
   status: ScanStatus
   transferredAt?: string // 仕訳作成へ転送した日時（二重取込防止の目印）
   member?: string // 送信したメンバー名（メンバー用URLからの送信時）
+  driveSavedAt?: string // Googleドライブへ保存した日時（自動保存）
 }
 
 export type CashEntryType = '現金引出' | '現金預入'
@@ -1027,4 +1028,65 @@ export async function deleteBatch(token: string, batch: ScanBatch): Promise<void
   const { db, ref, remove } = await dbfns()
   await remove(ref(db, publicPath(token, 'batches', batch.id)))
   try { await remove(ref(db, publicPath(token, 'analysis', batch.id))) } catch { /* ignore */ }
+}
+
+// ===== Googleドライブへの自動保存（顧問先ごとに保存先フォルダを登録） =====
+// 共有フォルダ（顧問先→税理士）のファイルとスマホ撮影の画像を、届いたときに Cloud Functions
+// （functions/index.js の autoSaveToDrive）が登録したフォルダへ保存する。
+// 設定は scan-public/{token}/driveAuto に置く（関数はトークンしか知らないため。顧問先削除の purge で一緒に消える）。
+// req を書くと関数が「フォルダに保存できるか確認＋未保存分の保存」を行い、結果を status に書き戻す。
+
+export interface DriveAutoStatus {
+  checkedAt?: string
+  ok?: boolean
+  folderName?: string
+  saEmail?: string // 共有ドライブのメンバーに追加してもらう相手（関数が使うサービスアカウント）
+  error?: string
+  lastSavedAt?: string
+  lastCount?: number
+}
+
+export interface DriveAutoConfig {
+  folderId: string
+  url: string
+  since: string // この日時以降に届いたものを保存する（空＝これまでに届いた未保存分もすべて）
+  setAt: string
+  req?: number
+  status?: DriveAutoStatus
+}
+
+/** ドライブのフォルダURL（またはID）からフォルダIDを取り出す。取り出せなければ '' */
+export function parseDriveFolderId(input: string): string {
+  const s = (input || '').trim()
+  const m = s.match(/\/folders\/([A-Za-z0-9_-]{10,})/) || s.match(/[?&]id=([A-Za-z0-9_-]{10,})/)
+  if (m) return m[1]
+  return /^[A-Za-z0-9_-]{10,}$/.test(s) ? s : ''
+}
+
+/** 設定と状態を見張る（画面を開いている間だけ）。戻り値で見張りを止める */
+export async function watchDriveAuto(token: string, cb: (v: DriveAutoConfig | null) => void): Promise<() => void> {
+  const { db, ref, onValue } = await dbfns()
+  return onValue(ref(db, publicPath(token, 'driveAuto')), (s) => cb((s.val() as DriveAutoConfig | null) || null))
+}
+
+/** 保存先フォルダを登録する（登録と同時に関数が確認を行う） */
+export async function saveDriveAuto(token: string, url: string, includePast: boolean): Promise<void> {
+  const folderId = parseDriveFolderId(url)
+  if (!folderId) throw new Error('GoogleドライブのフォルダのURLを貼り付けてください（https://drive.google.com/drive/folders/… の形）')
+  const now = new Date().toISOString()
+  const { db, ref, set } = await dbfns()
+  const cfg: DriveAutoConfig = { folderId, url: url.trim(), since: includePast ? '' : now, setAt: now, req: Date.now() }
+  await set(ref(db, publicPath(token, 'driveAuto')), cfg)
+}
+
+/** 未保存分の保存をもう一度依頼する（失敗した分の再試行・権限を直したあと） */
+export async function requestDriveAutoRun(token: string): Promise<void> {
+  const { db, ref, update } = await dbfns()
+  await update(ref(db, publicPath(token, 'driveAuto')), { req: Date.now() })
+}
+
+/** 自動保存をやめる（保存済みのドライブのファイルはそのまま） */
+export async function clearDriveAuto(token: string): Promise<void> {
+  const { db, ref, remove } = await dbfns()
+  await remove(ref(db, publicPath(token, 'driveAuto')))
 }
