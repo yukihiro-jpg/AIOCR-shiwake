@@ -161,13 +161,34 @@ function driveError(status, body) {
   return new Error(`ドライブへの保存に失敗しました（${status}${msg ? '：' + msg.slice(0, 120) : ''}）`)
 }
 
+// ドライブが一時的に混んでいるときの応答（503/500/502/504/429、403の rateLimitExceeded 等）は、
+// 少し待ってやり直せば通る（Googleの推奨どおり指数的に待つ）。1回で諦めると一括保存が途中で止まる。
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+function retryable(status, body) {
+  if ([429, 500, 502, 503, 504].includes(status)) return true
+  if (status === 403 && /rateLimitExceeded|userRateLimitExceeded|backendError/.test(body || '')) return true
+  return false
+}
+async function withRetry(doFetch) {
+  let last = null
+  for (let i = 0; i < 6; i++) {
+    if (i) await sleep(Math.min(32000, 1000 * 2 ** i) + Math.floor(Math.random() * 1000))
+    let r
+    try { r = await doFetch() } catch (e) { last = { status: 0, body: String(e && e.message) }; continue } // 通信の瞬断
+    if (r.ok) return r
+    const body = await r.text()
+    if (!retryable(r.status, body)) throw driveError(r.status, body)
+    last = { status: r.status, body }
+  }
+  throw driveError(last.status, last.body)
+}
+
 async function dapi(tok, path, opt = {}) {
-  const r = await fetch(path.startsWith('http') ? path : `${DRIVE}/${path}`, {
+  const r = await withRetry(() => fetch(path.startsWith('http') ? path : `${DRIVE}/${path}`, {
     ...opt,
     headers: { Authorization: `Bearer ${tok}`, ...(opt.headers || {}) },
-  })
+  }))
   const text = await r.text()
-  if (!r.ok) throw driveError(r.status, text)
   return text ? JSON.parse(text) : {}
 }
 
@@ -193,20 +214,21 @@ async function ensureFolder(tok, parentId, name, cache) {
 /** 再開可能アップロード（大きなファイルでも確実に送る） */
 async function uploadFile(tok, parentId, name, buf, mime) {
   const type = mime || 'application/octet-stream'
-  const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${tok}`,
-      'Content-Type': 'application/json; charset=UTF-8',
-      'X-Upload-Content-Type': type,
-      'X-Upload-Content-Length': String(buf.length),
-    },
-    body: JSON.stringify({ name, parents: [parentId] }),
+  // 送信の途中で混雑エラーになったら、送信の受付からやり直す（受付だけ済んだ分はドライブに残らない）
+  await withRetry(async () => {
+    const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tok}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': type,
+        'X-Upload-Content-Length': String(buf.length),
+      },
+      body: JSON.stringify({ name, parents: [parentId] }),
+    })
+    if (!r.ok) return r
+    return fetch(r.headers.get('location'), { method: 'PUT', headers: { 'Content-Type': type }, body: buf })
   })
-  if (!r.ok) throw driveError(r.status, await r.text())
-  const loc = r.headers.get('location')
-  const put = await fetch(loc, { method: 'PUT', headers: { 'Content-Type': type }, body: buf })
-  if (!put.ok) throw driveError(put.status, await put.text())
 }
 
 /** 二重保存を防ぐ印（同時に2つの関数が動いても片方だけが保存する） */
@@ -349,6 +371,7 @@ async function autoSaveToDrive(token, opts = {}) {
           await db.ref(`${base}/driveAuto/full/done/${f.id}`).set(true)
           doneCount++
           await fullRef.update({ doneCount, saved: savedTotal + moved, skipped: skippedTotal + skipped, updatedAt: Date.now() })
+          await sleep(300) // 続けざまに送ってドライブを混ませない
         } catch (e) {
           await lock.remove().catch(() => {})
           throw e

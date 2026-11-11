@@ -518,7 +518,7 @@ function DriveAutoDialog({ clientName, token, cfg, onClose }: { clientName: stri
           </div>
         )}
 
-        {cfg?.folderId && st?.ok && !changed && (
+        {cfg?.folderId && (st?.ok || cfg.full) && !changed && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 mb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span><b>共有フォルダの全ファイルを一括保存</b>（Drive済のものも含め、今のフォルダ構成のまま保存。同じ場所に同じファイルがあれば入れません）</span>
