@@ -1650,20 +1650,31 @@ function nofuParsePages(pages){
       :(/地方税納付税額明細書（市町村）|地方税納付税額明細書\(市町村\)/.test(all)?'city'
       :(/納付税額確認書|納付税額書/.test(all)?'summary':null));
     if(!kind) return;
-    // 列位置（年間税額・予定/中間納付額・申告納付額）をヘッダ行から特定
-    let colA=null,colM=null,colP=null;
+    // 列位置（年間税額・予定/中間納付額・申告納付額・相殺後納付額）をヘッダ行から特定
+    let colA=null,colM=null,colP=null,colS=null;
     pg.lines.forEach(l=>{ if(colA!=null) return;
       const hasA=l.labels.find(x=>nofuNorm(x.s).indexOf('年間税額')>=0);
       const hasM=l.labels.find(x=>nofuNorm(x.s).indexOf('予定・中間納付額')>=0||nofuNorm(x.s).indexOf('中間納付額')>=0);
       if(hasA&&hasM){ colA=hasA.r; colM=hasM.r;
         const hasP=l.labels.find(x=>nofuNorm(x.s).indexOf('申告納付額')>=0);
-        colP=hasP?hasP.r:null; } });
+        colP=hasP?hasP.r:null;
+        const hasS=l.labels.find(x=>nofuNorm(x.s).indexOf('相殺後納付額')>=0);
+        colS=hasS?hasS.r:null; } });
     const at=(l,col)=>{ if(col==null||!l.cells.length) return null;
       let best=null; l.cells.forEach(c=>{ const d=Math.abs(c.r-col); if(best==null||d<best.d)best={d,v:c.v}; });
       return (best&&best.d<=pg.tol)?best.v:null; };
     // 二段記載（納付と還付が同時に生じる）に備え、同じ列にある金額をすべて拾う
     const allAt=(l,col)=>(col==null?[]:l.cells.filter(c=>Math.abs(c.r-col)<=pg.tol).map(c=>c.v));
-    const payRef=l=>{ const vs=allAt(l,colP); if(!vs.length) return null;
+    // 今回の納付額・還付額は「相殺後納付額」（還付を納付に充てたあとの正味）で決める。
+    //   正なら納付、負（△）なら還付。例：小計の申告納付額が 納付41,000／還付△2,917,369 の二段でも、
+    //   相殺後は △2,876,369 なので「還付 2,876,369・納付 0」になる。
+    //   隣の差引納付額の列（約60pt隣）を拾わないよう、この列だけは許容幅を狭くして見る。
+    //   相殺後納付額の列が無い様式・その行に値が無いときは、従来どおり申告納付額の二段（納付と還付を別々）で取る。
+    const netAt=l=>{ if(colS==null) return null; const tolS=Math.min(pg.tol,25);
+      const vs=l.cells.filter(c=>Math.abs(c.r-colS)<=tolS).map(c=>c.v); if(!vs.length) return null;
+      const net=vs.reduce((a,b)=>a+b,0); return net<0?{pay:0,ref:-net}:{pay:net,ref:0}; };
+    const payRef=l=>{ const n=netAt(l); if(n) return n;
+      const vs=allAt(l,colP); if(!vs.length) return null;
       let pay=0,ref=0; vs.forEach(v=>{ if(v<0) ref+=-v; else pay+=v; }); return {pay,ref}; };
     const first=l=>l.cells.length?l.cells[0].v:null;
     if(kind==='summary'){
@@ -1962,8 +1973,8 @@ async function printKessanGuide(cid){
   const midCorp=num(tx.midCorp), midCons=num(tx.midCons);
   const dCorp=corpTot-midCorp, dCons=consTot-midCons;
   const yenS=v=>v<0?('△'+yen(-v)+'（還付）'):yen(v);
-  // 税目ごとに納付と還付が同時に生じる場合（法人税は還付・均等割は納付など）、確認書の
-  // 「申告納付額」は二段記載になる。相殺されず別々に納付・還付されるので、そのまま両方載せる。
+  // 今回納付額・還付額（税額モーダルの入力。確認書の取込では「相殺後納付額」から入る＝還付を納付に充てた正味）。
+  // 手入力などで納付と還付が両方入っているときは、そのまま両方載せる。
   // 入力が無いときは従来どおり「年税額 − 中間納付済」で表示する。
   const payCorp=num(tx.payCorp), refCorp=num(tx.refundCorp);
   const payCons=num(tx.payCons), refCons=num(tx.refundCons);
