@@ -115,6 +115,62 @@ async function main() {
   console.log('　開始した日時（日本時間）：' + ([...hours].sort().map(([h, n]) => `${h}×${n}`).join('、') || 'なし'))
 
   if (process.env.MAIL_STUCK === 'true') await mailStuck(stuck.list, get)
+  await driveAutoReport(get)
+}
+
+/** 共有フォルダ → Googleドライブ自動保存の状況（ログには件数だけ。顧問先名つきの詳細は MAIL_STUCK のときメールで） */
+async function driveAutoReport(get) {
+  const tokens = Object.keys((await get(['scan-public'], true)) || {})
+  const since = Date.now() - 14 * 24 * 3600 * 1000
+  const rows = []
+  for (const t of tokens) {
+    const cfg = await get(['scan-public', t, 'driveAuto'])
+    const files = (await get(['scan-public', t, 'files'])) || {}
+    const batches = (await get(['scan-public', t, 'batches'])) || {}
+    const recent = [...Object.values(files), ...Object.values(batches)].filter((x) => x && Date.parse(x.submittedAt || '') > since)
+    if (!cfg && !recent.length) continue
+    const info = (await get(['scan-public', t, 'info'])) || {}
+    const cfgSince = cfg && cfg.since ? Date.parse(cfg.since) : 0
+    const target = cfg ? recent.filter((x) => !cfgSince || Date.parse(x.submittedAt || '') >= cfgSince) : []
+    rows.push({
+      name: info.name || '（名称不明）',
+      configured: !!(cfg && cfg.folderId),
+      ok: cfg && cfg.status ? cfg.status.ok : null,
+      error: cfg && cfg.status && cfg.status.error ? cfg.status.error : '',
+      lastSavedAt: cfg && cfg.status ? cfg.status.lastSavedAt || '' : '',
+      full: cfg && cfg.full ? (cfg.full.finishedAt ? `一括保存 完了（保存${cfg.full.saved || 0}・省略${cfg.full.skipped || 0}）` : `一括保存 途中（${cfg.full.doneCount || 0}/${cfg.full.total || '?'}）`) : '',
+      recent: recent.length,
+      saved: target.filter((x) => x.driveSavedAt).length,
+      unsaved: target.filter((x) => !x.driveSavedAt).length,
+    })
+  }
+  const conf = rows.filter((r) => r.configured)
+  console.log('')
+  console.log('■ 共有フォルダ → Googleドライブ自動保存（直近14日）')
+  console.log(`　保存先を登録済み：${conf.length}社（エラー表示中 ${conf.filter((r) => r.ok === false).length}社）`)
+  console.log(`　登録済みの顧問先に届いたもの：${conf.reduce((s, r) => s + r.saved + r.unsaved, 0)}件 → Drive済 ${conf.reduce((s, r) => s + r.saved, 0)}件・未保存 ${conf.reduce((s, r) => s + r.unsaved, 0)}件`)
+  console.log(`　未登録の顧問先に届いたもの：${rows.filter((r) => !r.configured).reduce((s, r) => s + r.recent, 0)}件（自動保存の対象外）`)
+  if (process.env.MAIL_STUCK !== 'true') return
+  const jst = (iso) => (iso ? new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ').replace(/-/g, '/') : '')
+  const lines = []
+  for (const r of conf) {
+    lines.push(`・${r.name}　${r.ok === false ? '⚠ エラー：' + r.error : r.ok ? '✅ 保存できる状態' : '（未確認）'}`)
+    lines.push(`　　直近14日：Drive済 ${r.saved}件・未保存 ${r.unsaved}件${r.lastSavedAt ? `／最後の自動保存 ${jst(r.lastSavedAt)}` : ''}${r.full ? `／${r.full}` : ''}`)
+  }
+  const others = rows.filter((r) => !r.configured && r.recent)
+  const text = [
+    '共有フォルダ → Googleドライブ自動保存の状況です（直近14日に届いたファイル・スマホ撮影）。',
+    '',
+    '【保存先を登録済みの顧問先】',
+    ...(lines.length ? lines : ['（なし）']),
+    '',
+    '【保存先が未登録で、直近14日に届いたものがある顧問先】（自動保存の対象外）',
+    ...(others.length ? others.map((r) => `・${r.name}　${r.recent}件`) : ['（なし）']),
+  ].join('\n')
+  const nodemailer = (await import('nodemailer')).default
+  const tr = nodemailer.createTransport({ service: 'gmail', auth: { user: need('GMAIL_USER'), pass: need('GMAIL_PASS') } })
+  await tr.sendMail({ from: `書類スキャン受信 <${need('GMAIL_USER')}>`, to: process.env.NENMATSU_DIGEST_TO || need('NOTIFY_TO'), subject: '【共有フォルダ】Googleドライブ自動保存の状況', text })
+  console.log('　顧問先別の詳細をメールで送りました。')
 }
 
 const jst = (t) => new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ').replace(/-/g, '/')
