@@ -1495,7 +1495,7 @@ function CompanyDetail({
             disabled={!!zipMsg}
             className="px-3 py-1.5 text-xs border border-emerald-300 text-emerald-700 rounded hover:bg-emerald-50 disabled:opacity-50 whitespace-nowrap"
           >
-            📁 Driveへ一括保存
+            📁 控除証明書の写真をDriveへ
           </button>
           <button
             onClick={() => downloadAll(false)}
@@ -1503,7 +1503,7 @@ function CompanyDetail({
             title="従業員ごとのフォルダに分けてZIPにまとめます"
             className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
           >
-            一括DL（個人別フォルダ）
+            控除証明書の写真ZIP（従業員ごと）
           </button>
           <button
             onClick={() => downloadAll(true)}
@@ -1511,15 +1511,15 @@ function CompanyDetail({
             title="会社名のフォルダ1つに、全員のファイルを「社員名_書類名」で格納します"
             className="px-3 py-1.5 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
           >
-            一括DL（全員フォルダ）
+            控除証明書の写真ZIP（1フォルダ）
           </button>
           <button
             onClick={() => downloadDeclarations()}
             disabled={!!zipMsg}
-            title="全員の申告内容（本人・配偶者・扶養親族）を1つのExcelにまとめます"
-            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+            title="全員の申告内容（本人・配偶者・扶養親族）を1つのExcelにまとめます。前年（または会社の登録）から変わった所に色が付きます"
+            className="ml-2 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
           >
-            一括DL（申告内容）
+            マル扶情報Excel（変更点つき）
           </button>
         </div>
       </div>
@@ -1622,17 +1622,17 @@ function CompanyDetail({
                             onClick={() =>
                               setDeclView({ name: `${e.lastName} ${e.firstName}`, decl: rec.declaration! })
                             }
-                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap"
                           >
-                            申告内容
+                            マル扶を見る
                           </button>
                           <button
                             onClick={() => downloadDeclarations(e)}
                             disabled={!!zipMsg}
-                            title="この従業員の申告内容をExcelでダウンロード"
-                            className="px-3 py-1 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50 disabled:opacity-50"
+                            title="この従業員の申告内容（本人・配偶者・扶養親族）をExcelでダウンロード。変わった所に色が付きます"
+                            className="px-3 py-1 text-xs border border-indigo-300 text-indigo-700 rounded hover:bg-indigo-50 disabled:opacity-50 whitespace-nowrap"
                           >
-                            申告DL
+                            マル扶Excel
                           </button>
                         </>
                       )}
@@ -1640,16 +1640,16 @@ function CompanyDetail({
                         <>
                           <button
                             onClick={() => viewFiles(e)}
-                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50"
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 whitespace-nowrap"
                           >
-                            ファイルを見る
+                            控除証明書を見る
                           </button>
                           <button
                             onClick={() => downloadOne(e, rec)}
                             disabled={!!zipMsg}
-                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                            className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
                           >
-                            一括DL
+                            控除証明書ZIP
                           </button>
                         </>
                       )}
