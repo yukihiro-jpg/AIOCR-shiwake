@@ -142,7 +142,9 @@ async function main() {
     const comps = (await get(['rooms', rk, 'nenmatsu', yearId, 'companies'])) || {}
     await Promise.all(Object.entries(comps).map(async ([cid, c]) => {
       if (!c || typeof c !== 'object') return
-      const roster = Object.keys((await get(['rooms', rk, 'nenmatsu', yearId, 'employees', cid], true)) || {})
+      // 年調データ受信で「退職」の印を付けた人は名簿から外して数える（提出不要のため）
+      const retired = (await get(['rooms', rk, 'nenmatsu', yearId, 'retired', cid], true)) || {}
+      const roster = Object.keys((await get(['rooms', rk, 'nenmatsu', yearId, 'employees', cid], true)) || {}).filter((id) => !retired[id])
       // 提出記録：新形式（会社トークン配下）＋旧形式（合言葉の部屋の配下）
       const ids = new Map() // empId -> パス
       if (c.token) for (const id of Object.keys((await get(['nenmatsu-public', c.token, 'submissions'], true)) || {})) ids.set(id, ['nenmatsu-public', c.token, 'submissions', id])

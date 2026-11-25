@@ -23,6 +23,8 @@ import {
   saveDefaultDeadline,
   setCompanyDeadline,
   setCompanyDigest,
+  loadRetired,
+  setRetired,
   deleteSubmission,
   prevYearId,
   prefillFromCsv,
@@ -322,7 +324,8 @@ export default function NenmatsuContent() {
       const sheets = []
       for (let i = 0; i < targets.length; i++) {
         const { client, company } = targets[i]
-        const employees = await loadEmployees(yearId, company.clientId)
+        const retired = await loadRetired(yearId, company.clientId).catch(() => ({} as Record<string, string>))
+        const employees = (await loadEmployees(yearId, company.clientId)).filter((e) => !retired[e.id])
         sheets.push({
           companyName: company.name || client.name,
           yearLabel,
@@ -362,12 +365,14 @@ export default function NenmatsuContent() {
         return
       }
       const now = await loadSubmissions(yearId, company.clientId).catch(() => ({} as Record<string, SubmissionRecord>))
+      const retired = await loadRetired(yearId, company.clientId).catch(() => ({} as Record<string, string>))
       const py = prevYearId(yearId)
       let prevSubs: Record<string, SubmissionRecord> = {}
       if (py) { try { prevSubs = await loadSubmissions(py, company.clientId) } catch { /* 前年が無ければCSVの登録内容 */ } }
       const prevLabel = py ? `令和${py.replace(/^R/, '')}年度の提出` : ''
-      const targets = sortEmployeesByCode(employees).filter((e) => !now[e.id])
-      const skipped = employees.length - targets.length
+      // 提出済みの人と、退職の印を付けた人は作らない
+      const targets = sortEmployeesByCode(employees).filter((e) => !now[e.id] && !retired[e.id])
+      const skipped = employees.filter((e) => now[e.id]).length
       if (!targets.length && !newHires) {
         pw?.close()
         setMsg('全員が提出済みのため、確認シートは作成しませんでした。')
@@ -435,7 +440,9 @@ export default function NenmatsuContent() {
   async function printCheckSheet(client: SharedClient, company: NenmatsuCompany) {
     const pw = openPrintWindowNow('チェック表を作成しています…')
     try {
-      const employees = await loadEmployees(yearId, company.clientId)
+      const retired = await loadRetired(yearId, company.clientId).catch(() => ({} as Record<string, string>))
+      // 退職の印を付けた人はチェック表に載せない（提出してもらう必要がないため）
+      const employees = (await loadEmployees(yearId, company.clientId)).filter((e) => !retired[e.id])
       const ok = openCheckSheetPrint({
         companyName: company.name || client.name,
         yearLabel: FY_BY_ID[yearId]?.label || yearId,
@@ -496,7 +503,9 @@ export default function NenmatsuContent() {
   const rowParts = (r: Row) => {
     const { client, company, submitted } = r
     const eff = company.deadline || defaultDeadline
-    const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - submitted)
+    // 当年に退職した人（「退職」の印）は未提出に数えない
+    const retired = company.retiredCount || 0
+    const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - retired - submitted)
     const dd = daysToDeadline(eff)
     const check = (
       <input
@@ -516,6 +525,7 @@ export default function NenmatsuContent() {
             未提出 {remain}名
           </span>
         )}
+        {retired > 0 && <span className="ml-1.5 text-[10px] text-gray-400">（退職 {retired}名）</span>}
       </>
     )
     const mail = (
@@ -805,6 +815,7 @@ export default function NenmatsuContent() {
           yearId={yearId}
           company={detail.company}
           defaultDeadline={defaultDeadline}
+          onRetiredChange={(cid, n) => setRows((prev) => prev.map((x) => x.client.id === cid ? { ...x, company: { ...x.company, retiredCount: n || undefined } } : x))}
           onClose={() => setDetail(null)}
         />
       )}
@@ -929,7 +940,9 @@ function GuideModal({
     setSheetBusy(true)
     setSheetMsg('')
     try {
-      const employees = await loadEmployees(yearId, company.clientId)
+      const retired = await loadRetired(yearId, company.clientId).catch(() => ({} as Record<string, string>))
+      // 退職の印を付けた人はチェック表に載せない（提出してもらう必要がないため）
+      const employees = (await loadEmployees(yearId, company.clientId)).filter((e) => !retired[e.id])
       const ok = openCheckSheetPrint({
         companyName: company.name,
         yearLabel: fy?.label || `${gregorian}年`,
@@ -1232,14 +1245,27 @@ function CompanyDetail({
   yearId,
   company,
   defaultDeadline,
+  onRetiredChange,
   onClose,
 }: {
   yearId: string
   company: NenmatsuCompany
   defaultDeadline: string
+  onRetiredChange?: (clientId: string, count: number) => void
   onClose: () => void
 }) {
   const [employees, setEmployees] = useState<NenmatsuEmployee[]>([])
+  const [retired, setRetiredMap] = useState<Record<string, string>>({})
+  async function toggleRetired(e: NenmatsuEmployee, on: boolean) {
+    if (on && !confirm(`${e.lastName} ${e.firstName} さんを「退職」にしますか？\n\n未提出の数・未提出者のコピー・確認シート・チェック表・まとめメールから外れます（あとで外すこともできます）。`)) return
+    try {
+      const n = await setRetired(yearId, company.clientId, e.id, on)
+      setRetiredMap((prev) => { const x = { ...prev }; if (on) x[e.id] = new Date().toISOString(); else delete x[e.id]; return x })
+      onRetiredChange?.(company.clientId, n)
+    } catch (err) {
+      alert('保存に失敗しました：' + (err instanceof Error ? err.message : ''))
+    }
+  }
   const [subs, setSubs] = useState<Record<string, SubmissionRecord>>({})
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -1257,13 +1283,15 @@ function CompanyDetail({
       setLoading(true)
       setErr('')
       try {
-        const [emp, sub] = await Promise.all([
+        const [emp, sub, ret] = await Promise.all([
           loadEmployees(yearId, company.clientId),
           loadSubmissions(yearId, company.clientId),
+          loadRetired(yearId, company.clientId).catch(() => ({} as Record<string, string>)),
         ])
         emp.sort((a, b) => (a.kanaLast + a.kanaFirst).localeCompare(b.kanaLast + b.kanaFirst, 'ja'))
         setEmployees(emp)
         setSubs(sub)
+        setRetiredMap(ret)
       } catch (e) {
         setErr('読み込みに失敗しました：' + (e instanceof Error ? e.message : ''))
       } finally {
@@ -1290,7 +1318,7 @@ function CompanyDetail({
 
   /** 未提出者の一覧を催促連絡用テキストとしてコピー（パターンC: リマインド支援） */
   async function copyPendingList() {
-    const pending = employees.filter((e) => !subs[e.id])
+    const pending = employees.filter((e) => !subs[e.id] && !retired[e.id])
     if (!pending.length) {
       alert('未提出者はいません（全員提出済みです）。')
       return
@@ -1572,11 +1600,22 @@ function CompanyDetail({
                         </td>
                       )
                     })
+                  ) : retired[e.id] ? (
+                    <td colSpan={DOC_COLS.length} className="px-3 py-2 text-center text-gray-400 text-xs">退職（提出不要）</td>
                   ) : (
                     <td colSpan={DOC_COLS.length} className="px-3 py-2 text-center text-gray-300">未提出</td>
                   )}
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <span className="inline-flex gap-1.5">
+                    <span className="inline-flex gap-1.5 items-center">
+                      {!rec && !e.isNewHire && (
+                        <label
+                          className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border cursor-pointer ${retired[e.id] ? 'border-gray-400 bg-gray-100 text-gray-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                          title="今年退職した方に印を付けると、未提出に数えなくなります（未提出者のコピー・確認シート・チェック表・まとめメールからも外れます）"
+                        >
+                          <input type="checkbox" checked={!!retired[e.id]} onChange={(ev) => toggleRetired(e, ev.target.checked)} className="w-3.5 h-3.5" />
+                          退職
+                        </label>
+                      )}
                       {rec?.declaration && (
                         <>
                           <button

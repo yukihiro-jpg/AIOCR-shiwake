@@ -59,6 +59,7 @@ export interface NenmatsuCompany {
   employeeCount?: number
   deadline?: string // 提出期限 YYYY-MM-DD（会社別の上書き。未設定なら年度の既定期限）
   digest?: boolean // 提出状況のまとめメール（tools/nenmatsu-digest）に載せる
+  retiredCount?: number // 当年に退職した従業員の数（未提出に数えない。一覧の表示用）
 }
 
 async function dbfns() {
@@ -163,6 +164,7 @@ export async function processNenmatsuPurgeQueue(): Promise<number> {
         } catch { /* ignore */ }
         // 3) 従業員名簿（生年月日・住所等PII）と会社ノード
         try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'employees', cid))) } catch { /* ignore */ }
+        try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'retired', cid))) } catch { /* ignore */ }
         try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', cid))) } catch { /* ignore */ }
       }
       await remove(ref(db, `${qPath}/${cid}`))
@@ -203,6 +205,24 @@ export async function setCompanyDeadline(yearId: string, clientId: string, deadl
 export async function setCompanyDigest(yearId: string, clientId: string, on: boolean): Promise<void> {
   const { db, ref, update } = await dbfns()
   await update(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)), { digest: on || null })
+}
+
+/** 当年に退職した従業員（年度×会社。empId → 印を付けた日時）。
+ *  名簿は前年のCSV（JDL）から作るので、年の途中で退職した人も名簿に残り、いつまでも「未提出」になってしまう。
+ *  事務所が「退職」に印を付けた人は、未提出の数・未提出者のコピー・確認シート・チェック表・まとめメールから外す。
+ *  名簿（employees）とは別に持つ（CSVを取り込み直すと名簿は丸ごと置き換わるため。社員コード由来のIDなので印は残る） */
+export async function loadRetired(yearId: string, clientId: string): Promise<Record<string, string>> {
+  const { db, ref, get } = await dbfns()
+  return ((await get(ref(db, await modulePath(NENMATSU_KEY, yearId, 'retired', clientId)))).val() as Record<string, string>) || {}
+}
+
+/** 退職の印を付ける／外す。会社ノードの retiredCount も更新し、新しい件数を返す */
+export async function setRetired(yearId: string, clientId: string, empId: string, on: boolean): Promise<number> {
+  const { db, ref, set, update } = await dbfns()
+  await set(ref(db, await modulePath(NENMATSU_KEY, yearId, 'retired', clientId, empId)), on ? new Date().toISOString() : null)
+  const n = Object.keys(await loadRetired(yearId, clientId)).length
+  await update(ref(db, await modulePath(NENMATSU_KEY, yearId, 'companies', clientId)), { retiredCount: n || null })
+  return n
 }
 
 /** 有効な提出期限（会社別上書き ＞ 年度既定） */
@@ -261,6 +281,7 @@ export async function unregisterCompany(yearId: string, clientId: string): Promi
       try { await remove(ref(db, publicPath(comp.token))) } catch { /* ignore */ }
     }
   } catch { /* ignore */ }
+  try { await remove(ref(db, await modulePath(NENMATSU_KEY, yearId, 'retired', clientId))) } catch { /* ignore */ }
   await remove(ref(db, path))
 }
 
