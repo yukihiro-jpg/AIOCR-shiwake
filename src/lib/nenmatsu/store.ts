@@ -712,12 +712,15 @@ function normalizeSubmission(r: SubmissionRecord): SubmissionRecord {
  * 100社ぶん回すと往復が300回になり一覧が出るまで数十秒かかっていた。
  * 一覧に必要なのは件数だけなので、呼び出し側が既に持っている token を受け取って
  * 会社ノードの読み直しを省き、残り2つを**同時に**読む（1往復ぶんの待ち時間で済む）。
+ *
+ * 名簿（CSV）の従業員の提出と、本年入社（名簿に無い・id が n_…）の提出を分けて返す。
+ * 本年入社は「従業員 ○名」に含まれないので、まとめて数えると未提出が少なく出てしまう。
  */
 export async function countSubmissions(
   yearId: string,
   clientId: string,
   token?: string,
-): Promise<number> {
+): Promise<{ roster: number; newHires: number }> {
   const { db, ref, get } = await dbfns()
   const legacyPath = await modulePath(NENMATSU_KEY, yearId, 'submissions', clientId)
   const reads: Promise<Record<string, unknown>>[] = [
@@ -733,7 +736,9 @@ export async function countSubmissions(
   const parts = await Promise.all(reads)
   const ids = new Set<string>()
   for (const p of parts) for (const k of Object.keys(p)) ids.add(k)
-  return ids.size
+  let newHires = 0
+  ids.forEach((id) => { if (id.startsWith('n_')) newHires++ })
+  return { roster: ids.size - newHires, newHires }
 }
 
 /** 保存期間（アップロードから1年6か月）を過ぎた提出データ・画像を自動削除する。

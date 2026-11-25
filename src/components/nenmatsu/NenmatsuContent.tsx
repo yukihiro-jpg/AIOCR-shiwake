@@ -47,7 +47,9 @@ import { baselineFromDeclaration, baselineFromCsv, CSV_SELF_PREFILL_SINCE, type 
 interface Row {
   client: SharedClient
   company: NenmatsuCompany
-  submitted: number | null // 一覧を先に出し、件数は後から埋める（null＝集計中）
+  // 一覧を先に出し、件数は後から埋める（null＝集計中）。
+  // roster＝名簿（CSV）の従業員の提出、newHires＝本年入社（名簿に無い人）の提出
+  submitted: { roster: number; newHires: number } | null
 }
 
 function saveBlob(blob: Blob, filename: string) {
@@ -171,7 +173,7 @@ export default function NenmatsuContent() {
       // 1社ずつ待つと100社で300往復になり、一覧が出るまで数十秒かかっていた。
       void (async () => {
         const CONCURRENCY = 10
-        const counts = new Array<number>(base.length).fill(0)
+        const counts: { roster: number; newHires: number }[] = base.map(() => ({ roster: 0, newHires: 0 }))
         let next = 0
         const worker = async () => {
           for (;;) {
@@ -179,7 +181,7 @@ export default function NenmatsuContent() {
             if (i >= base.length) return
             try {
               counts[i] = await countSubmissions(yearId, base[i].client.id, base[i].company.token)
-            } catch { counts[i] = 0 }
+            } catch { counts[i] = { roster: 0, newHires: 0 } }
             // 10件ごとに画面へ反映（1件ごとに描き直すと重いため）
             if (i % CONCURRENCY === CONCURRENCY - 1 && seq === loadSeq.current) {
               setRows((prev) => prev.map((r, k) => (k <= i ? { ...r, submitted: counts[k] } : r)))
@@ -187,7 +189,7 @@ export default function NenmatsuContent() {
           }
         }
         await Promise.all(Array.from({ length: Math.min(CONCURRENCY, base.length) }, worker))
-        if (seq === loadSeq.current) setRows((prev) => prev.map((r, k) => ({ ...r, submitted: counts[k] ?? 0 })))
+        if (seq === loadSeq.current) setRows((prev) => prev.map((r, k) => ({ ...r, submitted: counts[k] ?? { roster: 0, newHires: 0 } })))
       })()
 
       // ---- 3) 保守処理は一覧を出したあと裏で走らせる ----
@@ -505,7 +507,9 @@ export default function NenmatsuContent() {
     const eff = company.deadline || defaultDeadline
     // 当年に退職した人（「退職」の印）は未提出に数えない
     const retired = company.retiredCount || 0
-    const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - retired - submitted)
+    // 未提出＝名簿の人数 − 退職 − 名簿の人の提出。本年入社の提出は名簿の人数に入っていないので引かない
+    // （以前はまとめて引いていたため、本年入社が多い会社で未提出が実際より少なく出ていた）
+    const remain = submitted == null ? 0 : Math.max(0, (company.employeeCount ?? 0) - retired - submitted.roster)
     const dd = daysToDeadline(eff)
     const check = (
       <input
@@ -519,7 +523,12 @@ export default function NenmatsuContent() {
     const stats = (
       <>
         従業員 {company.employeeCount ?? 0}名 ／ 提出{' '}
-        <span className="font-semibold text-blue-700">{submitted == null ? '…' : submitted}</span>名
+        <span className="font-semibold text-blue-700">{submitted == null ? '…' : submitted.roster}</span>名
+        {submitted != null && submitted.newHires > 0 && (
+          <span className="ml-1 text-xs text-amber-700" title="名簿（CSV）に無い本年入社の方の提出。従業員数・未提出の計算には含めません">
+            ＋本年入社 {submitted.newHires}名
+          </span>
+        )}
         {remain > 0 && (company.employeeCount ?? 0) > 0 && (
           <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${dd != null && dd < 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'}`}>
             未提出 {remain}名
