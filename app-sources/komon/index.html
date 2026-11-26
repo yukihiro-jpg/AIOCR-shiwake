@@ -1670,9 +1670,12 @@ function nofuParsePages(pages){
     //   相殺後は △2,876,369 なので「還付 2,876,369・納付 0」になる。
     //   隣の差引納付額の列（約60pt隣）を拾わないよう、この列だけは許容幅を狭くして見る。
     //   相殺後納付額の列が無い様式・その行に値が無いときは、従来どおり申告納付額の二段（納付と還付を別々）で取る。
+    //   ただし相殺後納付額の欄そのものが二段（△と正の両方）のときは、相殺できなかった（国税の還付と地方税の納付など
+    //   納付先が違う）という意味なので、足し合わせず納付と還付を別々に取る。
+    //   例：小計の相殺後が 還付△167／納付82,000 → 「納付 82,000・還付 167」（足して81,833にしない）。
     const netAt=l=>{ if(colS==null) return null; const tolS=Math.min(pg.tol,25);
       const vs=l.cells.filter(c=>Math.abs(c.r-colS)<=tolS).map(c=>c.v); if(!vs.length) return null;
-      const net=vs.reduce((a,b)=>a+b,0); return net<0?{pay:0,ref:-net}:{pay:net,ref:0}; };
+      let pay=0,ref=0; vs.forEach(v=>{ if(v<0) ref+=-v; else pay+=v; }); return {pay,ref}; };
     const payRef=l=>{ const n=netAt(l); if(n) return n;
       const vs=allAt(l,colP); if(!vs.length) return null;
       let pay=0,ref=0; vs.forEach(v=>{ if(v<0) ref+=-v; else pay+=v; }); return {pay,ref}; };
